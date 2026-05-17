@@ -1,0 +1,36 @@
+# secrets
+.env
+.env.local
+.env.*.local
+.env.bak.*
+
+# logs
+*.log
+
+# mac
+.DS_Store
+
+# node
+node_modules/
+.next/
+out/
+dist/
+build/
+.turbo/
+
+# bun
+.bun/
+
+# n8n local ids (não sensíveis, mas não precisa versionar)
+n8n-workflows/.*.id
+
+# mac-agent runtime
+mac-agent/processed/
+mac-agent/failed/
+mac-agent/.processed.log
+mac-agent/watcher.log
+mac-agent/launchd.*.log
+mac-agent/.last_response.json
+
+# tmp
+/tmp/

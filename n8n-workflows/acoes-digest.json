@@ -1,0 +1,103 @@
+{
+  "name": "Acoes - Digest",
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {"field": "cronExpression", "expression": "0 11 * * *"}
+          ]
+        }
+      },
+      "id": "00000000-0000-0000-0000-d00000000001",
+      "name": "1. Cron diário 08h BRT",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-1400, -100],
+      "notes": "08:00 BRT (-03) = 11:00 UTC. Roda todo dia."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "x1", "name": "weekday", "value": "={{ $now.weekday }}", "type": "number"},
+            {"id": "x2", "name": "is_monday", "value": "={{ $now.weekday === 1 }}", "type": "boolean"},
+            {"id": "x3", "name": "today_label", "value": "={{ $now.setLocale('pt-BR').toFormat('cccc, dd \\'de\\' LLLL') }}", "type": "string"}
+          ]
+        },
+        "options": {}
+      },
+      "id": "00000000-0000-0000-0000-d00000000002",
+      "name": "2. Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-1180, -100]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH stats AS (\n  SELECT\n    count(*) FILTER (WHERE owner = 'vitor' AND status IN ('aberta','em_andamento')) AS minhas_abertas,\n    count(*) FILTER (WHERE owner <> 'vitor' AND status IN ('aberta','em_andamento')) AS delegadas_abertas,\n    count(*) FILTER (WHERE status IN ('aberta','em_andamento') AND prazo IS NOT NULL AND prazo < now()) AS vencidas,\n    count(*) FILTER (WHERE status IN ('aberta','em_andamento') AND prazo IS NOT NULL AND prazo >= now() AND prazo <= now() + interval '1 day') AS vencendo_hoje,\n    count(*) FILTER (WHERE status = 'concluida' AND concluida_em >= now() - interval '7 days') AS concluidas_7d\n  FROM tarefas\n)\nSELECT json_build_object(\n  'stats', (SELECT row_to_json(stats) FROM stats),\n  'minhas', (\n    SELECT json_agg(t ORDER BY (prazo IS NULL), prazo ASC, prioridade DESC)\n    FROM (\n      SELECT id, titulo, descricao, prazo, prazo_text, prioridade, evidencia, meeting_id\n      FROM tarefas\n      WHERE owner = 'vitor' AND status IN ('aberta','em_andamento')\n      ORDER BY (prazo IS NULL), prazo ASC, prioridade DESC\n      LIMIT 30\n    ) t\n  ),\n  'delegadas', (\n    SELECT json_agg(t ORDER BY (prazo IS NULL), prazo ASC)\n    FROM (\n      SELECT id, titulo, owner, prazo, prazo_text, prioridade, meeting_id\n      FROM tarefas\n      WHERE owner <> 'vitor' AND status IN ('aberta','em_andamento')\n      ORDER BY (prazo IS NULL), prazo ASC\n      LIMIT 30\n    ) t\n  ),\n  'vencidas', (\n    SELECT json_agg(t ORDER BY prazo ASC)\n    FROM (\n      SELECT id, titulo, owner, prazo, prioridade\n      FROM tarefas\n      WHERE status IN ('aberta','em_andamento')\n        AND prazo IS NOT NULL AND prazo < now()\n      ORDER BY prazo ASC\n      LIMIT 20\n    ) t\n  )\n) AS payload;",
+        "options": {}
+      },
+      "id": "00000000-0000-0000-0000-d00000000003",
+      "name": "3. Query pendências",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-960, -100]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Monta a mensagem do digest formatada pra WhatsApp.\nconst row = $input.first().json;\nconst payload = row.payload || row;\nconst stats = payload.stats || {};\nconst minhas = payload.minhas || [];\nconst delegadas = payload.delegadas || [];\nconst vencidas = payload.vencidas || [];\n\nconst ctx = $('2. Context').item.json;\nconst isMonday = ctx.is_monday === true || ctx.is_monday === 'true';\nconst todayLabel = ctx.today_label;\n\nconst emojiPrio = { urgente: '🔴', alta: '🟠', media: '🟡', baixa: '⚪' };\nconst formatPrazo = (p) => {\n  if (!p) return '';\n  try {\n    const d = new Date(p);\n    const diff = Math.round((d.getTime() - Date.now()) / 86400000);\n    let suffix;\n    if (diff < 0) suffix = `vencida há ${Math.abs(diff)}d`;\n    else if (diff === 0) suffix = 'hoje';\n    else if (diff === 1) suffix = 'amanhã';\n    else suffix = `D+${diff}`;\n    return ` _(${suffix})_`;\n  } catch { return ''; }\n};\n\nlet msg = (isMonday ? '🗓️ *Resumo semanal* — ' : '☀️ *Bom dia* — ') + todayLabel + '\\n\\n';\n\nmsg += `📊 *Status*: ${stats.minhas_abertas || 0} minhas | ${stats.delegadas_abertas || 0} delegadas | ${stats.vencidas || 0} vencidas | ${stats.concluidas_7d || 0} concluídas nos últimos 7d\\n\\n`;\n\nif (vencidas.length) {\n  msg += `⚠️ *Vencidas* (${vencidas.length})\\n`;\n  vencidas.slice(0, 10).forEach(t => {\n    const e = emojiPrio[t.prioridade] || '🟡';\n    const who = t.owner && t.owner !== 'vitor' ? ` (${t.owner})` : '';\n    msg += `${e} ${t.titulo}${who}${formatPrazo(t.prazo)}\\n`;\n  });\n  msg += '\\n';\n}\n\nif (minhas.length) {\n  msg += `✅ *Minhas pendentes* (${minhas.length})\\n`;\n  minhas.slice(0, 15).forEach(t => {\n    const e = emojiPrio[t.prioridade] || '🟡';\n    msg += `${e} ${t.titulo}${formatPrazo(t.prazo)}\\n`;\n  });\n  msg += '\\n';\n}\n\nif (delegadas.length) {\n  msg += `👥 *Aguardando outros* (${delegadas.length})\\n`;\n  delegadas.slice(0, 15).forEach(t => {\n    const e = emojiPrio[t.prioridade] || '🟡';\n    msg += `${e} *${t.owner}:* ${t.titulo}${formatPrazo(t.prazo)}\\n`;\n  });\n  msg += '\\n';\n}\n\nif (!minhas.length && !delegadas.length && !vencidas.length) {\n  msg += '🎉 _Nenhuma pendência aberta. Aproveite!_\\n\\n';\n}\n\nconst frontendUrl = $env.FRONTEND_URL_ACOES || 'https://acoes.exemplo.com';\nmsg += '🔗 ' + frontendUrl;\n\nreturn [{ json: { text: msg } }];"
+      },
+      "id": "00000000-0000-0000-0000-d00000000004",
+      "name": "4. Format Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-740, -100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.EVOLUTION_API_URL }}/message/sendText/{{ $env.EVOLUTION_INSTANCE }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "apikey", "value": "={{ $env.EVOLUTION_API_KEY }}"},
+            {"name": "Content-Type", "value": "application/json"}
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ $env.WHATSAPP_DESTINO_ACOES }}\",\n  \"text\": {{ JSON.stringify($json.text) }}\n}",
+        "options": {"timeout": 30000}
+      },
+      "id": "00000000-0000-0000-0000-d00000000005",
+      "name": "5. Send WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-520, -100]
+    }
+  ],
+  "connections": {
+    "1. Cron diário 08h BRT": {
+      "main": [[{"node": "2. Context", "type": "main", "index": 0}]]
+    },
+    "2. Context": {
+      "main": [[{"node": "3. Query pendências", "type": "main", "index": 0}]]
+    },
+    "3. Query pendências": {
+      "main": [[{"node": "4. Format Digest", "type": "main", "index": 0}]]
+    },
+    "4. Format Digest": {
+      "main": [[{"node": "5. Send WhatsApp", "type": "main", "index": 0}]]
+    }
+  }
+}

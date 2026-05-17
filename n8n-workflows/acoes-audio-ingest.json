@@ -1,0 +1,388 @@
+{
+  "name": "Acoes - Audio Ingest",
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "acoes-audio-ingest",
+        "options": {
+          "binaryData": true,
+          "rawBody": false,
+          "responseData": "lastNode",
+          "responseMode": "responseNode"
+        }
+      },
+      "id": "00000000-0000-0000-0000-000000000001",
+      "name": "1. Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1600, 0],
+      "webhookId": "acoes-audio-ingest"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict"},
+          "conditions": [
+            {
+              "id": "auth-check",
+              "leftValue": "={{ $json.headers['x-auth'] }}",
+              "rightValue": "={{ $env.WEBHOOK_TOKEN_ACOES }}",
+              "operator": {"type": "string", "operation": "equals"}
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "00000000-0000-0000-0000-000000000002",
+      "name": "2. Validate Auth",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-1380, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "unauthorized",
+        "options": {"responseCode": 401}
+      },
+      "id": "00000000-0000-0000-0000-000000000003",
+      "name": "2b. Reject 401",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [-1180, 200]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "a1", "name": "meeting_id", "value": "={{ $guid }}", "type": "string"},
+            {"id": "a2", "name": "year", "value": "={{ $now.format('yyyy') }}", "type": "string"},
+            {"id": "a3", "name": "month", "value": "={{ $now.format('MM') }}", "type": "string"},
+            {"id": "a4", "name": "source", "value": "={{ $('1. Webhook').item.json.headers['x-source'] || 'macbook' }}", "type": "string"},
+            {"id": "a5", "name": "meeting_type", "value": "={{ $('1. Webhook').item.json.headers['x-meeting-type'] || 'desconhecido' }}", "type": "string"},
+            {"id": "a6", "name": "original_filename", "value": "={{ $('1. Webhook').item.json.headers['x-original-filename'] || 'audio.mp3' }}", "type": "string"},
+            {"id": "a7", "name": "recorded_at", "value": "={{ $('1. Webhook').item.json.headers['x-recorded-at'] || $now.toISO() }}", "type": "string"},
+            {"id": "a8", "name": "audio_size_bytes", "value": "={{ parseInt($('1. Webhook').item.json.headers['x-audio-size'] || '0', 10) }}", "type": "number"},
+            {"id": "a9", "name": "ext", "value": "={{ ($('1. Webhook').item.json.headers['x-original-filename'] || 'audio.mp3').split('.').pop().toLowerCase() }}", "type": "string"},
+            {"id": "a10", "name": "audio_path", "value": "=/audios/{{ $now.format('yyyy') }}/{{ $now.format('MM') }}/{{ $guid }}.{{ ($('1. Webhook').item.json.headers['x-original-filename'] || 'audio.mp3').split('.').pop().toLowerCase() }}", "type": "string"}
+          ]
+        },
+        "options": {}
+      },
+      "id": "00000000-0000-0000-0000-000000000004",
+      "name": "3. Prepare Metadata",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-1180, -100]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $json.audio_path }}",
+        "dataPropertyName": "audio",
+        "options": {"append": false}
+      },
+      "id": "00000000-0000-0000-0000-000000000005",
+      "name": "4. Save Audio to Volume",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [-960, -100]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": {"__rl": true, "mode": "list", "value": "public"},
+        "table": {"__rl": true, "mode": "list", "value": "meetings"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
+            "source": "={{ $('3. Prepare Metadata').item.json.source }}",
+            "meeting_type": "={{ $('3. Prepare Metadata').item.json.meeting_type }}",
+            "original_filename": "={{ $('3. Prepare Metadata').item.json.original_filename }}",
+            "audio_path": "={{ $('3. Prepare Metadata').item.json.audio_path }}",
+            "audio_size_bytes": "={{ $('3. Prepare Metadata').item.json.audio_size_bytes }}",
+            "recorded_at": "={{ $('3. Prepare Metadata').item.json.recorded_at }}",
+            "status": "received"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "00000000-0000-0000-0000-000000000006",
+      "name": "5. INSERT meeting (received)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-740, -100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/audio/transcriptions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendHeaders": false,
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {"name": "model", "value": "whisper-1"},
+            {"name": "language", "value": "pt"},
+            {"name": "response_format", "value": "json"},
+            {"parameterType": "formBinaryData", "name": "file", "inputDataFieldName": "audio"}
+          ]
+        },
+        "options": {"timeout": 300000}
+      },
+      "id": "00000000-0000-0000-0000-000000000007",
+      "name": "6. Whisper Transcription",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-520, -100]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE meetings SET status = 'analyzing', transcription = $1 WHERE id = $2 RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ $json.text }},={{ $('3. Prepare Metadata').item.json.meeting_id }}"
+        }
+      },
+      "id": "00000000-0000-0000-0000-000000000008",
+      "name": "7. UPDATE meeting (analyzing)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-300, -100]
+    },
+    {
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {"__rl": true, "mode": "list", "value": "gpt-5.1"},
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Você é um analista que extrai ações concretas de transcrições de reuniões em português brasileiro. Você recebe um texto e DEVE retornar um JSON estruturado com:\n\n1. summary: resumo objetivo da reunião em 2-4 frases.\n2. actions: array de ações combinadas. Cada ação tem:\n   - titulo: frase curta no infinitivo (ex: \"Enviar proposta para João\").\n   - descricao: detalhamento da ação (1-2 frases).\n   - owner: 'vitor' se a ação é do Vitor, ou o nome literal da pessoa mencionada (ex: 'João', 'Maria do RH'). Vitor é quem grava a reunião.\n   - prazo_iso: data ISO 8601 (YYYY-MM-DD ou YYYY-MM-DDTHH:mm:ssZ) se um prazo concreto foi mencionado, senão null. Hoje é {{ $now.toISO() }}. Resolva expressões como 'amanhã', 'sexta', 'semana que vem' em relação a hoje.\n   - prazo_text: texto literal do prazo como foi falado (ex: 'até quinta', 'amanhã de manhã'), ou null.\n   - prioridade: 'baixa' | 'media' | 'alta' | 'urgente' inferida do contexto (palavras como 'urgente', 'crítico', 'assim que possível' → alta/urgente; sem indicação → media).\n   - evidencia: trecho literal da transcrição (até 200 chars) que originou essa ação.\n\nREGRAS:\n- Não invente ações que não foram explicitamente combinadas.\n- Se algo foi sugerido mas não concordado, ignore.\n- Se a transcrição não tem nenhuma ação clara, retorne actions: [].\n- Distinga claramente: 'eu vou fazer X' → owner='vitor'; 'João vai fazer X' → owner='João'.\n- Em caso de ambiguidade sobre o owner, prefira 'vitor'."
+            },
+            {
+              "role": "user",
+              "content": "=Transcrição da reunião ({{ $('3. Prepare Metadata').item.json.meeting_type }}, gravada em {{ $('3. Prepare Metadata').item.json.recorded_at }}):\n\n{{ $('6. Whisper Transcription').item.json.text }}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {
+          "responseFormat": {
+            "values": {
+              "type": "json_schema",
+              "schema": "{\n  \"name\": \"meeting_actions\",\n  \"strict\": true,\n  \"schema\": {\n    \"type\": \"object\",\n    \"additionalProperties\": false,\n    \"required\": [\"summary\", \"actions\"],\n    \"properties\": {\n      \"summary\": {\"type\": \"string\"},\n      \"actions\": {\n        \"type\": \"array\",\n        \"items\": {\n          \"type\": \"object\",\n          \"additionalProperties\": false,\n          \"required\": [\"titulo\",\"descricao\",\"owner\",\"prazo_iso\",\"prazo_text\",\"prioridade\",\"evidencia\"],\n          \"properties\": {\n            \"titulo\": {\"type\": \"string\"},\n            \"descricao\": {\"type\": \"string\"},\n            \"owner\": {\"type\": \"string\"},\n            \"prazo_iso\": {\"type\": [\"string\",\"null\"]},\n            \"prazo_text\": {\"type\": [\"string\",\"null\"]},\n            \"prioridade\": {\"type\": \"string\", \"enum\": [\"baixa\",\"media\",\"alta\",\"urgente\"]},\n            \"evidencia\": {\"type\": \"string\"}\n          }\n        }\n      }\n    }\n  }\n}"
+            }
+          },
+          "temperature": 0.2
+        }
+      },
+      "id": "00000000-0000-0000-0000-000000000009",
+      "name": "8. GPT Extract Actions",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.7,
+      "position": [-80, -100]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Parseia o JSON retornado pelo GPT e prepara items para INSERT em tarefas.\nconst meetingId = $('3. Prepare Metadata').item.json.meeting_id;\nconst raw = $input.first().json;\n\n// O nó openAi v1.7 retorna o JSON em diferentes shapes — normaliza.\nlet parsed;\nif (raw.message && raw.message.content) {\n  parsed = typeof raw.message.content === 'string' ? JSON.parse(raw.message.content) : raw.message.content;\n} else if (raw.content) {\n  parsed = typeof raw.content === 'string' ? JSON.parse(raw.content) : raw.content;\n} else if (raw.text) {\n  parsed = typeof raw.text === 'string' ? JSON.parse(raw.text) : raw.text;\n} else if (raw.summary && Array.isArray(raw.actions)) {\n  parsed = raw;\n} else {\n  throw new Error('Não foi possível parsear resposta do GPT: ' + JSON.stringify(raw).slice(0, 500));\n}\n\nconst { summary = '', actions = [] } = parsed;\nconst rawJson = JSON.stringify(parsed);\n\nif (!actions.length) {\n  return [{\n    json: {\n      meeting_id: meetingId,\n      summary,\n      raw_ai_response: rawJson,\n      no_actions: true\n    }\n  }];\n}\n\nreturn actions.map((a, i) => ({\n  json: {\n    meeting_id: meetingId,\n    summary,\n    raw_ai_response: rawJson,\n    titulo: a.titulo || '(sem título)',\n    descricao: a.descricao || '',\n    owner: a.owner || 'vitor',\n    prazo: a.prazo_iso || null,\n    prazo_text: a.prazo_text || null,\n    prioridade: ['baixa','media','alta','urgente'].includes(a.prioridade) ? a.prioridade : 'media',\n    evidencia: a.evidencia || '',\n    idx: i,\n    total: actions.length\n  }\n}));"
+      },
+      "id": "00000000-0000-0000-0000-000000000010",
+      "name": "9. Parse Actions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [140, -100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "loose"},
+          "conditions": [
+            {
+              "id": "no-actions",
+              "leftValue": "={{ $json.no_actions }}",
+              "rightValue": true,
+              "operator": {"type": "boolean", "operation": "equals", "singleValue": true}
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "00000000-0000-0000-0000-000000000011",
+      "name": "10. Has Actions?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [360, -100]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": {"__rl": true, "mode": "list", "value": "public"},
+        "table": {"__rl": true, "mode": "list", "value": "tarefas"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "meeting_id": "={{ $json.meeting_id }}",
+            "titulo": "={{ $json.titulo }}",
+            "descricao": "={{ $json.descricao }}",
+            "owner": "={{ $json.owner }}",
+            "prazo": "={{ $json.prazo }}",
+            "prazo_text": "={{ $json.prazo_text }}",
+            "prioridade": "={{ $json.prioridade }}",
+            "evidencia": "={{ $json.evidencia }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "00000000-0000-0000-0000-000000000012",
+      "name": "11. INSERT tarefas",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [580, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE meetings\n   SET status = 'done',\n       summary = $1,\n       raw_ai_response = $2::jsonb,\n       done_at = now()\n WHERE id = $3\n RETURNING id,\n          (SELECT count(*) FROM tarefas WHERE meeting_id = meetings.id) AS n_tarefas;",
+        "options": {
+          "queryReplacement": "={{ $('9. Parse Actions').first().json.summary }},={{ $('9. Parse Actions').first().json.raw_ai_response }},={{ $('3. Prepare Metadata').item.json.meeting_id }}"
+        }
+      },
+      "id": "00000000-0000-0000-0000-000000000013",
+      "name": "12. UPDATE meeting (done)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [800, 0]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Monta a mensagem do WhatsApp\nconst meetingId = $('3. Prepare Metadata').item.json.meeting_id;\nconst summary = $('9. Parse Actions').first().json.summary;\nconst items = $('9. Parse Actions').all().map(i => i.json).filter(j => !j.no_actions);\n\nconst minhas = items.filter(i => i.owner === 'vitor');\nconst delegadas = items.filter(i => i.owner !== 'vitor');\nconst formatPrazo = (p) => {\n  if (!p) return '';\n  try {\n    const d = new Date(p);\n    return ' _(até ' + d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ')_';\n  } catch { return ''; }\n};\nconst emojiPrio = { urgente: '🔴', alta: '🟠', media: '🟡', baixa: '⚪' };\n\nlet msg = '🎙️ *Reunião processada*\\n\\n';\nmsg += '_' + summary + '_\\n\\n';\n\nif (minhas.length) {\n  msg += '✅ *Minhas ações* (' + minhas.length + ')\\n';\n  minhas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '🟡') + ' ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (delegadas.length) {\n  msg += '👥 *Combinei com outros* (' + delegadas.length + ')\\n';\n  delegadas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '🟡') + ' *' + t.owner + ':* ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (!minhas.length && !delegadas.length) {\n  msg += '_(nenhuma ação concreta extraída desta reunião)_\\n';\n}\n\nconst frontendUrl = $env.FRONTEND_URL_ACOES || 'https://acoes.exemplo.com';\nmsg += '🔗 ' + frontendUrl + '/reunioes/' + meetingId;\n\nreturn [{ json: { text: msg, meeting_id: meetingId, n_tarefas: items.length } }];"
+      },
+      "id": "00000000-0000-0000-0000-000000000014",
+      "name": "13. Build WhatsApp Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1020, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.EVOLUTION_API_URL }}/message/sendText/{{ $env.EVOLUTION_INSTANCE }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "apikey", "value": "={{ $env.EVOLUTION_API_KEY }}"},
+            {"name": "Content-Type", "value": "application/json"}
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ $env.WHATSAPP_DESTINO_ACOES }}\",\n  \"text\": {{ JSON.stringify($json.text) }}\n}",
+        "options": {"timeout": 30000}
+      },
+      "id": "00000000-0000-0000-0000-000000000015",
+      "name": "14. Send WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1240, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"meeting_id\": \"{{ $('3. Prepare Metadata').item.json.meeting_id }}\", \"status\": \"done\", \"n_tarefas\": {{ $('13. Build WhatsApp Message').item.json.n_tarefas }} }",
+        "options": {"responseCode": 200}
+      },
+      "id": "00000000-0000-0000-0000-000000000016",
+      "name": "15. Respond 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1460, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE meetings SET status = 'error', status_error = $1 WHERE id = $2 RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ $json.error?.message || JSON.stringify($json.error || $json) }},={{ $('3. Prepare Metadata').item.json.meeting_id }}"
+        }
+      },
+      "id": "00000000-0000-0000-0000-000000000017",
+      "name": "Err. UPDATE meeting (error)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-300, 200]
+    }
+  ],
+  "connections": {
+    "1. Webhook": {
+      "main": [[{"node": "2. Validate Auth", "type": "main", "index": 0}]]
+    },
+    "2. Validate Auth": {
+      "main": [
+        [{"node": "3. Prepare Metadata", "type": "main", "index": 0}],
+        [{"node": "2b. Reject 401", "type": "main", "index": 0}]
+      ]
+    },
+    "3. Prepare Metadata": {
+      "main": [[{"node": "4. Save Audio to Volume", "type": "main", "index": 0}]]
+    },
+    "4. Save Audio to Volume": {
+      "main": [[{"node": "5. INSERT meeting (received)", "type": "main", "index": 0}]]
+    },
+    "5. INSERT meeting (received)": {
+      "main": [[{"node": "6. Whisper Transcription", "type": "main", "index": 0}]]
+    },
+    "6. Whisper Transcription": {
+      "main": [[{"node": "7. UPDATE meeting (analyzing)", "type": "main", "index": 0}]]
+    },
+    "7. UPDATE meeting (analyzing)": {
+      "main": [[{"node": "8. GPT Extract Actions", "type": "main", "index": 0}]]
+    },
+    "8. GPT Extract Actions": {
+      "main": [[{"node": "9. Parse Actions", "type": "main", "index": 0}]]
+    },
+    "9. Parse Actions": {
+      "main": [[{"node": "10. Has Actions?", "type": "main", "index": 0}]]
+    },
+    "10. Has Actions?": {
+      "main": [
+        [{"node": "12. UPDATE meeting (done)", "type": "main", "index": 0}],
+        [{"node": "11. INSERT tarefas", "type": "main", "index": 0}]
+      ]
+    },
+    "11. INSERT tarefas": {
+      "main": [[{"node": "12. UPDATE meeting (done)", "type": "main", "index": 0}]]
+    },
+    "12. UPDATE meeting (done)": {
+      "main": [[{"node": "13. Build WhatsApp Message", "type": "main", "index": 0}]]
+    },
+    "13. Build WhatsApp Message": {
+      "main": [[{"node": "14. Send WhatsApp", "type": "main", "index": 0}]]
+    },
+    "14. Send WhatsApp": {
+      "main": [[{"node": "15. Respond 200", "type": "main", "index": 0}]]
+    }
+  }
+}
