@@ -35,3 +35,4 @@ mac-agent/.last_response.json
 # tmp
 /tmp/
 .backups/
+.playwright-mcp/
