@@ -66,6 +66,22 @@ body {
 /* tipografia compacta */
 * { font-variant-numeric: tabular-nums; }
 
+/* Tailwind 4 removeu o cursor pointer automático dos buttons/links — restaurar. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary,
+  label[for],
+  select,
+  a[href] {
+    cursor: pointer;
+  }
+  button:disabled,
+  [role="button"][aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+}
+
 /* display font for serif headlines */
 .font-display {
   font-family: var(--font-fraunces), Georgia, serif;
