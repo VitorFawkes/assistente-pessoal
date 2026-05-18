@@ -225,11 +225,31 @@
     },
     {
       "parameters": {
-        "operation": "executeQuery",
-        "query": "UPDATE meetings SET status = 'analyzing', transcription = $1, duration_seconds = $2 WHERE id = $3 RETURNING id;",
-        "options": {
-          "queryReplacement": "={{ $json.text }},={{ Math.round($json.duration || 0) }},={{ $('3. Prepare Metadata').item.json.meeting_id }}"
-        }
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "meetings"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
+            "status": "analyzing",
+            "transcription": "={{ $json.text }}",
+            "duration_seconds": "={{ Math.round($json.duration || 0) }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": []
+        },
+        "options": {}
       },
       "id": "33333333-4444-5555-6666-777777777777",
       "name": "7. UPDATE meeting (analyzing)",

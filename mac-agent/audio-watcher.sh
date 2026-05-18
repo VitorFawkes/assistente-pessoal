@@ -55,25 +55,64 @@ wait_until_stable() {
 }
 
 # Garante que o arquivo está materializado no disco (iCloud placeholder → bytes reais).
-# Arquivos do AudiosIphone podem chegar como placeholder do iCloud (size correto, conteúdo
-# ainda na nuvem). Tenta brctl download primeiro e fallback pra cat completo, conferindo se
-# os bytes batem com o tamanho reportado por stat.
-ensure_materialized() {
-  local file="$1"
-  local expected actual
-  expected=$(stat -f%z "$file" 2>/dev/null || echo 0)
+# Estratégia robusta: copia o arquivo para um path tmp via `cp` — isso força o
+# iCloud File Provider a baixar TODOS os bytes (cp lê sequencial e bloqueia até
+# materializar). Verifica que o tmp final tem o mesmo size do original via stat
+# E que o leitura real de bytes bate (sha256 short ou wc -c de leitura sequencial).
+# Retorna o path do arquivo a usar pra upload via stdout.
+#
+# Uso:
+#   tmp_path=$(materialize_for_upload "$file") || { log "..."; return; }
+#   ...usa $tmp_path no curl...
+#   rm -f "$tmp_path"
+materialize_for_upload() {
+  local src="$1"
+  local expected
+  expected=$(stat -f%z "$src" 2>/dev/null || echo 0)
   [ "$expected" -eq 0 ] && return 1
+
+  # 1) Pede pro iCloud baixar (não-bloqueante, mas ajuda)
   if command -v brctl >/dev/null 2>&1; then
-    brctl download "$file" >/dev/null 2>&1 || true
+    brctl download "$src" >/dev/null 2>&1 || true
   fi
-  # Leitura completa força iCloud a baixar
-  actual=$(wc -c < "$file" 2>/dev/null | tr -d ' ')
-  if [ "$actual" != "$expected" ]; then
-    log "WARN bytes lidos ($actual) != stat ($expected) para $file — retry"
-    sleep 2
-    actual=$(wc -c < "$file" 2>/dev/null | tr -d ' ')
-    [ "$actual" = "$expected" ] || return 1
+
+  # 2) Copia pra tmp — cp em macOS bloqueia até o iCloud finalizar download
+  local ext="${src##*.}"
+  local tmp
+  tmp="$(mktemp -t audio-upload).${ext}"
+  if ! cp "$src" "$tmp" 2>/dev/null; then
+    log "ERR cp falhou em $src"
+    rm -f "$tmp"
+    return 1
   fi
+
+  # 3) Confere que o tmp tem o tamanho real esperado
+  local tmp_size
+  tmp_size=$(stat -f%z "$tmp" 2>/dev/null || echo 0)
+  if [ "$tmp_size" != "$expected" ]; then
+    log "ERR tmp size ($tmp_size) != expected ($expected) — retry após 3s"
+    sleep 3
+    rm -f "$tmp"
+    tmp="$(mktemp -t audio-upload).${ext}"
+    cp "$src" "$tmp" 2>/dev/null
+    tmp_size=$(stat -f%z "$tmp" 2>/dev/null || echo 0)
+    if [ "$tmp_size" != "$expected" ]; then
+      log "ERR tmp ainda divergente ($tmp_size vs $expected) — abortando"
+      rm -f "$tmp"
+      return 1
+    fi
+  fi
+
+  # 4) Sanity check: leitura sequencial real pelo wc -c (não SEEK_END)
+  local read_size
+  read_size=$(cat "$tmp" 2>/dev/null | wc -c | tr -d ' ')
+  if [ "$read_size" != "$expected" ]; then
+    log "ERR leitura sequencial ($read_size) != expected ($expected)"
+    rm -f "$tmp"
+    return 1
+  fi
+
+  echo "$tmp"
   return 0
 }
 
@@ -147,7 +186,11 @@ process_file() {
   log "DETECT $file"
   wait_until_stable "$file"
   [ -f "$file" ] || { log "VANISHED $file"; return 0; }
-  if ! ensure_materialized "$file"; then
+
+  # Materializa pra tmp (resolve iCloud placeholder) — usa o tmp pro upload
+  local upload_path
+  upload_path="$(materialize_for_upload "$file")"
+  if [ -z "$upload_path" ] || [ ! -f "$upload_path" ]; then
     log "ERR não conseguiu materializar (iCloud?) $file"
     return 0
   fi
@@ -156,7 +199,7 @@ process_file() {
   source="$(derive_source "$file")"
   meeting_type="$(derive_meeting_type "$file")"
   basename="$(basename "$file")"
-  size="$(stat -f%z "$file" 2>/dev/null || echo 0)"
+  size="$(stat -f%z "$upload_path" 2>/dev/null || echo 0)"
   recorded_at="$(stat -f '%Sm' -t '%Y-%m-%dT%H:%M:%SZ' "$file" 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)"
 
   log "POST source=$source type=$meeting_type size=$size file=$basename"
@@ -171,7 +214,10 @@ process_file() {
     -H "X-Original-Filename: $basename" \
     -H "X-Recorded-At: $recorded_at" \
     -H "X-Audio-Size: $size" \
-    -F "audio=@$file" 2>>"$LOG_FILE") || http_code="000"
+    -F "audio=@$upload_path;filename=$basename" 2>>"$LOG_FILE") || http_code="000"
+
+  # Limpa o tmp file independente do resultado
+  rm -f "$upload_path"
 
   if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
     log "OK http=$http_code"
