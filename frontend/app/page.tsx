@@ -32,28 +32,38 @@ export default async function HomePage() {
 
   if (dbError) {
     return (
-      <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/30 p-6">
-        <h2 className="text-sm font-semibold text-red-700 dark:text-red-300">
+      <div className="rounded-2xl border border-[color:var(--urgent)]/30 bg-[color:var(--urgent-bg)] p-6">
+        <h2 className="text-sm font-semibold text-[color:var(--urgent)]">
           Não consegui conectar no banco
         </h2>
-        <pre className="mt-2 text-xs text-red-600 dark:text-red-400 whitespace-pre-wrap">
+        <pre className="mt-2 text-xs whitespace-pre-wrap text-[color:var(--urgent)]/90">
           {dbError}
         </pre>
-        <p className="mt-3 text-xs text-zinc-600 dark:text-zinc-400">
-          Confirme se <code>DATABASE_URL</code> está definida no ambiente e se o Postgres está acessível.
+        <p className="mt-3 text-xs text-[color:var(--muted-strong)]">
+          Confirme se <code>DATABASE_URL</code> está definida no ambiente e se o
+          Postgres está acessível.
         </p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Pendências</h1>
-        <p className="text-sm text-[color:var(--muted)] mt-1">
-          Tudo que ficou combinado nas suas reuniões e voice notes.
+    <div className="space-y-7 sm:space-y-9">
+      <header className="space-y-2">
+        <p className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
+          Pendências
         </p>
-      </div>
+        <h1 className="font-display text-4xl sm:text-5xl leading-[1.05]">
+          O que está{" "}
+          <span className="italic font-[450] text-[color:var(--muted-strong)]">
+            combinado.
+          </span>
+        </h1>
+        <p className="text-[14px] text-[color:var(--muted-strong)] max-w-md">
+          Tudo que apareceu nas suas reuniões e voice notes, capturado e
+          organizado pra você não perder nada.
+        </p>
+      </header>
 
       <TasksDashboard tarefas={tarefas} />
     </div>

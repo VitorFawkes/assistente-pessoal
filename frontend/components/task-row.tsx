@@ -3,8 +3,15 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Circle, ExternalLink, AlertCircle, Clock, Pencil } from "lucide-react";
-import { cn, prioridadeBadge, formatPrazo, formatPrazoColor, type Prioridade } from "@/lib/utils";
+import {
+  CheckCircle2,
+  Circle,
+  ChevronRight,
+  CalendarClock,
+  Mic,
+  AlertCircle,
+} from "lucide-react";
+import { cn, formatPrazo, type Prioridade } from "@/lib/utils";
 import { TaskEditModal } from "./task-edit-modal";
 
 export type Tarefa = {
@@ -24,19 +31,49 @@ export type Tarefa = {
   meeting_summary?: string | null;
 };
 
+// Faixa colorida na lateral esquerda — comunica prioridade sem ocupar lugar.
+function priorityStripe(p: Prioridade): string {
+  switch (p) {
+    case "urgente":
+      return "bg-[color:var(--urgent)]";
+    case "alta":
+      return "bg-[color:var(--warm)]";
+    case "media":
+      return "bg-[color:var(--muted)] opacity-30";
+    case "baixa":
+      return "bg-[color:var(--muted)] opacity-15";
+  }
+}
+
+function prazoChipColor(
+  status: ReturnType<typeof formatPrazo>["status"],
+): string {
+  switch (status) {
+    case "vencida":
+      return "text-[color:var(--urgent)] bg-[color:var(--urgent-bg)]";
+    case "hoje":
+      return "text-[color:var(--warm)] bg-[color:var(--warm-bg)]";
+    case "amanha":
+      return "text-[color:var(--warm)] bg-[color:var(--warm-bg)] opacity-90";
+    case "futuro":
+      return "text-[color:var(--muted-strong)] bg-[color:var(--accent)]";
+    default:
+      return "text-[color:var(--muted)] bg-transparent border border-[color:var(--border)] border-dashed";
+  }
+}
+
 export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
 
-  const pr = prioridadeBadge(tarefa.prioridade);
   const prazo = formatPrazo(tarefa.prazo);
-  const prazoCls = formatPrazoColor(prazo.status);
   const isDone = tarefa.status === "concluida";
+  const isCancelled = tarefa.status === "cancelada";
   const isOverdue = prazo.status === "vencida";
 
-  function toggleDone() {
+  function toggleDone(e: React.MouseEvent) {
+    e.stopPropagation();
     startTransition(async () => {
       const next = isDone ? "aberta" : "concluida";
       await fetch(`/api/tarefas/${tarefa.id}`, {
@@ -49,87 +86,104 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
   }
 
   return (
-    <div
-      className={cn(
-        "group flex flex-col rounded-lg border bg-[color:var(--card)] transition",
-        isDone ? "opacity-50 border-[color:var(--border)]" : "border-[color:var(--border)] hover:border-zinc-300 dark:hover:border-zinc-700",
-        isOverdue && !isDone && "border-red-200 dark:border-red-900/40",
-      )}
-    >
-      <div className="flex items-start gap-3 p-3">
+    <>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setEditing(true)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setEditing(true);
+          }
+        }}
+        className={cn(
+          "press-feedback group relative flex items-stretch gap-0 paper-card rounded-2xl border overflow-hidden cursor-pointer",
+          "border-[color:var(--border)] hover:border-[color:var(--muted)]",
+          (isDone || isCancelled) && "opacity-55",
+          isOverdue && !isDone && "ring-1 ring-[color:var(--urgent)]/30",
+        )}
+      >
+        {/* faixa de prioridade na lateral */}
+        <div
+          className={cn("w-1 shrink-0", priorityStripe(tarefa.prioridade))}
+          aria-hidden
+        />
+
+        {/* botão de status (toggle done) — área de toque grande, isolada */}
         <button
           type="button"
           onClick={toggleDone}
           disabled={isPending}
-          className={cn(
-            "mt-0.5 shrink-0 transition",
-            isDone ? "text-emerald-500" : "text-zinc-400 hover:text-emerald-500",
-          )}
           aria-label={isDone ? "Reabrir tarefa" : "Marcar como concluída"}
+          className={cn(
+            "shrink-0 flex items-center justify-center w-14 -ml-px touch-manipulation",
+            "text-[color:var(--muted)] hover:text-[color:var(--calm)] active:text-[color:var(--calm)]",
+            isDone && "text-[color:var(--calm)]",
+          )}
         >
-          {isDone ? <CheckCircle2 size={18} /> : <Circle size={18} />}
+          {isDone ? <CheckCircle2 size={22} strokeWidth={2} /> : <Circle size={22} strokeWidth={1.75} />}
         </button>
 
-        <div className="flex-1 min-w-0">
-          <button
-            type="button"
-            onClick={() => setExpanded((v) => !v)}
-            className="text-left w-full"
-          >
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", pr.dot)} aria-hidden />
-              <p className={cn("text-sm font-medium", isDone && "line-through")}>
-                {tarefa.titulo}
-              </p>
-              {!tarefa.is_mine && (
-                <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">
-                  → {tarefa.owner}
-                </span>
+        {/* conteúdo da tarefa */}
+        <div className="flex-1 min-w-0 py-3.5 pr-3 sm:pr-4">
+          <div className="flex items-start gap-2">
+            <p
+              className={cn(
+                "flex-1 text-[15px] leading-snug text-[color:var(--foreground)]",
+                isDone && "line-through",
               )}
-            </div>
-            <div className="mt-1 flex items-center gap-3 text-xs text-[color:var(--muted)]">
-              <span className={cn("flex items-center gap-1", prazoCls)}>
-                {isOverdue ? <AlertCircle size={12} /> : <Clock size={12} />}
-                {prazo.text}
-                {tarefa.prazo_text && tarefa.prazo_text !== prazo.text && (
-                  <span className="text-zinc-400">· "{tarefa.prazo_text}"</span>
-                )}
+            >
+              {tarefa.titulo}
+            </p>
+            {!tarefa.is_mine && (
+              <span className="shrink-0 mt-0.5 text-[11px] tracking-wide uppercase font-medium px-2 py-0.5 rounded-full bg-[color:var(--accent)] text-[color:var(--muted-strong)]">
+                {tarefa.owner}
               </span>
-              {tarefa.meeting_id && (
-                <Link
-                  href={`/reunioes/${tarefa.meeting_id}`}
-                  className="flex items-center gap-1 hover:text-[color:var(--foreground)]"
-                >
-                  <ExternalLink size={12} /> reunião
-                </Link>
-              )}
-            </div>
-          </button>
+            )}
+          </div>
 
-          {expanded && (
-            <div className="mt-3 space-y-2 text-sm">
-              {tarefa.descricao && (
-                <p className="text-[color:var(--foreground)]">{tarefa.descricao}</p>
+          <div className="mt-2 flex items-center flex-wrap gap-x-2 gap-y-1">
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 text-[12px] px-2 py-0.5 rounded-full",
+                prazoChipColor(prazo.status),
               )}
-              {tarefa.evidencia && (
-                <blockquote className="text-xs italic text-[color:var(--muted)] border-l-2 border-zinc-300 dark:border-zinc-700 pl-3">
-                  "{tarefa.evidencia}"
-                </blockquote>
+            >
+              {isOverdue ? (
+                <AlertCircle size={11} />
+              ) : (
+                <CalendarClock size={11} />
               )}
-            </div>
-          )}
+              {prazo.text}
+            </span>
+            {tarefa.prazo_text && tarefa.prazo_text !== prazo.text && (
+              <span className="text-[11px] text-[color:var(--muted)] italic">
+                &ldquo;{tarefa.prazo_text}&rdquo;
+              </span>
+            )}
+            {tarefa.meeting_id && (
+              <Link
+                href={`/reunioes/${tarefa.meeting_id}`}
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 text-[12px] text-[color:var(--muted)] hover:text-[color:var(--foreground)] transition"
+              >
+                <Mic size={11} />
+                reunião
+              </Link>
+            )}
+          </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setEditing(true)}
-          className="shrink-0 mt-0.5 text-[color:var(--muted)] hover:text-[color:var(--foreground)] opacity-60 hover:opacity-100 transition"
-          aria-label="Editar tarefa"
-        >
-          <Pencil size={14} />
-        </button>
+        {/* chevron indicando que clica pra editar */}
+        <div className="shrink-0 flex items-center pr-3 sm:pr-4 text-[color:var(--muted)] group-hover:text-[color:var(--foreground)] transition">
+          <ChevronRight size={18} strokeWidth={1.75} />
+        </div>
       </div>
-      {editing && <TaskEditModal tarefa={tarefa} onClose={() => setEditing(false)} />}
-    </div>
+
+      {editing && (
+        <TaskEditModal tarefa={tarefa} onClose={() => setEditing(false)} />
+      )}
+    </>
   );
 }

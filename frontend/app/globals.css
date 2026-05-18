@@ -1,22 +1,40 @@
 @import "tailwindcss";
 
 :root {
-  --background: #fafaf9;
-  --foreground: #18181b;
-  --muted: #71717a;
-  --border: #e4e4e7;
+  /* warm paper palette */
+  --background: #faf7f2;
+  --foreground: #1e1b18;
+  --muted: #8a8175;
+  --muted-strong: #5e564d;
+  --border: #ebe3d6;
   --card: #ffffff;
-  --accent: #f4f4f5;
+  --accent: #f3eee3;
+
+  /* semantic */
+  --urgent: #c7644d;          /* terracota — urgente, vencido */
+  --urgent-bg: #fbeae5;
+  --warm: #b8862b;            /* amber — hoje, prioridade média/alta */
+  --warm-bg: #f7ecd2;
+  --calm: #6e7b4f;            /* oliva — concluído, prazo confortável */
+  --calm-bg: #e8ecdd;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #09090b;
-    --foreground: #fafafa;
-    --muted: #a1a1aa;
-    --border: #27272a;
-    --card: #18181b;
-    --accent: #27272a;
+    --background: #1a1715;
+    --foreground: #f5f0e8;
+    --muted: #8a8175;
+    --muted-strong: #b3a89a;
+    --border: #2e2924;
+    --card: #221e1a;
+    --accent: #2a2520;
+
+    --urgent: #d97a63;
+    --urgent-bg: #3b201a;
+    --warm: #d4a861;
+    --warm-bg: #3a2e1a;
+    --calm: #8b9967;
+    --calm-bg: #232b1c;
   }
 }
 
@@ -24,10 +42,16 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
+  --color-muted-strong: var(--muted-strong);
   --color-border: var(--border);
   --color-card: var(--card);
   --color-accent: var(--accent);
+  --color-urgent: var(--urgent);
+  --color-warm: var(--warm);
+  --color-calm: var(--calm);
+
   --font-sans: var(--font-geist-sans);
+  --font-display: var(--font-fraunces);
   --font-mono: var(--font-geist-mono);
 }
 
@@ -35,7 +59,41 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* tipografia compacta */
 * { font-variant-numeric: tabular-nums; }
+
+/* display font for serif headlines */
+.font-display {
+  font-family: var(--font-fraunces), Georgia, serif;
+  font-feature-settings: "ss01", "ss02";
+  letter-spacing: -0.02em;
+}
+
+/* press feedback for interactive cards */
+.press-feedback {
+  transition: transform 120ms ease, border-color 200ms ease, background-color 200ms ease;
+}
+.press-feedback:active {
+  transform: scale(0.985);
+}
+
+/* subtle paper texture under cards (very faint) */
+.paper-card {
+  background: var(--card);
+  background-image:
+    radial-gradient(rgba(0,0,0,0.012) 1px, transparent 1px);
+  background-size: 14px 14px;
+}
+
+/* hide scrollbar on horizontal chip rows */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}

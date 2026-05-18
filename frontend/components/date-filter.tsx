@@ -4,10 +4,16 @@ import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { Tarefa } from "./task-row";
 
-export type DateBucket = "todos" | "vencidas" | "hoje" | "semana" | "mes" | "sem_prazo";
+export type DateBucket =
+  | "todos"
+  | "vencidas"
+  | "hoje"
+  | "semana"
+  | "mes"
+  | "sem_prazo";
 
 const LABELS: Record<DateBucket, string> = {
-  todos: "Todos prazos",
+  todos: "Todos",
   vencidas: "Vencidas",
   hoje: "Hoje",
   semana: "Esta semana",
@@ -15,22 +21,37 @@ const LABELS: Record<DateBucket, string> = {
   sem_prazo: "Sem prazo",
 };
 
+const ACCENT: Record<DateBucket, string> = {
+  todos: "",
+  vencidas: "text-[color:var(--urgent)]",
+  hoje: "text-[color:var(--warm)]",
+  semana: "text-[color:var(--muted-strong)]",
+  mes: "text-[color:var(--muted-strong)]",
+  sem_prazo: "text-[color:var(--muted)]",
+};
+
 export function filterByDate(tarefas: Tarefa[], bucket: DateBucket): Tarefa[] {
   if (bucket === "todos") return tarefas;
   const now = new Date();
-  const endToday = new Date(now);
-  endToday.setHours(23, 59, 59, 999);
   const startToday = new Date(now);
   startToday.setHours(0, 0, 0, 0);
+  const endToday = new Date(now);
+  endToday.setHours(23, 59, 59, 999);
 
-  // Esta semana = até fim do domingo (próximo)
   const endWeek = new Date(now);
   const daysToSunday = (7 - now.getDay()) % 7;
   endWeek.setDate(endWeek.getDate() + daysToSunday);
   endWeek.setHours(23, 59, 59, 999);
 
-  // Este mês = até último dia do mês
-  const endMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+  const endMonth = new Date(
+    now.getFullYear(),
+    now.getMonth() + 1,
+    0,
+    23,
+    59,
+    59,
+    999,
+  );
 
   return tarefas.filter((t) => {
     if (bucket === "sem_prazo") return !t.prazo;
@@ -59,34 +80,49 @@ export function DateFilter({
   onChange: (b: DateBucket) => void;
   counts: Record<DateBucket, number>;
 }) {
-  const buckets: DateBucket[] = ["todos", "vencidas", "hoje", "semana", "mes", "sem_prazo"];
+  const buckets: DateBucket[] = [
+    "todos",
+    "vencidas",
+    "hoje",
+    "semana",
+    "mes",
+    "sem_prazo",
+  ];
   return (
-    <div className="flex flex-wrap gap-1.5">
-      {buckets.map((b) => (
-        <button
-          key={b}
-          type="button"
-          onClick={() => onChange(b)}
-          className={cn(
-            "text-xs px-2.5 py-1 rounded-full border transition",
-            b === value
-              ? "bg-zinc-900 text-white border-zinc-900 dark:bg-zinc-100 dark:text-zinc-900 dark:border-zinc-100"
-              : "border-[color:var(--border)] text-[color:var(--muted)] hover:text-[color:var(--foreground)]",
-          )}
-        >
-          {LABELS[b]}
-          {counts[b] > 0 && (
-            <span
+    <div className="-mx-5 sm:-mx-6 px-5 sm:px-6 overflow-x-auto scrollbar-none">
+      <div className="flex gap-1.5 w-max">
+        {buckets.map((b) => {
+          const active = b === value;
+          const count = counts[b];
+          return (
+            <button
+              key={b}
+              type="button"
+              onClick={() => onChange(b)}
               className={cn(
-                "ml-1.5 text-[10px] font-medium",
-                b === value ? "" : "text-zinc-400",
+                "press-feedback shrink-0 inline-flex items-center gap-1.5 text-[13px] px-3 py-1.5 rounded-full border touch-manipulation",
+                active
+                  ? "bg-[color:var(--foreground)] text-[color:var(--background)] border-[color:var(--foreground)]"
+                  : "bg-[color:var(--card)] border-[color:var(--border)] text-[color:var(--muted-strong)] hover:border-[color:var(--muted)]",
               )}
             >
-              {counts[b]}
-            </span>
-          )}
-        </button>
-      ))}
+              <span className={cn(!active && ACCENT[b])}>{LABELS[b]}</span>
+              {count > 0 && (
+                <span
+                  className={cn(
+                    "text-[11px] font-medium",
+                    active
+                      ? "text-[color:var(--background)] opacity-70"
+                      : "text-[color:var(--muted)]",
+                  )}
+                >
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -98,7 +134,14 @@ export function useDateBucket(initial: DateBucket = "todos") {
 
 export function useFilteredAndCounted(tarefas: Tarefa[]) {
   return useMemo(() => {
-    const buckets: DateBucket[] = ["todos", "vencidas", "hoje", "semana", "mes", "sem_prazo"];
+    const buckets: DateBucket[] = [
+      "todos",
+      "vencidas",
+      "hoje",
+      "semana",
+      "mes",
+      "sem_prazo",
+    ];
     const counts = Object.fromEntries(
       buckets.map((b) => [b, filterByDate(tarefas, b).length]),
     ) as Record<DateBucket, number>;
