@@ -54,6 +54,29 @@ wait_until_stable() {
   return 0   # se passou de 15s, manda do jeito que tá
 }
 
+# Garante que o arquivo está materializado no disco (iCloud placeholder → bytes reais).
+# Arquivos do AudiosIphone podem chegar como placeholder do iCloud (size correto, conteúdo
+# ainda na nuvem). Tenta brctl download primeiro e fallback pra cat completo, conferindo se
+# os bytes batem com o tamanho reportado por stat.
+ensure_materialized() {
+  local file="$1"
+  local expected actual
+  expected=$(stat -f%z "$file" 2>/dev/null || echo 0)
+  [ "$expected" -eq 0 ] && return 1
+  if command -v brctl >/dev/null 2>&1; then
+    brctl download "$file" >/dev/null 2>&1 || true
+  fi
+  # Leitura completa força iCloud a baixar
+  actual=$(wc -c < "$file" 2>/dev/null | tr -d ' ')
+  if [ "$actual" != "$expected" ]; then
+    log "WARN bytes lidos ($actual) != stat ($expected) para $file — retry"
+    sleep 2
+    actual=$(wc -c < "$file" 2>/dev/null | tr -d ' ')
+    [ "$actual" = "$expected" ] || return 1
+  fi
+  return 0
+}
+
 # Decide source baseado na pasta de origem.
 derive_source() {
   local file="$1"
@@ -124,6 +147,10 @@ process_file() {
   log "DETECT $file"
   wait_until_stable "$file"
   [ -f "$file" ] || { log "VANISHED $file"; return 0; }
+  if ! ensure_materialized "$file"; then
+    log "ERR não conseguiu materializar (iCloud?) $file"
+    return 0
+  fi
 
   local source meeting_type basename size recorded_at
   source="$(derive_source "$file")"

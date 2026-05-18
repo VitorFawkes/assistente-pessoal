@@ -6,7 +6,10 @@
         "httpMethod": "POST",
         "path": "acoes-audio-ingest",
         "options": {
-          "rawBody": false
+          "rawBody": false,
+          "responseMode": "responseNode",
+          "responseData": "lastNode",
+          "binaryData": true
         }
       },
       "id": "00000000-0000-0000-0000-000000000001",
