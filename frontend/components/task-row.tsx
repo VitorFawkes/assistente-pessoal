@@ -137,9 +137,15 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
               {tarefa.titulo}
             </p>
             {!tarefa.is_mine && (
-              <span className="shrink-0 mt-0.5 text-[11px] tracking-wide uppercase font-medium px-2 py-0.5 rounded-full bg-[color:var(--accent)] text-[color:var(--muted-strong)]">
-                {tarefa.owner}
-              </span>
+              tarefa.owner === "?" ? (
+                <span className="shrink-0 mt-0.5 text-[10px] tracking-[0.12em] uppercase font-medium px-2 py-0.5 rounded-full bg-[color:var(--warm-bg)] text-[color:var(--warm)]">
+                  pedido feito
+                </span>
+              ) : (
+                <span className="shrink-0 mt-0.5 text-[11px] tracking-wide uppercase font-medium px-2 py-0.5 rounded-full bg-[color:var(--accent)] text-[color:var(--muted-strong)]">
+                  {tarefa.owner}
+                </span>
+              )
             )}
           </div>
 
