@@ -137,8 +137,7 @@
             "audio_path": "={{ $('3. Prepare Metadata').item.json.audio_path }}",
             "audio_size_bytes": "={{ $('3. Prepare Metadata').item.json.audio_size_bytes }}",
             "recorded_at": "={{ $('3. Prepare Metadata').item.json.recorded_at }}",
-            "status": "analyzing",
-            "transcription": "={{ $('6. Whisper Transcription').item.json.text }}"
+            "status": "received"
           },
           "matchingColumns": [],
           "schema": []
@@ -150,7 +149,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        -736,
+        -610,
         -96
       ],
       "credentials": {
@@ -159,6 +158,19 @@
           "name": "Acoes - Postgres"
         }
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Restaura binary do step 3 (INSERT meeting consome o binary)\nreturn [{ json: $json, binary: $('3. Prepare Metadata').first().binary }];\n"
+      },
+      "id": "44444444-5555-6666-7777-888888888888",
+      "name": "5b. Reattach Binary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -569,
+        -96
+      ]
     },
     {
       "parameters": {
@@ -180,7 +192,7 @@
             },
             {
               "name": "response_format",
-              "value": "json"
+              "value": "verbose_json"
             },
             {
               "parameterType": "formBinaryData",
@@ -205,6 +217,29 @@
         "openAiApi": {
           "id": "QSdaVgPRKxfvwcXr",
           "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE meetings SET status = 'analyzing', transcription = $1, duration_seconds = $2 WHERE id = $3 RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ $json.text }},={{ Math.round($json.duration || 0) }},={{ $('3. Prepare Metadata').item.json.meeting_id }}"
+        }
+      },
+      "id": "33333333-4444-5555-6666-777777777777",
+      "name": "7. UPDATE meeting (analyzing)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -308,
+        -96
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "KQJgErf7zPLrLq1t",
+          "name": "Acoes - Postgres"
         }
       }
     },
@@ -509,7 +544,7 @@
       "main": [
         [
           {
-            "node": "8. GPT Extract Actions",
+            "node": "5b. Reattach Binary",
             "type": "main",
             "index": 0
           }
@@ -520,7 +555,7 @@
       "main": [
         [
           {
-            "node": "5. INSERT meeting",
+            "node": "7. UPDATE meeting (analyzing)",
             "type": "main",
             "index": 0
           }
@@ -617,6 +652,28 @@
       ]
     },
     "4b. Reattach Binary": {
+      "main": [
+        [
+          {
+            "node": "5. INSERT meeting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "7. UPDATE meeting (analyzing)": {
+      "main": [
+        [
+          {
+            "node": "8. GPT Extract Actions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5b. Reattach Binary": {
       "main": [
         [
           {
