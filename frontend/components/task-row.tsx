@@ -3,8 +3,9 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Circle, ExternalLink, AlertCircle, Clock } from "lucide-react";
+import { CheckCircle2, Circle, ExternalLink, AlertCircle, Clock, Pencil } from "lucide-react";
 import { cn, prioridadeBadge, formatPrazo, formatPrazoColor, type Prioridade } from "@/lib/utils";
+import { TaskEditModal } from "./task-edit-modal";
 
 export type Tarefa = {
   id: string;
@@ -27,6 +28,7 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const pr = prioridadeBadge(tarefa.prioridade);
   const prazo = formatPrazo(tarefa.prazo);
@@ -117,7 +119,17 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
             </div>
           )}
         </div>
+
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="shrink-0 mt-0.5 text-[color:var(--muted)] hover:text-[color:var(--foreground)] opacity-60 hover:opacity-100 transition"
+          aria-label="Editar tarefa"
+        >
+          <Pencil size={14} />
+        </button>
       </div>
+      {editing && <TaskEditModal tarefa={tarefa} onClose={() => setEditing(false)} />}
     </div>
   );
 }

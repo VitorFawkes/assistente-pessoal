@@ -1,6 +1,6 @@
 import { query } from "@/lib/db";
-import { TaskRow, type Tarefa } from "@/components/task-row";
-import { Tabs } from "@/components/tabs";
+import { type Tarefa } from "@/components/task-row";
+import { TasksDashboard } from "@/components/tasks-dashboard";
 
 export const dynamic = "force-dynamic";
 
@@ -46,68 +46,16 @@ export default async function HomePage() {
     );
   }
 
-  const minhas = tarefas.filter((t) => t.is_mine);
-  const delegadas = tarefas.filter((t) => !t.is_mine);
-  const vencendo = tarefas.filter((t) => {
-    if (!t.prazo) return false;
-    const ms = new Date(t.prazo).getTime() - Date.now();
-    return ms < 24 * 60 * 60 * 1000;
-  });
-
-  const renderList = (list: Tarefa[], empty: string) => {
-    if (!list.length) {
-      return (
-        <div className="rounded-lg border border-dashed border-[color:var(--border)] p-8 text-center text-sm text-[color:var(--muted)]">
-          {empty}
-        </div>
-      );
-    }
-    return (
-      <div className="flex flex-col gap-2">
-        {list.map((t) => (
-          <TaskRow key={t.id} tarefa={t} />
-        ))}
-      </div>
-    );
-  };
-
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Pendências</h1>
         <p className="text-sm text-[color:var(--muted)] mt-1">
-          Tudo que ficou combinado nas suas reuniões.
+          Tudo que ficou combinado nas suas reuniões e voice notes.
         </p>
       </div>
 
-      <Tabs
-        items={[
-          {
-            key: "minhas",
-            label: "Minhas",
-            count: minhas.length,
-            content: renderList(minhas, "Nada pendente seu. 🎉"),
-          },
-          {
-            key: "delegadas",
-            label: "Aguardando outros",
-            count: delegadas.length,
-            content: renderList(delegadas, "Nada aguardando."),
-          },
-          {
-            key: "vencendo",
-            label: "Vencendo",
-            count: vencendo.length,
-            content: renderList(vencendo, "Nada vencendo hoje ou amanhã."),
-          },
-          {
-            key: "todas",
-            label: "Todas",
-            count: tarefas.length,
-            content: renderList(tarefas, "Nenhuma pendência aberta."),
-          },
-        ]}
-      />
+      <TasksDashboard tarefas={tarefas} />
     </div>
   );
 }

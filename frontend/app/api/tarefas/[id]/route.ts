@@ -101,3 +101,26 @@ export async function GET(
   if (!rows.length) return NextResponse.json({ error: "não encontrada" }, { status: 404 });
   return NextResponse.json(rows[0]);
 }
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  try {
+    const result = await withClient(async (c) => {
+      await c.query("DELETE FROM tarefa_eventos WHERE tarefa_id = $1", [id]);
+      const t = await c.query("DELETE FROM tarefas WHERE id = $1 RETURNING id", [id]);
+      return t.rowCount ?? 0;
+    });
+    if (result === 0) {
+      return NextResponse.json({ error: "tarefa não encontrada" }, { status: 404 });
+    }
+    return NextResponse.json({ ok: true, deleted: result });
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : String(e) },
+      { status: 500 },
+    );
+  }
+}
