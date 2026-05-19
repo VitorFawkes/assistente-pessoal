@@ -204,10 +204,10 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
               <Link
                 href={`/reunioes/${tarefa.meeting_id}`}
                 onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-1 text-[12px] text-[color:var(--muted)] hover:text-[color:var(--foreground)] transition"
+                className="press-feedback inline-flex items-center gap-1 text-[12px] px-2 py-0.5 rounded-full bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:bg-[color:var(--foreground)] hover:text-[color:var(--background)] transition"
               >
                 <Mic size={11} />
-                reunião
+                ver reunião
               </Link>
             )}
             {tarefa.created_at && (
