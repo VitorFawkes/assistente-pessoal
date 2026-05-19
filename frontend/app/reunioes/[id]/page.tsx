@@ -21,6 +21,7 @@ type Meeting = {
   summary: string | null;
   duration_seconds: number | null;
   segments: Segment[] | null;
+  speaker_labels: Record<string, string> | null;
 };
 
 async function fetchMeeting(id: string): Promise<Meeting | null> {
@@ -30,7 +31,7 @@ async function fetchMeeting(id: string): Promise<Meeting | null> {
       id, source, meeting_type, original_filename,
       to_char(coalesce(recorded_at, created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
       to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
-      status, status_error, transcription, summary, duration_seconds, segments
+      status, status_error, transcription, summary, duration_seconds, segments, speaker_labels
     FROM meetings WHERE id = $1
     `,
     [id],
@@ -205,7 +206,9 @@ export default async function ReuniaoDetalhePage({
           </h2>
           <div className="paper-card rounded-2xl border border-[color:var(--border)] p-5">
             <TranscriptionView
+              meetingId={meeting.id}
               segments={meeting.segments}
+              initialLabels={meeting.speaker_labels || {}}
               fallbackText={meeting.transcription}
             />
           </div>

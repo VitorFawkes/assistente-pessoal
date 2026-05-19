@@ -1,5 +1,8 @@
 "use client";
 
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { Pencil, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type Segment = {
@@ -9,13 +12,7 @@ export type Segment = {
   text: string;
 };
 
-// Agrupa segments contíguos do mesmo speaker em "turnos".
-function groupTurns(segments: Segment[]): Array<{
-  speaker: string;
-  start: number;
-  end: number;
-  text: string;
-}> {
+function groupTurns(segments: Segment[]) {
   if (!segments?.length) return [];
   const turns: Array<{ speaker: string; start: number; end: number; text: string }> = [];
   for (const s of segments) {
@@ -30,17 +27,21 @@ function groupTurns(segments: Segment[]): Array<{
   return turns;
 }
 
-// Paleta estável por speaker letter (A, B, C…)
-function speakerStyle(speaker: string): { bg: string; text: string; label: string } {
+function speakerStyle(speaker: string): { bg: string; text: string } {
   const palette = [
     { bg: "bg-[color:var(--calm-bg)]", text: "text-[color:var(--calm)]" },
     { bg: "bg-[color:var(--warm-bg)]", text: "text-[color:var(--warm)]" },
     { bg: "bg-[color:var(--accent)]", text: "text-[color:var(--muted-strong)]" },
     { bg: "bg-[color:var(--urgent-bg)]", text: "text-[color:var(--urgent)]" },
+    { bg: "bg-[color:var(--calm-bg)]/60", text: "text-[color:var(--calm)]" },
+    { bg: "bg-[color:var(--warm-bg)]/60", text: "text-[color:var(--warm)]" },
   ];
   const idx = speaker.charCodeAt(0) - "A".charCodeAt(0);
-  const p = palette[((idx % palette.length) + palette.length) % palette.length];
-  return { ...p, label: `Speaker ${speaker}` };
+  return palette[((idx % palette.length) + palette.length) % palette.length];
+}
+
+function speakerLabel(speaker: string, labels: Record<string, string>): string {
+  return labels[speaker] || `Speaker ${speaker}`;
 }
 
 function fmtTime(seconds: number): string {
@@ -52,14 +53,135 @@ function fmtTime(seconds: number): string {
   return `${m}:${String(sec).padStart(2, "0")}`;
 }
 
+function SpeakerChip({
+  speaker,
+  labels,
+  onSave,
+  saving,
+}: {
+  speaker: string;
+  labels: Record<string, string>;
+  onSave: (speaker: string, newName: string) => void;
+  saving: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(labels[speaker] || "");
+  const style = speakerStyle(speaker);
+
+  if (editing) {
+    return (
+      <div className="inline-flex items-center gap-1">
+        <input
+          type="text"
+          autoFocus
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              onSave(speaker, value.trim());
+              setEditing(false);
+            } else if (e.key === "Escape") {
+              setEditing(false);
+              setValue(labels[speaker] || "");
+            }
+          }}
+          placeholder={`Speaker ${speaker}`}
+          className="w-28 text-[11px] px-2 py-0.5 rounded-full bg-[color:var(--card)] border border-[color:var(--foreground)] outline-none"
+          disabled={saving}
+        />
+        <button
+          type="button"
+          onClick={() => {
+            onSave(speaker, value.trim());
+            setEditing(false);
+          }}
+          className="text-[color:var(--calm)]"
+          disabled={saving}
+          aria-label="salvar"
+        >
+          <Check size={12} />
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setEditing(false);
+            setValue(labels[speaker] || "");
+          }}
+          className="text-[color:var(--muted)]"
+          aria-label="cancelar"
+        >
+          <X size={12} />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setValue(labels[speaker] || "");
+        setEditing(true);
+      }}
+      className={cn(
+        "press-feedback inline-flex items-center gap-1 text-[11px] tracking-wide font-medium px-2 py-0.5 rounded-full",
+        style.bg,
+        style.text,
+        "hover:ring-1 hover:ring-[color:var(--foreground)]/30",
+      )}
+      title="Clique para renomear (vai reprocessar tarefas)"
+    >
+      {speakerLabel(speaker, labels)}
+      <Pencil size={9} className="opacity-50" />
+    </button>
+  );
+}
+
 export function TranscriptionView({
+  meetingId,
   segments,
+  initialLabels,
   fallbackText,
 }: {
+  meetingId: string;
   segments: Segment[] | null | undefined;
+  initialLabels: Record<string, string>;
   fallbackText: string | null;
 }) {
-  // Sem segments — renderiza texto cru (compat com meetings antigas)
+  const router = useRouter();
+  const [labels, setLabels] = useState<Record<string, string>>(initialLabels || {});
+  const [isPending, startTransition] = useTransition();
+  const [reprocessing, setReprocessing] = useState(false);
+
+  const handleSave = (speaker: string, newName: string) => {
+    const next = { ...labels };
+    if (newName) next[speaker] = newName;
+    else delete next[speaker];
+    setLabels(next);
+    setReprocessing(true);
+
+    startTransition(async () => {
+      try {
+        const res = await fetch(`/api/meetings/${meetingId}/speakers`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ labels: next }),
+        });
+        if (!res.ok) {
+          throw new Error(await res.text());
+        }
+        // Espera ~3s pro reprocess do n8n terminar antes de refresh da página
+        setTimeout(() => {
+          router.refresh();
+          setReprocessing(false);
+        }, 3000);
+      } catch (e) {
+        console.error("falha ao salvar labels", e);
+        setReprocessing(false);
+      }
+    });
+  };
+
   if (!segments?.length) {
     if (!fallbackText) return null;
     return (
@@ -73,30 +195,29 @@ export function TranscriptionView({
 
   return (
     <div className="space-y-4">
-      {turns.map((t, i) => {
-        const s = speakerStyle(t.speaker);
-        return (
-          <div key={i} className="flex gap-3">
-            <div className="shrink-0 w-20 sm:w-24 flex flex-col items-start gap-1">
-              <span
-                className={cn(
-                  "inline-flex items-center gap-1 text-[11px] tracking-wide font-medium px-2 py-0.5 rounded-full",
-                  s.bg,
-                  s.text,
-                )}
-              >
-                {s.label}
-              </span>
-              <span className="text-[10px] text-[color:var(--muted)] font-mono">
-                {fmtTime(t.start)}
-              </span>
-            </div>
-            <p className="flex-1 text-[14px] leading-relaxed text-[color:var(--foreground)] pt-0.5">
-              {t.text.trim()}
-            </p>
+      {reprocessing && (
+        <div className="text-[12px] text-[color:var(--muted-strong)] bg-[color:var(--accent)] px-3 py-2 rounded-lg">
+          Reprocessando tarefas com os novos nomes…
+        </div>
+      )}
+      {turns.map((t, i) => (
+        <div key={i} className="flex gap-3">
+          <div className="shrink-0 w-24 sm:w-28 flex flex-col items-start gap-1">
+            <SpeakerChip
+              speaker={t.speaker}
+              labels={labels}
+              onSave={handleSave}
+              saving={isPending}
+            />
+            <span className="text-[10px] text-[color:var(--muted)] font-mono">
+              {fmtTime(t.start)}
+            </span>
           </div>
-        );
-      })}
+          <p className="flex-1 text-[14px] leading-relaxed text-[color:var(--foreground)] pt-0.5">
+            {t.text.trim()}
+          </p>
+        </div>
+      ))}
     </div>
   );
 }
