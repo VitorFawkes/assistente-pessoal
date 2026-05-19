@@ -1,6 +1,6 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { formatDistanceToNowStrict, format, isPast, isToday, isTomorrow } from "date-fns";
+import { formatDistanceToNowStrict, format, isPast, isToday, isTomorrow, isYesterday, isThisYear } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
 export function cn(...inputs: ClassValue[]): string {
@@ -64,4 +64,14 @@ export function fmtDate(iso: string): string {
 
 export function fmtDateShort(iso: string): string {
   return format(new Date(iso), "dd/MM HH:mm", { locale: ptBR });
+}
+
+export function formatCreatedAt(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  if (isToday(date)) return format(date, "'hoje' HH:mm", { locale: ptBR });
+  if (isYesterday(date)) return format(date, "'ontem' HH:mm", { locale: ptBR });
+  if (isThisYear(date)) return format(date, "dd/MM", { locale: ptBR });
+  return format(date, "dd/MM/yyyy", { locale: ptBR });
 }

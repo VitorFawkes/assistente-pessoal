@@ -5,6 +5,11 @@ import { Sparkles, Flame } from "lucide-react";
 import { TaskRow, type Tarefa } from "./task-row";
 import { Tabs } from "./tabs";
 import { DateFilter, filterByDate, type DateBucket } from "./date-filter";
+import {
+  CreatedFilter,
+  filterByCreated,
+  type CreatedBucket,
+} from "./created-filter";
 import { cn } from "@/lib/utils";
 
 type GroupKey = "vencidas" | "hoje" | "esta_semana" | "futuro" | "sem_prazo";
@@ -83,6 +88,7 @@ function GroupHeader({ label, count, accent }: {
 
 export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
   const [bucket, setBucket] = useState<DateBucket>("todos");
+  const [createdBucket, setCreatedBucket] = useState<CreatedBucket>("todas");
   const [onlyUrgent, setOnlyUrgent] = useState(false);
 
   const counts = useMemo(() => {
@@ -99,19 +105,31 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
     ) as Record<DateBucket, number>;
   }, [tarefas]);
 
+  const createdCounts = useMemo(() => {
+    const bs: CreatedBucket[] = ["todas", "hoje", "semana", "mes"];
+    return Object.fromEntries(
+      bs.map((b) => [b, filterByCreated(tarefas, b).length]),
+    ) as Record<CreatedBucket, number>;
+  }, [tarefas]);
+
   const filteredByDate = useMemo(
     () => filterByDate(tarefas, bucket),
     [tarefas, bucket],
   );
 
+  const filteredByCreated = useMemo(
+    () => filterByCreated(filteredByDate, createdBucket),
+    [filteredByDate, createdBucket],
+  );
+
   const filtered = useMemo(
     () =>
       onlyUrgent
-        ? filteredByDate.filter(
+        ? filteredByCreated.filter(
             (t) => t.prioridade === "urgente" || t.prioridade === "alta",
           )
-        : filteredByDate,
-    [filteredByDate, onlyUrgent],
+        : filteredByCreated,
+    [filteredByCreated, onlyUrgent],
   );
 
   const minhas = filtered.filter((t) => t.is_mine);
@@ -191,6 +209,11 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
     <div className="space-y-5">
       <div className="space-y-3">
         <DateFilter value={bucket} onChange={setBucket} counts={counts} />
+        <CreatedFilter
+          value={createdBucket}
+          onChange={setCreatedBucket}
+          counts={createdCounts}
+        />
         {urgentCount > 0 && (
           <button
             type="button"

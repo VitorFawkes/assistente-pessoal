@@ -8,13 +8,14 @@ import {
   Circle,
   ChevronRight,
   CalendarClock,
+  CalendarPlus,
   Mic,
   AlertCircle,
   UserRound,
   Send,
   Flame,
 } from "lucide-react";
-import { cn, formatPrazo, type Prioridade } from "@/lib/utils";
+import { cn, formatPrazo, formatCreatedAt, type Prioridade } from "@/lib/utils";
 import { TaskEditModal } from "./task-edit-modal";
 
 export type Tarefa = {
@@ -208,6 +209,15 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
                 <Mic size={11} />
                 reunião
               </Link>
+            )}
+            {tarefa.created_at && (
+              <span
+                className="inline-flex items-center gap-1 text-[12px] text-[color:var(--muted)]"
+                title={`Criada em ${new Date(tarefa.created_at).toLocaleString("pt-BR")}`}
+              >
+                <CalendarPlus size={11} />
+                {formatCreatedAt(tarefa.created_at)}
+              </span>
             )}
           </div>
         </div>
