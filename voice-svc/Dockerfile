@@ -3,14 +3,16 @@
 # Build: docker build -t voice-svc .
 # Run:   docker run -e DATABASE_URL=... -v audios:/audios:ro -p 8000:8000 voice-svc
 #
-# Imagem final ~1.5GB (torch CPU + speechbrain + ffmpeg + modelo cacheado).
+# Imagem final ~1.5GB (torch CPU + speechbrain + ffmpeg). Modelo (17MB) baixa
+# no primeiro startup via lifespan — assim o build não depende de rede HF
+# durante o build remoto.
 
-FROM python:3.11-slim AS base
+FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=600
 
 # ffmpeg pra extrair trechos do áudio source
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -20,22 +22,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Torch CPU-only via index dedicado (~500MB vs ~1.5GB com CUDA)
-RUN pip install --upgrade pip && \
-    pip install \
+RUN pip install --no-cache-dir --upgrade pip
+
+# Torch CPU-only via index dedicado (~500MB vs ~1.5GB com CUDA).
+# Separado em RUN próprio pra cachear independente das outras deps.
+RUN pip install --no-cache-dir \
       --index-url https://download.pytorch.org/whl/cpu \
       torch==2.1.2 torchaudio==2.1.2
 
 # Demais deps
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Pré-baixa o modelo ECAPA-TDNN (17MB) pra evitar cold start na primeira request
+# Diretório onde SpeechBrain vai cachear o modelo no primeiro request
 ENV SB_MODEL_CACHE=/app/model_cache
-RUN mkdir -p "$SB_MODEL_CACHE" && \
-    python -c "from speechbrain.inference.speaker import EncoderClassifier; \
-EncoderClassifier.from_hparams(source='speechbrain/spkrec-ecapa-voxceleb', \
-savedir='$SB_MODEL_CACHE', run_opts={'device': 'cpu'})"
+RUN mkdir -p "$SB_MODEL_CACHE"
 
 COPY *.py ./
 
