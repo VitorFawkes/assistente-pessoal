@@ -3,7 +3,11 @@ import { notFound } from "next/navigation";
 import { query } from "@/lib/db";
 import { fmtDate } from "@/lib/utils";
 import { TaskRow, type Tarefa } from "@/components/task-row";
-import { TranscriptionView, type Segment } from "@/components/transcription-view";
+import {
+  TranscriptionView,
+  type Segment,
+  type ProposedLabel,
+} from "@/components/transcription-view";
 import { ArrowLeft, Mic, Video, FileQuestion } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +26,7 @@ type Meeting = {
   duration_seconds: number | null;
   segments: Segment[] | null;
   speaker_labels: Record<string, string> | null;
+  speaker_labels_proposed: Record<string, ProposedLabel | null> | null;
 };
 
 async function fetchMeeting(id: string): Promise<Meeting | null> {
@@ -31,12 +36,19 @@ async function fetchMeeting(id: string): Promise<Meeting | null> {
       id, source, meeting_type, original_filename,
       to_char(coalesce(recorded_at, created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
       to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
-      status, status_error, transcription, summary, duration_seconds, segments, speaker_labels
+      status, status_error, transcription, summary, duration_seconds, segments,
+      speaker_labels, speaker_labels_proposed
     FROM meetings WHERE id = $1
     `,
     [id],
   );
   return rows[0] ?? null;
+}
+
+async function fetchPessoas(): Promise<Array<{ id: string; nome: string }>> {
+  return query<{ id: string; nome: string }>(
+    `SELECT id, nome FROM pessoas ORDER BY is_vitor DESC, nome ASC`,
+  );
 }
 
 async function fetchTarefasOfMeeting(id: string): Promise<Tarefa[]> {
@@ -70,7 +82,10 @@ export default async function ReuniaoDetalhePage({
   const meeting = await fetchMeeting(id);
   if (!meeting) notFound();
 
-  const tarefas = await fetchTarefasOfMeeting(id);
+  const [tarefas, pessoas] = await Promise.all([
+    fetchTarefasOfMeeting(id),
+    fetchPessoas(),
+  ]);
   const minhas = tarefas.filter((t) => t.is_mine && t.status !== "concluida" && t.status !== "cancelada");
   const delegadas = tarefas.filter((t) => !t.is_mine && t.status !== "concluida" && t.status !== "cancelada");
   const concluidas = tarefas.filter((t) => t.status === "concluida" || t.status === "cancelada");
@@ -209,6 +224,8 @@ export default async function ReuniaoDetalhePage({
               meetingId={meeting.id}
               segments={meeting.segments}
               initialLabels={meeting.speaker_labels || {}}
+              speakerLabelsProposed={meeting.speaker_labels_proposed || {}}
+              pessoas={pessoas}
               fallbackText={meeting.transcription}
             />
           </div>

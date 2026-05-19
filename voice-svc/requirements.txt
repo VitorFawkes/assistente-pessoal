@@ -1,0 +1,13 @@
+# FastAPI stack
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+pydantic==2.9.2
+
+# Postgres + pgvector
+psycopg[binary,pool]==3.2.1
+pgvector==0.3.4
+
+# Áudio / ML (torch/torchaudio são instalados separados no Dockerfile com index CPU-only)
+speechbrain==1.0.0
+soundfile==0.12.1
+numpy<2.0

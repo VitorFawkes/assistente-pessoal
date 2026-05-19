@@ -54,6 +54,12 @@ export default function RootLayout({
               >
                 Reuniões
               </Link>
+              <Link
+                href="/pessoas"
+                className="px-3 py-1.5 rounded-full hover:bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition"
+              >
+                Pessoas
+              </Link>
             </nav>
           </div>
         </header>

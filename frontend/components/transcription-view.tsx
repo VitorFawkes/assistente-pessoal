@@ -2,17 +2,28 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, Check, X, UserRound } from "lucide-react";
+import { Pencil, Check, X, UserRound, Sparkles, AudioLines } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Nome canônico do dono do sistema (corresponde a pessoas.is_vitor=TRUE).
 const SELF_NAME = "Vitor";
+
+const HIGH_CONFIDENCE = 0.80;
+const MIN_CONFIDENCE = 0.60;
 
 export type Segment = {
   speaker: string;
   start: number;
   end: number;
   text: string;
+};
+
+export type ProposedLabel = {
+  pessoa_id: string;
+  nome: string;
+  confidence: number;
+  sample_count: number;
+  margin: number;
 };
 
 function groupTurns(segments: Segment[]) {
@@ -43,10 +54,6 @@ function speakerStyle(speaker: string): { bg: string; text: string } {
   return palette[((idx % palette.length) + palette.length) % palette.length];
 }
 
-function speakerLabel(speaker: string, labels: Record<string, string>): string {
-  return labels[speaker] || `Speaker ${speaker}`;
-}
-
 function fmtTime(seconds: number): string {
   const s = Math.max(0, Math.round(seconds));
   const h = Math.floor(s / 3600);
@@ -61,11 +68,13 @@ const PESSOAS_DATALIST_ID = "speaker-pessoas-options";
 function SpeakerChip({
   speaker,
   labels,
+  proposed,
   onSave,
   saving,
 }: {
   speaker: string;
   labels: Record<string, string>;
+  proposed: ProposedLabel | null;
   onSave: (speaker: string, newName: string) => void;
   saving: boolean;
 }) {
@@ -73,7 +82,13 @@ function SpeakerChip({
   const [value, setValue] = useState(labels[speaker] || "");
   const style = speakerStyle(speaker);
 
-  const isSelf = (labels[speaker] || "").trim().toLowerCase() === SELF_NAME.toLowerCase();
+  const confirmedName = labels[speaker];
+  const isSelf = (confirmedName || "").trim().toLowerCase() === SELF_NAME.toLowerCase();
+
+  // Proposta só conta se não há confirmação ainda e confidence >= 0.60
+  const hasProposal =
+    !confirmedName && proposed && proposed.confidence >= MIN_CONFIDENCE;
+  const isHighConfidence = hasProposal && proposed.confidence >= HIGH_CONFIDENCE;
 
   if (editing) {
     return (
@@ -97,6 +112,21 @@ function SpeakerChip({
           className="w-28 text-[11px] px-2 py-0.5 rounded-full bg-[color:var(--card)] border border-[color:var(--foreground)] outline-none"
           disabled={saving}
         />
+        {hasProposal && (
+          <button
+            type="button"
+            onClick={() => {
+              onSave(speaker, proposed.nome);
+              setEditing(false);
+            }}
+            disabled={saving}
+            className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-[color:var(--accent)] text-[color:var(--foreground)] hover:opacity-80"
+            title={`Confirmar sugestão por voz (${Math.round(proposed.confidence * 100)}%)`}
+          >
+            <Sparkles size={10} />
+            {proposed.nome} {Math.round(proposed.confidence * 100)}%
+          </button>
+        )}
         <button
           type="button"
           onClick={() => {
@@ -137,6 +167,9 @@ function SpeakerChip({
     );
   }
 
+  // Conteúdo do chip
+  const display = confirmedName || (hasProposal ? proposed.nome : `Speaker ${speaker}`);
+
   return (
     <button
       type="button"
@@ -148,13 +181,25 @@ function SpeakerChip({
         "press-feedback inline-flex items-center gap-1 text-[11px] tracking-wide font-medium px-2 py-0.5 rounded-full",
         isSelf
           ? "bg-[color:var(--foreground)] text-[color:var(--background)]"
+          : hasProposal && !isHighConfidence
+          ? "bg-[color:var(--card)] border border-dashed border-[color:var(--muted)] text-[color:var(--muted-strong)] italic"
           : `${style.bg} ${style.text}`,
         "hover:ring-1 hover:ring-[color:var(--foreground)]/30",
       )}
-      title={isSelf ? "Você. Clique para alterar." : "Clique para renomear (vai reprocessar tarefas)"}
+      title={
+        confirmedName
+          ? isSelf
+            ? "Você. Clique para alterar."
+            : "Clique para renomear (vai reprocessar tarefas)"
+          : hasProposal
+          ? `Sugestão por voz: ${proposed.nome} (${Math.round(proposed.confidence * 100)}%). Clique pra confirmar ou corrigir.`
+          : "Clique para nomear"
+      }
     >
       {isSelf && <UserRound size={10} />}
-      {speakerLabel(speaker, labels)}
+      {hasProposal && !confirmedName && <Sparkles size={9} className="opacity-70" />}
+      {display}
+      {hasProposal && !confirmedName && !isHighConfidence ? "?" : ""}
       <Pencil size={9} className="opacity-50" />
     </button>
   );
@@ -164,12 +209,14 @@ export function TranscriptionView({
   meetingId,
   segments,
   initialLabels,
+  speakerLabelsProposed = {},
   pessoas = [],
   fallbackText,
 }: {
   meetingId: string;
   segments: Segment[] | null | undefined;
   initialLabels: Record<string, string>;
+  speakerLabelsProposed?: Record<string, ProposedLabel | null>;
   pessoas?: Array<{ id: string; nome: string }>;
   fallbackText: string | null;
 }) {
@@ -177,6 +224,8 @@ export function TranscriptionView({
   const [labels, setLabels] = useState<Record<string, string>>(initialLabels || {});
   const [isPending, startTransition] = useTransition();
   const [reprocessing, setReprocessing] = useState(false);
+  const [identifying, setIdentifying] = useState(false);
+  const [identifyError, setIdentifyError] = useState<string | null>(null);
 
   const handleSave = (speaker: string, newName: string) => {
     const next = { ...labels };
@@ -207,6 +256,27 @@ export function TranscriptionView({
     });
   };
 
+  const handleIdentify = () => {
+    setIdentifyError(null);
+    setIdentifying(true);
+    startTransition(async () => {
+      try {
+        const res = await fetch(`/api/meetings/${meetingId}/identify`, {
+          method: "POST",
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(body.message || body.error || `HTTP ${res.status}`);
+        }
+        router.refresh();
+      } catch (e) {
+        setIdentifyError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setIdentifying(false);
+      }
+    });
+  };
+
   if (!segments?.length) {
     if (!fallbackText) return null;
     return (
@@ -218,6 +288,11 @@ export function TranscriptionView({
 
   const turns = groupTurns(segments);
 
+  // Identificar por voz só faz sentido se há speakers sem label confirmado
+  const distinctSpeakers = Array.from(new Set(turns.map((t) => t.speaker)));
+  const unconfirmed = distinctSpeakers.filter((s) => !labels[s]);
+  const showIdentifyButton = unconfirmed.length > 0;
+
   return (
     <div className="space-y-4">
       <datalist id={PESSOAS_DATALIST_ID}>
@@ -225,6 +300,27 @@ export function TranscriptionView({
           <option key={p.id} value={p.nome} />
         ))}
       </datalist>
+
+      {showIdentifyButton && (
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            type="button"
+            onClick={handleIdentify}
+            disabled={identifying || isPending}
+            className="press-feedback inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-full bg-[color:var(--calm-bg)] text-[color:var(--calm)] hover:ring-1 hover:ring-[color:var(--foreground)]/30 disabled:opacity-50"
+            title="Compara cada voz com a base de amostras e sugere mapeamento"
+          >
+            <AudioLines size={13} />
+            {identifying ? "identificando…" : "identificar por voz"}
+          </button>
+          {identifyError && (
+            <span className="text-[11px] text-[color:var(--urgent)]">
+              {identifyError}
+            </span>
+          )}
+        </div>
+      )}
+
       {reprocessing && (
         <div className="text-[12px] text-[color:var(--muted-strong)] bg-[color:var(--accent)] px-3 py-2 rounded-lg">
           Reprocessando tarefas com os novos nomes…
@@ -236,6 +332,7 @@ export function TranscriptionView({
             <SpeakerChip
               speaker={t.speaker}
               labels={labels}
+              proposed={speakerLabelsProposed[t.speaker] ?? null}
               onSave={handleSave}
               saving={isPending}
             />
