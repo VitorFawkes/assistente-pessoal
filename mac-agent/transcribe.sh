@@ -36,12 +36,20 @@ SILENCEREMOVE_DB="-30dB"
 SILENCEREMOVE_MIN="2"
 BITRATE="48k"
 SAMPLE_RATE="16000"
-CHUNK_SECONDS="1500"
+CHUNK_SECONDS="1200"            # 20 min/chunk (gpt-4o-transcribe-diarize limita 1400s/chamada)
+MAX_DURATION="1300"             # se > 1300s, força chunking mesmo se size couber
 MAX_BYTES=$((24 * 1024 * 1024))
 PARALLEL=4
 
 TMPDIR_JOB="$(mktemp -d -t transcribe-XXXXXX)"
 log() { echo "[transcribe] $*" >&2; }
+
+# Authorization em arquivo (modo 600) pra não vazar via `ps aux`.
+# Curl lê o header de arquivo com -H @path
+AUTH_FILE="$TMPDIR_JOB/.auth"
+umask 077
+printf 'Authorization: Bearer %s\n' "$OPENAI_API_KEY" > "$AUTH_FILE"
+chmod 600 "$AUTH_FILE"
 
 # ─── 1. silêncio total ────────────────────────────────────────────
 log "analisando volume de $(basename "$INPUT")"
@@ -74,14 +82,16 @@ COMP_SIZE=$(stat -f%z "$COMPRESSED" 2>/dev/null || stat -c%s "$COMPRESSED")
 log "comprimido=${COMP_SIZE}B (limite=${MAX_BYTES})"
 
 # helper: chama API, retorna JSON cru (.text + .segments)
+# gpt-4o-transcribe-diarize exige chunking_strategy="auto"
 transcribe_call() {
   local file="$1"
   local resp
   resp=$(curl -sS -X POST "https://api.openai.com/v1/audio/transcriptions" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    -H "@${AUTH_FILE}" \
     -F "model=$MODEL" \
     -F "language=pt" \
     -F "response_format=diarized_json" \
+    -F "chunking_strategy=auto" \
     -F "file=@${file}")
   if echo "$resp" | jq -e '.error' >/dev/null 2>&1; then
     echo "ERR API: $resp" >&2
@@ -90,9 +100,9 @@ transcribe_call() {
   echo "$resp"
 }
 
-# ─── 3a. cabe single-shot ──────────────────────────────────────────
-if [ "$COMP_SIZE" -le "$MAX_BYTES" ]; then
-  log "single-shot $MODEL"
+# ─── 3a. cabe single-shot (size E duração dentro do limite da API) ───
+if [ "$COMP_SIZE" -le "$MAX_BYTES" ] && [ "$DURATION_INT" -le "$MAX_DURATION" ]; then
+  log "single-shot $MODEL (dur=${DURATION_INT}s, size=${COMP_SIZE}B)"
   RESP=$(transcribe_call "$COMPRESSED")
   TEXT=$(echo "$RESP" | jq -r '.text // ""')
   SEGMENTS=$(echo "$RESP" | jq '[.segments[]? | {speaker, start, end, text}]')
@@ -125,7 +135,7 @@ transcribe_chunk_to_file() {
   fi
 }
 export -f transcribe_call transcribe_chunk_to_file log
-export OPENAI_API_KEY MODEL
+export AUTH_FILE MODEL
 
 printf '%s\n' "${CHUNKS[@]}" | xargs -I{} -P "$PARALLEL" \
   bash -c 'transcribe_chunk_to_file "$@"' _ {}
