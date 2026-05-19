@@ -1,6 +1,19 @@
-"""Postgres helpers — psycopg3 + pgvector."""
+"""Postgres helpers — psycopg3 + busca cosine em Python.
+
+═════════════════════════════════════════════════════════════════════
+⚠️  ATENÇÃO: SEM pgvector  ⚠️
+═════════════════════════════════════════════════════════════════════
+voice_samples.embedding é REAL[] (não vector(192)) porque a imagem
+postgres atual não tem pgvector instalado. Detalhes em
+/AGENTS.md (raiz) e db/0005_voice_samples.sql.
+
+search_top_k abaixo carrega TODAS as amostras ativas e calcula cosine
+no Python via numpy. Funciona até ~10k amostras sem dor.
+═════════════════════════════════════════════════════════════════════
+"""
 from __future__ import annotations
 
+import json
 import os
 from contextlib import contextmanager
 from typing import Iterator
@@ -8,7 +21,6 @@ from uuid import UUID
 
 import numpy as np
 import psycopg
-from pgvector.psycopg import register_vector
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
@@ -24,17 +36,11 @@ _pool = ConnectionPool(
 )
 
 
-def _configure(conn: psycopg.Connection) -> None:
-    register_vector(conn)
-
-
 def open_pool() -> None:
     _pool.open()
-    # configura cada nova conexão no pool
-    _pool.configure = _configure  # type: ignore[attr-defined]
-    # warm-up: faz uma conn ser criada já configurada
+    # warm-up
     with _pool.connection() as c:
-        _configure(c)
+        c.execute("SELECT 1")
 
 
 def close_pool() -> None:
@@ -44,8 +50,10 @@ def close_pool() -> None:
 @contextmanager
 def conn() -> Iterator[psycopg.Connection]:
     with _pool.connection() as c:
-        _configure(c)
         yield c
+
+
+# ─── domain queries ──────────────────────────────────────────────────
 
 
 def get_meeting(meeting_id: str) -> dict | None:
@@ -75,6 +83,8 @@ def insert_voice_sample(
     source_segment_range: str,
     duration_seconds: float,
 ) -> str:
+    # psycopg3 serializa list[float] como REAL[] nativamente
+    embedding_list = embedding.astype(np.float32).tolist()
     with conn() as c:
         row = c.execute(
             """
@@ -87,7 +97,7 @@ def insert_voice_sample(
             """,
             (
                 pessoa_id,
-                embedding,
+                embedding_list,
                 source_meeting_id,
                 source_speaker_letter,
                 source_segment_range,
@@ -98,36 +108,62 @@ def insert_voice_sample(
     return str(row["id"])
 
 
-def search_top_k(embedding: np.ndarray, k: int = 5) -> list[dict]:
-    """Top-K vizinhos por cosine distance. Retorna {pessoa_id, nome, distance, sample_count}.
+def search_top_k(query_embedding: np.ndarray, k: int = 5) -> list[dict]:
+    """Top-K vizinhos por cosine distance — feito em Python pois não temos pgvector.
 
-    sample_count = total de amostras ativas daquela pessoa (pra UI mostrar "12 amostras").
+    Retorna [{pessoa_id, nome, distance, sample_count}] ordenado por distance ASC
+    (mais próximo primeiro). Distance ∈ [0, 2]; 0 = idêntico.
+
+    Performance: SELECT all active + numpy. Linear na quantidade de amostras
+    ativas. Adequado pra single-user até ~10k amostras.
     """
     with conn() as c:
         rows = c.execute(
             """
-            WITH nearest AS (
-              SELECT pessoa_id, embedding <=> %s AS distance
-              FROM voice_samples
-              WHERE soft_deleted_at IS NULL
-              ORDER BY embedding <=> %s
-              LIMIT %s
-            )
-            SELECT n.pessoa_id, p.nome, n.distance,
-                   (SELECT count(*)::int FROM voice_samples vs
-                    WHERE vs.pessoa_id = n.pessoa_id AND vs.soft_deleted_at IS NULL) AS sample_count
-            FROM nearest n
-            JOIN pessoas p ON p.id = n.pessoa_id
-            ORDER BY n.distance ASC
-            """,
-            (embedding, embedding, k),
+            SELECT vs.pessoa_id, p.nome, vs.embedding
+            FROM voice_samples vs
+            JOIN pessoas p ON p.id = vs.pessoa_id
+            WHERE vs.soft_deleted_at IS NULL
+            """
         ).fetchall()
-    return rows
+
+    if not rows:
+        return []
+
+    # Embeddings → matrix (n, 192). psycopg devolve list[float] pra REAL[].
+    embs = np.array([r["embedding"] for r in rows], dtype=np.float32)
+    q = query_embedding.astype(np.float32)
+
+    # Vetores estão L2-normalizados, então cosine_similarity = dot product.
+    # cosine_distance = 1 - cosine_similarity.
+    sims = embs @ q
+    distances = 1.0 - sims
+
+    # Top-K por menor distância
+    if len(distances) <= k:
+        top_idx = np.argsort(distances)
+    else:
+        part = np.argpartition(distances, k)[:k]
+        top_idx = part[np.argsort(distances[part])]
+
+    # Contagem por pessoa pra exibir sample_count
+    pessoa_counts: dict[str, int] = {}
+    for r in rows:
+        pid = str(r["pessoa_id"])
+        pessoa_counts[pid] = pessoa_counts.get(pid, 0) + 1
+
+    return [
+        {
+            "pessoa_id": rows[i]["pessoa_id"],
+            "nome": rows[i]["nome"],
+            "distance": float(distances[i]),
+            "sample_count": pessoa_counts[str(rows[i]["pessoa_id"])],
+        }
+        for i in top_idx
+    ]
 
 
 def update_speaker_labels_proposed(meeting_id: str, proposed: dict) -> None:
-    import json
-
     with conn() as c:
         c.execute(
             "UPDATE meetings SET speaker_labels_proposed = %s::jsonb WHERE id = %s",
