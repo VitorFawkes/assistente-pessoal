@@ -22,6 +22,7 @@ fi
 : "${WEBHOOK_TOKEN:?WEBHOOK_TOKEN não definida}"
 : "${MACBOOK_FOLDER:?MACBOOK_FOLDER não definida}"
 : "${IPHONE_FOLDER:?IPHONE_FOLDER não definida}"
+IPHONE_READONLY="${IPHONE_READONLY:-0}"
 
 LOG_FILE="$SCRIPT_DIR/watcher.log"
 PROCESSED_DIR="$SCRIPT_DIR/processed"
@@ -219,14 +220,21 @@ process_file() {
   # Limpa o tmp file independente do resultado
   rm -f "$upload_path"
 
+  # Quando IPHONE_READONLY=1 e arquivo vem do IPHONE_FOLDER, NÃO move
+  # (pasta gerenciada pelo Voice Memos — mover quebraria o app).
+  local readonly_src=0
+  if [ "$IPHONE_READONLY" = "1" ] && [ "$source" = "iphone" ]; then
+    readonly_src=1
+  fi
+
   if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
     log "OK http=$http_code"
     mark_processed "$file"
-    move_to_processed "$file"
+    [ "$readonly_src" = "1" ] || move_to_processed "$file"
   else
     log "ERR http=$http_code body=$(head -c 400 "$SCRIPT_DIR/.last_response.json" 2>/dev/null)"
     mark_processed "$file"   # evita loop de retentativa infinita
-    move_to_failed "$file"
+    [ "$readonly_src" = "1" ] || move_to_failed "$file"
   fi
 }
 
