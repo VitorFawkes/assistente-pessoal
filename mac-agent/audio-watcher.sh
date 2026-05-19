@@ -208,12 +208,13 @@ process_file() {
     return 0
   fi
 
-  local text duration silent n_chunks compressed_path
+  local text duration silent n_chunks compressed_path segments
   text=$(echo "$transcribe_json" | jq -r '.text // ""')
   duration=$(echo "$transcribe_json" | jq -r '.duration_seconds // 0')
   silent=$(echo "$transcribe_json" | jq -r '.silent // false')
   n_chunks=$(echo "$transcribe_json" | jq -r '.n_chunks // 0')
   compressed_path=$(echo "$transcribe_json" | jq -r '.compressed_path // ""')
+  segments=$(echo "$transcribe_json" | jq -c '.segments // []')
 
   if [ ! -f "$compressed_path" ]; then
     log "ERR compressed_path não existe: $compressed_path"
@@ -246,6 +247,7 @@ process_file() {
     -F "transcription=$text" \
     -F "duration_seconds=$duration" \
     -F "silent=$silent" \
+    -F "segments=$segments" \
     2>>"$LOG_FILE") || http_code="000"
 
   # Cleanup tmp dir do transcribe.sh

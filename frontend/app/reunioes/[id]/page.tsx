@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { query } from "@/lib/db";
 import { fmtDate } from "@/lib/utils";
 import { TaskRow, type Tarefa } from "@/components/task-row";
+import { TranscriptionView, type Segment } from "@/components/transcription-view";
 import { ArrowLeft, Mic, Video, FileQuestion } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,7 @@ type Meeting = {
   transcription: string | null;
   summary: string | null;
   duration_seconds: number | null;
+  segments: Segment[] | null;
 };
 
 async function fetchMeeting(id: string): Promise<Meeting | null> {
@@ -28,7 +30,7 @@ async function fetchMeeting(id: string): Promise<Meeting | null> {
       id, source, meeting_type, original_filename,
       to_char(coalesce(recorded_at, created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
       to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
-      status, status_error, transcription, summary, duration_seconds
+      status, status_error, transcription, summary, duration_seconds, segments
     FROM meetings WHERE id = $1
     `,
     [id],
@@ -202,9 +204,10 @@ export default async function ReuniaoDetalhePage({
             Transcrição
           </h2>
           <div className="paper-card rounded-2xl border border-[color:var(--border)] p-5">
-            <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-[color:var(--foreground)]">
-              {meeting.transcription}
-            </p>
+            <TranscriptionView
+              segments={meeting.segments}
+              fallbackText={meeting.transcription}
+            />
           </div>
         </section>
       )}
