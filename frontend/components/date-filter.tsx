@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { cn } from "@/lib/utils";
+import { cn, nowSP, toSP } from "@/lib/utils";
 import type { Tarefa } from "./task-row";
 
 export type DateBucket =
@@ -32,7 +32,7 @@ const ACCENT: Record<DateBucket, string> = {
 
 export function filterByDate(tarefas: Tarefa[], bucket: DateBucket): Tarefa[] {
   if (bucket === "todos") return tarefas;
-  const now = new Date();
+  const now = nowSP();
   const startToday = new Date(now);
   startToday.setHours(0, 0, 0, 0);
   const endToday = new Date(now);
@@ -56,7 +56,7 @@ export function filterByDate(tarefas: Tarefa[], bucket: DateBucket): Tarefa[] {
   return tarefas.filter((t) => {
     if (bucket === "sem_prazo") return !t.prazo;
     if (!t.prazo) return false;
-    const p = new Date(t.prazo);
+    const p = toSP(t.prazo);
     if (Number.isNaN(p.getTime())) return false;
     switch (bucket) {
       case "vencidas":

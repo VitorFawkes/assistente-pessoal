@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@/lib/utils";
+import { cn, nowSP, toSP } from "@/lib/utils";
 import type { Tarefa } from "./task-row";
 
 export type CreatedBucket = "todas" | "hoje" | "semana" | "mes";
@@ -17,7 +17,7 @@ export function filterByCreated(
   bucket: CreatedBucket,
 ): Tarefa[] {
   if (bucket === "todas") return tarefas;
-  const now = new Date();
+  const now = nowSP();
   const startToday = new Date(now);
   startToday.setHours(0, 0, 0, 0);
 
@@ -28,7 +28,7 @@ export function filterByCreated(
 
   return tarefas.filter((t) => {
     if (!t.created_at) return false;
-    const c = new Date(t.created_at);
+    const c = toSP(t.created_at);
     if (Number.isNaN(c.getTime())) return false;
     switch (bucket) {
       case "hoje":

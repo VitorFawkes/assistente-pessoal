@@ -10,7 +10,7 @@ import {
   filterByCreated,
   type CreatedBucket,
 } from "./created-filter";
-import { cn } from "@/lib/utils";
+import { cn, nowSP, toSP } from "@/lib/utils";
 
 type GroupKey = "vencidas" | "hoje" | "esta_semana" | "futuro" | "sem_prazo";
 
@@ -31,7 +31,7 @@ const GROUP_ACCENT: Record<GroupKey, string> = {
 };
 
 function groupByPrazo(tarefas: Tarefa[]): Record<GroupKey, Tarefa[]> {
-  const now = new Date();
+  const now = nowSP();
   const startToday = new Date(now);
   startToday.setHours(0, 0, 0, 0);
   const endToday = new Date(now);
@@ -53,7 +53,7 @@ function groupByPrazo(tarefas: Tarefa[]): Record<GroupKey, Tarefa[]> {
       out.sem_prazo.push(t);
       continue;
     }
-    const p = new Date(t.prazo);
+    const p = toSP(t.prazo);
     if (Number.isNaN(p.getTime())) {
       out.sem_prazo.push(t);
       continue;
@@ -207,7 +207,7 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
 
   return (
     <div className="space-y-5">
-      <div className="space-y-3">
+      <div className="sticky top-14 z-30 -mx-5 sm:-mx-6 px-5 sm:px-6 py-3 bg-[color:var(--background)]/95 backdrop-blur-md border-b border-[color:var(--border)] space-y-3">
         <DateFilter value={bucket} onChange={setBucket} counts={counts} />
         <CreatedFilter
           value={createdBucket}

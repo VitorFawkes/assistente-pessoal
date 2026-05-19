@@ -15,7 +15,7 @@ import {
   Send,
   Flame,
 } from "lucide-react";
-import { cn, formatPrazo, formatCreatedAt, type Prioridade } from "@/lib/utils";
+import { cn, formatPrazo, formatCreatedAt, fmtDate, type Prioridade } from "@/lib/utils";
 import { TaskEditModal } from "./task-edit-modal";
 
 export type Tarefa = {
@@ -213,7 +213,7 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
             {tarefa.created_at && (
               <span
                 className="inline-flex items-center gap-1 text-[12px] text-[color:var(--muted)]"
-                title={`Criada em ${new Date(tarefa.created_at).toLocaleString("pt-BR")}`}
+                title={`Criada em ${fmtDate(tarefa.created_at)}`}
               >
                 <CalendarPlus size={11} />
                 {formatCreatedAt(tarefa.created_at)}
