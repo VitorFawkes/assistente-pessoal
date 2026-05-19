@@ -188,11 +188,35 @@ process_file() {
   wait_until_stable "$file"
   [ -f "$file" ] || { log "VANISHED $file"; return 0; }
 
-  # Materializa pra tmp (resolve iCloud placeholder) — usa o tmp pro upload
-  local upload_path
-  upload_path="$(materialize_for_upload "$file")"
-  if [ -z "$upload_path" ] || [ ! -f "$upload_path" ]; then
+  # Materializa pra tmp (resolve iCloud placeholder)
+  local materialized_path
+  materialized_path="$(materialize_for_upload "$file")"
+  if [ -z "$materialized_path" ] || [ ! -f "$materialized_path" ]; then
     log "ERR não conseguiu materializar (iCloud?) $file"
+    return 0
+  fi
+
+  # Transcreve localmente (compress + silenceremove + chunk se preciso + Whisper)
+  log "TRANSCRIBE $(basename "$file")"
+  local transcribe_json transcribe_exit
+  transcribe_json="$("$SCRIPT_DIR/transcribe.sh" "$materialized_path" 2>>"$LOG_FILE")" \
+    && transcribe_exit=0 || transcribe_exit=$?
+  rm -f "$materialized_path"
+
+  if [ "$transcribe_exit" -ne 0 ] || [ -z "$transcribe_json" ]; then
+    log "ERR transcribe.sh falhou (exit=$transcribe_exit) — abortando $file"
+    return 0
+  fi
+
+  local text duration silent n_chunks compressed_path
+  text=$(echo "$transcribe_json" | jq -r '.text // ""')
+  duration=$(echo "$transcribe_json" | jq -r '.duration_seconds // 0')
+  silent=$(echo "$transcribe_json" | jq -r '.silent // false')
+  n_chunks=$(echo "$transcribe_json" | jq -r '.n_chunks // 0')
+  compressed_path=$(echo "$transcribe_json" | jq -r '.compressed_path // ""')
+
+  if [ ! -f "$compressed_path" ]; then
+    log "ERR compressed_path não existe: $compressed_path"
     return 0
   fi
 
@@ -200,10 +224,10 @@ process_file() {
   source="$(derive_source "$file")"
   meeting_type="$(derive_meeting_type "$file")"
   basename="$(basename "$file")"
-  size="$(stat -f%z "$upload_path" 2>/dev/null || echo 0)"
+  size="$(stat -f%z "$compressed_path" 2>/dev/null || echo 0)"
   recorded_at="$(stat -f '%Sm' -t '%Y-%m-%dT%H:%M:%SZ' "$file" 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-  log "POST source=$source type=$meeting_type size=$size file=$basename"
+  log "POST source=$source type=$meeting_type size=$size duration=${duration}s silent=$silent chunks=$n_chunks file=$basename"
 
   local http_code
   http_code=$(curl -sS -o "$SCRIPT_DIR/.last_response.json" -w '%{http_code}' \
@@ -215,10 +239,17 @@ process_file() {
     -H "X-Original-Filename: $basename" \
     -H "X-Recorded-At: $recorded_at" \
     -H "X-Audio-Size: $size" \
-    -F "audio=@$upload_path;filename=$basename" 2>>"$LOG_FILE") || http_code="000"
+    -H "X-Duration-Seconds: $duration" \
+    -H "X-Silent: $silent" \
+    -H "X-N-Chunks: $n_chunks" \
+    -F "audio=@$compressed_path;filename=$basename" \
+    -F "transcription=$text" \
+    -F "duration_seconds=$duration" \
+    -F "silent=$silent" \
+    2>>"$LOG_FILE") || http_code="000"
 
-  # Limpa o tmp file independente do resultado
-  rm -f "$upload_path"
+  # Cleanup tmp dir do transcribe.sh
+  rm -rf "$(dirname "$compressed_path")"
 
   # Quando IPHONE_READONLY=1 e arquivo vem do IPHONE_FOLDER, NÃO move
   # (pasta gerenciada pelo Voice Memos — mover quebraria o app).
