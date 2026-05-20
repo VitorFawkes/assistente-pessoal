@@ -64,7 +64,13 @@ Renderização condicional do chip:
 - `media` → chip não renderiza (default — só faixa lateral)
 - `baixa` → chip não renderiza
 
-Quando `media`/`baixa`, o usuário precisa de outro affordance pra mudar a prioridade. Solução: a **faixa lateral colorida** vira clicável também, com `aria-label="Mudar prioridade"`. Os 6px visuais da faixa são pouco pra toque — estender área hit pra 16px via `padding-left` no clickable element (a faixa visual continua 6px, mas o `<button>` se estende invisivelmente até o checkbox).
+Quando `media`/`baixa`, o usuário precisa de outro affordance pra mudar a prioridade. Solução: a **faixa lateral colorida** vira clicável (não mostra chip "~ média" pra manter linha de chips limpa).
+
+- Faixa visual continua 6px de largura.
+- `<button>` invisível com `padding-left: 16px` estende área hit até o início do checkbox (touch-friendly).
+- Hover (desktop): cursor pointer + glow leve (box-shadow interno) + tooltip "Prioridade: {nível} · clique pra mudar".
+- Mobile: sem hover, área de toque 16px resolve. Discoverability via uso (Vitor é único usuário).
+- `aria-label="Mudar prioridade ({nível atual})"`.
 
 Popover (4 opções verticais):
 - Swatch colorido + texto: urgente / alta / média / baixa
@@ -88,13 +94,17 @@ Lista vem de `GET /api/owners` (ver seção API).
 #### `status-chip.tsx`
 Chip + popover de status. Inclui deletar.
 
-Renderização condicional:
-- `status === "aberta"` → chip não renderiza
-- `status === "em_andamento"` → "⏵ em andamento", fundo `--accent`
-- `status === "cancelada"` → "✕ cancelada", fundo `--muted` opacity
+Renderização condicional do chip de status na linha 1:
+- `status === "aberta"` → chip não renderiza (default)
+- `status === "em_andamento"` → "⏵ em andamento", fundo `--accent`, clicável → popover
+- `status === "cancelada"` → "✕ cancelada", fundo `--muted` opacity, clicável → popover
 - `status === "concluida"` → chip não renderiza (visual de done já é o checkbox + line-through)
 
-Quando todos os status são "default" (aberta), o usuário precisa de affordance pra abrir o popover. Solução: ícone discreto "···" no canto (substituível pelo chevron quando não há status pra mostrar). Decisão: mantém **chevron clicável** — clicar no chevron abre o popover de status; clicar no card (área aberta) ainda abre o modal.
+**Affordance principal: kebab menu `⋮`** no canto direito do card, substituindo o chevron antigo. O chevron antigo carrega convenção universal de "navegar pra detalhe" — sobrecarregar com popover quebra mental model. Kebab é convenção universal de "mais ações".
+
+- Click no kebab → popover de status + deletar (sempre disponível, independente do status atual)
+- Click no card (fora de chips/check/kebab) → abre modal (mesma intenção do chevron antigo)
+- Visual: `⋮` em `--muted`, hover `--foreground`, área hit 28×44px
 
 Popover:
 - ○ aberta
@@ -118,9 +128,10 @@ Chip puramente decorativo + linkável (não tem popover).
 Novo layout (referência: `layout-v2.html` no preview):
 
 ```
-┌─[faixa]─[check]─[corpo]──────────────────[chevron]─┐
-│  6px   44px   chips/título/chips           28px    │
-└────────────────────────────────────────────────────┘
+┌─[faixa]─[check]─[corpo]──────────────────[kebab]──┐
+│  6px*  44px   chips/título/chips           28px   │
+└───────────────────────────────────────────────────┘
+* faixa visual 6px; hit area 16px (clicável pra prioridade)
 
 corpo:
   Linha 1 (chips): <PrioridadeChip> <OwnerChip> <StatusChip>
@@ -232,9 +243,9 @@ Cache: response com header `Cache-Control: private, max-age=60`.
 - Desktop: Radix `Popover` ou implementação manual com `position: absolute` ancorado ao trigger via `getBoundingClientRect`.
 - Mobile: `position: fixed; bottom: 0; left: 0; right: 0` + handle no topo + backdrop blur.
 
-Decisão técnica: usar **`@radix-ui/react-popover`** (já é padrão Next/Tailwind, tem a11y embutida). Bottom sheet é custom (Radix não tem sheet primitivo, mas tem `Dialog` que serve).
-
-Alternativa: `vaul` (lib dedicada de bottom sheet, integra bem com Radix). Decisão pendente — confirma no spec review.
+Decisão técnica:
+- Desktop: **`@radix-ui/react-popover`** (a11y embutida, padrão Next/Tailwind).
+- Mobile: **`vaul`** (drawer/bottom sheet polido, mesmo autor do `sonner`, ~3kb, drag com momentum e snap points). `popover-shell.tsx` detecta breakpoint e renderiza um ou outro.
 
 ### A11y
 - Chip = `<button type="button" aria-haspopup="dialog" aria-expanded={open}>`
@@ -248,7 +259,7 @@ Hierarquia de área clicável dentro do card (cada uma com `stopPropagation`):
 - Faixa lateral (16px hit) → abre popover de prioridade
 - Checkbox (44px) → toggle concluída/aberta
 - Chips no corpo → abrem seus popovers respectivos
-- Chevron (28px) → abre popover de status (atalho pra mudar status / deletar)
+- Kebab `⋮` (28px) → abre popover de status + deletar
 - Resto do corpo (título, áreas vazias) → abre modal
 
 Implementação: chips e botões usam `e.stopPropagation()` no `onClick`. Wrapper externo do card (`role="button"`) é o handler de "abrir modal".
@@ -278,12 +289,16 @@ Cada item é mergeável independente.
 
 Cada PR/commit pode ser pequeno. Recomendo commit por item (1-11).
 
-## Decisões pendentes (confirmar antes de implementar)
+## Decisões resolvidas
 
-1. **Toast lib** — `sonner` (recomendação) vs custom mínimo. Spec assume sonner.
-2. **Bottom sheet lib** — `vaul` vs custom. Spec assume Radix Dialog + CSS custom (sem dep nova).
-3. **Faixa lateral clicável pra prioridade** — OK estender a hit area pra 16px (invisível) sem mudar visual? Ou prefere mostrar chip "~ média" sempre?
-4. **Chevron abre popover de status** — OK reusar o chevron? Ou criar ícone "···" separado?
+Todas as decisões pendentes foram tomadas (delegadas pelo Vitor com "tome a melhor decisão"):
+
+1. **Toast: `sonner`** — autor referência em UX de toast (Emil Kowalski), ~6kb, swipe-to-dismiss, queue automático, a11y nativa.
+2. **Bottom sheet: `vaul`** — mesmo autor do sonner, ~3kb, drag com momentum e snap points. Diferença de polish vs CSS custom é notável e o custo é minúsculo.
+3. **Faixa lateral clicável** (sem chip "~ média"). Mantém linha de chips limpa. Hover + tooltip resolve discoverability pra usuário único.
+4. **Kebab `⋮` substitui o chevron** pra abrir popover de status/deletar. Preserva mental model do chevron (= navegar) e usa convenção universal do kebab (= mais ações).
+
+Dependências novas a instalar: `sonner`, `vaul`, `@radix-ui/react-popover`.
 
 ## Fora de escopo
 
