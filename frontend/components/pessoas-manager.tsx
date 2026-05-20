@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, Trash2, Check, X, Plus } from "lucide-react";
+import Link from "next/link";
+import { Pencil, Trash2, Check, X, Plus, Music, ChevronRight } from "lucide-react";
 
 export type PessoaListItem = {
   id: string;
@@ -11,6 +12,7 @@ export type PessoaListItem = {
   is_vitor: boolean;
   notas: string | null;
   n_reunioes: number;
+  sample_count: number;
 };
 
 export function PessoasManager({ initial }: { initial: PessoaListItem[] }) {
@@ -41,7 +43,7 @@ export function PessoasManager({ initial }: { initial: PessoaListItem[] }) {
     }
     const created = await res.json();
     setPessoas((prev) =>
-      [...prev, { ...created, n_reunioes: 0 }].sort((a, b) => {
+      [...prev, { ...created, n_reunioes: 0, sample_count: 0 }].sort((a, b) => {
         if (a.is_vitor !== b.is_vitor) return a.is_vitor ? -1 : 1;
         return a.nome.localeCompare(b.nome);
       }),
@@ -75,7 +77,9 @@ export function PessoasManager({ initial }: { initial: PessoaListItem[] }) {
     const updated = await res.json();
     setPessoas((prev) =>
       prev.map((p) =>
-        p.id === id ? { ...p, ...updated, n_reunioes: p.n_reunioes } : p,
+        p.id === id
+          ? { ...p, ...updated, n_reunioes: p.n_reunioes, sample_count: p.sample_count }
+          : p,
       ),
     );
     setEditingId(null);
@@ -141,12 +145,15 @@ export function PessoasManager({ initial }: { initial: PessoaListItem[] }) {
           ) : (
             <div
               key={p.id}
-              className="paper-card rounded-2xl border border-[color:var(--border)] p-4 sm:p-5"
+              className="paper-card rounded-2xl border border-[color:var(--border)] hover:border-[color:var(--muted)] transition"
             >
-              <div className="flex items-start gap-3">
-                <div className="flex-1 min-w-0">
+              <div className="flex items-stretch">
+                <Link
+                  href={`/pessoas/${p.id}`}
+                  className="flex-1 min-w-0 p-4 sm:p-5 group"
+                >
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[15px] font-medium text-[color:var(--foreground)]">
+                    <span className="text-[15px] font-medium text-[color:var(--foreground)] group-hover:underline">
                       {p.nome}
                     </span>
                     {p.is_vitor && (
@@ -154,12 +161,21 @@ export function PessoasManager({ initial }: { initial: PessoaListItem[] }) {
                         Você
                       </span>
                     )}
+                    <span className="inline-flex items-center gap-1 text-[12px] text-[color:var(--muted)]">
+                      <Music size={11} /> {p.sample_count}
+                      {" "}
+                      {p.sample_count === 1 ? "amostra" : "amostras"}
+                    </span>
                     {p.n_reunioes > 0 && (
                       <span className="text-[12px] text-[color:var(--muted)]">
                         · {p.n_reunioes}{" "}
                         {p.n_reunioes === 1 ? "reunião" : "reuniões"}
                       </span>
                     )}
+                    <ChevronRight
+                      size={14}
+                      className="ml-auto text-[color:var(--muted)] group-hover:text-[color:var(--foreground)]"
+                    />
                   </div>
                   {p.aliases.length > 0 && (
                     <p className="mt-1 text-[12px] text-[color:var(--muted)]">
@@ -171,8 +187,8 @@ export function PessoasManager({ initial }: { initial: PessoaListItem[] }) {
                       {p.notas}
                     </p>
                   )}
-                </div>
-                <div className="shrink-0 flex items-center gap-1">
+                </Link>
+                <div className="shrink-0 flex items-center gap-1 pr-3">
                   <button
                     type="button"
                     onClick={() => setEditingId(p.id)}

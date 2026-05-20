@@ -11,7 +11,11 @@ async function fetchPessoas(): Promise<PessoaListItem[]> {
         SELECT count(DISTINCT m.id)::int
         FROM meetings m, jsonb_each_text(m.speaker_pessoas) AS sp(letter, pid)
         WHERE sp.pid = p.id::text
-      ), 0) AS n_reunioes
+      ), 0) AS n_reunioes,
+      COALESCE((
+        SELECT count(*)::int FROM voice_samples vs
+        WHERE vs.pessoa_id = p.id AND vs.soft_deleted_at IS NULL
+      ), 0) AS sample_count
     FROM pessoas p
     ORDER BY p.is_vitor DESC, p.nome ASC
   `);
