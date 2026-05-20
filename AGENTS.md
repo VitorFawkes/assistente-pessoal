@@ -78,6 +78,11 @@ soft_deleted_at IS NULL` — se passar de ~10k, está na hora de migrar.
   **URL correta:** `https://n8n.vitorgambetti.com.br/` — NÃO o subdomínio
   easypanel `n8n-n8n.ymnmx7.easypanel.host` (key só funciona no domínio
   custom). Workflow principal: `Acoes - Audio Ingest` (id `98jEiWWSAKFWEP6B`).
+
+- **Frontend (URL pública):** `https://n8n-assistente-frontend.tatetz.easypanel.host/`
+  — o domínio `acoes.vitorgambetti.com.br` está com 404 do Traefik (DNS ou
+  basic auth quebrado). NÃO usar `acoes.vitorgambetti.com.br` até consertar.
+  Páginas: `/reunioes`, `/reunioes/[id]`, `/pessoas`, `/pessoas/[id]`.
 - **Easypanel:** API tRPC em `EASYPANEL_URL/api/trpc/*`. Mutations
   funcionam pra create/update/deploy/restart de services, **mas não há
   endpoint pra mounts**. Mounts são gerenciados via UI.
