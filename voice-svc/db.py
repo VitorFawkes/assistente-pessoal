@@ -213,20 +213,76 @@ def has_active_sample(meeting_id: str, letter: str, pessoa_id: str) -> bool:
     return row is not None
 
 
-def reassign_sample(sample_id: str, new_pessoa_id: str) -> bool:
-    """Reatribui uma amostra ativa pra outra pessoa (correção de rotulagem errada)."""
+def reassign_sample(sample_id: str, new_pessoa_id: str) -> dict | None:
+    """Reatribui uma amostra ativa pra outra pessoa (correção de rotulagem errada).
+
+    Retorna {sample_id, source_meeting_id, source_speaker_letter} pra que o
+    chamador possa recomputar speaker_labels da meeting afetada.
+    """
     with conn() as c:
         row = c.execute(
             """
             UPDATE voice_samples
                SET pessoa_id = %s
              WHERE id = %s AND soft_deleted_at IS NULL
-            RETURNING id
+            RETURNING id, source_meeting_id, source_speaker_letter
             """,
             (new_pessoa_id, sample_id),
         ).fetchone()
         c.commit()
-    return row is not None
+    return row
+
+
+def recompute_meeting_speaker_for_letter(meeting_id: str, letter: str) -> dict | None:
+    """Recomputa speaker_labels[letter] e speaker_pessoas[letter] da meeting com
+    base na pessoa MAJORITÁRIA das amostras ativas de (meeting, letter).
+
+    Caso a maior parte das amostras de Speaker A agora pertença a Cyntya (após
+    o user mover/corrigir), o mapeamento da reunião reflete isso automaticamente.
+
+    Sem amostras ativas → não muda (mantém o que o user rotulou originalmente).
+    """
+    with conn() as c:
+        # pessoa majoritária + nome
+        majority = c.execute(
+            """
+            SELECT vs.pessoa_id, p.nome, count(*)::int AS n
+            FROM voice_samples vs
+            JOIN pessoas p ON p.id = vs.pessoa_id
+            WHERE vs.source_meeting_id = %s
+              AND vs.source_speaker_letter = %s
+              AND vs.soft_deleted_at IS NULL
+            GROUP BY vs.pessoa_id, p.nome
+            ORDER BY n DESC, p.nome ASC
+            LIMIT 1
+            """,
+            (meeting_id, letter),
+        ).fetchone()
+
+        if not majority:
+            return None  # sem amostras, mantém speaker_labels existente
+
+        pessoa_id = str(majority["pessoa_id"])
+        nome = majority["nome"]
+
+        # Atualiza só essa letter dentro do jsonb existente
+        c.execute(
+            """
+            UPDATE meetings
+               SET speaker_labels = jsonb_set(coalesce(speaker_labels, '{}'::jsonb), %s, to_jsonb(%s::text), true),
+                   speaker_pessoas = jsonb_set(coalesce(speaker_pessoas, '{}'::jsonb), %s, to_jsonb(%s::text), true)
+             WHERE id = %s
+            """,
+            (
+                "{" + letter + "}",
+                nome,
+                "{" + letter + "}",
+                pessoa_id,
+                meeting_id,
+            ),
+        )
+        c.commit()
+    return {"pessoa_id": pessoa_id, "nome": nome}
 
 
 def soft_delete_sample(sample_id: str) -> bool:

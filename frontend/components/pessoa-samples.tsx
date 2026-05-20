@@ -62,7 +62,11 @@ export function PessoaSamplesList({
   const [reassigningId, setReassigningId] = useState<string | null>(null);
   const [reassignValue, setReassignValue] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [movedTo, setMovedTo] = useState<{ nome: string; pessoa_id: string } | null>(null);
+  const [movedTo, setMovedTo] = useState<{
+    nome: string;
+    pessoa_id: string;
+    meetingSpeakerUpdated: boolean;
+  } | null>(null);
 
   const handleDelete = async (sampleId: string, hint: string) => {
     if (!confirm(`Deletar amostra ${hint}?`)) return;
@@ -99,7 +103,15 @@ export function PessoaSamplesList({
       }
       setReassigningId(null);
       setReassignValue("");
-      setMovedTo({ nome: body.nome || trimmed, pessoa_id: body.pessoa_id });
+      // Se o backend reportou que o speaker da meeting agora reflete a nova pessoa,
+      // o mapeamento da reunião foi atualizado também (não só a amostra individual).
+      const speakerNow = body.meeting_speaker_now;
+      setMovedTo({
+        nome: body.nome || trimmed,
+        pessoa_id: body.pessoa_id,
+        meetingSpeakerUpdated:
+          speakerNow != null && speakerNow.pessoa_id === body.pessoa_id,
+      });
       startTransition(() => router.refresh());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -135,13 +147,21 @@ export function PessoaSamplesList({
         </div>
       )}
       {movedTo && (
-        <div className="flex items-center justify-between gap-3 text-[12px] text-[color:var(--calm)] bg-[color:var(--calm-bg)] px-3 py-2 rounded-lg">
-          <span>
-            ✓ amostra movida pra <strong>{movedTo.nome}</strong>
-          </span>
+        <div className="flex items-start justify-between gap-3 text-[12px] text-[color:var(--calm)] bg-[color:var(--calm-bg)] px-3 py-2 rounded-lg">
+          <div className="flex-1 min-w-0">
+            <p>
+              ✓ amostra movida pra <strong>{movedTo.nome}</strong>
+            </p>
+            {movedTo.meetingSpeakerUpdated && (
+              <p className="text-[11px] opacity-80 mt-0.5">
+                o speaker dessa reunião agora reflete {movedTo.nome} (maioria das
+                amostras)
+              </p>
+            )}
+          </div>
           <Link
             href={`/pessoas/${movedTo.pessoa_id}`}
-            className="underline font-medium hover:opacity-80"
+            className="underline font-medium hover:opacity-80 shrink-0"
           >
             ver lá →
           </Link>

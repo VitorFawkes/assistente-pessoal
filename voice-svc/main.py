@@ -44,6 +44,7 @@ from db import (
     is_valid_uuid,
     open_pool,
     reassign_sample,
+    recompute_meeting_speaker_for_letter,
     search_top_k,
     soft_delete_sample,
     update_speaker_labels_proposed,
@@ -467,7 +468,10 @@ class ReassignReq(BaseModel):
 
 @app.patch("/samples/{sample_id}")
 def patch_sample(sample_id: str, req: ReassignReq) -> dict[str, Any]:
-    """Move uma amostra pra outra pessoa (correção de rotulagem)."""
+    """Move uma amostra pra outra pessoa (correção de rotulagem) E recomputa
+    speaker_labels da reunião com base na pessoa majoritária das amostras
+    ativas do mesmo (meeting, letter).
+    """
     if not is_valid_uuid(sample_id):
         raise HTTPException(400, "sample_id inválido")
     if not is_valid_uuid(req.pessoa_id):
@@ -475,7 +479,31 @@ def patch_sample(sample_id: str, req: ReassignReq) -> dict[str, Any]:
     p = get_pessoa(req.pessoa_id)
     if not p:
         raise HTTPException(404, f"pessoa_id {req.pessoa_id} não encontrada")
-    ok = reassign_sample(sample_id, req.pessoa_id)
-    if not ok:
+
+    moved = reassign_sample(sample_id, req.pessoa_id)
+    if not moved:
         raise HTTPException(404, "sample não encontrada (ou já deletada)")
-    return {"ok": True, "sample_id": sample_id, "pessoa_id": req.pessoa_id, "nome": p["nome"]}
+
+    # Recomputa o speaker_label da meeting com base na maioria das amostras restantes
+    meeting_speaker_update = None
+    if moved.get("source_meeting_id") and moved.get("source_speaker_letter"):
+        meeting_speaker_update = recompute_meeting_speaker_for_letter(
+            str(moved["source_meeting_id"]),
+            moved["source_speaker_letter"],
+        )
+        log.info(
+            "sample %s movida pra %s; meeting %s letter %s agora reflete %s",
+            sample_id, p["nome"],
+            moved["source_meeting_id"], moved["source_speaker_letter"],
+            meeting_speaker_update,
+        )
+
+    return {
+        "ok": True,
+        "sample_id": sample_id,
+        "pessoa_id": req.pessoa_id,
+        "nome": p["nome"],
+        "meeting_id": str(moved["source_meeting_id"]) if moved.get("source_meeting_id") else None,
+        "speaker_letter": moved.get("source_speaker_letter"),
+        "meeting_speaker_now": meeting_speaker_update,
+    }
