@@ -1,4 +1,4 @@
-"""voice-svc — fingerprinting de speakers com SpeechBrain ECAPA-TDNN + pgvector.
+"""voice-svc — fingerprinting de speakers com SpeechBrain ECAPA-TDNN.
 
 Endpoints:
   GET  /health             liveness + info do modelo
@@ -8,8 +8,9 @@ Endpoints:
 
 Pressupõe:
   - meetings.segments preenchido (mac-agent diarize)
-  - DATABASE_URL aponta pro Postgres com pgvector + tabelas pessoas/voice_samples (0004, 0005)
-  - Volume montado em AUDIO_BASE (default /audios) com os mp3 originais
+  - DATABASE_URL aponta pro Postgres (tabelas pessoas/voice_samples — 0004/0005)
+  - Áudio é BAIXADO via HTTP do frontend (`FRONTEND_INTERNAL_URL/api/audio/{id}`),
+    não lido de mount compartilhado — easypanel cria volume separado por service.
 """
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import numpy as np
+import requests
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
@@ -45,7 +47,10 @@ from db import (
 )
 from embedding import EMBED_DIM, average_embeddings, encode_wav, load_encoder
 
-AUDIO_BASE = os.environ.get("AUDIO_BASE", "/audios")
+AUDIO_BASE = os.environ.get("AUDIO_BASE", "/audios")  # fallback se houver mount; primário é HTTP
+FRONTEND_INTERNAL_URL = os.environ.get(
+    "FRONTEND_INTERNAL_URL", "http://n8n_assistente-frontend:3000"
+)
 TURN_MAX_SECONDS = float(os.environ.get("TURN_MAX_SECONDS", "30"))  # cap por turno embedado
 CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.60"))
 HIGH_CONFIDENCE = float(os.environ.get("HIGH_CONFIDENCE", "0.80"))
@@ -90,11 +95,36 @@ class EnrollReq(BaseModel):
 # ─── helpers ─────────────────────────────────────────────────────────
 
 
-def _resolve_audio_path(audio_path: str) -> str:
-    """audio_path no DB é absoluto (ex: /audios/2026/05/uuid.mp3). Se relativo, prefixa AUDIO_BASE."""
-    if audio_path.startswith("/"):
-        return audio_path
-    return os.path.join(AUDIO_BASE, audio_path)
+def _resolve_audio(meeting_id: str, audio_path: str, tmpdir: str) -> str:
+    """Garante que o áudio source esteja disponível em disco local.
+
+    Estratégia:
+      1. Se o mount /audios estiver compartilhado e o arquivo existir lá → usa direto.
+      2. Senão, baixa via HTTP do frontend (GET /api/audio/{meeting_id}).
+         Funciona mesmo quando o easypanel cria volumes separados por service.
+    """
+    # Tenta mount local primeiro
+    local = audio_path if audio_path.startswith("/") else os.path.join(AUDIO_BASE, audio_path)
+    if os.path.exists(local):
+        return local
+
+    # Fallback HTTP — baixa pro tmpdir
+    log.info("audio %s não está em mount local, baixando do frontend…", meeting_id)
+    url = f"{FRONTEND_INTERNAL_URL}/api/audio/{meeting_id}"
+    dst = os.path.join(tmpdir, f"{meeting_id}.audio")
+    try:
+        with requests.get(url, stream=True, timeout=120) as r:
+            r.raise_for_status()
+            with open(dst, "wb") as f:
+                for chunk in r.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        f.write(chunk)
+    except Exception as e:
+        raise HTTPException(
+            502, f"falha ao baixar áudio do frontend ({url}): {e}"
+        ) from e
+    log.info("audio baixado: %s (%d bytes)", dst, os.path.getsize(dst))
+    return dst
 
 
 def _embed_turn(
@@ -175,10 +205,6 @@ def identify(req: IdentifyReq) -> dict[str, Any]:
         log.info("meeting %s sem segments — nada a identificar", req.meeting_id)
         return {"labels": {}, "reason": "no_segments"}
 
-    audio_src = _resolve_audio_path(meeting["audio_path"])
-    if not os.path.exists(audio_src):
-        raise HTTPException(404, f"audio não encontrado: {audio_src}")
-
     segments = parse_segments(raw_segments)
     turns = group_turns(segments)
     speakers = distinct_speakers(turns)
@@ -186,6 +212,7 @@ def identify(req: IdentifyReq) -> dict[str, Any]:
     labels: dict[str, Any] = {}
 
     with tempfile.TemporaryDirectory(prefix="voice-svc-") as tmpdir:
+        audio_src = _resolve_audio(req.meeting_id, meeting["audio_path"], tmpdir)
         for letter in speakers:
             picked = pick_representative_turns(turns, letter)
             if not picked:
@@ -257,10 +284,6 @@ def enroll(req: EnrollReq) -> dict[str, Any]:
     if not raw_segments:
         raise HTTPException(400, "meeting sem segments — nada a enroll")
 
-    audio_src = _resolve_audio_path(meeting["audio_path"])
-    if not os.path.exists(audio_src):
-        raise HTTPException(404, f"audio não encontrado: {audio_src}")
-
     # valida pessoa_ids
     pessoas_cache: dict[str, dict] = {}
     for letter, pid in req.mapping.items():
@@ -277,6 +300,7 @@ def enroll(req: EnrollReq) -> dict[str, Any]:
     enrolled: dict[str, int] = {}
 
     with tempfile.TemporaryDirectory(prefix="voice-svc-") as tmpdir:
+        audio_src = _resolve_audio(req.meeting_id, meeting["audio_path"], tmpdir)
         for letter, pessoa_id in req.mapping.items():
             # Idempotência: já existe amostra ativa dessa (meeting, letter, pessoa)? Skip.
             if has_active_sample(req.meeting_id, letter, pessoa_id):
