@@ -8,7 +8,7 @@ import {
   type Segment,
   type ProposedLabel,
 } from "@/components/transcription-view";
-import { ArrowLeft, Mic, Video, FileQuestion } from "lucide-react";
+import { ArrowLeft, Mic, Video, FileQuestion, UsersRound } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -216,9 +216,20 @@ export default async function ReuniaoDetalhePage({
       {/* TRANSCRIÇÃO */}
       {meeting.transcription && (
         <section className="space-y-4">
-          <h2 className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
-            Transcrição
-          </h2>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <h2 className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
+              Transcrição
+            </h2>
+            {meeting.segments && meeting.segments.length > 0 && (
+              <Link
+                href={`/reunioes/${meeting.id}/identificar`}
+                className="press-feedback inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-full bg-[color:var(--calm-bg)] text-[color:var(--calm)] hover:ring-1 hover:ring-[color:var(--foreground)]/30"
+                title="Tela dedicada pra ouvir trechos curtos e rotular speakers"
+              >
+                <UsersRound size={13} /> identificar speakers
+              </Link>
+            )}
+          </div>
           <div className="paper-card rounded-2xl border border-[color:var(--border)] p-5">
             <TranscriptionView
               meetingId={meeting.id}
