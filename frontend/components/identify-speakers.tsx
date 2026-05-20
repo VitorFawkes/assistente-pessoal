@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, UserRound, Sparkles } from "lucide-react";
+import { Check, UserRound, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const SELF_NAME = "Vitor";
@@ -66,8 +66,22 @@ export function IdentifySpeakers({
   const [values, setValues] = useState<Record<string, string>>({});
   const [busyLetter, setBusyLetter] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Chave: "letter|start-end" — trechos que o user marcou como NÃO sendo daquela pessoa.
+  const [excludedTurns, setExcludedTurns] = useState<Set<string>>(new Set());
 
-  const saveOne = async (letter: string, nome: string) => {
+  const turnKey = (letter: string, t: Turn) => `${letter}|${t.start}-${t.end}`;
+
+  const toggleTurn = (letter: string, t: Turn) => {
+    const k = turnKey(letter, t);
+    setExcludedTurns((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  };
+
+  const saveOne = async (letter: string, nome: string, speaker: SpeakerCard) => {
     const trimmed = nome.trim();
     if (!trimmed) return;
     setError(null);
@@ -76,10 +90,26 @@ export function IdentifySpeakers({
       // Patch só com a letter desse speaker, mas backend espera mapping completo.
       // Estratégia: mandar TODO o mapping atual (labels existentes) + a nova letter.
       const nextLabels = { ...labels, [letter]: trimmed };
+
+      // Turnos INCLUÍDOS (não marcados como "não é") — vão pro voice-svc enrolar
+      // exatamente esses, sem outlier rejection automático.
+      const included = speaker.top_turns.filter(
+        (t) => !excludedTurns.has(turnKey(letter, t)),
+      );
+      const turnsByLetter: Record<string, Array<{ start: number; end: number }>> = {};
+      if (included.length > 0 && included.length < speaker.top_turns.length) {
+        // Só passa se user fez curadoria (excluiu pelo menos 1). Senão deixa
+        // o backend usar o pick_representative_turns + outlier rejection.
+        turnsByLetter[letter] = included.map((t) => ({ start: t.start, end: t.end }));
+      }
+
       const res = await fetch(`/api/meetings/${meetingId}/speakers`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ labels: nextLabels }),
+        body: JSON.stringify({
+          labels: nextLabels,
+          ...(Object.keys(turnsByLetter).length > 0 ? { turns_by_letter: turnsByLetter } : {}),
+        }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -87,6 +117,12 @@ export function IdentifySpeakers({
       }
       setLabels(nextLabels);
       setValues((v) => ({ ...v, [letter]: "" }));
+      // Limpa exclusões desse letter após salvar
+      setExcludedTurns((prev) => {
+        const next = new Set(prev);
+        for (const t of speaker.top_turns) next.delete(turnKey(letter, t));
+        return next;
+      });
       startTransition(() => router.refresh());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -140,7 +176,13 @@ export function IdentifySpeakers({
               speaker={s}
               value={values[s.letter] || ""}
               onValueChange={(v) => setValues((vs) => ({ ...vs, [s.letter]: v }))}
-              onSave={(n) => saveOne(s.letter, n)}
+              onSave={(n) => saveOne(s.letter, n, s)}
+              excludedTurnsForSpeaker={new Set(
+                s.top_turns
+                  .filter((t) => excludedTurns.has(turnKey(s.letter, t)))
+                  .map((t) => `${t.start}-${t.end}`),
+              )}
+              onToggleTurn={(t) => toggleTurn(s.letter, t)}
               saving={busyLetter === s.letter}
             />
           ))}
@@ -159,7 +201,13 @@ export function IdentifySpeakers({
               speaker={s}
               value={values[s.letter] || ""}
               onValueChange={(v) => setValues((vs) => ({ ...vs, [s.letter]: v }))}
-              onSave={(n) => saveOne(s.letter, n)}
+              onSave={(n) => saveOne(s.letter, n, s)}
+              excludedTurnsForSpeaker={new Set(
+                s.top_turns
+                  .filter((t) => excludedTurns.has(turnKey(s.letter, t)))
+                  .map((t) => `${t.start}-${t.end}`),
+              )}
+              onToggleTurn={(t) => toggleTurn(s.letter, t)}
               saving={busyLetter === s.letter}
               currentName={labels[s.letter]}
             />
@@ -178,6 +226,8 @@ function SpeakerRow({
   onSave,
   saving,
   currentName,
+  excludedTurnsForSpeaker,
+  onToggleTurn,
 }: {
   meetingId: string;
   speaker: SpeakerCard;
@@ -186,9 +236,16 @@ function SpeakerRow({
   onSave: (nome: string) => void;
   saving: boolean;
   currentName?: string;
+  excludedTurnsForSpeaker: Set<string>;
+  onToggleTurn: (t: Turn) => void;
 }) {
   const color = speakerColor(speaker.letter);
   const isSelf = (currentName || "").toLowerCase() === SELF_NAME.toLowerCase();
+  const totalTurns = speaker.top_turns.length;
+  const includedCount = speaker.top_turns.filter(
+    (t) => !excludedTurnsForSpeaker.has(`${t.start}-${t.end}`),
+  ).length;
+  const anyExcluded = includedCount < totalTurns;
 
   return (
     <div className="paper-card rounded-2xl border border-[color:var(--border)] p-4 sm:p-5 space-y-3">
@@ -209,29 +266,66 @@ function SpeakerRow({
         </span>
       </div>
 
-      <div className="space-y-2">
-        {speaker.top_turns.map((t, i) => (
-          <div key={i} className="space-y-1">
-            <div className="flex items-center gap-2 text-[11px] text-[color:var(--muted)] font-mono">
-              <span>
-                {fmtTimecode(t.start)} → {fmtTimecode(t.end)}
-              </span>
-              <span>·</span>
-              <span>{Math.round(t.end - t.start)}s</span>
+      <div className="space-y-3">
+        {speaker.top_turns.map((t, i) => {
+          const key = `${t.start}-${t.end}`;
+          const excluded = excludedTurnsForSpeaker.has(key);
+          return (
+            <div
+              key={i}
+              className={cn(
+                "space-y-1.5 p-2.5 rounded-xl transition",
+                excluded
+                  ? "bg-[color:var(--urgent-bg)]/40 opacity-60"
+                  : "bg-[color:var(--card)]/50",
+              )}
+            >
+              <div className="flex items-center gap-2 text-[11px] text-[color:var(--muted)] font-mono flex-wrap">
+                <span>
+                  {fmtTimecode(t.start)} → {fmtTimecode(t.end)}
+                </span>
+                <span>·</span>
+                <span>{Math.round(t.end - t.start)}s</span>
+                <button
+                  type="button"
+                  onClick={() => onToggleTurn(t)}
+                  className={cn(
+                    "ml-auto inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-sans normal-case tracking-normal transition",
+                    excluded
+                      ? "bg-[color:var(--urgent)] text-[color:var(--background)]"
+                      : "bg-[color:var(--calm-bg)] text-[color:var(--calm)] hover:opacity-80",
+                  )}
+                  title={
+                    excluded
+                      ? "marcado como NÃO sendo desta pessoa — clique pra incluir de volta"
+                      : "marcar como NÃO sendo desta pessoa"
+                  }
+                >
+                  {excluded ? (
+                    <>
+                      <X size={10} /> não é
+                    </>
+                  ) : (
+                    <>
+                      <Check size={10} /> é
+                    </>
+                  )}
+                </button>
+              </div>
+              <audio
+                controls
+                preload="none"
+                src={`/api/voice-svc/clip?meeting_id=${meetingId}&start=${t.start}&end=${Math.min(t.end, t.start + 30)}`}
+                className="w-full"
+              />
+              {t.text && (
+                <p className="text-[12px] text-[color:var(--muted-strong)] line-clamp-2 italic">
+                  “{t.text.trim()}”
+                </p>
+              )}
             </div>
-            <audio
-              controls
-              preload="none"
-              src={`/api/voice-svc/clip?meeting_id=${meetingId}&start=${t.start}&end=${Math.min(t.end, t.start + 30)}`}
-              className="w-full"
-            />
-            {t.text && (
-              <p className="text-[12px] text-[color:var(--muted-strong)] line-clamp-2 italic">
-                “{t.text.trim()}”
-              </p>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[color:var(--border)]/50">
@@ -261,6 +355,7 @@ function SpeakerRow({
           onClick={() => onSave(value)}
           disabled={saving || !value.trim()}
           className="inline-flex items-center gap-1 text-[12px] px-3 py-1.5 rounded-full bg-[color:var(--foreground)] text-[color:var(--background)] disabled:opacity-50"
+          title={anyExcluded ? `${includedCount} de ${totalTurns} trechos serão enrolados` : undefined}
         >
           {saving ? (
             <Sparkles size={12} className="animate-pulse" />
@@ -268,6 +363,11 @@ function SpeakerRow({
             <Check size={12} />
           )}
           {currentName ? "atualizar" : "salvar"}
+          {anyExcluded && (
+            <span className="text-[10px] opacity-70 ml-0.5">
+              ({includedCount}/{totalTurns})
+            </span>
+          )}
         </button>
       </div>
     </div>

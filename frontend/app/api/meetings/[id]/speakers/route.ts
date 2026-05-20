@@ -35,6 +35,24 @@ export async function PATCH(
     );
   }
 
+  // Opcional: turnos específicos curados pelo user pra cada letter.
+  // Quando vier, voice-svc enrola só esses (pulando outlier rejection automático).
+  // Formato: { "A": [{start: 1.2, end: 2.3}, ...] }
+  type RawTurn = { start?: number; end?: number };
+  const turnsByLetterRaw = body?.turns_by_letter;
+  const turnsByLetter: Record<string, Array<{ start: number; end: number }>> = {};
+  if (turnsByLetterRaw && typeof turnsByLetterRaw === "object" && !Array.isArray(turnsByLetterRaw)) {
+    for (const [k, v] of Object.entries(turnsByLetterRaw as Record<string, RawTurn[]>)) {
+      if (typeof k !== "string" || k.length > 3 || !Array.isArray(v)) continue;
+      const clean = v
+        .filter((t): t is { start: number; end: number } =>
+          typeof t?.start === "number" && typeof t?.end === "number" && t.end > t.start,
+        )
+        .map((t) => ({ start: t.start, end: t.end }));
+      if (clean.length > 0) turnsByLetter[k] = clean;
+    }
+  }
+
   // Sanitiza keys (A, B, AA…) e separa values em buckets
   type ParsedEntry = {
     letter: string;
@@ -135,12 +153,21 @@ export async function PATCH(
 
     // Enroll de voz no voice-svc (fire-and-forget). voice-svc é idempotente por
     // (meeting, letter, pessoa) — manda o mapping completo sem se preocupar com duplicação.
+    // Se o user curou turnos específicos, propaga em turns_by_letter pra pular outlier rejection.
     const enrollMapping = result.speaker_pessoas;
     if (enrollMapping && Object.keys(enrollMapping).length > 0) {
+      const enrollBody: {
+        meeting_id: string;
+        mapping: Record<string, string>;
+        turns_by_letter?: Record<string, Array<{ start: number; end: number }>>;
+      } = { meeting_id: id, mapping: enrollMapping };
+      if (Object.keys(turnsByLetter).length > 0) {
+        enrollBody.turns_by_letter = turnsByLetter;
+      }
       fetch(`${VOICE_SVC_URL}/enroll`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ meeting_id: id, mapping: enrollMapping }),
+        body: JSON.stringify(enrollBody),
         signal: AbortSignal.timeout(180_000),
       }).catch(() => {
         // erro silencioso — voice-svc pode estar fora; UI segue funcionando

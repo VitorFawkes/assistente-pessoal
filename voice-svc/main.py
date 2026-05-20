@@ -98,9 +98,17 @@ class IdentifyReq(BaseModel):
     meeting_id: str = Field(..., min_length=36, max_length=36)
 
 
+class TurnSpec(BaseModel):
+    start: float
+    end: float
+
+
 class EnrollReq(BaseModel):
     meeting_id: str = Field(..., min_length=36, max_length=36)
     mapping: dict[str, str] = Field(..., description="letter → pessoa_id (uuid)")
+    # Opcional: turnos específicos selecionados pelo usuário pra cada letter.
+    # Quando vem, pula pick_representative_turns + outlier rejection (user já curou).
+    turns_by_letter: dict[str, list[TurnSpec]] | None = None
 
 
 # ─── helpers ─────────────────────────────────────────────────────────
@@ -381,7 +389,22 @@ def enroll(req: EnrollReq) -> dict[str, Any]:
                 enrolled[letter] = 0
                 continue
 
-            picked = pick_representative_turns(turns, letter)
+            # Se o user passou turnos específicos pra esse letter, usa eles
+            # diretamente (sem pick automático nem outlier rejection — user já
+            # curou manualmente). Caso contrário, escolhe automático.
+            user_turns = (req.turns_by_letter or {}).get(letter) if req.turns_by_letter else None
+            if user_turns:
+                # Constrói Turns a partir do que o user mandou (start/end), pegando
+                # texto vazio (não usado pra embedding).
+                picked = [
+                    Turn(speaker=letter, start=float(ts.start), end=float(ts.end), text="")
+                    for ts in user_turns
+                ]
+                user_curated = True
+            else:
+                picked = pick_representative_turns(turns, letter)
+                user_curated = False
+
             if not picked:
                 log.info("speaker %s sem turnos válidos — pulando enroll", letter)
                 enrolled[letter] = 0
@@ -410,18 +433,22 @@ def enroll(req: EnrollReq) -> dict[str, Any]:
 
             # Etapa 2: outlier rejection — diarize às vezes mistura vozes
             # diferentes sob o mesmo speaker letter. Filtra trechos que destoam
-            # dos outros (sim média < OUTLIER_MIN_SIMILARITY).
-            vectors_only = [e[0] for e in embedded]
-            keep_idx = reject_outliers(vectors_only, OUTLIER_MIN_SIMILARITY)
-            kept = [embedded[i] for i in keep_idx]
-            n_rejected = len(embedded) - len(kept)
-            if n_rejected > 0:
-                log.info(
-                    "speaker %s: rejeitei %d/%d trecho(s) como outlier (provável diarização mista)",
-                    letter,
-                    n_rejected,
-                    len(embedded),
-                )
+            # dos outros. PULA se user já curou manualmente os turnos.
+            if user_curated:
+                kept = embedded
+                log.info("speaker %s: usando %d turno(s) curados pelo usuário (sem outlier rejection)", letter, len(kept))
+            else:
+                vectors_only = [e[0] for e in embedded]
+                keep_idx = reject_outliers(vectors_only, OUTLIER_MIN_SIMILARITY)
+                kept = [embedded[i] for i in keep_idx]
+                n_rejected = len(embedded) - len(kept)
+                if n_rejected > 0:
+                    log.info(
+                        "speaker %s: rejeitei %d/%d trecho(s) como outlier (provável diarização mista)",
+                        letter,
+                        n_rejected,
+                        len(embedded),
+                    )
 
             # Etapa 3: INSERT só os trechos consistentes
             count = 0
