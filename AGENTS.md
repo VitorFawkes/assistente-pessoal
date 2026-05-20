@@ -75,9 +75,9 @@ soft_deleted_at IS NULL` — se passar de ~10k, está na hora de migrar.
   transcreve com `gpt-4o-transcribe-diarize`, envia ao n8n via webhook.
 - **n8n:** workflows em `n8n-workflows/*.json`. NUNCA usar MCP tools do
   n8n (não funcionam). Acesso via curl com `N8N_API_KEY` do `.env`.
-  **Importante:** essa key pode estar expirada — testar com
-  `curl -H "X-N8N-API-KEY: $N8N_API_KEY" $N8N_URL/api/v1/workflows` antes
-  de tentar atualizar workflows programaticamente.
+  **URL correta:** `https://n8n.vitorgambetti.com.br/` — NÃO o subdomínio
+  easypanel `n8n-n8n.ymnmx7.easypanel.host` (key só funciona no domínio
+  custom). Workflow principal: `Acoes - Audio Ingest` (id `98jEiWWSAKFWEP6B`).
 - **Easypanel:** API tRPC em `EASYPANEL_URL/api/trpc/*`. Mutations
   funcionam pra create/update/deploy/restart de services, **mas não há
   endpoint pra mounts**. Mounts são gerenciados via UI.
