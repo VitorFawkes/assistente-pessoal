@@ -39,6 +39,7 @@ from db import (
     get_pessoa,
     has_active_sample,
     insert_voice_sample,
+    invalidate_other_pessoa_samples,
     is_valid_uuid,
     open_pool,
     search_top_k,
@@ -302,6 +303,20 @@ def enroll(req: EnrollReq) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="voice-svc-") as tmpdir:
         audio_src = _resolve_audio(req.meeting_id, meeting["audio_path"], tmpdir)
         for letter, pessoa_id in req.mapping.items():
+            # Correção: se essa (meeting, letter) já tinha amostras de OUTRA pessoa
+            # (rotulação errada anterior), invalida ANTES de inserir as novas.
+            # Evita poluir a base com falsos positivos quando o user corrige.
+            n_invalidated = invalidate_other_pessoa_samples(
+                req.meeting_id, letter, pessoa_id
+            )
+            if n_invalidated > 0:
+                log.info(
+                    "speaker %s: invalidou %d amostra(s) de pessoa anterior antes de re-enroll pra %s",
+                    letter,
+                    n_invalidated,
+                    pessoa_id,
+                )
+
             # Idempotência: já existe amostra ativa dessa (meeting, letter, pessoa)? Skip.
             if has_active_sample(req.meeting_id, letter, pessoa_id):
                 log.info(

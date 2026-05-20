@@ -7,6 +7,7 @@ export type Pessoa = {
   aliases: string[];
   is_vitor: boolean;
   notas: string | null;
+  sample_count: number;
   created_at: string;
   updated_at: string;
 };
@@ -14,11 +15,13 @@ export type Pessoa = {
 export async function GET() {
   try {
     const rows = await query<Pessoa>(
-      `SELECT id, nome, aliases, is_vitor, notas,
-              to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
-              to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated_at
-       FROM pessoas
-       ORDER BY is_vitor DESC, nome ASC`,
+      `SELECT p.id, p.nome, p.aliases, p.is_vitor, p.notas,
+              COALESCE((SELECT count(*)::int FROM voice_samples vs
+                        WHERE vs.pessoa_id = p.id AND vs.soft_deleted_at IS NULL), 0) AS sample_count,
+              to_char(p.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+              to_char(p.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated_at
+       FROM pessoas p
+       ORDER BY p.is_vitor DESC, p.nome ASC`,
     );
     return NextResponse.json(rows);
   } catch (e) {

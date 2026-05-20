@@ -172,6 +172,30 @@ def update_speaker_labels_proposed(meeting_id: str, proposed: dict) -> None:
         c.commit()
 
 
+def invalidate_other_pessoa_samples(meeting_id: str, letter: str, current_pessoa_id: str) -> int:
+    """Quando o usuário corrige uma rotulação (Speaker A = Vitor → Speaker A = Ana),
+    soft-delete as amostras antigas da MESMA (meeting, letter) que pertenciam a
+    OUTRA pessoa — evita poluir voice_samples com falsos positivos.
+
+    Retorna quantas amostras foram invalidadas.
+    """
+    with conn() as c:
+        row = c.execute(
+            """
+            UPDATE voice_samples
+               SET soft_deleted_at = now()
+             WHERE source_meeting_id = %s
+               AND source_speaker_letter = %s
+               AND pessoa_id <> %s
+               AND soft_deleted_at IS NULL
+            RETURNING id
+            """,
+            (meeting_id, letter, current_pessoa_id),
+        ).fetchall()
+        c.commit()
+    return len(row)
+
+
 def has_active_sample(meeting_id: str, letter: str, pessoa_id: str) -> bool:
     """Já existe amostra ativa pra essa (meeting, letter, pessoa)? Usado pra idempotência do enroll."""
     with conn() as c:
