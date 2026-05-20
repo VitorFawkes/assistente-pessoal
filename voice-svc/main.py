@@ -128,6 +128,39 @@ def health() -> dict[str, Any]:
     }
 
 
+@app.get("/debug/fs")
+def debug_fs() -> dict[str, Any]:
+    """Diagnóstico do mount /audios — quem somos, o que enxergamos."""
+    import pwd
+    info: dict[str, Any] = {
+        "audio_base": AUDIO_BASE,
+        "exists": os.path.exists(AUDIO_BASE),
+        "is_dir": os.path.isdir(AUDIO_BASE),
+        "uid": os.getuid(),
+        "gid": os.getgid(),
+    }
+    try:
+        info["user"] = pwd.getpwuid(os.getuid()).pw_name
+    except Exception:
+        info["user"] = "?"
+    if info["exists"]:
+        try:
+            st = os.stat(AUDIO_BASE)
+            info["mode"] = oct(st.st_mode & 0o7777)
+            info["owner_uid"] = st.st_uid
+            info["owner_gid"] = st.st_gid
+            info["readable"] = os.access(AUDIO_BASE, os.R_OK)
+        except Exception as e:
+            info["stat_error"] = str(e)
+        try:
+            files = os.listdir(AUDIO_BASE)
+            info["file_count"] = len(files)
+            info["sample_files"] = files[:10]
+        except Exception as e:
+            info["listdir_error"] = str(e)
+    return info
+
+
 @app.post("/identify")
 def identify(req: IdentifyReq) -> dict[str, Any]:
     if not is_valid_uuid(req.meeting_id):
