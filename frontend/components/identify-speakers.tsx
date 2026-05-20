@@ -117,12 +117,8 @@ export function IdentifySpeakers({
       }
       setLabels(nextLabels);
       setValues((v) => ({ ...v, [letter]: "" }));
-      // Limpa exclusões desse letter após salvar
-      setExcludedTurns((prev) => {
-        const next = new Set(prev);
-        for (const t of speaker.top_turns) next.delete(turnKey(letter, t));
-        return next;
-      });
+      // NÃO limpa exclusões — user pode querer ver/ajustar o que fez.
+      // Idempotência do backend cuida de re-aplicar o mesmo turns_by_letter.
       startTransition(() => router.refresh());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -335,7 +331,7 @@ function SpeakerRow({
           value={value}
           onChange={(e) => onValueChange(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") onSave(value);
+            if (e.key === "Enter") onSave(value.trim() || currentName || "");
           }}
           placeholder={currentName ? `mudar de ${currentName}…` : "quem é?"}
           className="flex-1 min-w-[160px] text-[13px] px-3 py-1.5 rounded-full bg-[color:var(--card)] border border-[color:var(--border)] outline-none focus:border-[color:var(--foreground)]"
@@ -352,10 +348,18 @@ function SpeakerRow({
         </button>
         <button
           type="button"
-          onClick={() => onSave(value)}
-          disabled={saving || !value.trim()}
+          onClick={() => onSave(value.trim() || currentName || "")}
+          disabled={saving || (!value.trim() && !currentName)}
           className="inline-flex items-center gap-1 text-[12px] px-3 py-1.5 rounded-full bg-[color:var(--foreground)] text-[color:var(--background)] disabled:opacity-50"
-          title={anyExcluded ? `${includedCount} de ${totalTurns} trechos serão enrolados` : undefined}
+          title={
+            anyExcluded
+              ? `${includedCount} de ${totalTurns} trechos serão enrolados${value.trim() ? ` como ${value.trim()}` : currentName ? ` como ${currentName}` : ""}`
+              : value.trim()
+                ? `salvar como ${value.trim()}`
+                : currentName
+                  ? `reenrolar como ${currentName}`
+                  : undefined
+          }
         >
           {saving ? (
             <Sparkles size={12} className="animate-pulse" />
