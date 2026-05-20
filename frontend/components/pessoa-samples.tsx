@@ -62,6 +62,7 @@ export function PessoaSamplesList({
   const [reassigningId, setReassigningId] = useState<string | null>(null);
   const [reassignValue, setReassignValue] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [movedTo, setMovedTo] = useState<{ nome: string; pessoa_id: string } | null>(null);
 
   const handleDelete = async (sampleId: string, hint: string) => {
     if (!confirm(`Deletar amostra ${hint}?`)) return;
@@ -92,12 +93,13 @@ export function PessoaSamplesList({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ nome: trimmed }),
       });
+      const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
         throw new Error(body.error || body.message || `HTTP ${res.status}`);
       }
       setReassigningId(null);
       setReassignValue("");
+      setMovedTo({ nome: body.nome || trimmed, pessoa_id: body.pessoa_id });
       startTransition(() => router.refresh());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -132,11 +134,25 @@ export function PessoaSamplesList({
           {error}
         </div>
       )}
+      {movedTo && (
+        <div className="flex items-center justify-between gap-3 text-[12px] text-[color:var(--calm)] bg-[color:var(--calm-bg)] px-3 py-2 rounded-lg">
+          <span>
+            ✓ amostra movida pra <strong>{movedTo.nome}</strong>
+          </span>
+          <Link
+            href={`/pessoas/${movedTo.pessoa_id}`}
+            className="underline font-medium hover:opacity-80"
+          >
+            ver lá →
+          </Link>
+        </div>
+      )}
       {samples.map((s) => {
         const range = parseRange(s.source_segment_range);
         const canPlay = range && s.source_meeting_id;
+        // Player vê só o trecho cortado (não a reunião inteira) — voice-svc/clip via ffmpeg
         const audioSrc = canPlay
-          ? `/api/audio/${s.source_meeting_id}#t=${range[0]},${range[1]}`
+          ? `/api/voice-svc/clip?meeting_id=${s.source_meeting_id}&start=${range[0]}&end=${range[1]}`
           : null;
         const rangeLabel = range
           ? `${fmtTimecode(range[0])} → ${fmtTimecode(range[1])}`

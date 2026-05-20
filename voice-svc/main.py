@@ -23,6 +23,7 @@ from typing import Any
 import numpy as np
 import requests
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from audio import (
@@ -165,6 +166,50 @@ def health() -> dict[str, Any]:
             "top_k": TOP_K,
         },
     }
+
+
+@app.get("/clip")
+def clip(meeting_id: str, start: float, end: float) -> FileResponse:
+    """Corta um trecho do áudio source e retorna MP3 64kbps mono — pequeno o
+    bastante pra player web carregar instantâneo. Útil pra previews de amostras.
+    """
+    if not is_valid_uuid(meeting_id):
+        raise HTTPException(400, "meeting_id inválido")
+    if start < 0 or end <= start or (end - start) > 120:
+        raise HTTPException(400, "range inválido (start>=0, end>start, max 120s)")
+
+    meeting = get_meeting(meeting_id)
+    if not meeting:
+        raise HTTPException(404, "meeting não encontrada")
+
+    # Diretório persistente (não tmpdir context) — FileResponse precisa do arquivo
+    # ainda existir quando o Starlette streamar. Cleanup periódico fica fora de escopo.
+    cache_dir = "/tmp/voice-svc-clips"
+    os.makedirs(cache_dir, exist_ok=True)
+    out_path = os.path.join(cache_dir, f"{meeting_id}_{start:.2f}_{end:.2f}.mp3")
+
+    if not os.path.exists(out_path):
+        # Resolve audio source (mount local OU download HTTP do frontend)
+        with tempfile.TemporaryDirectory(prefix="voice-svc-clip-") as tmpdir:
+            audio_src = _resolve_audio(meeting_id, meeting["audio_path"], tmpdir)
+            duration = end - start
+            import subprocess
+            cmd = [
+                "ffmpeg", "-y", "-loglevel", "error",
+                "-ss", f"{start:.3f}", "-t", f"{duration:.3f}",
+                "-i", audio_src,
+                "-ac", "1", "-ar", "22050", "-b:a", "64k",
+                "-f", "mp3", out_path,
+            ]
+            proc = subprocess.run(cmd, capture_output=True, text=True)
+            if proc.returncode != 0:
+                raise HTTPException(500, f"ffmpeg falhou: {proc.stderr.strip()[:200]}")
+
+    return FileResponse(
+        out_path,
+        media_type="audio/mpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @app.get("/debug/fs")
