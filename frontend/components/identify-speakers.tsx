@@ -68,6 +68,8 @@ export function IdentifySpeakers({
   const [error, setError] = useState<string | null>(null);
   // Chave: "letter|start-end" — trechos que o user marcou como NÃO sendo daquela pessoa.
   const [excludedTurns, setExcludedTurns] = useState<Set<string>>(new Set());
+  // Feedback de sucesso por speaker (auto-some em 5s)
+  const [savedMessages, setSavedMessages] = useState<Record<string, string>>({});
 
   const turnKey = (letter: string, t: Turn) => `${letter}|${t.start}-${t.end}`;
 
@@ -119,6 +121,21 @@ export function IdentifySpeakers({
       setValues((v) => ({ ...v, [letter]: "" }));
       // NÃO limpa exclusões — user pode querer ver/ajustar o que fez.
       // Idempotência do backend cuida de re-aplicar o mesmo turns_by_letter.
+      const nTotal = speaker.top_turns.length;
+      const nIncluded = included.length;
+      const msg =
+        nIncluded < nTotal
+          ? `✓ salvo como ${trimmed} (${nIncluded} de ${nTotal} trechos). Aprendizado rolando em background.`
+          : `✓ salvo como ${trimmed}. Aprendizado rolando em background.`;
+      setSavedMessages((m) => ({ ...m, [letter]: msg }));
+      // auto-some em 6s
+      setTimeout(() => {
+        setSavedMessages((m) => {
+          const next = { ...m };
+          delete next[letter];
+          return next;
+        });
+      }, 6000);
       startTransition(() => router.refresh());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -179,6 +196,7 @@ export function IdentifySpeakers({
                   .map((t) => `${t.start}-${t.end}`),
               )}
               onToggleTurn={(t) => toggleTurn(s.letter, t)}
+              savedMessage={savedMessages[s.letter]}
               saving={busyLetter === s.letter}
             />
           ))}
@@ -204,6 +222,7 @@ export function IdentifySpeakers({
                   .map((t) => `${t.start}-${t.end}`),
               )}
               onToggleTurn={(t) => toggleTurn(s.letter, t)}
+              savedMessage={savedMessages[s.letter]}
               saving={busyLetter === s.letter}
               currentName={labels[s.letter]}
             />
@@ -224,6 +243,7 @@ function SpeakerRow({
   currentName,
   excludedTurnsForSpeaker,
   onToggleTurn,
+  savedMessage,
 }: {
   meetingId: string;
   speaker: SpeakerCard;
@@ -234,6 +254,7 @@ function SpeakerRow({
   currentName?: string;
   excludedTurnsForSpeaker: Set<string>;
   onToggleTurn: (t: Turn) => void;
+  savedMessage?: string;
 }) {
   const color = speakerColor(speaker.letter);
   const isSelf = (currentName || "").toLowerCase() === SELF_NAME.toLowerCase();
@@ -261,6 +282,12 @@ function SpeakerRow({
           {speaker.total_turns} {speaker.total_turns === 1 ? "fala" : "falas"} · {Math.round(speaker.total_seconds)}s de áudio total
         </span>
       </div>
+
+      {savedMessage && (
+        <div className="text-[12px] text-[color:var(--calm)] bg-[color:var(--calm-bg)] px-3 py-2 rounded-lg border border-[color:var(--calm)]/20">
+          {savedMessage}
+        </div>
+      )}
 
       <div className="space-y-3">
         {speaker.top_turns.map((t, i) => {
