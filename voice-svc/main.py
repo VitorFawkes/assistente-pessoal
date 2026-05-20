@@ -42,6 +42,7 @@ from db import (
     invalidate_other_pessoa_samples,
     is_valid_uuid,
     open_pool,
+    reassign_sample,
     search_top_k,
     soft_delete_sample,
     update_speaker_labels_proposed,
@@ -413,3 +414,23 @@ def delete_sample(sample_id: str) -> dict[str, Any]:
     if not ok:
         raise HTTPException(404, "sample não encontrada (ou já deletada)")
     return {"ok": True, "deleted": sample_id}
+
+
+class ReassignReq(BaseModel):
+    pessoa_id: str = Field(..., min_length=36, max_length=36)
+
+
+@app.patch("/samples/{sample_id}")
+def patch_sample(sample_id: str, req: ReassignReq) -> dict[str, Any]:
+    """Move uma amostra pra outra pessoa (correção de rotulagem)."""
+    if not is_valid_uuid(sample_id):
+        raise HTTPException(400, "sample_id inválido")
+    if not is_valid_uuid(req.pessoa_id):
+        raise HTTPException(400, "pessoa_id inválido")
+    p = get_pessoa(req.pessoa_id)
+    if not p:
+        raise HTTPException(404, f"pessoa_id {req.pessoa_id} não encontrada")
+    ok = reassign_sample(sample_id, req.pessoa_id)
+    if not ok:
+        raise HTTPException(404, "sample não encontrada (ou já deletada)")
+    return {"ok": True, "sample_id": sample_id, "pessoa_id": req.pessoa_id, "nome": p["nome"]}

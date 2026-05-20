@@ -213,6 +213,22 @@ def has_active_sample(meeting_id: str, letter: str, pessoa_id: str) -> bool:
     return row is not None
 
 
+def reassign_sample(sample_id: str, new_pessoa_id: str) -> bool:
+    """Reatribui uma amostra ativa pra outra pessoa (correção de rotulagem errada)."""
+    with conn() as c:
+        row = c.execute(
+            """
+            UPDATE voice_samples
+               SET pessoa_id = %s
+             WHERE id = %s AND soft_deleted_at IS NULL
+            RETURNING id
+            """,
+            (new_pessoa_id, sample_id),
+        ).fetchone()
+        c.commit()
+    return row is not None
+
+
 def soft_delete_sample(sample_id: str) -> bool:
     with conn() as c:
         row = c.execute(

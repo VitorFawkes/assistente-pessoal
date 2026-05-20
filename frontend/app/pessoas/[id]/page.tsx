@@ -5,6 +5,7 @@ import { ArrowLeft, UserRound } from "lucide-react";
 import {
   PessoaSamplesList,
   type VoiceSample,
+  type PessoaOption,
 } from "@/components/pessoa-samples";
 
 export const dynamic = "force-dynamic";
@@ -56,7 +57,12 @@ export default async function PessoaDetalhePage({
   const pessoa = await fetchPessoa(id);
   if (!pessoa) notFound();
 
-  const samples = await fetchSamples(id);
+  const [samples, pessoasOptions] = await Promise.all([
+    fetchSamples(id),
+    query<PessoaOption>(
+      `SELECT id, nome FROM pessoas ORDER BY is_vitor DESC, nome ASC`,
+    ),
+  ]);
 
   return (
     <div className="space-y-7 sm:space-y-9">
@@ -103,7 +109,11 @@ export default async function PessoaDetalhePage({
           pessoa. Toca pra confirmar se é mesmo ela; se não for, deleta — o
           aprendizado fica mais preciso.
         </p>
-        <PessoaSamplesList samples={samples} />
+        <PessoaSamplesList
+          samples={samples}
+          currentPessoaId={pessoa.id}
+          pessoas={pessoasOptions}
+        />
       </section>
     </div>
   );
