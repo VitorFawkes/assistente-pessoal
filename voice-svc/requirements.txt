@@ -10,3 +10,7 @@ psycopg[binary,pool]==3.2.1
 speechbrain==1.0.0
 soundfile==0.12.1
 numpy<2.0
+
+# speechbrain 1.0.0 importa de requests mas NÃO declara em install_requires —
+# pip não puxa como transitiva. Fix explícito até subir a versão.
+requests>=2.31,<3
