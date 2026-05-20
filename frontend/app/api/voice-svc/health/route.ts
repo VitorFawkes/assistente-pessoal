@@ -1,19 +1,13 @@
-// Diagnóstico: tenta vários hostnames DNS internos pro voice-svc e reporta
-// o que respondeu. Quando estabilizar o nome correto, posso simplificar.
+// Proxy pro voice-svc/health (DNS interno do easypanel — não exposto externamente).
+// Útil pra diagnóstico: confirma que voice-svc está rodando, retorna config + thresholds.
 import { NextResponse } from "next/server";
 
-const CANDIDATES = [
-  process.env.VOICE_SVC_URL,
-  "http://voice-svc:8000",
-  "http://n8n_voice-svc:8000",
-  "http://n8n-voice-svc:8000",
-].filter((x): x is string => !!x);
+const VOICE_SVC_URL = process.env.VOICE_SVC_URL || "http://voice-svc:8000";
 
-async function probe(url: string) {
-  const start = Date.now();
+export async function GET() {
   try {
-    const res = await fetch(`${url}/health`, {
-      signal: AbortSignal.timeout(5_000),
+    const res = await fetch(`${VOICE_SVC_URL}/health`, {
+      signal: AbortSignal.timeout(10_000),
     });
     const text = await res.text();
     let parsed: unknown = text;
@@ -22,19 +16,18 @@ async function probe(url: string) {
     } catch {
       /* keep as string */
     }
-    return { url, ok: res.ok, status: res.status, body: parsed, ms: Date.now() - start };
+    return NextResponse.json(
+      { voice_svc_url: VOICE_SVC_URL, upstream_status: res.status, body: parsed },
+      { status: res.ok ? 200 : 502 },
+    );
   } catch (e) {
-    return {
-      url,
-      ok: false,
-      error: e instanceof Error ? e.message : String(e),
-      ms: Date.now() - start,
-    };
+    return NextResponse.json(
+      {
+        error: "falha ao chamar voice-svc",
+        message: e instanceof Error ? e.message : String(e),
+        voice_svc_url: VOICE_SVC_URL,
+      },
+      { status: 502 },
+    );
   }
-}
-
-export async function GET() {
-  const results = await Promise.all(CANDIDATES.map(probe));
-  const winner = results.find((r) => r.ok);
-  return NextResponse.json({ winner: winner?.url ?? null, results });
 }
