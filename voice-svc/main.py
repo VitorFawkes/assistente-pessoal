@@ -46,7 +46,13 @@ from db import (
     soft_delete_sample,
     update_speaker_labels_proposed,
 )
-from embedding import EMBED_DIM, average_embeddings, encode_wav, load_encoder
+from embedding import (
+    EMBED_DIM,
+    average_embeddings,
+    encode_wav,
+    load_encoder,
+    reject_outliers,
+)
 
 AUDIO_BASE = os.environ.get("AUDIO_BASE", "/audios")  # fallback se houver mount; primário é HTTP
 FRONTEND_INTERNAL_URL = os.environ.get(
@@ -57,6 +63,7 @@ CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.60"))
 HIGH_CONFIDENCE = float(os.environ.get("HIGH_CONFIDENCE", "0.80"))
 MARGIN_THRESHOLD = float(os.environ.get("MARGIN_THRESHOLD", "0.08"))
 TOP_K = int(os.environ.get("TOP_K", "5"))
+OUTLIER_MIN_SIMILARITY = float(os.environ.get("OUTLIER_MIN_SIMILARITY", "0.5"))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -333,12 +340,46 @@ def enroll(req: EnrollReq) -> dict[str, Any]:
                 enrolled[letter] = 0
                 continue
 
-            count = 0
+            # Etapa 1: embeda TODOS os trechos do speaker
+            embedded: list[tuple[np.ndarray, float, str]] = []
             for t in picked:
                 try:
                     vec, duration, range_str = _embed_turn(
                         app.state.encoder, audio_src, t, tmpdir
                     )
+                    embedded.append((vec, duration, range_str))
+                except Exception as e:
+                    log.warning(
+                        "falha ao embeddar turno %s [%.2f-%.2f]: %s",
+                        letter,
+                        t.start,
+                        t.end,
+                        e,
+                    )
+
+            if not embedded:
+                enrolled[letter] = 0
+                continue
+
+            # Etapa 2: outlier rejection — diarize às vezes mistura vozes
+            # diferentes sob o mesmo speaker letter. Filtra trechos que destoam
+            # dos outros (sim média < OUTLIER_MIN_SIMILARITY).
+            vectors_only = [e[0] for e in embedded]
+            keep_idx = reject_outliers(vectors_only, OUTLIER_MIN_SIMILARITY)
+            kept = [embedded[i] for i in keep_idx]
+            n_rejected = len(embedded) - len(kept)
+            if n_rejected > 0:
+                log.info(
+                    "speaker %s: rejeitei %d/%d trecho(s) como outlier (provável diarização mista)",
+                    letter,
+                    n_rejected,
+                    len(embedded),
+                )
+
+            # Etapa 3: INSERT só os trechos consistentes
+            count = 0
+            for vec, duration, range_str in kept:
+                try:
                     insert_voice_sample(
                         pessoa_id=pessoa_id,
                         embedding=vec,
@@ -349,21 +390,16 @@ def enroll(req: EnrollReq) -> dict[str, Any]:
                     )
                     count += 1
                 except Exception as e:
-                    log.warning(
-                        "falha ao enroll turno %s [%.2f-%.2f]: %s",
-                        letter,
-                        t.start,
-                        t.end,
-                        e,
-                    )
+                    log.warning("falha ao inserir voice_sample %s: %s", range_str, e)
 
             enrolled[letter] = count
             log.info(
-                "enrolled %s amostra(s) pra pessoa %s (%s) — speaker %s",
+                "enrolled %s amostra(s) pra pessoa %s (%s) — speaker %s (%d rejeitadas)",
                 count,
                 pessoas_cache[letter]["nome"],
                 pessoa_id,
                 letter,
+                n_rejected,
             )
 
     return {"enrolled": enrolled}

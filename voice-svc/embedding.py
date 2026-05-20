@@ -50,3 +50,35 @@ def average_embeddings(vectors: list[np.ndarray]) -> np.ndarray:
     if norm > 0:
         avg = avg / norm
     return avg
+
+
+def reject_outliers(vectors: list[np.ndarray], min_similarity: float = 0.5) -> list[int]:
+    """Detecta outliers num conjunto de embeddings que DEVERIAM ser da mesma pessoa.
+
+    Necessário porque diarização (gpt-4o-transcribe-diarize) às vezes mistura
+    vozes diferentes sob a mesma letter — quando o usuário rotula "Speaker A
+    = Vitor", parte dos trechos pode ser outra pessoa misturada.
+
+    Estratégia: pra cada trecho, calcula similaridade média com os outros.
+    Trechos com sim média < min_similarity são considerados outliers e
+    rejeitados. Vetores já estão L2-normalizados, então cosine = dot product.
+
+    Retorna lista de índices dos vetores a MANTER (rejeitando outliers).
+    Se há ≤ 2 vetores, mantém todos (não há base estatística pra rejeitar).
+    """
+    if len(vectors) <= 2:
+        return list(range(len(vectors)))
+
+    embs = np.stack(vectors).astype(np.float32)
+    sim_matrix = embs @ embs.T  # (n, n), diagonal = 1.0
+    n = len(vectors)
+
+    # Pra cada trecho, similaridade média com os OUTROS (excluindo diagonal)
+    np.fill_diagonal(sim_matrix, np.nan)
+    avg_sims = np.nanmean(sim_matrix, axis=1)
+
+    keep = [i for i in range(n) if avg_sims[i] >= min_similarity]
+    # Se rejeitar todos por algum bug, mantém pelo menos o que tem sim média mais alta
+    if not keep:
+        keep = [int(np.nanargmax(avg_sims))]
+    return keep
