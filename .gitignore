@@ -36,3 +36,5 @@ mac-agent/.last_response.json
 /tmp/
 .backups/
 .playwright-mcp/
+
+.superpowers/
