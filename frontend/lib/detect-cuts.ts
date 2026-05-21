@@ -12,8 +12,12 @@ export type Cut = {
 };
 
 export const DETECT_CONSTANTS = {
-  SILENCE_HARD: 180,
-  SILENCE_SOFT: 90,
+  // Thresholds calibrados pro pipeline atual: transcribe.sh aplica silenceremove
+  // antes do Whisper, então gaps entre turnos são SEMPRE pequenos (max ~25s
+  // observado em meetings reais de 70min). Valores aqui são pra capturar
+  // "respiros" relativos, não silêncios absolutos.
+  SILENCE_HARD: 20,
+  SILENCE_SOFT: 10,
   SPEAKER_WINDOW: 300,
   SPEAKER_JACCARD_MAX: 0.3,
   SPEAKER_WEIGHT: 0.5,

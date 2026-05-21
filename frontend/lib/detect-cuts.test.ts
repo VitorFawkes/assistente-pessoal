@@ -27,10 +27,11 @@ describe("detectCuts", () => {
     expect(cuts[0].reasons.some((r) => r.includes("silêncio"))).toBe(true);
   });
 
-  test("silêncio SOFT (90-180s) sozinho fica abaixo do floor e é filtrado", () => {
+  test("silêncio SOFT (entre SOFT e HARD) sozinho fica abaixo do floor e é filtrado", () => {
+    // Gap de 12s — entre SOFT=10 e HARD=20. Peso 0.5, abaixo do CONFIDENCE_FLOOR=0.7.
     const segs: Segment[] = [
       makeSeg("A", 0, 700),
-      makeSeg("A", 820, 1500),
+      makeSeg("A", 712, 1500),
     ];
     const cuts = detectCuts(segs, 1500);
     expect(cuts).toHaveLength(0);
@@ -39,7 +40,8 @@ describe("detectCuts", () => {
   test("silêncio SOFT + speaker novo entra acima do floor", () => {
     const segs: Segment[] = [];
     for (let t = 0; t < 700; t += 10) segs.push(makeSeg("A", t, t + 8));
-    for (let t = 820; t < 1500; t += 10) {
+    // Gap de 14s + speakers totalmente novos (B,C) → 0.5 + 0.5 = 1.0
+    for (let t = 714; t < 1500; t += 10) {
       const sp = t % 20 === 0 ? "B" : "C";
       segs.push(makeSeg(sp, t, t + 8));
     }
