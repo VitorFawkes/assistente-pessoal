@@ -30,6 +30,8 @@ type ParentRow = {
 type Body = {
   cuts?: Array<{ at_seconds?: number; title?: string | null }>;
   archive_only?: boolean;
+  mark_single?: boolean;
+  restore?: boolean;
 };
 
 type ChildResult = {
@@ -86,7 +88,18 @@ export async function PATCH(
   }
   const body: Body = (await req.json().catch(() => ({}))) as Body;
   const archiveOnly = body.archive_only === true;
+  const markSingle = body.mark_single === true;
+  const restore = body.restore === true;
   const rawCuts = Array.isArray(body.cuts) ? body.cuts : [];
+
+  const modeCount = [archiveOnly, markSingle, restore, rawCuts.length > 0]
+    .filter(Boolean).length;
+  if (modeCount !== 1) {
+    return NextResponse.json(
+      { error: "MUST_SPECIFY_ONE_MODE" },
+      { status: 400 },
+    );
+  }
 
   const cuts: Array<{ at_seconds: number; title: string | null }> = [];
   for (const c of rawCuts) {
@@ -112,8 +125,42 @@ export async function PATCH(
         );
         if (!r.rows.length) throw new Error("NOT_FOUND");
         const parent = r.rows[0];
-        if (parent.status === "archived_session") throw new Error("ALREADY_ARCHIVED");
         if (parent.parent_meeting_id) throw new Error("IS_CHILD");
+
+        if (restore) {
+          if (parent.status !== "archived_session") throw new Error("NOT_ARCHIVED");
+          await c.query(
+            `UPDATE meetings SET status='done', needs_segmentation=false
+             WHERE id = $1::uuid`,
+            [id],
+          );
+          await c.query("COMMIT");
+          return {
+            parent,
+            children: [] as ChildResult[],
+            archived: false,
+            restored: true,
+            markedSingle: false,
+          };
+        }
+
+        if (parent.status === "archived_session") throw new Error("ALREADY_ARCHIVED");
+
+        if (markSingle) {
+          await c.query(
+            `UPDATE meetings SET needs_segmentation=false WHERE id = $1::uuid`,
+            [id],
+          );
+          await c.query("COMMIT");
+          return {
+            parent,
+            children: [] as ChildResult[],
+            archived: false,
+            restored: false,
+            markedSingle: true,
+          };
+        }
+
         const duration = parent.duration_seconds || 0;
         if (duration <= 0) throw new Error("PARENT_NO_DURATION");
 
@@ -124,7 +171,13 @@ export async function PATCH(
             [id],
           );
           await c.query("COMMIT");
-          return { parent, children: [] as ChildResult[], archived: true };
+          return {
+            parent,
+            children: [] as ChildResult[],
+            archived: true,
+            restored: false,
+            markedSingle: false,
+          };
         }
 
         for (const cut of cuts) {
@@ -152,23 +205,23 @@ export async function PATCH(
         const { logical: logicalPaths, physical: physicalPaths } = childAudioPaths(childIds);
 
         const parentPhys = physicalPath(parent.audio_path);
-        tempDir = await mkdtemp(`${tmpdir()}/segments-${id}-`);
-        const tempPaths = childIds.map((cid) => `${tempDir}/${cid}.mp3`);
+        // ffmpeg escreve direto no destino final — /tmp e /audios estão em
+        // mounts diferentes no container easypanel (EXDEV em fs.rename).
+        // Pre-cria dirs primeiro. Se ffmpeg falhar, catch externo apaga órfãos via movedToFinal.
+        for (let i = 0; i < intervals.length; i++) {
+          await mkdir(dirname(physicalPaths[i]), { recursive: true });
+        }
         const clipIntervals: ClipInterval[] = intervals.map((iv, i) => ({
           start: iv.start,
           end: iv.end,
-          outputPath: tempPaths[i],
+          outputPath: physicalPaths[i],
         }));
+        // Marca todos como "potencialmente criados" antes do ffmpeg — se ffmpeg
+        // falhar no meio, alguns existem. Catch apaga.
+        for (const p of physicalPaths) movedToFinal.push(p);
         await clipAudio(parentPhys, clipIntervals);
-
-        // Pre-cria diretórios de destino + move temp → final ANTES do commit.
-        // Se rename falhar, rollback desfaz o DB (filhos não foram inseridos ainda).
-        for (let i = 0; i < intervals.length; i++) {
-          await mkdir(dirname(physicalPaths[i]), { recursive: true });
-          await rename(tempPaths[i], physicalPaths[i]);
-          movedToFinal.push(physicalPaths[i]);
-        }
-        cleanupTemp = false; // arquivos já moveram
+        // Daqui em diante: DB INSERTs + UPDATE pre-commit. Se DB falhar, ROLLBACK
+        // + catch apaga arquivos do /audios via movedToFinal.
 
         const childResults: ChildResult[] = [];
         const parentSegments = parent.segments || [];
@@ -211,7 +264,7 @@ export async function PATCH(
             end: iv.end,
             title: iv.title,
             audio_path: logicalPaths[i],
-            physical_temp: tempPaths[i],
+            physical_temp: physicalPaths[i],
             physical_final: physicalPaths[i],
           });
         }
@@ -224,7 +277,13 @@ export async function PATCH(
 
         await c.query("COMMIT");
 
-        return { parent, children: childResults, archived: false };
+        return {
+          parent,
+          children: childResults,
+          archived: false,
+          restored: false,
+          markedSingle: false,
+        };
       } catch (e) {
         await c.query("ROLLBACK");
         throw e;
@@ -247,6 +306,8 @@ export async function PATCH(
 
     if (result.archived) {
       sendWhatsApp(`📦 Sessão arquivada sem segmentação.`).catch(() => {});
+    } else if (result.restored) {
+      sendWhatsApp(`♻️ Sessão arquivada restaurada.`).catch(() => {});
     } else if (result.children.length > 0) {
       const recordedAt = result.parent.recorded_at;
       const dateStr = recordedAt
@@ -260,6 +321,8 @@ export async function PATCH(
     return NextResponse.json({
       parent_id: result.parent.id,
       archived_only: result.archived,
+      restored: result.restored,
+      marked_single: result.markedSingle,
       segments_created: result.children.map((c) => ({
         id: c.id,
         start: c.start,
@@ -276,6 +339,7 @@ export async function PATCH(
     const status =
       msg === "NOT_FOUND" ? 404 :
       msg === "ALREADY_ARCHIVED" ? 409 :
+      msg === "NOT_ARCHIVED" ? 409 :
       msg === "IS_CHILD" ? 409 :
       msg.startsWith("CUT_") || msg.startsWith("SEGMENT_") || msg === "PARENT_NO_DURATION" ? 400 :
       500;
