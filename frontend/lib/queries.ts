@@ -70,10 +70,11 @@ export type VoiceSample = {
   id: string;
   user_id: string;
   pessoa_id: string;
-  meeting_id: string | null;
-  letter: string | null;
-  audio_clip_path: string | null;
   embedding: number[];
+  source_meeting_id: string | null;
+  source_speaker_letter: string | null;
+  source_segment_range: string | null;
+  duration_seconds: number | null;
   soft_deleted_at: string | null;
   created_at: string;
 };
@@ -103,6 +104,37 @@ export const meetingsFor = (userId: string) => ({
       return r.rows[0] ?? null;
     }),
 
+  /** Versão pra página de detalhe — recorded_at já formatado pra ISO UTC. */
+  byIdDetailed: (id: string) =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<{
+        id: string;
+        source: string;
+        meeting_type: string | null;
+        original_filename: string;
+        recorded_at: string | null;
+        created_at: string;
+        status: string;
+        status_error: string | null;
+        transcription: string | null;
+        summary: string | null;
+        duration_seconds: number | null;
+        segments: unknown;
+        speaker_labels: Record<string, string> | null;
+        speaker_labels_proposed: Record<string, unknown> | null;
+      }>(
+        `SELECT
+           id, source, meeting_type, original_filename,
+           to_char(coalesce(recorded_at, created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
+           to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+           status, status_error, transcription, summary, duration_seconds, segments,
+           speaker_labels, speaker_labels_proposed
+         FROM meetings WHERE id = $1`,
+        [id],
+      );
+      return r.rows[0] ?? null;
+    }),
+
   updateSpeakerLabels: (
     id: string,
     speakerLabels: Record<string, string>,
@@ -117,6 +149,37 @@ export const meetingsFor = (userId: string) => ({
         [id, JSON.stringify(speakerLabels), JSON.stringify(speakerPessoas)],
       );
       return r.rows[0] ?? null;
+    }),
+
+  /** Listagem pra `/reunioes` com contagem de tarefas joinadas. */
+  listForIndex: () =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<{
+        id: string;
+        source: string;
+        meeting_type: string | null;
+        recorded_at: string | null;
+        created_at: string;
+        status: string;
+        summary: string | null;
+        duration_seconds: number | null;
+        needs_segmentation: boolean;
+        n_tarefas: number;
+        n_minhas: number;
+      }>(
+        `SELECT
+           m.id, m.source, m.meeting_type,
+           to_char(coalesce(m.recorded_at, m.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
+           to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+           m.status, m.summary, m.duration_seconds, m.needs_segmentation,
+           (SELECT count(*) FROM tarefas WHERE meeting_id = m.id)::int AS n_tarefas,
+           (SELECT count(*) FROM tarefas WHERE meeting_id = m.id AND owner = 'vitor')::int AS n_minhas
+         FROM meetings m
+         WHERE m.status != 'archived_session'
+         ORDER BY coalesce(m.recorded_at, m.created_at) DESC
+         LIMIT 100`,
+      );
+      return r.rows;
     }),
 });
 
@@ -169,6 +232,25 @@ export const tarefasFor = (userId: string) => ({
       );
       return r.rows[0] ?? null;
     }),
+
+  /** Lista tarefas de um meeting com ordenação minhas-primeiro-aberta. */
+  byMeeting: (meetingId: string) =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<
+        Tarefa & { prazo: string | null; created_at: string }
+      >(
+        `SELECT
+           id, meeting_id, titulo, descricao, owner, is_mine,
+           to_char(prazo AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS prazo,
+           prazo_text, prioridade, status, evidencia,
+           to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
+         FROM tarefas
+         WHERE meeting_id = $1
+         ORDER BY (status NOT IN ('aberta','em_andamento')), is_mine DESC, (prazo IS NULL), prazo ASC, created_at ASC`,
+        [meetingId],
+      );
+      return r.rows;
+    }),
 });
 
 // ─── pessoasFor ───────────────────────────────────────────────────────
@@ -176,7 +258,47 @@ export const tarefasFor = (userId: string) => ({
 export const pessoasFor = (userId: string) => ({
   list: () =>
     withTenant(userId, async (db) => {
-      const r = await db.query<Pessoa>(`SELECT * FROM pessoas ORDER BY nome ASC`);
+      const r = await db.query<Pessoa>(
+        `SELECT * FROM pessoas ORDER BY is_vitor DESC, nome ASC`,
+      );
+      return r.rows;
+    }),
+
+  /** Versão enxuta pra selects/dropdowns (só id + nome). */
+  listMinimal: () =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<{ id: string; nome: string }>(
+        `SELECT id, nome FROM pessoas ORDER BY is_vitor DESC, nome ASC`,
+      );
+      return r.rows;
+    }),
+
+  /** Listagem completa pro /pessoas com count de meetings e samples. */
+  listForIndex: () =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<{
+        id: string;
+        nome: string;
+        aliases: string[];
+        is_vitor: boolean;
+        notas: string | null;
+        n_reunioes: number;
+        sample_count: number;
+      }>(
+        `SELECT
+           p.id, p.nome, p.aliases, p.is_vitor, p.notas,
+           COALESCE((
+             SELECT count(DISTINCT m.id)::int
+             FROM meetings m, jsonb_each_text(m.speaker_pessoas) AS sp(letter, pid)
+             WHERE sp.pid = p.id::text
+           ), 0) AS n_reunioes,
+           COALESCE((
+             SELECT count(*)::int FROM voice_samples vs
+             WHERE vs.pessoa_id = p.id AND vs.soft_deleted_at IS NULL
+           ), 0) AS sample_count
+         FROM pessoas p
+         ORDER BY p.is_vitor DESC, p.nome ASC`,
+      );
       return r.rows;
     }),
 
@@ -184,6 +306,26 @@ export const pessoasFor = (userId: string) => ({
     withTenant(userId, async (db) => {
       const r = await db.query<Pessoa>(
         `SELECT * FROM pessoas WHERE id = $1`,
+        [id],
+      );
+      return r.rows[0] ?? null;
+    }),
+
+  /** Versão com sample_count agregado (pra /pessoas/[id]). */
+  byIdWithSampleCount: (id: string) =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<{
+        id: string;
+        nome: string;
+        aliases: string[];
+        is_vitor: boolean;
+        notas: string | null;
+        sample_count: number;
+      }>(
+        `SELECT p.id, p.nome, p.aliases, p.is_vitor, p.notas,
+                COALESCE((SELECT count(*)::int FROM voice_samples vs
+                          WHERE vs.pessoa_id = p.id AND vs.soft_deleted_at IS NULL), 0) AS sample_count
+         FROM pessoas p WHERE p.id = $1`,
         [id],
       );
       return r.rows[0] ?? null;
@@ -226,6 +368,36 @@ export const voiceSamplesFor = (userId: string) => ({
       return r.rows;
     }),
 
+  /** Versão com summary do meeting joinado (pra /pessoas/[id]). */
+  byPessoaWithMeeting: (pessoaId: string) =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<{
+        id: string;
+        source_meeting_id: string | null;
+        source_speaker_letter: string | null;
+        source_segment_range: string | null;
+        duration_seconds: number | null;
+        created_at: string;
+        meeting_summary: string | null;
+        meeting_recorded_at: string | null;
+      }>(
+        `SELECT vs.id,
+                vs.source_meeting_id::text AS source_meeting_id,
+                vs.source_speaker_letter,
+                vs.source_segment_range,
+                vs.duration_seconds,
+                to_char(vs.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+                m.summary AS meeting_summary,
+                to_char(coalesce(m.recorded_at, m.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS meeting_recorded_at
+         FROM voice_samples vs
+         LEFT JOIN meetings m ON m.id = vs.source_meeting_id
+         WHERE vs.pessoa_id = $1 AND vs.soft_deleted_at IS NULL
+         ORDER BY vs.created_at DESC`,
+        [pessoaId],
+      );
+      return r.rows;
+    }),
+
   softDelete: (id: string) =>
     withTenant(userId, async (db) => {
       const r = await db.query<VoiceSample>(
@@ -233,6 +405,18 @@ export const voiceSamplesFor = (userId: string) => ({
          WHERE id = $1 AND soft_deleted_at IS NULL
          RETURNING *`,
         [id],
+      );
+      return r.rows[0] ?? null;
+    }),
+
+  /** Reatribui sample pra outra pessoa (PATCH /samples/{id}). */
+  reassign: (id: string, newPessoaId: string) =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<VoiceSample>(
+        `UPDATE voice_samples SET pessoa_id = $2
+         WHERE id = $1 AND soft_deleted_at IS NULL
+         RETURNING *`,
+        [id, newPessoaId],
       );
       return r.rows[0] ?? null;
     }),

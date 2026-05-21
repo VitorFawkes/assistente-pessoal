@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import { query } from "@/lib/db";
+import { withTenant } from "@/lib/db";
+import { requireUserOrRedirect } from "@/lib/auth";
+import { pessoasFor } from "@/lib/queries";
 import {
   IdentifySpeakers,
   type SpeakerCard,
@@ -72,15 +74,17 @@ function buildSpeakerCards(
   return cards;
 }
 
-async function fetchMeeting(id: string): Promise<MeetingRow | null> {
-  const rows = await query<MeetingRow>(
-    `SELECT id, summary,
-            to_char(coalesce(recorded_at, created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
-            segments, speaker_labels
-     FROM meetings WHERE id = $1`,
-    [id],
-  );
-  return rows[0] ?? null;
+async function fetchMeeting(userId: string, id: string): Promise<MeetingRow | null> {
+  return withTenant(userId, async (db) => {
+    const r = await db.query<MeetingRow>(
+      `SELECT id, summary,
+              to_char(coalesce(recorded_at, created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
+              segments, speaker_labels
+       FROM meetings WHERE id = $1`,
+      [id],
+    );
+    return r.rows[0] ?? null;
+  });
 }
 
 export default async function IdentificarPage({
@@ -89,16 +93,15 @@ export default async function IdentificarPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const meeting = await fetchMeeting(id);
+  const user = await requireUserOrRedirect();
+  const meeting = await fetchMeeting(user.id, id);
   if (!meeting) notFound();
 
   const segments = meeting.segments ?? [];
   const labels = meeting.speaker_labels ?? {};
   const speakers = buildSpeakerCards(segments, labels);
 
-  const pessoas = await query<{ id: string; nome: string }>(
-    `SELECT id, nome FROM pessoas ORDER BY is_vitor DESC, nome ASC`,
-  );
+  const pessoas = await pessoasFor(user.id).listMinimal();
 
   const naoRotulados = speakers.filter((s) => !s.current_label).length;
 

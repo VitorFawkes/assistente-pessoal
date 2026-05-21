@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import { query } from "@/lib/db";
+import { withTenant } from "@/lib/db";
+import { requireUserOrRedirect } from "@/lib/auth";
 import { detectCuts, type Segment } from "@/lib/detect-cuts";
 import { SegmentTimeline } from "./segment-timeline";
 
@@ -16,15 +17,17 @@ type MeetingRow = {
   segments: Segment[] | null;
 };
 
-async function fetchMeeting(id: string): Promise<MeetingRow | null> {
-  const rows = await query<MeetingRow>(
-    `SELECT id, status, parent_meeting_id, duration_seconds,
-            to_char(coalesce(recorded_at, created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
-            segments
-     FROM meetings WHERE id = $1::uuid`,
-    [id],
-  );
-  return rows[0] ?? null;
+async function fetchMeeting(userId: string, id: string): Promise<MeetingRow | null> {
+  return withTenant(userId, async (db) => {
+    const r = await db.query<MeetingRow>(
+      `SELECT id, status, parent_meeting_id, duration_seconds,
+              to_char(coalesce(recorded_at, created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
+              segments
+       FROM meetings WHERE id = $1::uuid`,
+      [id],
+    );
+    return r.rows[0] ?? null;
+  });
 }
 
 export default async function SegmentarPage({
@@ -33,7 +36,8 @@ export default async function SegmentarPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const meeting = await fetchMeeting(id);
+  const user = await requireUserOrRedirect();
+  const meeting = await fetchMeeting(user.id, id);
   if (!meeting) redirect("/reunioes");
   if (meeting.parent_meeting_id) redirect(`/reunioes/${id}`);
   if (meeting.status === "archived_session") redirect("/reunioes");

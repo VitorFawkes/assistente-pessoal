@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { query } from "@/lib/db";
+import { requireUserOrRedirect } from "@/lib/auth";
+import { meetingsFor, tarefasFor, pessoasFor } from "@/lib/queries";
 import { fmtDate } from "@/lib/utils";
 import { TaskRow, type Tarefa } from "@/components/task-row";
 import {
@@ -29,44 +30,6 @@ type Meeting = {
   speaker_labels_proposed: Record<string, ProposedLabel | null> | null;
 };
 
-async function fetchMeeting(id: string): Promise<Meeting | null> {
-  const rows = await query<Meeting>(
-    `
-    SELECT
-      id, source, meeting_type, original_filename,
-      to_char(coalesce(recorded_at, created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
-      to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
-      status, status_error, transcription, summary, duration_seconds, segments,
-      speaker_labels, speaker_labels_proposed
-    FROM meetings WHERE id = $1
-    `,
-    [id],
-  );
-  return rows[0] ?? null;
-}
-
-async function fetchPessoas(): Promise<Array<{ id: string; nome: string }>> {
-  return query<{ id: string; nome: string }>(
-    `SELECT id, nome FROM pessoas ORDER BY is_vitor DESC, nome ASC`,
-  );
-}
-
-async function fetchTarefasOfMeeting(id: string): Promise<Tarefa[]> {
-  return query<Tarefa>(
-    `
-    SELECT
-      id, meeting_id, titulo, descricao, owner, is_mine,
-      to_char(prazo AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS prazo,
-      prazo_text, prioridade, status, evidencia,
-      to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
-    FROM tarefas
-    WHERE meeting_id = $1
-    ORDER BY (status NOT IN ('aberta','em_andamento')), is_mine DESC, (prazo IS NULL), prazo ASC, created_at ASC
-    `,
-    [id],
-  );
-}
-
 function MeetingTypeIcon({ type }: { type: string | null }) {
   if (type === "online") return <Video size={14} strokeWidth={1.75} />;
   if (type === "presencial") return <Mic size={14} strokeWidth={1.75} />;
@@ -79,12 +42,13 @@ export default async function ReuniaoDetalhePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const meeting = await fetchMeeting(id);
+  const user = await requireUserOrRedirect();
+  const meeting = (await meetingsFor(user.id).byIdDetailed(id)) as Meeting | null;
   if (!meeting) notFound();
 
   const [tarefas, pessoas] = await Promise.all([
-    fetchTarefasOfMeeting(id),
-    fetchPessoas(),
+    tarefasFor(user.id).byMeeting(id) as Promise<Tarefa[]>,
+    pessoasFor(user.id).listMinimal(),
   ]);
   const minhas = tarefas.filter((t) => t.is_mine && t.status !== "concluida" && t.status !== "cancelada");
   const delegadas = tarefas.filter((t) => !t.is_mine && t.status !== "concluida" && t.status !== "cancelada");

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { query } from "@/lib/db";
+import { requireUserOrRedirect } from "@/lib/auth";
+import { pessoasFor, voiceSamplesFor } from "@/lib/queries";
 import { ArrowLeft, UserRound } from "lucide-react";
 import {
   PessoaSamplesList,
@@ -19,49 +20,19 @@ type Pessoa = {
   sample_count: number;
 };
 
-async function fetchPessoa(id: string): Promise<Pessoa | null> {
-  const rows = await query<Pessoa>(
-    `SELECT p.id, p.nome, p.aliases, p.is_vitor, p.notas,
-            COALESCE((SELECT count(*)::int FROM voice_samples vs
-                      WHERE vs.pessoa_id = p.id AND vs.soft_deleted_at IS NULL), 0) AS sample_count
-     FROM pessoas p WHERE p.id = $1`,
-    [id],
-  );
-  return rows[0] ?? null;
-}
-
-async function fetchSamples(pessoaId: string): Promise<VoiceSample[]> {
-  return query<VoiceSample>(
-    `SELECT vs.id,
-            vs.source_meeting_id::text AS source_meeting_id,
-            vs.source_speaker_letter,
-            vs.source_segment_range,
-            vs.duration_seconds,
-            to_char(vs.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
-            m.summary AS meeting_summary,
-            to_char(coalesce(m.recorded_at, m.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS meeting_recorded_at
-     FROM voice_samples vs
-     LEFT JOIN meetings m ON m.id = vs.source_meeting_id
-     WHERE vs.pessoa_id = $1 AND vs.soft_deleted_at IS NULL
-     ORDER BY vs.created_at DESC`,
-    [pessoaId],
-  );
-}
-
 export default async function PessoaDetalhePage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const pessoa = await fetchPessoa(id);
+  const user = await requireUserOrRedirect();
+  const pessoa = (await pessoasFor(user.id).byIdWithSampleCount(id)) as Pessoa | null;
   if (!pessoa) notFound();
 
   const [samples, pessoasOptions] = await Promise.all([
-    fetchSamples(id),
-    query<PessoaOption>(
-      `SELECT id, nome FROM pessoas ORDER BY is_vitor DESC, nome ASC`,
-    ),
+    voiceSamplesFor(user.id).byPessoaWithMeeting(id) as Promise<VoiceSample[]>,
+    pessoasFor(user.id).listMinimal() as Promise<PessoaOption[]>,
   ]);
 
   return (

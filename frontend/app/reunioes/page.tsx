@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { query } from "@/lib/db";
+import { requireUserOrRedirect } from "@/lib/auth";
+import { meetingsFor } from "@/lib/queries";
 import { fmtDate } from "@/lib/utils";
 import { Mic, Video, FileQuestion, ChevronRight } from "lucide-react";
 
@@ -18,22 +19,6 @@ type Meeting = {
   n_tarefas: number;
   n_minhas: number;
 };
-
-async function fetchMeetings(): Promise<Meeting[]> {
-  return query<Meeting>(`
-    SELECT
-      m.id, m.source, m.meeting_type,
-      to_char(coalesce(m.recorded_at, m.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
-      to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
-      m.status, m.summary, m.duration_seconds, m.needs_segmentation,
-      (SELECT count(*) FROM tarefas WHERE meeting_id = m.id)::int AS n_tarefas,
-      (SELECT count(*) FROM tarefas WHERE meeting_id = m.id AND owner = 'vitor')::int AS n_minhas
-    FROM meetings m
-    WHERE m.status != 'archived_session'
-    ORDER BY coalesce(m.recorded_at, m.created_at) DESC
-    LIMIT 100;
-  `);
-}
 
 function MeetingIcon({ type }: { type: string | null }) {
   if (type === "online")
@@ -83,10 +68,11 @@ function StatusPill({ status }: { status: string }) {
 }
 
 export default async function ReunioesPage() {
+  const user = await requireUserOrRedirect();
   let meetings: Meeting[] = [];
   let error: string | null = null;
   try {
-    meetings = await fetchMeetings();
+    meetings = await meetingsFor(user.id).listForIndex();
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }

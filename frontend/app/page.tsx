@@ -1,31 +1,19 @@
-import { query } from "@/lib/db";
+import { requireUserOrRedirect } from "@/lib/auth";
+import { tarefasFor } from "@/lib/queries";
 import { type Tarefa } from "@/components/task-row";
 import { TasksDashboard } from "@/components/tasks-dashboard";
 
 export const dynamic = "force-dynamic";
 
-async function fetchTarefas(): Promise<Tarefa[]> {
-  return query<Tarefa>(`
-    SELECT
-      t.id, t.meeting_id, t.titulo, t.descricao, t.owner, t.is_mine,
-      to_char(t.prazo AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS prazo,
-      t.prazo_text, t.prioridade, t.status, t.evidencia,
-      to_char(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
-      to_char(m.recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS meeting_recorded_at,
-      m.summary AS meeting_summary
-    FROM tarefas t
-    LEFT JOIN meetings m ON m.id = t.meeting_id
-    WHERE t.status IN ('aberta','em_andamento')
-    ORDER BY (t.prazo IS NULL), t.prazo ASC, t.created_at DESC
-    LIMIT 200;
-  `);
-}
-
 export default async function HomePage() {
+  const user = await requireUserOrRedirect();
+
   let tarefas: Tarefa[] = [];
   let dbError: string | null = null;
   try {
-    tarefas = await fetchTarefas();
+    // tarefasFor.abertas() já retorna com meeting_recorded_at + meeting_summary
+    // joinados. RLS filtra por user_id automaticamente.
+    tarefas = (await tarefasFor(user.id).abertas()) as unknown as Tarefa[];
   } catch (e: unknown) {
     dbError = e instanceof Error ? e.message : String(e);
   }
