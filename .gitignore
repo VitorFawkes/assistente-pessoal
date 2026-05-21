@@ -38,3 +38,6 @@ mac-agent/.last_response.json
 .playwright-mcp/
 
 .superpowers/
+
+# git worktrees (workspace isolado pra trabalho longo)
+.worktrees/
