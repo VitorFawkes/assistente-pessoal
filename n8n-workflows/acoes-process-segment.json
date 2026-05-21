@@ -1,22 +1,14 @@
 {
-    "updatedAt": "2026-05-21T17:53:35.198Z",
-    "createdAt": "2026-05-17T23:04:49.430Z",
-    "id": "98jEiWWSAKFWEP6B",
-    "name": "Acoes - Audio Ingest",
+    "updatedAt": "2026-05-21T17:57:36.505Z",
+    "createdAt": "2026-05-21T17:57:36.505Z",
+    "id": "Gt34r0WVdZxCbJet",
+    "name": "Acoes - Process Segment",
     "description": null,
     "active": true,
     "isArchived": false,
     "nodes": [
         {
-            "parameters": {
-                "httpMethod": "POST",
-                "path": "acoes-audio-ingest",
-                "options": {
-                    "rawBody": false,
-                    "responseData": "lastNode"
-                }
-            },
-            "id": "00000000-0000-0000-0000-000000000001",
+            "id": "06ea163d-3c26-41df-b540-cffe57cf4c7e",
             "name": "1. Webhook",
             "type": "n8n-nodes-base.webhook",
             "typeVersion": 2,
@@ -24,7 +16,13 @@
                 -1600,
                 0
             ],
-            "webhookId": "acoes-audio-ingest"
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "acoes-process-segment",
+                "responseMode": "onReceived",
+                "options": {}
+            },
+            "webhookId": "2933a2df-cd79-47df-b59b-db37f08396c6"
         },
         {
             "parameters": {
@@ -50,146 +48,50 @@
                 },
                 "options": {}
             },
-            "id": "00000000-0000-0000-0000-000000000002",
+            "id": "2ad1d1e9-8ec5-4161-9cf7-21f953e87ab9",
             "name": "2. Validate Auth",
             "type": "n8n-nodes-base.if",
             "typeVersion": 2.2,
             "position": [
-                -1376,
+                -1400,
                 0
             ]
         },
         {
-            "parameters": {
-                "jsCode": "const wh = $('1. Webhook').first();\nconst headers = wh.json.headers || {};\nconst body = wh.json.body || {};\nconst filename = headers['x-original-filename'] || 'audio.mp3';\nconst ext = (filename.split('.').pop() || 'mp3').toLowerCase();\nconst uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {\n  const r = (Math.random() * 16) | 0;\n  return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);\n});\nconst meeting_id = uuid;\nconst now = new Date();\nconst year  = String(now.getUTCFullYear());\nconst month = String(now.getUTCMonth() + 1).padStart(2, '0');\nconst recorded_at = headers['x-recorded-at'] || now.toISOString();\n\nconst transcription = body.transcription || '';\nconst duration_seconds_local = parseFloat(body.duration_seconds || '0');\nconst silent_local = (body.silent === 'true' || body.silent === true);\n\n// segments: vem como string JSON (multipart form field). Parse pra array de objetos.\nlet segments_local = [];\nif (body.segments) {\n  try {\n    segments_local = typeof body.segments === 'string'\n      ? JSON.parse(body.segments)\n      : body.segments;\n    if (!Array.isArray(segments_local)) segments_local = [];\n  } catch (e) {\n    segments_local = [];\n  }\n}\n\nreturn [{\n  json: {\n    meeting_id,\n    year, month,\n    source: headers['x-source'] || 'macbook',\n    meeting_type: headers['x-meeting-type'] || 'desconhecido',\n    original_filename: filename,\n    recorded_at,\n    audio_size_bytes: parseInt(headers['x-audio-size'] || '0', 10),\n    ext,\n    audio_path: `/audios/${meeting_id}.${ext}`,\n    transcription,\n    duration_seconds_local,\n    silent_local,\n    segments_local,\n  },\n  binary: wh.binary\n}];"
-            },
-            "id": "00000000-0000-0000-0000-000000000004",
-            "name": "3. Prepare Metadata",
-            "type": "n8n-nodes-base.code",
-            "typeVersion": 2,
-            "position": [
-                -1184,
-                -96
-            ]
-        },
-        {
-            "parameters": {
-                "method": "POST",
-                "url": "http://n8n_assistente-frontend:3000/api/save-audio",
-                "sendBody": true,
-                "contentType": "multipart-form-data",
-                "bodyParameters": {
-                    "parameters": [
-                        {
-                            "name": "meeting_id",
-                            "value": "={{ $('3. Prepare Metadata').item.json.meeting_id }}"
-                        },
-                        {
-                            "name": "ext",
-                            "value": "={{ $('3. Prepare Metadata').item.json.ext }}"
-                        },
-                        {
-                            "parameterType": "formBinaryData",
-                            "name": "audio",
-                            "inputDataFieldName": "audio"
-                        }
-                    ]
-                },
-                "options": {
-                    "timeout": 60000
-                }
-            },
-            "id": "11111111-2222-3333-4444-555555555555",
-            "name": "4. Save Audio via Frontend",
-            "type": "n8n-nodes-base.httpRequest",
-            "typeVersion": 4.2,
-            "position": [
-                -864,
-                -96
-            ]
-        },
-        {
-            "parameters": {
-                "jsCode": "\n// Mant\u00e9m JSON do step anterior (save-audio response) e restaura binary do step 3\n// (HTTP Request consome o binary, mas Whisper precisa dele)\nreturn [{\n  json: $json,\n  binary: $('3. Prepare Metadata').first().binary\n}];\n"
-            },
-            "id": "22222222-3333-4444-5555-666666666666",
-            "name": "4b. Reattach Binary",
-            "type": "n8n-nodes-base.code",
-            "typeVersion": 2,
-            "position": [
-                -688,
-                -96
-            ]
-        },
-        {
-            "parameters": {
-                "schema": {
-                    "__rl": true,
-                    "mode": "list",
-                    "value": "public"
-                },
-                "table": {
-                    "__rl": true,
-                    "mode": "list",
-                    "value": "meetings"
-                },
-                "columns": {
-                    "mappingMode": "defineBelow",
-                    "value": {
-                        "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
-                        "source": "={{ $('3. Prepare Metadata').item.json.source }}",
-                        "meeting_type": "={{ $('3. Prepare Metadata').item.json.meeting_type }}",
-                        "original_filename": "={{ $('3. Prepare Metadata').item.json.original_filename }}",
-                        "audio_path": "={{ $('3. Prepare Metadata').item.json.audio_path }}",
-                        "audio_size_bytes": "={{ $('3. Prepare Metadata').item.json.audio_size_bytes }}",
-                        "recorded_at": "={{ $('3. Prepare Metadata').item.json.recorded_at }}",
-                        "status": "received"
-                    },
-                    "matchingColumns": [],
-                    "schema": []
-                },
-                "options": {}
-            },
-            "id": "00000000-0000-0000-0000-000000000006",
-            "name": "5. INSERT meeting",
+            "id": "2b1ff3bd-9e86-4a24-8561-f1c4ce1d98e4",
+            "name": "2b. SELECT meeting",
             "type": "n8n-nodes-base.postgres",
             "typeVersion": 2.5,
             "position": [
-                -608,
-                -96
+                -1200,
+                0
             ],
             "credentials": {
                 "postgres": {
                     "id": "KQJgErf7zPLrLq1t",
                     "name": "Acoes - Postgres"
                 }
+            },
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "SELECT id, transcription, segments, duration_seconds, recorded_at::text AS recorded_at, source, meeting_type FROM meetings WHERE id = $1::uuid",
+                "options": {
+                    "queryReplacement": "={{ $('1. Webhook').first().json.body.meeting_id }}"
+                }
             }
         },
         {
-            "parameters": {
-                "jsCode": "// Restaura binary do step 3 (INSERT meeting consome o binary)\nreturn [{ json: $json, binary: $('3. Prepare Metadata').first().binary }];\n"
-            },
-            "id": "44444444-5555-6666-7777-888888888888",
-            "name": "5b. Reattach Binary",
+            "id": "4d51025d-957b-4b7a-bbab-2a86113b2cb9",
+            "name": "3. Prepare Metadata",
             "type": "n8n-nodes-base.code",
             "typeVersion": 2,
             "position": [
-                -576,
-                -96
-            ]
-        },
-        {
+                -1000,
+                0
+            ],
             "parameters": {
-                "jsCode": "// Usa transcri\u00e7\u00e3o + segments j\u00e1 prontos do Mac.\n// Formato compat\u00edvel: { text, duration, language, segments }.\nconst meta = $('3. Prepare Metadata').first().json;\nreturn [{\n  json: {\n    text: meta.transcription || '',\n    duration: meta.duration_seconds_local || 0,\n    language: 'pt',\n    segments: meta.segments_local || [],\n  }\n}];"
-            },
-            "id": "00000000-0000-0000-0000-000000000007",
-            "name": "6. Use Pretranscribed",
-            "type": "n8n-nodes-base.code",
-            "typeVersion": 2,
-            "position": [
-                -528,
-                -96
-            ]
+                "jsCode": "// Adapta dados do SELECT pra ficar compat\u00edvel com n\u00f3s copiados do principal\n// (que referenciam $('3. Prepare Metadata').item.json.*).\nconst meeting = $input.first().json;\nif (!meeting || !meeting.id) {\n  throw new Error('meeting n\u00e3o encontrada: ' + JSON.stringify(meeting).slice(0, 200));\n}\nreturn [{\n  json: {\n    meeting_id: meeting.id,\n    transcription: meeting.transcription || '',\n    duration_seconds_local: meeting.duration_seconds || 0,\n    recorded_at: meeting.recorded_at,\n    source: meeting.source || 'segmented',\n    meeting_type: meeting.meeting_type || 'desconhecido',\n    segments_local: meeting.segments || []\n  }\n}];"
+            }
         },
         {
             "parameters": {
@@ -220,13 +122,13 @@
                 },
                 "options": {}
             },
-            "id": "33333333-4444-5555-6666-777777777777",
+            "id": "4a952527-0580-43cb-acdc-f261539f6999",
             "name": "7. UPDATE meeting (analyzing)",
             "type": "n8n-nodes-base.postgres",
             "typeVersion": 2.5,
             "position": [
-                -304,
-                -96
+                -800,
+                0
             ],
             "credentials": {
                 "postgres": {
@@ -234,6 +136,19 @@
                     "name": "Acoes - Postgres"
                 }
             }
+        },
+        {
+            "parameters": {
+                "jsCode": "// Usa transcri\u00e7\u00e3o + segments j\u00e1 prontos do Mac.\n// Formato compat\u00edvel: { text, duration, language, segments }.\nconst meta = $('3. Prepare Metadata').first().json;\nreturn [{\n  json: {\n    text: meta.transcription || '',\n    duration: meta.duration_seconds_local || 0,\n    language: 'pt',\n    segments: meta.segments_local || [],\n  }\n}];"
+            },
+            "id": "baccd86c-c0f6-4ffe-86ef-3c75370280d0",
+            "name": "6. Use Pretranscribed",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -600,
+                0
+            ]
         },
         {
             "parameters": {
@@ -258,13 +173,13 @@
                     "temperature": 0.2
                 }
             },
-            "id": "00000000-0000-0000-0000-000000000009",
+            "id": "18063831-5e65-4808-b963-c7cdc2f46b88",
             "name": "8. GPT Extract Actions",
             "type": "@n8n/n8n-nodes-langchain.openAi",
             "typeVersion": 1.7,
             "position": [
-                -144,
-                -96
+                -400,
+                0
             ],
             "credentials": {
                 "openAiApi": {
@@ -277,13 +192,13 @@
             "parameters": {
                 "jsCode": "// Parseia o JSON retornado pelo GPT e prepara items para INSERT em tarefas.\nconst meetingId = $('3. Prepare Metadata').item.json.meeting_id;\nconst raw = $input.first().json;\n\n// O n\u00f3 openAi v1.7 retorna o JSON em diferentes shapes \u2014 normaliza.\nlet parsed;\nif (raw.message && raw.message.content) {\n  parsed = typeof raw.message.content === 'string' ? JSON.parse(raw.message.content) : raw.message.content;\n} else if (raw.content) {\n  parsed = typeof raw.content === 'string' ? JSON.parse(raw.content) : raw.content;\n} else if (raw.text) {\n  parsed = typeof raw.text === 'string' ? JSON.parse(raw.text) : raw.text;\n} else if (raw.summary && Array.isArray(raw.actions)) {\n  parsed = raw;\n} else {\n  throw new Error('N\u00e3o foi poss\u00edvel parsear resposta do GPT: ' + JSON.stringify(raw).slice(0, 500));\n}\n\nconst { summary = '', actions = [] } = parsed;\nconst rawJson = JSON.stringify(parsed);\n\nif (!actions.length) {\n  return [{\n    json: {\n      meeting_id: meetingId,\n      summary,\n      raw_ai_response: rawJson,\n      no_actions: true\n    }\n  }];\n}\n\nreturn actions.map((a, i) => ({\n  json: {\n    meeting_id: meetingId,\n    summary,\n    raw_ai_response: rawJson,\n    titulo: a.titulo || '(sem t\u00edtulo)',\n    descricao: a.descricao || '',\n    owner: a.owner || 'vitor',\n    prazo: a.prazo_iso || null,\n    prazo_text: a.prazo_text || null,\n    prioridade: ['baixa','media','alta','urgente'].includes(a.prioridade) ? a.prioridade : 'media',\n    evidencia: a.evidencia || '',\n    idx: i,\n    total: actions.length\n  }\n}));"
             },
-            "id": "00000000-0000-0000-0000-000000000010",
+            "id": "aeae4aab-fdc9-4813-b5f3-d375ea67a915",
             "name": "9. Parse Actions",
             "type": "n8n-nodes-base.code",
             "typeVersion": 2,
             "position": [
-                144,
-                -96
+                -200,
+                0
             ]
         },
         {
@@ -311,13 +226,13 @@
                 },
                 "options": {}
             },
-            "id": "00000000-0000-0000-0000-000000000011",
+            "id": "2f22ad35-317a-41af-a45f-875066512459",
             "name": "10. Has Actions?",
             "type": "n8n-nodes-base.if",
             "typeVersion": 2.2,
             "position": [
-                368,
-                -96
+                0,
+                0
             ]
         },
         {
@@ -349,13 +264,13 @@
                 },
                 "options": {}
             },
-            "id": "00000000-0000-0000-0000-000000000012",
+            "id": "cd421962-31e7-4fcf-bb4e-e38e5e95ed11",
             "name": "11. INSERT tarefas",
             "type": "n8n-nodes-base.postgres",
             "typeVersion": 2.5,
             "position": [
-                592,
-                0
+                200,
+                100
             ],
             "credentials": {
                 "postgres": {
@@ -393,12 +308,12 @@
                 },
                 "options": {}
             },
-            "id": "00000000-0000-0000-0000-000000000013",
+            "id": "a786c6f2-a7db-43ee-a940-e28ca49fa4c5",
             "name": "12. UPDATE meeting (done)",
             "type": "n8n-nodes-base.postgres",
             "typeVersion": 2.5,
             "position": [
-                800,
+                400,
                 0
             ],
             "credentials": {
@@ -407,105 +322,6 @@
                     "name": "Acoes - Postgres"
                 }
             }
-        },
-        {
-            "parameters": {
-                "jsCode": "// Monta a mensagem do WhatsApp\nconst meetingId = $('3. Prepare Metadata').item.json.meeting_id;\nconst summary = $('9. Parse Actions').first().json.summary;\nconst items = $('9. Parse Actions').all().map(i => i.json).filter(j => !j.no_actions);\n\nconst minhas = items.filter(i => i.owner === 'vitor');\nconst delegadas = items.filter(i => i.owner !== 'vitor');\nconst formatPrazo = (p) => {\n  if (!p) return '';\n  try {\n    const d = new Date(p);\n    return ' _(at\u00e9 ' + d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ')_';\n  } catch { return ''; }\n};\nconst emojiPrio = { urgente: '\ud83d\udd34', alta: '\ud83d\udfe0', media: '\ud83d\udfe1', baixa: '\u26aa' };\n\nlet msg = '\ud83c\udf99\ufe0f *Reuni\u00e3o processada*\\n\\n';\nmsg += '_' + summary + '_\\n\\n';\n\nif (minhas.length) {\n  msg += '\u2705 *Minhas a\u00e7\u00f5es* (' + minhas.length + ')\\n';\n  minhas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '\ud83d\udfe1') + ' ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (delegadas.length) {\n  msg += '\ud83d\udc65 *Combinei com outros* (' + delegadas.length + ')\\n';\n  delegadas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '\ud83d\udfe1') + ' *' + t.owner + ':* ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (!minhas.length && !delegadas.length) {\n  msg += '_(nenhuma a\u00e7\u00e3o concreta extra\u00edda desta reuni\u00e3o)_\\n';\n}\n\nconst frontendUrl = 'https://acoes.vitorgambetti.com.br';\nmsg += '\ud83d\udd17 ' + frontendUrl + '/reunioes/' + meetingId;\n\n\n// Aviso de \u00e1udio longo aguardando segmenta\u00e7\u00e3o\nconst needsSeg = $('12c. Mark Needs Segmentation').first().json.needs_segmentation;\nconst dur = $('12c. Mark Needs Segmentation').first().json.duration_seconds;\nif (needsSeg) {\n  msg += '\\n\\n\ud83c\udf99\ufe0f \u00c1udio longo (' + (dur/3600).toFixed(1) + 'h) \u2014 revisar segmenta\u00e7\u00e3o:\\n';\n  msg += frontendUrl + '/reunioes/' + meetingId + '/segmentar';\n}\nreturn [{ json: { text: msg, meeting_id: meetingId, n_tarefas: items.length } }];"
-            },
-            "id": "00000000-0000-0000-0000-000000000014",
-            "name": "13. Build WhatsApp Message",
-            "type": "n8n-nodes-base.code",
-            "typeVersion": 2,
-            "position": [
-                1024,
-                0
-            ]
-        },
-        {
-            "parameters": {
-                "method": "POST",
-                "url": "=https://n8n-evolution-api.tatetz.easypanel.host/message/sendText/fawkes-sdr",
-                "sendHeaders": true,
-                "headerParameters": {
-                    "parameters": [
-                        {
-                            "name": "apikey",
-                            "value": "=429683C4C977415CAAFCCE10F7D57E11"
-                        },
-                        {
-                            "name": "Content-Type",
-                            "value": "application/json"
-                        }
-                    ]
-                },
-                "sendBody": true,
-                "specifyBody": "json",
-                "jsonBody": "={\n  \"number\": \"551151980726\",\n  \"text\": {{ JSON.stringify($json.text) }}\n}",
-                "options": {
-                    "timeout": 30000
-                }
-            },
-            "id": "00000000-0000-0000-0000-000000000015",
-            "name": "14. Send WhatsApp",
-            "type": "n8n-nodes-base.httpRequest",
-            "typeVersion": 4.2,
-            "position": [
-                1248,
-                0
-            ]
-        },
-        {
-            "parameters": {
-                "operation": "update",
-                "schema": {
-                    "__rl": true,
-                    "mode": "list",
-                    "value": "public"
-                },
-                "table": {
-                    "__rl": true,
-                    "mode": "list",
-                    "value": "meetings"
-                },
-                "columns": {
-                    "mappingMode": "defineBelow",
-                    "value": {
-                        "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
-                        "status": "error",
-                        "status_error": "={{ $json.error?.message || JSON.stringify($json.error || $json) }}"
-                    },
-                    "matchingColumns": [
-                        "id"
-                    ],
-                    "schema": []
-                },
-                "options": {}
-            },
-            "id": "00000000-0000-0000-0000-000000000017",
-            "name": "Err. UPDATE meeting (error)",
-            "type": "n8n-nodes-base.postgres",
-            "typeVersion": 2.5,
-            "position": [
-                -304,
-                208
-            ],
-            "credentials": {
-                "postgres": {
-                    "id": "KQJgErf7zPLrLq1t",
-                    "name": "Acoes - Postgres"
-                }
-            }
-        },
-        {
-            "parameters": {},
-            "type": "@n8n/n8n-nodes-langchain.toolThink",
-            "typeVersion": 1.1,
-            "position": [
-                96,
-                128
-            ],
-            "id": "6e384d6c-aa6a-4b4d-af3c-9c0ad8c6beff",
-            "name": "Think"
         },
         {
             "parameters": {
@@ -513,7 +329,7 @@
                 "url": "http://voice-svc:8000/identify",
                 "sendBody": true,
                 "specifyBody": "json",
-                "jsonBody": "={\n  \"meeting_id\": {{ JSON.stringify($('5. INSERT meeting').item.json.id) }}\n}",
+                "jsonBody": "={\n  \"meeting_id\": {{ JSON.stringify($('3. Prepare Metadata').item.json.meeting_id) }}\n}",
                 "options": {
                     "timeout": 120000,
                     "response": {
@@ -523,70 +339,16 @@
                     }
                 }
             },
-            "id": "2e001531-9ca3-4423-941d-a9619ea3316f",
+            "id": "c994ceaa-e7d7-40d6-b199-6d39a50ddb03",
             "name": "12b. Identify Speakers (voice-svc)",
             "type": "n8n-nodes-base.httpRequest",
             "typeVersion": 4.2,
             "position": [
-                800,
-                200
+                600,
+                0
             ],
             "continueOnFail": true,
             "notesInFlow": false
-        },
-        {
-            "id": "d7d247b1-5e5f-4e63-a740-179277f29500",
-            "name": "12c. Mark Needs Segmentation",
-            "type": "n8n-nodes-base.code",
-            "typeVersion": 2,
-            "position": [
-                1000,
-                0
-            ],
-            "parameters": {
-                "jsCode": "// Marca se a meeting precisa ser revisada pra segmenta\u00e7\u00e3o manual.\n// Limite: > 60min (3600s). N\u00e3o bloqueia o fluxo se dura\u00e7\u00e3o ausente.\nconst meta = $('3. Prepare Metadata').first().json;\nconst duration = meta.duration_seconds_local || 0;\nconst needs = duration > 3600;\nreturn [{\n  json: {\n    needs_segmentation: needs,\n    meeting_id: meta.meeting_id,\n    duration_seconds: duration\n  }\n}];"
-            }
-        },
-        {
-            "id": "b0a6fbf2-096c-4fdc-ac71-1d30b9a16efd",
-            "name": "12d. UPDATE needs_segmentation",
-            "type": "n8n-nodes-base.postgres",
-            "typeVersion": 2.5,
-            "position": [
-                1200,
-                0
-            ],
-            "credentials": {
-                "postgres": {
-                    "id": "KQJgErf7zPLrLq1t",
-                    "name": "Acoes - Postgres"
-                }
-            },
-            "parameters": {
-                "operation": "update",
-                "schema": {
-                    "__rl": true,
-                    "mode": "list",
-                    "value": "public"
-                },
-                "table": {
-                    "__rl": true,
-                    "mode": "list",
-                    "value": "meetings"
-                },
-                "columns": {
-                    "mappingMode": "defineBelow",
-                    "value": {
-                        "id": "={{ $json.meeting_id }}",
-                        "needs_segmentation": "={{ $json.needs_segmentation }}"
-                    },
-                    "matchingColumns": [
-                        "id"
-                    ],
-                    "schema": []
-                },
-                "options": {}
-            }
         }
     ],
     "connections": {
@@ -605,30 +367,51 @@
             "main": [
                 [
                     {
-                        "node": "3. Prepare Metadata",
-                        "type": "main",
-                        "index": 0
-                    }
-                ],
-                []
-            ]
-        },
-        "3. Prepare Metadata": {
-            "main": [
-                [
-                    {
-                        "node": "4. Save Audio via Frontend",
+                        "node": "2b. SELECT meeting",
                         "type": "main",
                         "index": 0
                     }
                 ]
             ]
         },
-        "5. INSERT meeting": {
+        "2b. SELECT meeting": {
             "main": [
                 [
                     {
-                        "node": "5b. Reattach Binary",
+                        "node": "3. Prepare Metadata",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "3. Prepare Metadata": {
+            "main": [
+                [
+                    {
+                        "node": "7. UPDATE meeting (analyzing)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "7. UPDATE meeting (analyzing)": {
+            "main": [
+                [
+                    {
+                        "node": "6. Use Pretranscribed",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "6. Use Pretranscribed": {
+            "main": [
+                [
+                    {
+                        "node": "8. GPT Extract Actions",
                         "type": "main",
                         "index": 0
                     }
@@ -693,142 +476,27 @@
                         "node": "12b. Identify Speakers (voice-svc)",
                         "type": "main",
                         "index": 0
-                    },
-                    {
-                        "node": "12c. Mark Needs Segmentation",
-                        "type": "main",
-                        "index": 0
-                    }
-                ]
-            ]
-        },
-        "13. Build WhatsApp Message": {
-            "main": [
-                [
-                    {
-                        "node": "14. Send WhatsApp",
-                        "type": "main",
-                        "index": 0
-                    }
-                ]
-            ]
-        },
-        "14. Send WhatsApp": {
-            "main": [
-                []
-            ]
-        },
-        "4. Save Audio via Frontend": {
-            "main": [
-                [
-                    {
-                        "node": "4b. Reattach Binary",
-                        "type": "main",
-                        "index": 0
-                    }
-                ]
-            ]
-        },
-        "4b. Reattach Binary": {
-            "main": [
-                [
-                    {
-                        "node": "5. INSERT meeting",
-                        "type": "main",
-                        "index": 0
-                    }
-                ]
-            ]
-        },
-        "7. UPDATE meeting (analyzing)": {
-            "main": [
-                [
-                    {
-                        "node": "8. GPT Extract Actions",
-                        "type": "main",
-                        "index": 0
-                    }
-                ]
-            ]
-        },
-        "5b. Reattach Binary": {
-            "main": [
-                [
-                    {
-                        "node": "6. Use Pretranscribed",
-                        "type": "main",
-                        "index": 0
-                    }
-                ]
-            ]
-        },
-        "Think": {
-            "ai_tool": [
-                [
-                    {
-                        "node": "8. GPT Extract Actions",
-                        "type": "ai_tool",
-                        "index": 0
-                    }
-                ]
-            ]
-        },
-        "6. Use Pretranscribed": {
-            "main": [
-                [
-                    {
-                        "node": "7. UPDATE meeting (analyzing)",
-                        "type": "main",
-                        "index": 0
-                    }
-                ]
-            ]
-        },
-        "12c. Mark Needs Segmentation": {
-            "main": [
-                [
-                    {
-                        "node": "12d. UPDATE needs_segmentation",
-                        "type": "main",
-                        "index": 0
-                    }
-                ]
-            ]
-        },
-        "12d. UPDATE needs_segmentation": {
-            "main": [
-                [
-                    {
-                        "node": "13. Build WhatsApp Message",
-                        "type": "main",
-                        "index": 0
                     }
                 ]
             ]
         }
     },
     "settings": {
-        "executionOrder": "v1",
-        "callerPolicy": "workflowsFromSameOwner",
-        "saveExecutionProgress": true,
-        "saveManualExecutions": true,
-        "saveDataErrorExecution": "all",
-        "saveDataSuccessExecution": "all",
-        "binaryMode": "separate"
+        "executionOrder": "v1"
     },
     "staticData": null,
     "meta": null,
-    "pinData": {},
-    "versionId": "b14f47a7-6798-402e-b2f5-3fcd28bbcb7b",
-    "activeVersionId": "b14f47a7-6798-402e-b2f5-3fcd28bbcb7b",
-    "versionCounter": 112,
+    "pinData": null,
+    "versionId": "989c6afd-ef28-44e7-9380-ad5e62529e7d",
+    "activeVersionId": "989c6afd-ef28-44e7-9380-ad5e62529e7d",
+    "versionCounter": 3,
     "triggerCount": 1,
     "shared": [
         {
-            "updatedAt": "2026-05-17T23:04:49.437Z",
-            "createdAt": "2026-05-17T23:04:49.437Z",
+            "updatedAt": "2026-05-21T17:57:36.509Z",
+            "createdAt": "2026-05-21T17:57:36.509Z",
             "role": "workflow:owner",
-            "workflowId": "98jEiWWSAKFWEP6B",
+            "workflowId": "Gt34r0WVdZxCbJet",
             "projectId": "0cPWBzxXBTGmkHea",
             "project": {
                 "updatedAt": "2025-08-01T18:29:42.311Z",
@@ -844,21 +512,13 @@
     ],
     "tags": [],
     "activeVersion": {
-        "updatedAt": "2026-05-21T17:53:35.205Z",
-        "createdAt": "2026-05-21T17:53:35.205Z",
-        "versionId": "b14f47a7-6798-402e-b2f5-3fcd28bbcb7b",
-        "workflowId": "98jEiWWSAKFWEP6B",
+        "updatedAt": "2026-05-21T17:57:36.511Z",
+        "createdAt": "2026-05-21T17:57:36.511Z",
+        "versionId": "989c6afd-ef28-44e7-9380-ad5e62529e7d",
+        "workflowId": "Gt34r0WVdZxCbJet",
         "nodes": [
             {
-                "parameters": {
-                    "httpMethod": "POST",
-                    "path": "acoes-audio-ingest",
-                    "options": {
-                        "rawBody": false,
-                        "responseData": "lastNode"
-                    }
-                },
-                "id": "00000000-0000-0000-0000-000000000001",
+                "id": "06ea163d-3c26-41df-b540-cffe57cf4c7e",
                 "name": "1. Webhook",
                 "type": "n8n-nodes-base.webhook",
                 "typeVersion": 2,
@@ -866,7 +526,13 @@
                     -1600,
                     0
                 ],
-                "webhookId": "acoes-audio-ingest"
+                "parameters": {
+                    "httpMethod": "POST",
+                    "path": "acoes-process-segment",
+                    "responseMode": "onReceived",
+                    "options": {}
+                },
+                "webhookId": "2933a2df-cd79-47df-b59b-db37f08396c6"
             },
             {
                 "parameters": {
@@ -892,146 +558,50 @@
                     },
                     "options": {}
                 },
-                "id": "00000000-0000-0000-0000-000000000002",
+                "id": "2ad1d1e9-8ec5-4161-9cf7-21f953e87ab9",
                 "name": "2. Validate Auth",
                 "type": "n8n-nodes-base.if",
                 "typeVersion": 2.2,
                 "position": [
-                    -1376,
+                    -1400,
                     0
                 ]
             },
             {
-                "parameters": {
-                    "jsCode": "const wh = $('1. Webhook').first();\nconst headers = wh.json.headers || {};\nconst body = wh.json.body || {};\nconst filename = headers['x-original-filename'] || 'audio.mp3';\nconst ext = (filename.split('.').pop() || 'mp3').toLowerCase();\nconst uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {\n  const r = (Math.random() * 16) | 0;\n  return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);\n});\nconst meeting_id = uuid;\nconst now = new Date();\nconst year  = String(now.getUTCFullYear());\nconst month = String(now.getUTCMonth() + 1).padStart(2, '0');\nconst recorded_at = headers['x-recorded-at'] || now.toISOString();\n\nconst transcription = body.transcription || '';\nconst duration_seconds_local = parseFloat(body.duration_seconds || '0');\nconst silent_local = (body.silent === 'true' || body.silent === true);\n\n// segments: vem como string JSON (multipart form field). Parse pra array de objetos.\nlet segments_local = [];\nif (body.segments) {\n  try {\n    segments_local = typeof body.segments === 'string'\n      ? JSON.parse(body.segments)\n      : body.segments;\n    if (!Array.isArray(segments_local)) segments_local = [];\n  } catch (e) {\n    segments_local = [];\n  }\n}\n\nreturn [{\n  json: {\n    meeting_id,\n    year, month,\n    source: headers['x-source'] || 'macbook',\n    meeting_type: headers['x-meeting-type'] || 'desconhecido',\n    original_filename: filename,\n    recorded_at,\n    audio_size_bytes: parseInt(headers['x-audio-size'] || '0', 10),\n    ext,\n    audio_path: `/audios/${meeting_id}.${ext}`,\n    transcription,\n    duration_seconds_local,\n    silent_local,\n    segments_local,\n  },\n  binary: wh.binary\n}];"
-                },
-                "id": "00000000-0000-0000-0000-000000000004",
-                "name": "3. Prepare Metadata",
-                "type": "n8n-nodes-base.code",
-                "typeVersion": 2,
-                "position": [
-                    -1184,
-                    -96
-                ]
-            },
-            {
-                "parameters": {
-                    "method": "POST",
-                    "url": "http://n8n_assistente-frontend:3000/api/save-audio",
-                    "sendBody": true,
-                    "contentType": "multipart-form-data",
-                    "bodyParameters": {
-                        "parameters": [
-                            {
-                                "name": "meeting_id",
-                                "value": "={{ $('3. Prepare Metadata').item.json.meeting_id }}"
-                            },
-                            {
-                                "name": "ext",
-                                "value": "={{ $('3. Prepare Metadata').item.json.ext }}"
-                            },
-                            {
-                                "parameterType": "formBinaryData",
-                                "name": "audio",
-                                "inputDataFieldName": "audio"
-                            }
-                        ]
-                    },
-                    "options": {
-                        "timeout": 60000
-                    }
-                },
-                "id": "11111111-2222-3333-4444-555555555555",
-                "name": "4. Save Audio via Frontend",
-                "type": "n8n-nodes-base.httpRequest",
-                "typeVersion": 4.2,
-                "position": [
-                    -864,
-                    -96
-                ]
-            },
-            {
-                "parameters": {
-                    "jsCode": "\n// Mant\u00e9m JSON do step anterior (save-audio response) e restaura binary do step 3\n// (HTTP Request consome o binary, mas Whisper precisa dele)\nreturn [{\n  json: $json,\n  binary: $('3. Prepare Metadata').first().binary\n}];\n"
-                },
-                "id": "22222222-3333-4444-5555-666666666666",
-                "name": "4b. Reattach Binary",
-                "type": "n8n-nodes-base.code",
-                "typeVersion": 2,
-                "position": [
-                    -688,
-                    -96
-                ]
-            },
-            {
-                "parameters": {
-                    "schema": {
-                        "__rl": true,
-                        "mode": "list",
-                        "value": "public"
-                    },
-                    "table": {
-                        "__rl": true,
-                        "mode": "list",
-                        "value": "meetings"
-                    },
-                    "columns": {
-                        "mappingMode": "defineBelow",
-                        "value": {
-                            "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
-                            "source": "={{ $('3. Prepare Metadata').item.json.source }}",
-                            "meeting_type": "={{ $('3. Prepare Metadata').item.json.meeting_type }}",
-                            "original_filename": "={{ $('3. Prepare Metadata').item.json.original_filename }}",
-                            "audio_path": "={{ $('3. Prepare Metadata').item.json.audio_path }}",
-                            "audio_size_bytes": "={{ $('3. Prepare Metadata').item.json.audio_size_bytes }}",
-                            "recorded_at": "={{ $('3. Prepare Metadata').item.json.recorded_at }}",
-                            "status": "received"
-                        },
-                        "matchingColumns": [],
-                        "schema": []
-                    },
-                    "options": {}
-                },
-                "id": "00000000-0000-0000-0000-000000000006",
-                "name": "5. INSERT meeting",
+                "id": "2b1ff3bd-9e86-4a24-8561-f1c4ce1d98e4",
+                "name": "2b. SELECT meeting",
                 "type": "n8n-nodes-base.postgres",
                 "typeVersion": 2.5,
                 "position": [
-                    -608,
-                    -96
+                    -1200,
+                    0
                 ],
                 "credentials": {
                     "postgres": {
                         "id": "KQJgErf7zPLrLq1t",
                         "name": "Acoes - Postgres"
                     }
+                },
+                "parameters": {
+                    "operation": "executeQuery",
+                    "query": "SELECT id, transcription, segments, duration_seconds, recorded_at::text AS recorded_at, source, meeting_type FROM meetings WHERE id = $1::uuid",
+                    "options": {
+                        "queryReplacement": "={{ $('1. Webhook').first().json.body.meeting_id }}"
+                    }
                 }
             },
             {
-                "parameters": {
-                    "jsCode": "// Restaura binary do step 3 (INSERT meeting consome o binary)\nreturn [{ json: $json, binary: $('3. Prepare Metadata').first().binary }];\n"
-                },
-                "id": "44444444-5555-6666-7777-888888888888",
-                "name": "5b. Reattach Binary",
+                "id": "4d51025d-957b-4b7a-bbab-2a86113b2cb9",
+                "name": "3. Prepare Metadata",
                 "type": "n8n-nodes-base.code",
                 "typeVersion": 2,
                 "position": [
-                    -576,
-                    -96
-                ]
-            },
-            {
+                    -1000,
+                    0
+                ],
                 "parameters": {
-                    "jsCode": "// Usa transcri\u00e7\u00e3o + segments j\u00e1 prontos do Mac.\n// Formato compat\u00edvel: { text, duration, language, segments }.\nconst meta = $('3. Prepare Metadata').first().json;\nreturn [{\n  json: {\n    text: meta.transcription || '',\n    duration: meta.duration_seconds_local || 0,\n    language: 'pt',\n    segments: meta.segments_local || [],\n  }\n}];"
-                },
-                "id": "00000000-0000-0000-0000-000000000007",
-                "name": "6. Use Pretranscribed",
-                "type": "n8n-nodes-base.code",
-                "typeVersion": 2,
-                "position": [
-                    -528,
-                    -96
-                ]
+                    "jsCode": "// Adapta dados do SELECT pra ficar compat\u00edvel com n\u00f3s copiados do principal\n// (que referenciam $('3. Prepare Metadata').item.json.*).\nconst meeting = $input.first().json;\nif (!meeting || !meeting.id) {\n  throw new Error('meeting n\u00e3o encontrada: ' + JSON.stringify(meeting).slice(0, 200));\n}\nreturn [{\n  json: {\n    meeting_id: meeting.id,\n    transcription: meeting.transcription || '',\n    duration_seconds_local: meeting.duration_seconds || 0,\n    recorded_at: meeting.recorded_at,\n    source: meeting.source || 'segmented',\n    meeting_type: meeting.meeting_type || 'desconhecido',\n    segments_local: meeting.segments || []\n  }\n}];"
+                }
             },
             {
                 "parameters": {
@@ -1062,13 +632,13 @@
                     },
                     "options": {}
                 },
-                "id": "33333333-4444-5555-6666-777777777777",
+                "id": "4a952527-0580-43cb-acdc-f261539f6999",
                 "name": "7. UPDATE meeting (analyzing)",
                 "type": "n8n-nodes-base.postgres",
                 "typeVersion": 2.5,
                 "position": [
-                    -304,
-                    -96
+                    -800,
+                    0
                 ],
                 "credentials": {
                     "postgres": {
@@ -1076,6 +646,19 @@
                         "name": "Acoes - Postgres"
                     }
                 }
+            },
+            {
+                "parameters": {
+                    "jsCode": "// Usa transcri\u00e7\u00e3o + segments j\u00e1 prontos do Mac.\n// Formato compat\u00edvel: { text, duration, language, segments }.\nconst meta = $('3. Prepare Metadata').first().json;\nreturn [{\n  json: {\n    text: meta.transcription || '',\n    duration: meta.duration_seconds_local || 0,\n    language: 'pt',\n    segments: meta.segments_local || [],\n  }\n}];"
+                },
+                "id": "baccd86c-c0f6-4ffe-86ef-3c75370280d0",
+                "name": "6. Use Pretranscribed",
+                "type": "n8n-nodes-base.code",
+                "typeVersion": 2,
+                "position": [
+                    -600,
+                    0
+                ]
             },
             {
                 "parameters": {
@@ -1100,13 +683,13 @@
                         "temperature": 0.2
                     }
                 },
-                "id": "00000000-0000-0000-0000-000000000009",
+                "id": "18063831-5e65-4808-b963-c7cdc2f46b88",
                 "name": "8. GPT Extract Actions",
                 "type": "@n8n/n8n-nodes-langchain.openAi",
                 "typeVersion": 1.7,
                 "position": [
-                    -144,
-                    -96
+                    -400,
+                    0
                 ],
                 "credentials": {
                     "openAiApi": {
@@ -1119,13 +702,13 @@
                 "parameters": {
                     "jsCode": "// Parseia o JSON retornado pelo GPT e prepara items para INSERT em tarefas.\nconst meetingId = $('3. Prepare Metadata').item.json.meeting_id;\nconst raw = $input.first().json;\n\n// O n\u00f3 openAi v1.7 retorna o JSON em diferentes shapes \u2014 normaliza.\nlet parsed;\nif (raw.message && raw.message.content) {\n  parsed = typeof raw.message.content === 'string' ? JSON.parse(raw.message.content) : raw.message.content;\n} else if (raw.content) {\n  parsed = typeof raw.content === 'string' ? JSON.parse(raw.content) : raw.content;\n} else if (raw.text) {\n  parsed = typeof raw.text === 'string' ? JSON.parse(raw.text) : raw.text;\n} else if (raw.summary && Array.isArray(raw.actions)) {\n  parsed = raw;\n} else {\n  throw new Error('N\u00e3o foi poss\u00edvel parsear resposta do GPT: ' + JSON.stringify(raw).slice(0, 500));\n}\n\nconst { summary = '', actions = [] } = parsed;\nconst rawJson = JSON.stringify(parsed);\n\nif (!actions.length) {\n  return [{\n    json: {\n      meeting_id: meetingId,\n      summary,\n      raw_ai_response: rawJson,\n      no_actions: true\n    }\n  }];\n}\n\nreturn actions.map((a, i) => ({\n  json: {\n    meeting_id: meetingId,\n    summary,\n    raw_ai_response: rawJson,\n    titulo: a.titulo || '(sem t\u00edtulo)',\n    descricao: a.descricao || '',\n    owner: a.owner || 'vitor',\n    prazo: a.prazo_iso || null,\n    prazo_text: a.prazo_text || null,\n    prioridade: ['baixa','media','alta','urgente'].includes(a.prioridade) ? a.prioridade : 'media',\n    evidencia: a.evidencia || '',\n    idx: i,\n    total: actions.length\n  }\n}));"
                 },
-                "id": "00000000-0000-0000-0000-000000000010",
+                "id": "aeae4aab-fdc9-4813-b5f3-d375ea67a915",
                 "name": "9. Parse Actions",
                 "type": "n8n-nodes-base.code",
                 "typeVersion": 2,
                 "position": [
-                    144,
-                    -96
+                    -200,
+                    0
                 ]
             },
             {
@@ -1153,13 +736,13 @@
                     },
                     "options": {}
                 },
-                "id": "00000000-0000-0000-0000-000000000011",
+                "id": "2f22ad35-317a-41af-a45f-875066512459",
                 "name": "10. Has Actions?",
                 "type": "n8n-nodes-base.if",
                 "typeVersion": 2.2,
                 "position": [
-                    368,
-                    -96
+                    0,
+                    0
                 ]
             },
             {
@@ -1191,13 +774,13 @@
                     },
                     "options": {}
                 },
-                "id": "00000000-0000-0000-0000-000000000012",
+                "id": "cd421962-31e7-4fcf-bb4e-e38e5e95ed11",
                 "name": "11. INSERT tarefas",
                 "type": "n8n-nodes-base.postgres",
                 "typeVersion": 2.5,
                 "position": [
-                    592,
-                    0
+                    200,
+                    100
                 ],
                 "credentials": {
                     "postgres": {
@@ -1235,12 +818,12 @@
                     },
                     "options": {}
                 },
-                "id": "00000000-0000-0000-0000-000000000013",
+                "id": "a786c6f2-a7db-43ee-a940-e28ca49fa4c5",
                 "name": "12. UPDATE meeting (done)",
                 "type": "n8n-nodes-base.postgres",
                 "typeVersion": 2.5,
                 "position": [
-                    800,
+                    400,
                     0
                 ],
                 "credentials": {
@@ -1249,105 +832,6 @@
                         "name": "Acoes - Postgres"
                     }
                 }
-            },
-            {
-                "parameters": {
-                    "jsCode": "// Monta a mensagem do WhatsApp\nconst meetingId = $('3. Prepare Metadata').item.json.meeting_id;\nconst summary = $('9. Parse Actions').first().json.summary;\nconst items = $('9. Parse Actions').all().map(i => i.json).filter(j => !j.no_actions);\n\nconst minhas = items.filter(i => i.owner === 'vitor');\nconst delegadas = items.filter(i => i.owner !== 'vitor');\nconst formatPrazo = (p) => {\n  if (!p) return '';\n  try {\n    const d = new Date(p);\n    return ' _(at\u00e9 ' + d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ')_';\n  } catch { return ''; }\n};\nconst emojiPrio = { urgente: '\ud83d\udd34', alta: '\ud83d\udfe0', media: '\ud83d\udfe1', baixa: '\u26aa' };\n\nlet msg = '\ud83c\udf99\ufe0f *Reuni\u00e3o processada*\\n\\n';\nmsg += '_' + summary + '_\\n\\n';\n\nif (minhas.length) {\n  msg += '\u2705 *Minhas a\u00e7\u00f5es* (' + minhas.length + ')\\n';\n  minhas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '\ud83d\udfe1') + ' ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (delegadas.length) {\n  msg += '\ud83d\udc65 *Combinei com outros* (' + delegadas.length + ')\\n';\n  delegadas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '\ud83d\udfe1') + ' *' + t.owner + ':* ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (!minhas.length && !delegadas.length) {\n  msg += '_(nenhuma a\u00e7\u00e3o concreta extra\u00edda desta reuni\u00e3o)_\\n';\n}\n\nconst frontendUrl = 'https://acoes.vitorgambetti.com.br';\nmsg += '\ud83d\udd17 ' + frontendUrl + '/reunioes/' + meetingId;\n\n\n// Aviso de \u00e1udio longo aguardando segmenta\u00e7\u00e3o\nconst needsSeg = $('12c. Mark Needs Segmentation').first().json.needs_segmentation;\nconst dur = $('12c. Mark Needs Segmentation').first().json.duration_seconds;\nif (needsSeg) {\n  msg += '\\n\\n\ud83c\udf99\ufe0f \u00c1udio longo (' + (dur/3600).toFixed(1) + 'h) \u2014 revisar segmenta\u00e7\u00e3o:\\n';\n  msg += frontendUrl + '/reunioes/' + meetingId + '/segmentar';\n}\nreturn [{ json: { text: msg, meeting_id: meetingId, n_tarefas: items.length } }];"
-                },
-                "id": "00000000-0000-0000-0000-000000000014",
-                "name": "13. Build WhatsApp Message",
-                "type": "n8n-nodes-base.code",
-                "typeVersion": 2,
-                "position": [
-                    1024,
-                    0
-                ]
-            },
-            {
-                "parameters": {
-                    "method": "POST",
-                    "url": "=https://n8n-evolution-api.tatetz.easypanel.host/message/sendText/fawkes-sdr",
-                    "sendHeaders": true,
-                    "headerParameters": {
-                        "parameters": [
-                            {
-                                "name": "apikey",
-                                "value": "=429683C4C977415CAAFCCE10F7D57E11"
-                            },
-                            {
-                                "name": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ]
-                    },
-                    "sendBody": true,
-                    "specifyBody": "json",
-                    "jsonBody": "={\n  \"number\": \"551151980726\",\n  \"text\": {{ JSON.stringify($json.text) }}\n}",
-                    "options": {
-                        "timeout": 30000
-                    }
-                },
-                "id": "00000000-0000-0000-0000-000000000015",
-                "name": "14. Send WhatsApp",
-                "type": "n8n-nodes-base.httpRequest",
-                "typeVersion": 4.2,
-                "position": [
-                    1248,
-                    0
-                ]
-            },
-            {
-                "parameters": {
-                    "operation": "update",
-                    "schema": {
-                        "__rl": true,
-                        "mode": "list",
-                        "value": "public"
-                    },
-                    "table": {
-                        "__rl": true,
-                        "mode": "list",
-                        "value": "meetings"
-                    },
-                    "columns": {
-                        "mappingMode": "defineBelow",
-                        "value": {
-                            "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
-                            "status": "error",
-                            "status_error": "={{ $json.error?.message || JSON.stringify($json.error || $json) }}"
-                        },
-                        "matchingColumns": [
-                            "id"
-                        ],
-                        "schema": []
-                    },
-                    "options": {}
-                },
-                "id": "00000000-0000-0000-0000-000000000017",
-                "name": "Err. UPDATE meeting (error)",
-                "type": "n8n-nodes-base.postgres",
-                "typeVersion": 2.5,
-                "position": [
-                    -304,
-                    208
-                ],
-                "credentials": {
-                    "postgres": {
-                        "id": "KQJgErf7zPLrLq1t",
-                        "name": "Acoes - Postgres"
-                    }
-                }
-            },
-            {
-                "parameters": {},
-                "type": "@n8n/n8n-nodes-langchain.toolThink",
-                "typeVersion": 1.1,
-                "position": [
-                    96,
-                    128
-                ],
-                "id": "6e384d6c-aa6a-4b4d-af3c-9c0ad8c6beff",
-                "name": "Think"
             },
             {
                 "parameters": {
@@ -1355,7 +839,7 @@
                     "url": "http://voice-svc:8000/identify",
                     "sendBody": true,
                     "specifyBody": "json",
-                    "jsonBody": "={\n  \"meeting_id\": {{ JSON.stringify($('5. INSERT meeting').item.json.id) }}\n}",
+                    "jsonBody": "={\n  \"meeting_id\": {{ JSON.stringify($('3. Prepare Metadata').item.json.meeting_id) }}\n}",
                     "options": {
                         "timeout": 120000,
                         "response": {
@@ -1365,70 +849,16 @@
                         }
                     }
                 },
-                "id": "2e001531-9ca3-4423-941d-a9619ea3316f",
+                "id": "c994ceaa-e7d7-40d6-b199-6d39a50ddb03",
                 "name": "12b. Identify Speakers (voice-svc)",
                 "type": "n8n-nodes-base.httpRequest",
                 "typeVersion": 4.2,
                 "position": [
-                    800,
-                    200
+                    600,
+                    0
                 ],
                 "continueOnFail": true,
                 "notesInFlow": false
-            },
-            {
-                "id": "d7d247b1-5e5f-4e63-a740-179277f29500",
-                "name": "12c. Mark Needs Segmentation",
-                "type": "n8n-nodes-base.code",
-                "typeVersion": 2,
-                "position": [
-                    1000,
-                    0
-                ],
-                "parameters": {
-                    "jsCode": "// Marca se a meeting precisa ser revisada pra segmenta\u00e7\u00e3o manual.\n// Limite: > 60min (3600s). N\u00e3o bloqueia o fluxo se dura\u00e7\u00e3o ausente.\nconst meta = $('3. Prepare Metadata').first().json;\nconst duration = meta.duration_seconds_local || 0;\nconst needs = duration > 3600;\nreturn [{\n  json: {\n    needs_segmentation: needs,\n    meeting_id: meta.meeting_id,\n    duration_seconds: duration\n  }\n}];"
-                }
-            },
-            {
-                "id": "b0a6fbf2-096c-4fdc-ac71-1d30b9a16efd",
-                "name": "12d. UPDATE needs_segmentation",
-                "type": "n8n-nodes-base.postgres",
-                "typeVersion": 2.5,
-                "position": [
-                    1200,
-                    0
-                ],
-                "credentials": {
-                    "postgres": {
-                        "id": "KQJgErf7zPLrLq1t",
-                        "name": "Acoes - Postgres"
-                    }
-                },
-                "parameters": {
-                    "operation": "update",
-                    "schema": {
-                        "__rl": true,
-                        "mode": "list",
-                        "value": "public"
-                    },
-                    "table": {
-                        "__rl": true,
-                        "mode": "list",
-                        "value": "meetings"
-                    },
-                    "columns": {
-                        "mappingMode": "defineBelow",
-                        "value": {
-                            "id": "={{ $json.meeting_id }}",
-                            "needs_segmentation": "={{ $json.needs_segmentation }}"
-                        },
-                        "matchingColumns": [
-                            "id"
-                        ],
-                        "schema": []
-                    },
-                    "options": {}
-                }
             }
         ],
         "connections": {
@@ -1447,30 +877,51 @@
                 "main": [
                     [
                         {
-                            "node": "3. Prepare Metadata",
-                            "type": "main",
-                            "index": 0
-                        }
-                    ],
-                    []
-                ]
-            },
-            "3. Prepare Metadata": {
-                "main": [
-                    [
-                        {
-                            "node": "4. Save Audio via Frontend",
+                            "node": "2b. SELECT meeting",
                             "type": "main",
                             "index": 0
                         }
                     ]
                 ]
             },
-            "5. INSERT meeting": {
+            "2b. SELECT meeting": {
                 "main": [
                     [
                         {
-                            "node": "5b. Reattach Binary",
+                            "node": "3. Prepare Metadata",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "3. Prepare Metadata": {
+                "main": [
+                    [
+                        {
+                            "node": "7. UPDATE meeting (analyzing)",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "7. UPDATE meeting (analyzing)": {
+                "main": [
+                    [
+                        {
+                            "node": "6. Use Pretranscribed",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "6. Use Pretranscribed": {
+                "main": [
+                    [
+                        {
+                            "node": "8. GPT Extract Actions",
                             "type": "main",
                             "index": 0
                         }
@@ -1535,115 +986,6 @@
                             "node": "12b. Identify Speakers (voice-svc)",
                             "type": "main",
                             "index": 0
-                        },
-                        {
-                            "node": "12c. Mark Needs Segmentation",
-                            "type": "main",
-                            "index": 0
-                        }
-                    ]
-                ]
-            },
-            "13. Build WhatsApp Message": {
-                "main": [
-                    [
-                        {
-                            "node": "14. Send WhatsApp",
-                            "type": "main",
-                            "index": 0
-                        }
-                    ]
-                ]
-            },
-            "14. Send WhatsApp": {
-                "main": [
-                    []
-                ]
-            },
-            "4. Save Audio via Frontend": {
-                "main": [
-                    [
-                        {
-                            "node": "4b. Reattach Binary",
-                            "type": "main",
-                            "index": 0
-                        }
-                    ]
-                ]
-            },
-            "4b. Reattach Binary": {
-                "main": [
-                    [
-                        {
-                            "node": "5. INSERT meeting",
-                            "type": "main",
-                            "index": 0
-                        }
-                    ]
-                ]
-            },
-            "7. UPDATE meeting (analyzing)": {
-                "main": [
-                    [
-                        {
-                            "node": "8. GPT Extract Actions",
-                            "type": "main",
-                            "index": 0
-                        }
-                    ]
-                ]
-            },
-            "5b. Reattach Binary": {
-                "main": [
-                    [
-                        {
-                            "node": "6. Use Pretranscribed",
-                            "type": "main",
-                            "index": 0
-                        }
-                    ]
-                ]
-            },
-            "Think": {
-                "ai_tool": [
-                    [
-                        {
-                            "node": "8. GPT Extract Actions",
-                            "type": "ai_tool",
-                            "index": 0
-                        }
-                    ]
-                ]
-            },
-            "6. Use Pretranscribed": {
-                "main": [
-                    [
-                        {
-                            "node": "7. UPDATE meeting (analyzing)",
-                            "type": "main",
-                            "index": 0
-                        }
-                    ]
-                ]
-            },
-            "12c. Mark Needs Segmentation": {
-                "main": [
-                    [
-                        {
-                            "node": "12d. UPDATE needs_segmentation",
-                            "type": "main",
-                            "index": 0
-                        }
-                    ]
-                ]
-            },
-            "12d. UPDATE needs_segmentation": {
-                "main": [
-                    [
-                        {
-                            "node": "13. Build WhatsApp Message",
-                            "type": "main",
-                            "index": 0
                         }
                     ]
                 ]
@@ -1655,19 +997,11 @@
         "autosaved": false,
         "workflowPublishHistory": [
             {
-                "createdAt": "2026-05-21T17:53:35.345Z",
-                "id": 116,
-                "workflowId": "98jEiWWSAKFWEP6B",
-                "versionId": "b14f47a7-6798-402e-b2f5-3fcd28bbcb7b",
+                "createdAt": "2026-05-21T17:57:43.997Z",
+                "id": 117,
+                "workflowId": "Gt34r0WVdZxCbJet",
+                "versionId": "989c6afd-ef28-44e7-9380-ad5e62529e7d",
                 "event": "activated",
-                "userId": "e8659b44-d50b-4a34-994b-b7d51e80b150"
-            },
-            {
-                "createdAt": "2026-05-21T17:53:35.324Z",
-                "id": 115,
-                "workflowId": "98jEiWWSAKFWEP6B",
-                "versionId": "b14f47a7-6798-402e-b2f5-3fcd28bbcb7b",
-                "event": "deactivated",
                 "userId": "e8659b44-d50b-4a34-994b-b7d51e80b150"
             }
         ]
