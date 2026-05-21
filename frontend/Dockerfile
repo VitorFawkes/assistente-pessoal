@@ -18,6 +18,9 @@ ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0
 
+# ffmpeg pra fatiamento de áudio em /api/meetings/[id]/segments
+RUN apk add --no-cache ffmpeg
+
 RUN addgroup -S app && adduser -S app -G app
 USER app
 
