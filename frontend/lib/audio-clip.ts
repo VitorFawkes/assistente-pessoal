@@ -26,7 +26,11 @@ async function runFfmpeg(args: string[]): Promise<void> {
     proc.on("error", (err) => reject(err));
     proc.on("close", (code) => {
       if (code === 0) resolve();
-      else reject(new FfmpegError(`ffmpeg exited with ${code}`, stderr, code));
+      else {
+        const tail = stderr.slice(-800);
+        console.error(`[ffmpeg] code=${code} args=${JSON.stringify(args)}\nstderr (last 800):\n${tail}`);
+        reject(new FfmpegError(`ffmpeg exited with ${code}: ${tail.slice(-200)}`, stderr, code));
+      }
     });
   });
 }
@@ -41,12 +45,19 @@ export async function clipAudio(
     }
     await mkdir(dirname(iv.outputPath), { recursive: true });
     const dur = iv.end - iv.start;
+    // Decodifica + reencoda pra mp3 64kbps mono 16kHz. Mais lento que -c copy
+    // mas roda em qualquer input (m4a iPhone, mp3 etc) e produz output uniforme.
+    // -ss DEPOIS do -i pra evitar problema de seek em m4a com MOOV no final.
     await runFfmpeg([
       "-y",
+      "-i", inputPath,
       "-ss", iv.start.toFixed(3),
       "-t", dur.toFixed(3),
-      "-i", inputPath,
-      "-c", "copy",
+      "-vn",
+      "-c:a", "libmp3lame",
+      "-b:a", "64k",
+      "-ac", "1",
+      "-ar", "16000",
       "-loglevel", "warning",
       iv.outputPath,
     ]);
