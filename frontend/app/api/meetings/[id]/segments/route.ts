@@ -50,11 +50,17 @@ function physicalPath(audioPath: string): string {
   return resolvePath(AUDIO_ROOT, relative);
 }
 
-function childAudioPaths(childIds: string[]): { logical: string[]; physical: string[] } {
+function childAudioPaths(
+  childIds: string[],
+  parentAudioPath: string,
+): { logical: string[]; physical: string[] } {
+  // Preserva a extensão do pai (m4a, mp3 etc) — `ffmpeg -c copy` exige mesmo container.
+  const m = parentAudioPath.match(/\.([a-z0-9]+)$/i);
+  const ext = m ? m[1].toLowerCase() : "mp3";
   const now = new Date();
   const year = String(now.getUTCFullYear());
   const month = String(now.getUTCMonth() + 1).padStart(2, "0");
-  const logical = childIds.map((id) => `/audios/${year}/${month}/${id}.mp3`);
+  const logical = childIds.map((id) => `/audios/${year}/${month}/${id}.${ext}`);
   const physical = logical.map((p) => physicalPath(p));
   return { logical, physical };
 }
@@ -147,11 +153,16 @@ export async function PATCH(
         }
 
         const childIds = intervals.map(() => randomUUID());
-        const { logical: logicalPaths, physical: physicalPaths } = childAudioPaths(childIds);
+        const { logical: logicalPaths, physical: physicalPaths } = childAudioPaths(
+          childIds,
+          parent.audio_path,
+        );
+        const extMatch = parent.audio_path.match(/\.([a-z0-9]+)$/i);
+        const ext = extMatch ? extMatch[1].toLowerCase() : "mp3";
 
         const parentPhys = physicalPath(parent.audio_path);
         tempDir = await mkdtemp(`${tmpdir()}/segments-${id}-`);
-        const tempPaths = childIds.map((cid) => `${tempDir}/${cid}.mp3`);
+        const tempPaths = childIds.map((cid) => `${tempDir}/${cid}.${ext}`);
         const clipIntervals: ClipInterval[] = intervals.map((iv, i) => ({
           start: iv.start,
           end: iv.end,
@@ -182,7 +193,7 @@ export async function PATCH(
             [
               cid,
               parent.meeting_type,
-              `segment-${i + 1}.mp3`,
+              `segment-${i + 1}.${ext}`,
               logicalPaths[i],
               Math.round(iv.end - iv.start),
               parent.recorded_at,
