@@ -12,6 +12,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const AUDIO_ROOT = process.env.AUDIO_ROOT || "/audios";
 const N8N_WEBHOOK = process.env.N8N_PROCESS_SEGMENT_URL
   || "https://n8n.vitorgambetti.com.br/webhook/acoes-process-segment";
+const WEBHOOK_TOKEN = process.env.WEBHOOK_TOKEN || "";
 
 type Segment = { speaker: string; start: number; end: number; text: string };
 
@@ -226,7 +227,10 @@ export async function PATCH(
     for (const child of result.children) {
       fetch(N8N_WEBHOOK, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth": WEBHOOK_TOKEN,
+        },
         body: JSON.stringify({ meeting_id: child.id }),
         signal: AbortSignal.timeout(15_000),
       }).catch(() => {
