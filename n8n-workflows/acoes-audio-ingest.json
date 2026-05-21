@@ -1,720 +1,1675 @@
 {
-  "name": "Acoes - Audio Ingest",
-  "nodes": [
-    {
-      "parameters": {
-        "httpMethod": "POST",
-        "path": "acoes-audio-ingest",
-        "options": {
-          "rawBody": false,
-          "responseMode": "responseNode",
-          "responseData": "lastNode",
-          "binaryData": true
-        }
-      },
-      "id": "00000000-0000-0000-0000-000000000001",
-      "name": "1. Webhook",
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2,
-      "position": [
-        -1600,
-        0
-      ],
-      "webhookId": "acoes-audio-ingest"
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 1
-          },
-          "conditions": [
-            {
-              "id": "auth-check",
-              "leftValue": "={{ $json.headers['x-auth'] }}",
-              "rightValue": "=f2d1841992ee2dade251246135f125222554ccf84a0f7a83775441f35ba638fd",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              }
+    "updatedAt": "2026-05-21T17:53:35.198Z",
+    "createdAt": "2026-05-17T23:04:49.430Z",
+    "id": "98jEiWWSAKFWEP6B",
+    "name": "Acoes - Audio Ingest",
+    "description": null,
+    "active": true,
+    "isArchived": false,
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "acoes-audio-ingest",
+                "options": {
+                    "rawBody": false,
+                    "responseData": "lastNode"
+                }
+            },
+            "id": "00000000-0000-0000-0000-000000000001",
+            "name": "1. Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2,
+            "position": [
+                -1600,
+                0
+            ],
+            "webhookId": "acoes-audio-ingest"
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 2
+                    },
+                    "conditions": [
+                        {
+                            "id": "auth-check",
+                            "leftValue": "={{ $json.headers['x-auth'] }}",
+                            "rightValue": "=f2d1841992ee2dade251246135f125222554ccf84a0f7a83775441f35ba638fd",
+                            "operator": {
+                                "type": "string",
+                                "operation": "equals"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "00000000-0000-0000-0000-000000000002",
+            "name": "2. Validate Auth",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+                -1376,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const wh = $('1. Webhook').first();\nconst headers = wh.json.headers || {};\nconst body = wh.json.body || {};\nconst filename = headers['x-original-filename'] || 'audio.mp3';\nconst ext = (filename.split('.').pop() || 'mp3').toLowerCase();\nconst uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {\n  const r = (Math.random() * 16) | 0;\n  return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);\n});\nconst meeting_id = uuid;\nconst now = new Date();\nconst year  = String(now.getUTCFullYear());\nconst month = String(now.getUTCMonth() + 1).padStart(2, '0');\nconst recorded_at = headers['x-recorded-at'] || now.toISOString();\n\nconst transcription = body.transcription || '';\nconst duration_seconds_local = parseFloat(body.duration_seconds || '0');\nconst silent_local = (body.silent === 'true' || body.silent === true);\n\n// segments: vem como string JSON (multipart form field). Parse pra array de objetos.\nlet segments_local = [];\nif (body.segments) {\n  try {\n    segments_local = typeof body.segments === 'string'\n      ? JSON.parse(body.segments)\n      : body.segments;\n    if (!Array.isArray(segments_local)) segments_local = [];\n  } catch (e) {\n    segments_local = [];\n  }\n}\n\nreturn [{\n  json: {\n    meeting_id,\n    year, month,\n    source: headers['x-source'] || 'macbook',\n    meeting_type: headers['x-meeting-type'] || 'desconhecido',\n    original_filename: filename,\n    recorded_at,\n    audio_size_bytes: parseInt(headers['x-audio-size'] || '0', 10),\n    ext,\n    audio_path: `/audios/${meeting_id}.${ext}`,\n    transcription,\n    duration_seconds_local,\n    silent_local,\n    segments_local,\n  },\n  binary: wh.binary\n}];"
+            },
+            "id": "00000000-0000-0000-0000-000000000004",
+            "name": "3. Prepare Metadata",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -1184,
+                -96
+            ]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "http://n8n_assistente-frontend:3000/api/save-audio",
+                "sendBody": true,
+                "contentType": "multipart-form-data",
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "meeting_id",
+                            "value": "={{ $('3. Prepare Metadata').item.json.meeting_id }}"
+                        },
+                        {
+                            "name": "ext",
+                            "value": "={{ $('3. Prepare Metadata').item.json.ext }}"
+                        },
+                        {
+                            "parameterType": "formBinaryData",
+                            "name": "audio",
+                            "inputDataFieldName": "audio"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 60000
+                }
+            },
+            "id": "11111111-2222-3333-4444-555555555555",
+            "name": "4. Save Audio via Frontend",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                -864,
+                -96
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "\n// Mant\u00e9m JSON do step anterior (save-audio response) e restaura binary do step 3\n// (HTTP Request consome o binary, mas Whisper precisa dele)\nreturn [{\n  json: $json,\n  binary: $('3. Prepare Metadata').first().binary\n}];\n"
+            },
+            "id": "22222222-3333-4444-5555-666666666666",
+            "name": "4b. Reattach Binary",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -688,
+                -96
+            ]
+        },
+        {
+            "parameters": {
+                "schema": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "public"
+                },
+                "table": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "meetings"
+                },
+                "columns": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
+                        "source": "={{ $('3. Prepare Metadata').item.json.source }}",
+                        "meeting_type": "={{ $('3. Prepare Metadata').item.json.meeting_type }}",
+                        "original_filename": "={{ $('3. Prepare Metadata').item.json.original_filename }}",
+                        "audio_path": "={{ $('3. Prepare Metadata').item.json.audio_path }}",
+                        "audio_size_bytes": "={{ $('3. Prepare Metadata').item.json.audio_size_bytes }}",
+                        "recorded_at": "={{ $('3. Prepare Metadata').item.json.recorded_at }}",
+                        "status": "received"
+                    },
+                    "matchingColumns": [],
+                    "schema": []
+                },
+                "options": {}
+            },
+            "id": "00000000-0000-0000-0000-000000000006",
+            "name": "5. INSERT meeting",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.5,
+            "position": [
+                -608,
+                -96
+            ],
+            "credentials": {
+                "postgres": {
+                    "id": "KQJgErf7zPLrLq1t",
+                    "name": "Acoes - Postgres"
+                }
             }
-          ],
-          "combinator": "and"
         },
-        "options": {}
-      },
-      "id": "00000000-0000-0000-0000-000000000002",
-      "name": "2. Validate Auth",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        -1376,
-        0
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "\nconst wh = $('1. Webhook').first();\nconst headers = wh.json.headers || {};\nconst filename = headers['x-original-filename'] || 'audio.mp3';\nconst ext = (filename.split('.').pop() || 'mp3').toLowerCase();\n// UUID v4 manual (sandbox bloqueia crypto)\nconst uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {\n  const r = (Math.random() * 16) | 0;\n  return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);\n});\nconst meeting_id = uuid;\nconst now = new Date();\nconst year  = String(now.getUTCFullYear());\nconst month = String(now.getUTCMonth() + 1).padStart(2, '0');\nconst recorded_at = headers['x-recorded-at'] || now.toISOString();\n\nreturn [{\n  json: {\n    meeting_id,\n    year, month,\n    source: headers['x-source'] || 'macbook',\n    meeting_type: headers['x-meeting-type'] || 'desconhecido',\n    original_filename: filename,\n    recorded_at,\n    audio_size_bytes: parseInt(headers['x-audio-size'] || '0', 10),\n    ext,\n    audio_path: `/audios/${meeting_id}.${ext}`\n  },\n  binary: wh.binary\n}];\n"
-      },
-      "id": "00000000-0000-0000-0000-000000000004",
-      "name": "3. Prepare Metadata",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -1184,
-        -96
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://n8n_assistente-frontend:3000/api/save-audio",
-        "sendHeaders": false,
-        "sendBody": true,
-        "contentType": "multipart-form-data",
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "meeting_id",
-              "value": "={{ $('3. Prepare Metadata').item.json.meeting_id }}"
+        {
+            "parameters": {
+                "jsCode": "// Restaura binary do step 3 (INSERT meeting consome o binary)\nreturn [{ json: $json, binary: $('3. Prepare Metadata').first().binary }];\n"
             },
-            {
-              "name": "ext",
-              "value": "={{ $('3. Prepare Metadata').item.json.ext }}"
+            "id": "44444444-5555-6666-7777-888888888888",
+            "name": "5b. Reattach Binary",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -576,
+                -96
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "// Usa transcri\u00e7\u00e3o + segments j\u00e1 prontos do Mac.\n// Formato compat\u00edvel: { text, duration, language, segments }.\nconst meta = $('3. Prepare Metadata').first().json;\nreturn [{\n  json: {\n    text: meta.transcription || '',\n    duration: meta.duration_seconds_local || 0,\n    language: 'pt',\n    segments: meta.segments_local || [],\n  }\n}];"
             },
-            {
-              "parameterType": "formBinaryData",
-              "name": "audio",
-              "inputDataFieldName": "audio"
+            "id": "00000000-0000-0000-0000-000000000007",
+            "name": "6. Use Pretranscribed",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -528,
+                -96
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "update",
+                "schema": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "public"
+                },
+                "table": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "meetings"
+                },
+                "columns": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
+                        "status": "analyzing",
+                        "transcription": "={{ $json.text }}",
+                        "duration_seconds": "={{ Math.round($json.duration || 0) }}",
+                        "segments": "={{ JSON.stringify($json.segments || []) }}"
+                    },
+                    "matchingColumns": [
+                        "id"
+                    ],
+                    "schema": []
+                },
+                "options": {}
+            },
+            "id": "33333333-4444-5555-6666-777777777777",
+            "name": "7. UPDATE meeting (analyzing)",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.5,
+            "position": [
+                -304,
+                -96
+            ],
+            "credentials": {
+                "postgres": {
+                    "id": "KQJgErf7zPLrLq1t",
+                    "name": "Acoes - Postgres"
+                }
             }
-          ]
         },
-        "options": {
-          "timeout": 60000
-        }
-      },
-      "id": "11111111-2222-3333-4444-555555555555",
-      "name": "4. Save Audio via Frontend",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        -856,
-        -96
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "\n// Mant\u00e9m JSON do step anterior (save-audio response) e restaura binary do step 3\n// (HTTP Request consome o binary, mas Whisper precisa dele)\nreturn [{\n  json: $json,\n  binary: $('3. Prepare Metadata').first().binary\n}];\n"
-      },
-      "id": "22222222-3333-4444-5555-666666666666",
-      "name": "4b. Reattach Binary",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -692,
-        -96
-      ]
-    },
-    {
-      "parameters": {
-        "schema": {
-          "__rl": true,
-          "mode": "list",
-          "value": "public"
-        },
-        "table": {
-          "__rl": true,
-          "mode": "list",
-          "value": "meetings"
-        },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
-            "source": "={{ $('3. Prepare Metadata').item.json.source }}",
-            "meeting_type": "={{ $('3. Prepare Metadata').item.json.meeting_type }}",
-            "original_filename": "={{ $('3. Prepare Metadata').item.json.original_filename }}",
-            "audio_path": "={{ $('3. Prepare Metadata').item.json.audio_path }}",
-            "audio_size_bytes": "={{ $('3. Prepare Metadata').item.json.audio_size_bytes }}",
-            "recorded_at": "={{ $('3. Prepare Metadata').item.json.recorded_at }}",
-            "status": "received"
-          },
-          "matchingColumns": [],
-          "schema": []
-        },
-        "options": {}
-      },
-      "id": "00000000-0000-0000-0000-000000000006",
-      "name": "5. INSERT meeting",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [
-        -610,
-        -96
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "KQJgErf7zPLrLq1t",
-          "name": "Acoes - Postgres"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "// Restaura binary do step 3 (INSERT meeting consome o binary)\nreturn [{ json: $json, binary: $('3. Prepare Metadata').first().binary }];\n"
-      },
-      "id": "44444444-5555-6666-7777-888888888888",
-      "name": "5b. Reattach Binary",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -569,
-        -96
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "https://api.openai.com/v1/audio/transcriptions",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "openAiApi",
-        "sendBody": true,
-        "contentType": "multipart-form-data",
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "model",
-              "value": "whisper-1"
+        {
+            "parameters": {
+                "modelId": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "gpt-5.1"
+                },
+                "messages": {
+                    "values": [
+                        {
+                            "content": "Voc\u00ea \u00e9 o segundo c\u00e9rebro do Vitor Gambetti. Vitor \u00e9 Diretor de Tecnologia, Vendas e Opera\u00e7\u00f5es \u2014 toca infraestrutura t\u00e9cnica, ciclos de vendas e processos operacionais ao mesmo tempo. Seus \u00e1udios oscilam entre conversa com cliente, decis\u00e3o de produto, alinhamento com time, briefing, troubleshooting t\u00e9cnico, reflex\u00e3o estrat\u00e9gica E PEDIDOS QUE ELE FAZ A OUTRAS PESSOAS (delega\u00e7\u00f5es). Voc\u00ea precisa entender esse escopo amplo.\n\nVitor grava \u00e1udios via um atalho no iPhone ao longo do dia. Cada grava\u00e7\u00e3o pode ser:\n- MON\u00d3LOGO: ele falando sozinho \u2014 planejando, anotando, briefando-se, desabafando\n- DI\u00c1LOGO: reuni\u00e3o ou conversa em que Vitor \u00e9 participante\n- OBSERVADA: terceiros falando, Vitor s\u00f3 gravou\n- H\u00cdBRIDO: come\u00e7a um tipo, vira outro (comum)\n\nSua tarefa: identificar A\u00c7\u00d5ES CONCRETAS pendentes. Voc\u00ea N\u00c3O \u00e9 um parser de verbos. Voc\u00ea \u00e9 o segundo c\u00e9rebro dele.\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nPRINC\u00cdPIO CENTRAL: ENTENDIMENTO SEM\u00c2NTICO > CASAMENTO LEXICAL\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nNUNCA decida pela palavra. Decida pelo INTENT pragm\u00e1tico.\n\nA MESMA palavra pode ter significados opostos:\n\n\u2022 \"Vou ver isso\" como commitment real:\n  \"Ele me passou tr\u00eas op\u00e7\u00f5es, preciso decidir hoje, vou ver isso ainda essa tarde.\"\n  \u2192 EXTRAI \"Decidir entre as tr\u00eas op\u00e7\u00f5es\"\n\n\u2022 \"Vou ver isso\" como evas\u00e3o:\n  \"Hmm, n\u00e3o sei... vou ver, sei l\u00e1, depois pensamos.\"\n  \u2192 N\u00c3O extrai\n\n\u2022 \"Talvez\" como hedge de plano real:\n  \"Talvez quinta, mas provavelmente quarta. Vamos quarta.\"\n  \u2192 EXTRAI prazo = quarta\n\n\u2022 \"Talvez\" como descarte:\n  \"Talvez fosse bom mudar, mas... n\u00e3o, deixa.\"\n  \u2192 N\u00c3O extrai\n\nQUEIXA \u00e9 frequentemente TAREFA IMPL\u00cdCITA:\n\u2022 \"Essa campanha t\u00e1 um caos\" \u2192 \"Destravar/organizar campanha X\"\n\u2022 \"Ningu\u00e9m me respondeu sobre Y\" \u2192 \"Cobrar resposta sobre Y\"\n\nREVERS\u00d5ES INLINE devem ser detectadas e respeitadas:\n\u2022 \"Vou ligar pro Jo\u00e3o amanh\u00e3... ah n\u00e3o, ele que me liga, deixa pra l\u00e1.\"\n  \u2192 N\u00c3O extrai (cancelou inline)\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nCR\u00cdTICO: DETECTAR DELEGA\u00c7\u00d5ES (Vitor pedindo a outra pessoa)\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nVitor frequentemente FALA COM ALGU\u00c9M (presencial, telefone, \u00e1udio de zap), mesmo sem nomear a pessoa. Use sinais pragm\u00e1ticos pra distinguir EXECU\u00c7\u00c3O PR\u00d3PRIA vs DELEGA\u00c7\u00c3O.\n\nSINAIS FORTES DE DELEGA\u00c7\u00c3O (Vitor pedindo, OUTRA pessoa vai executar):\n- Imperativo + \"pra mim\" / \"pra gente\": \"Faz pra mim...\", \"V\u00ea pra mim...\", \"Pega pra mim...\"\n- \"Me manda X\", \"Me passa X\", \"Me retorna sobre X\"\n- \"Voc\u00ea consegue X?\", \"Cuida disso a\u00ed\", \"Resolve isso pra mim\"\n- \"Pode olhar X?\", \"D\u00e1 uma olhada em X\"\n- Imperativo direto presumindo ouvinte: \"Manda esse relat\u00f3rio\", \"Confirma com o cliente\"\n- \"E a\u00ed pode me mandar amanh\u00e3\" / \"E a\u00ed me passa amanh\u00e3\" = pedido com prazo de entrega\n\nSINAIS FORTES DE EXECU\u00c7\u00c3O PR\u00d3PRIA (Vitor vai fazer):\n- \"Eu preciso X\", \"Tenho que X\", \"Devo X\", \"Vou X\"\n- \"Eu cuido disso\", \"Eu pego isso a\u00ed\", \"Eu vou ver\"\n- \"N\u00e3o posso esquecer de X\", \"Lembrar de X\"\n- \"Anota a\u00ed\" em mon\u00f3logo (Vitor falando consigo)\n\nREGRA DE OURO: se o \u00e1udio soa como Vitor instruindo/pedindo a algu\u00e9m ouvindo, \u00e9 DELEGA\u00c7\u00c3O. Se soa como Vitor anotando ou pensando consigo, \u00e9 EXECU\u00c7\u00c3O PR\u00d3PRIA.\n\nQUANDO DETECTAR DELEGA\u00c7\u00c3O:\n\n1. Se Vitor nomeou explicitamente a pessoa:\n   \u2192 owner = nome literal (ex: \"Estela\", \"Marcos\")\n\n2. Se Vitor N\u00c3O nomeou (frequente em chamadas/encontros):\n   \u2192 owner = \"?\"  (literal, tr\u00eas caracteres \u2014 sinaliza \"delegado a algu\u00e9m n\u00e3o identificado\")\n\n3. EM AMBOS OS CASOS, reescreva a tarefa do PONTO DE VISTA DE VITOR. Ele N\u00c3O vai executar \u2014 vai COBRAR/AGUARDAR. Use verbos como:\n   - \"Cobrar X de [pessoa/equipe]\"\n   - \"Receber/Aguardar X de [pessoa/equipe]\"\n   - \"Acompanhar entrega de X\"\n   - \"Conferir se [pessoa] entregou X\"\n\n   ERRADO: \"Levantar quantos casamentos tiveram gasto > 100k\" (parece tarefa do Vitor)\n   CERTO:  \"Cobrar levantamento de casamentos com gasto > R$100k\" (perspectiva de Vitor)\n\n4. A descricao DEVE deixar claro:\n   - Que foi um PEDIDO de Vitor\n   - Pra quem (ou \"algu\u00e9m da equipe / interlocutor n\u00e3o identificado\" se n\u00e3o nomeou)\n   - O escopo do pedido\n   - O prazo prometido pra entrega\n   - Que Vitor precisa COBRAR se n\u00e3o chegar\n\n5. A prioridade reflete URG\u00caNCIA DA COBRAN\u00c7A (n\u00e3o da execu\u00e7\u00e3o). Se Vitor pediu pra \"amanh\u00e3\", prioridade alta (precisa cobrar logo se n\u00e3o chegar).\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nTESTE PRAGM\u00c1TICO PRA CADA CANDIDATO\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nPergunte-se: \"Se Vitor abrir o app amanh\u00e3 e n\u00e3o vir isso na lista, ele vai ficar IRRITADO ou vai dizer 'bom, era s\u00f3 eu pensando'?\"\n\n\u2022 Irritado \u2192 \u00c9 TAREFA (extrai com confidence apropriado)\n\u2022 \"S\u00f3 pensando\" \u2192 N\u00c3O \u00c9 TAREFA (descarta)\n\u2022 Indeciso \u2192 \u00c9 TAREFA com confidence MEDIUM ou LOW\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nPROCESSO MENTAL (registre no campo reasoning)\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\n1. CLASSIFICAR tipo do \u00e1udio (monolog/dialog/observed/hybrid)\n2. CARACTERIZAR estado do speaker (listando / planejando / desabafando / refletindo / decidindo / DELEGANDO)\n3. PARA CADA CANDIDATO, identificar: EXECU\u00c7\u00c3O PR\u00d3PRIA vs DELEGA\u00c7\u00c3O. Se delega\u00e7\u00e3o, h\u00e1 nome?\n4. APLICAR teste pragm\u00e1tico\n5. REESCREVER title/descricao da perspectiva do Vitor (cobrar/aguardar quando for delega\u00e7\u00e3o)\n6. ATRIBUIR confidence (high/medium/low) com rationale\n7. SELF-CRITIQUE antes de finalizar:\n   - Soa como Vitor instruindo algu\u00e9m ou pensando sozinho?\n   - Se delega\u00e7\u00e3o: o t\u00edtulo \u00e9 orientado a COBRAR/AGUARDAR? Owner \u00e9 nome ou \"?\"?\n   - Prazos foram MENCIONADOS por Vitor ou eu inventei?\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nCAMPOS DA A\u00c7\u00c3O\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\n- titulo: frase curta no infinitivo, voz ativa. Pra delega\u00e7\u00e3o use \"Cobrar/Receber/Acompanhar/Conferir entrega de...\"\n- descricao: 1-2 frases. Pra delega\u00e7\u00e3o: incluir que foi PEDIDO de Vitor, pra quem, prazo prometido, e que precisa cobrar se n\u00e3o chegar\n- owner: 'vitor' (default execu\u00e7\u00e3o pr\u00f3pria) | nome literal (delega\u00e7\u00e3o com nome) | '?' (delega\u00e7\u00e3o sem nome identificado)\n- prazo_iso: ISO 8601 SE mencionado/infer\u00edvel. Hoje \u00e9 {{ $now.toISO() }}. Interprete pt-BR (quinta = pr\u00f3xima quinta-feira, \"amanh\u00e3\" = next day)\n- prazo_text: literal como Vitor falou\n- prioridade: urgente | alta | media | baixa\n- evidencia: trecho literal da transcri\u00e7\u00e3o (at\u00e9 200 chars)\n- confidence: high | medium | low\n- confidence_rationale: 1 frase explicando\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nSUMMARY\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\n1-2 frases descrevendo o CONTEXTO do \u00e1udio (o que Vitor estava fazendo, do que falou), N\u00c3O as tarefas.\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nEXEMPLOS NUANCEADOS\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\n[EX 1 \u2014 QUEIXA QUE ESCONDE TAREFA]\nInput: \"Cara, essa migra\u00e7\u00e3o do CRM t\u00e1 emperrada faz duas semanas, t\u00f4 esperando o Marcos validar a query final e ele some.\"\nOutput:\n{\n  \"reasoning\": \"Mon\u00f3logo de Vitor desabafando. Queixa indica a\u00e7\u00e3o impl\u00edcita: cobrar Marcos. Estado: desabafando.\",\n  \"summary\": \"Vitor reclamou que a migra\u00e7\u00e3o do CRM est\u00e1 parada aguardando valida\u00e7\u00e3o do Marcos.\",\n  \"actions\": [{\n    \"titulo\": \"Cobrar Marcos sobre valida\u00e7\u00e3o da query final da migra\u00e7\u00e3o CRM\",\n    \"descricao\": \"Migra\u00e7\u00e3o travada h\u00e1 2 semanas; Marcos sumiu depois de receber a query final pra validar.\",\n    \"owner\": \"vitor\", \"prazo_iso\": null, \"prazo_text\": null, \"prioridade\": \"alta\",\n    \"evidencia\": \"essa migra\u00e7\u00e3o t\u00e1 emperrada faz duas semanas, t\u00f4 esperando o Marcos validar a query final e ele some\",\n    \"confidence\": \"high\",\n    \"confidence_rationale\": \"Queixa expl\u00edcita com bloqueio operacional.\"\n  }]\n}\n\n[EX 2 \u2014 DELEGA\u00c7\u00c3O SEM NOME (CR\u00cdTICO)]\nInput: \"Faz o seguinte, v\u00ea pra mim quantos casamentos o pessoal gastou mais que cem mil, beleza? E a\u00ed pode me mandar amanh\u00e3, sem problema.\"\nOutput:\n{\n  \"reasoning\": \"Di\u00e1logo curto. 'Faz pra mim' + 'me mandar amanh\u00e3' = delega\u00e7\u00e3o inequ\u00edvoca. Vitor est\u00e1 instruindo algu\u00e9m presente (telefone ou pessoalmente). N\u00c3O \u00e9 execu\u00e7\u00e3o pr\u00f3pria \u2014 Vitor est\u00e1 aguardando entrega. Pessoa n\u00e3o foi nomeada \u2192 owner = '?'. Tarefa do ponto de vista do Vitor \u00e9 COBRAR/RECEBER.\",\n  \"summary\": \"Vitor pediu pra algu\u00e9m (n\u00e3o nomeado) levantar quantos casamentos tiveram gasto acima de cem mil, com entrega prometida pra amanh\u00e3.\",\n  \"actions\": [{\n    \"titulo\": \"Cobrar levantamento de casamentos com gasto > R$100k\",\n    \"descricao\": \"Vitor pediu pra algu\u00e9m da equipe (n\u00e3o identificado no \u00e1udio) levantar quantos casamentos tiveram gasto acima de R$100 mil. Prometido pra amanh\u00e3. Cobrar se n\u00e3o chegar at\u00e9 l\u00e1.\",\n    \"owner\": \"?\",\n    \"prazo_iso\": null,\n    \"prazo_text\": \"amanh\u00e3\",\n    \"prioridade\": \"alta\",\n    \"evidencia\": \"v\u00ea pra mim quantos casamentos o pessoal gastou mais que cem mil, beleza? E a\u00ed pode me mandar amanh\u00e3\",\n    \"confidence\": \"high\",\n    \"confidence_rationale\": \"Delega\u00e7\u00e3o inequ\u00edvoca (imperativo + 'pra mim' + 'me manda amanh\u00e3'). Owner desconhecido mas natureza de pedido \u00e9 clara.\"\n  }]\n}\n\n[EX 3 \u2014 DELEGA\u00c7\u00c3O COM NOME]\nInput: \"Estela, manda pra mim aquela lista de leads do m\u00eas passado, preciso revisar antes da call de quinta.\"\nOutput:\n{\n  \"reasoning\": \"Di\u00e1logo. Vitor est\u00e1 delegando explicitamente pra Estela ('manda pra mim'). Prazo impl\u00edcito (antes de quinta).\",\n  \"summary\": \"Vitor pediu pra Estela mandar a lista de leads do m\u00eas passado antes da call de quinta.\",\n  \"actions\": [{\n    \"titulo\": \"Receber lista de leads do m\u00eas passado da Estela\",\n    \"descricao\": \"Vitor pediu pra Estela enviar a lista de leads do m\u00eas passado pra ele revisar antes da call de quinta. Cobrar se n\u00e3o chegar at\u00e9 quarta.\",\n    \"owner\": \"Estela\",\n    \"prazo_iso\": null,\n    \"prazo_text\": \"antes da call de quinta\",\n    \"prioridade\": \"alta\",\n    \"evidencia\": \"Estela, manda pra mim aquela lista de leads do m\u00eas passado, preciso revisar antes da call de quinta\",\n    \"confidence\": \"high\",\n    \"confidence_rationale\": \"Delega\u00e7\u00e3o expl\u00edcita pra Estela com prazo claro.\"\n  }]\n}\n\n[EX 4 \u2014 MON\u00d3LOGO DENSO COM PEDIDOS MISTURADOS]\nInput: \"Anota a\u00ed: cobrar boleto do casal Silva, marcar call com a Estela pra revisar funil SDR essa semana, e n\u00e3o esquece que prometi o pricing pro Marcelo at\u00e9 quinta.\"\nOutput:\n{\n  \"reasoning\": \"Mon\u00f3logo de Vitor listando pend\u00eancias pr\u00f3prias. 'Anota a\u00ed' indica self-instruction. Todos s\u00e3o execu\u00e7\u00e3o pr\u00f3pria (vitor faz). 'Prometi pro Marcelo' = vitor entrega pro Marcelo, n\u00e3o delega\u00e7\u00e3o.\",\n  \"summary\": \"Vitor listou tr\u00eas pend\u00eancias pr\u00f3prias: cobrar boleto Silva, call com Estela, pricing pro Marcelo.\",\n  \"actions\": [\n    {\"titulo\": \"Cobrar boleto do casal Silva\", \"descricao\": \"Cobrar pagamento pendente.\", \"owner\": \"vitor\", \"prazo_iso\": null, \"prazo_text\": null, \"prioridade\": \"media\", \"evidencia\": \"cobrar boleto do casal Silva\", \"confidence\": \"high\", \"confidence_rationale\": \"Item expl\u00edcito numa lista de pend\u00eancias.\"},\n    {\"titulo\": \"Marcar call com Estela pra revisar funil SDR\", \"descricao\": \"Agendar reuni\u00e3o com Estela sobre funil SDR.\", \"owner\": \"vitor\", \"prazo_iso\": null, \"prazo_text\": \"essa semana\", \"prioridade\": \"media\", \"evidencia\": \"marcar call com a Estela pra revisar funil SDR essa semana\", \"confidence\": \"high\", \"confidence_rationale\": \"Item expl\u00edcito da lista.\"},\n    {\"titulo\": \"Enviar pricing pro Marcelo\", \"descricao\": \"Vitor prometeu enviar pricing pro Marcelo at\u00e9 quinta.\", \"owner\": \"vitor\", \"prazo_iso\": null, \"prazo_text\": \"at\u00e9 quinta\", \"prioridade\": \"alta\", \"evidencia\": \"prometi o pricing pro Marcelo at\u00e9 quinta\", \"confidence\": \"high\", \"confidence_rationale\": \"Promessa de entrega \u2014 vitor faz.\"}\n  ]\n}\n\n[EX 5 \u2014 ESPECULA\u00c7\u00c3O DESCART\u00c1VEL]\nInput: \"Talvez seja interessante repensar o pricing do enterprise. N\u00e3o sei, fica essa pergunta. Anyway.\"\nOutput:\n{\n  \"reasoning\": \"Mon\u00f3logo refletindo. 'Talvez' + 'n\u00e3o sei' + 'anyway' = especula\u00e7\u00e3o sem commitment. Nada concreto.\",\n  \"summary\": \"Vitor levantou uma reflex\u00e3o solta sobre pricing do plano enterprise, sem firmar nada.\",\n  \"actions\": []\n}\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nATEN\u00c7\u00c3O FINAL \u2014 releia antes de finalizar\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nPergunte:\n- Isso \u00e9 Vitor instruindo algu\u00e9m (DELEGA\u00c7\u00c3O) ou Vitor anotando/pensando (EXECU\u00c7\u00c3O PR\u00d3PRIA)?\n- Se delega\u00e7\u00e3o sem nome: owner = \"?\" e t\u00edtulo orientado a COBRAR/RECEBER?\n- Os owners batem com QUEM disse o qu\u00ea?\n- Prazos vieram do \u00e1udio ou eu inventei?\n\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nSPEAKER TRACKING EM \u00c1UDIOS LONGOS (CR\u00cdTICO)\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nA transcri\u00e7\u00e3o \u00e9 texto cont\u00ednuo, SEM MARCA\u00c7\u00c3O de quem fala. Em \u00e1udios longos\nou multi-segmentos, Vitor pode estar:\n1. Conversando com uma pessoa, depois com outra (transi\u00e7\u00e3o entre interlocutores)\n2. Em call com v\u00e1rias pessoas presentes simultaneamente\n3. Gravando, pausando, voltando com outro contexto\n\nREGRA DE OURO PARA ATRIBUIR owner = NOME:\n\nPara colocar um NOME no owner, voc\u00ea precisa de EVID\u00caNCIA TEXTUAL CLARA de que\naquela pessoa era o INTERLOCUTOR no MESMO segmento do pedido. Sinais v\u00e1lidos:\n\n\u2705 Atribui nome quando:\n- Vocativo direto pr\u00f3ximo ao pedido: \"Estela, manda pra mim aquela lista\"\n- Contexto da chamada estabelecido: \"T\u00f4 aqui com a Estela. [Estela] manda\n  pra mim o relat\u00f3rio.\"\n- Refer\u00eancia inequ\u00edvoca anaf\u00f3rica: \"Falei pra ela mandar X\" SE o \"ela\"\n  imediatamente anterior aponta sem d\u00favida pra uma pessoa espec\u00edfica.\n\n\u274c NUNCA atribui nome baseado em:\n- Pessoa mencionada em SEGMENTO ANTERIOR j\u00e1 encerrado\n- Pessoa que apareceu no contexto mas n\u00e3o como interlocutor direto\n  (\"falei sobre o Jo\u00e3o\" \u2260 \"t\u00f4 falando com Jo\u00e3o\")\n- Suposi\u00e7\u00e3o impl\u00edcita (\"provavelmente \u00e9 a Estela porque ela costuma cuidar disso\")\n- Co-ocorr\u00eancia de nome no mesmo \u00e1udio sem liga\u00e7\u00e3o sem\u00e2ntica com o pedido\n\nEM CASO DE QUALQUER D\u00daVIDA: owner = \"?\" (n\u00e3o identificado). \u00c9 MUITO PIOR\natribuir o pedido pra pessoa errada do que deixar como n\u00e3o identificado.\n\nSINAIS DE TRANSI\u00c7\u00c3O entre interlocutores no \u00e1udio (preste aten\u00e7\u00e3o):\n- Pausa narrativa: \"... ok. [sil\u00eancio impl\u00edcito] Ent\u00e3o, cara, ...\"\n- Mudan\u00e7a de sauda\u00e7\u00e3o: \"Tchau, valeu\" \u2192 depois \"Oi, tudo bom?\"\n- Mudan\u00e7a brusca de assunto + registro\n- Inser\u00e7\u00f5es tipo \"Pera a\u00ed, ah Jo\u00e3o oi!\" / \"Al\u00f4, fala comigo\"\n- Vitor narrando pra si entre conversas: \"Beleza, agora preciso falar com X...\"\n\nQUANDO HOUVER TRANSI\u00c7\u00c3O, TRATE OS SEGMENTOS COMO INDEPENDENTES.\nPedidos em um segmento N\u00c3O herdam o interlocutor do segmento anterior.\n\nEXEMPLO CR\u00cdTICO DE TRANSI\u00c7\u00c3O:\nTranscri\u00e7\u00e3o: \"Estela, depois me passa o status dos leads, beleza? Combinado.\n[pausa] Cara, faz o seguinte, me manda aquele or\u00e7amento amanh\u00e3, t\u00f4 precisando.\"\n\nAn\u00e1lise CORRETA:\n- Pedido 1: \"Estela, depois me passa o status dos leads\" \u2192 owner = \"Estela\"\n  (vocativo direto)\n- Pedido 2: \"Cara, me manda aquele or\u00e7amento amanh\u00e3\" \u2192 owner = \"?\"\n  (\"cara\" \u00e9 interpela\u00e7\u00e3o gen\u00e9rica, n\u00e3o h\u00e1 vocativo de nome, e o \"Estela\"\n  anterior j\u00e1 se encerrou com \"combinado\". N\u00c3O assuma que ainda \u00e9 Estela.)\n\nAn\u00e1lise ERRADA: assumir que o segundo pedido tamb\u00e9m \u00e9 da Estela porque\no nome dela apareceu antes no \u00e1udio. Isso \u00e9 o tipo de erro que confunde\no Vitor \u2014 n\u00e3o fa\u00e7a.\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nFORMATO DO OUTPUT\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nRetorne EXATAMENTE este shape JSON (sem texto fora do JSON):\n\n{\n  \"reasoning\": \"<string com seu racioc\u00ednio>\",\n  \"summary\": \"<string 1-2 frases>\",\n  \"actions\": [\n    {\n      \"titulo\": \"<string curto no infinitivo>\",\n      \"descricao\": \"<string 1-2 frases>\",\n      \"owner\": \"<'vitor' | nome literal | '?'>\",\n      \"prazo_iso\": \"<ISO 8601 ou null>\",\n      \"prazo_text\": \"<literal ou null>\",\n      \"prioridade\": \"<'baixa'|'media'|'alta'|'urgente'>\",\n      \"evidencia\": \"<trecho literal at\u00e9 200 chars>\",\n      \"confidence\": \"<'high'|'medium'|'low'>\",\n      \"confidence_rationale\": \"<1 frase>\"\n    }\n  ]\n}\n\nSe nenhuma a\u00e7\u00e3o concreta, retorne actions: []. Nunca omita campos. Use null para prazos n\u00e3o mencionados.",
+                            "role": "system"
+                        },
+                        {
+                            "content": "=Transcri\u00e7\u00e3o do \u00e1udio (gravado em {{ $('3. Prepare Metadata').item.json.recorded_at }}, source={{ $('3. Prepare Metadata').item.json.source }}, tipo={{ $('3. Prepare Metadata').item.json.meeting_type }}):\n\n{{ $('6. Use Pretranscribed').item.json.text }}"
+                        }
+                    ]
+                },
+                "jsonOutput": true,
+                "options": {
+                    "temperature": 0.2
+                }
             },
-            {
-              "name": "language",
-              "value": "pt"
-            },
-            {
-              "name": "response_format",
-              "value": "verbose_json"
-            },
-            {
-              "parameterType": "formBinaryData",
-              "name": "file",
-              "inputDataFieldName": "audio"
+            "id": "00000000-0000-0000-0000-000000000009",
+            "name": "8. GPT Extract Actions",
+            "type": "@n8n/n8n-nodes-langchain.openAi",
+            "typeVersion": 1.7,
+            "position": [
+                -144,
+                -96
+            ],
+            "credentials": {
+                "openAiApi": {
+                    "id": "QSdaVgPRKxfvwcXr",
+                    "name": "OpenAi account"
+                }
             }
-          ]
         },
-        "options": {
-          "timeout": 300000
+        {
+            "parameters": {
+                "jsCode": "// Parseia o JSON retornado pelo GPT e prepara items para INSERT em tarefas.\nconst meetingId = $('3. Prepare Metadata').item.json.meeting_id;\nconst raw = $input.first().json;\n\n// O n\u00f3 openAi v1.7 retorna o JSON em diferentes shapes \u2014 normaliza.\nlet parsed;\nif (raw.message && raw.message.content) {\n  parsed = typeof raw.message.content === 'string' ? JSON.parse(raw.message.content) : raw.message.content;\n} else if (raw.content) {\n  parsed = typeof raw.content === 'string' ? JSON.parse(raw.content) : raw.content;\n} else if (raw.text) {\n  parsed = typeof raw.text === 'string' ? JSON.parse(raw.text) : raw.text;\n} else if (raw.summary && Array.isArray(raw.actions)) {\n  parsed = raw;\n} else {\n  throw new Error('N\u00e3o foi poss\u00edvel parsear resposta do GPT: ' + JSON.stringify(raw).slice(0, 500));\n}\n\nconst { summary = '', actions = [] } = parsed;\nconst rawJson = JSON.stringify(parsed);\n\nif (!actions.length) {\n  return [{\n    json: {\n      meeting_id: meetingId,\n      summary,\n      raw_ai_response: rawJson,\n      no_actions: true\n    }\n  }];\n}\n\nreturn actions.map((a, i) => ({\n  json: {\n    meeting_id: meetingId,\n    summary,\n    raw_ai_response: rawJson,\n    titulo: a.titulo || '(sem t\u00edtulo)',\n    descricao: a.descricao || '',\n    owner: a.owner || 'vitor',\n    prazo: a.prazo_iso || null,\n    prazo_text: a.prazo_text || null,\n    prioridade: ['baixa','media','alta','urgente'].includes(a.prioridade) ? a.prioridade : 'media',\n    evidencia: a.evidencia || '',\n    idx: i,\n    total: actions.length\n  }\n}));"
+            },
+            "id": "00000000-0000-0000-0000-000000000010",
+            "name": "9. Parse Actions",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                144,
+                -96
+            ]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "loose",
+                        "version": 1
+                    },
+                    "conditions": [
+                        {
+                            "id": "no-actions",
+                            "leftValue": "={{ $json.no_actions }}",
+                            "rightValue": true,
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "equals",
+                                "singleValue": true
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "00000000-0000-0000-0000-000000000011",
+            "name": "10. Has Actions?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+                368,
+                -96
+            ]
+        },
+        {
+            "parameters": {
+                "schema": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "public"
+                },
+                "table": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "tarefas"
+                },
+                "columns": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "meeting_id": "={{ $json.meeting_id }}",
+                        "titulo": "={{ $json.titulo }}",
+                        "descricao": "={{ $json.descricao }}",
+                        "owner": "={{ $json.owner }}",
+                        "prazo": "={{ $json.prazo }}",
+                        "prazo_text": "={{ $json.prazo_text }}",
+                        "prioridade": "={{ $json.prioridade }}",
+                        "evidencia": "={{ $json.evidencia }}"
+                    },
+                    "matchingColumns": [],
+                    "schema": []
+                },
+                "options": {}
+            },
+            "id": "00000000-0000-0000-0000-000000000012",
+            "name": "11. INSERT tarefas",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.5,
+            "position": [
+                592,
+                0
+            ],
+            "credentials": {
+                "postgres": {
+                    "id": "KQJgErf7zPLrLq1t",
+                    "name": "Acoes - Postgres"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "operation": "update",
+                "schema": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "public"
+                },
+                "table": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "meetings"
+                },
+                "columns": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
+                        "status": "done",
+                        "summary": "={{ $('9. Parse Actions').first().json.summary }}",
+                        "raw_ai_response": "={{ $('9. Parse Actions').first().json.raw_ai_response }}",
+                        "done_at": "={{ $now.toISO() }}"
+                    },
+                    "matchingColumns": [
+                        "id"
+                    ],
+                    "schema": []
+                },
+                "options": {}
+            },
+            "id": "00000000-0000-0000-0000-000000000013",
+            "name": "12. UPDATE meeting (done)",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.5,
+            "position": [
+                800,
+                0
+            ],
+            "credentials": {
+                "postgres": {
+                    "id": "KQJgErf7zPLrLq1t",
+                    "name": "Acoes - Postgres"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "jsCode": "// Monta a mensagem do WhatsApp\nconst meetingId = $('3. Prepare Metadata').item.json.meeting_id;\nconst summary = $('9. Parse Actions').first().json.summary;\nconst items = $('9. Parse Actions').all().map(i => i.json).filter(j => !j.no_actions);\n\nconst minhas = items.filter(i => i.owner === 'vitor');\nconst delegadas = items.filter(i => i.owner !== 'vitor');\nconst formatPrazo = (p) => {\n  if (!p) return '';\n  try {\n    const d = new Date(p);\n    return ' _(at\u00e9 ' + d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ')_';\n  } catch { return ''; }\n};\nconst emojiPrio = { urgente: '\ud83d\udd34', alta: '\ud83d\udfe0', media: '\ud83d\udfe1', baixa: '\u26aa' };\n\nlet msg = '\ud83c\udf99\ufe0f *Reuni\u00e3o processada*\\n\\n';\nmsg += '_' + summary + '_\\n\\n';\n\nif (minhas.length) {\n  msg += '\u2705 *Minhas a\u00e7\u00f5es* (' + minhas.length + ')\\n';\n  minhas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '\ud83d\udfe1') + ' ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (delegadas.length) {\n  msg += '\ud83d\udc65 *Combinei com outros* (' + delegadas.length + ')\\n';\n  delegadas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '\ud83d\udfe1') + ' *' + t.owner + ':* ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (!minhas.length && !delegadas.length) {\n  msg += '_(nenhuma a\u00e7\u00e3o concreta extra\u00edda desta reuni\u00e3o)_\\n';\n}\n\nconst frontendUrl = 'https://acoes.vitorgambetti.com.br';\nmsg += '\ud83d\udd17 ' + frontendUrl + '/reunioes/' + meetingId;\n\n\n// Aviso de \u00e1udio longo aguardando segmenta\u00e7\u00e3o\nconst needsSeg = $('12c. Mark Needs Segmentation').first().json.needs_segmentation;\nconst dur = $('12c. Mark Needs Segmentation').first().json.duration_seconds;\nif (needsSeg) {\n  msg += '\\n\\n\ud83c\udf99\ufe0f \u00c1udio longo (' + (dur/3600).toFixed(1) + 'h) \u2014 revisar segmenta\u00e7\u00e3o:\\n';\n  msg += frontendUrl + '/reunioes/' + meetingId + '/segmentar';\n}\nreturn [{ json: { text: msg, meeting_id: meetingId, n_tarefas: items.length } }];"
+            },
+            "id": "00000000-0000-0000-0000-000000000014",
+            "name": "13. Build WhatsApp Message",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1024,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "=https://n8n-evolution-api.tatetz.easypanel.host/message/sendText/fawkes-sdr",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "apikey",
+                            "value": "=429683C4C977415CAAFCCE10F7D57E11"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"number\": \"551151980726\",\n  \"text\": {{ JSON.stringify($json.text) }}\n}",
+                "options": {
+                    "timeout": 30000
+                }
+            },
+            "id": "00000000-0000-0000-0000-000000000015",
+            "name": "14. Send WhatsApp",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1248,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "update",
+                "schema": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "public"
+                },
+                "table": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "meetings"
+                },
+                "columns": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
+                        "status": "error",
+                        "status_error": "={{ $json.error?.message || JSON.stringify($json.error || $json) }}"
+                    },
+                    "matchingColumns": [
+                        "id"
+                    ],
+                    "schema": []
+                },
+                "options": {}
+            },
+            "id": "00000000-0000-0000-0000-000000000017",
+            "name": "Err. UPDATE meeting (error)",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.5,
+            "position": [
+                -304,
+                208
+            ],
+            "credentials": {
+                "postgres": {
+                    "id": "KQJgErf7zPLrLq1t",
+                    "name": "Acoes - Postgres"
+                }
+            }
+        },
+        {
+            "parameters": {},
+            "type": "@n8n/n8n-nodes-langchain.toolThink",
+            "typeVersion": 1.1,
+            "position": [
+                96,
+                128
+            ],
+            "id": "6e384d6c-aa6a-4b4d-af3c-9c0ad8c6beff",
+            "name": "Think"
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "http://voice-svc:8000/identify",
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"meeting_id\": {{ JSON.stringify($('5. INSERT meeting').item.json.id) }}\n}",
+                "options": {
+                    "timeout": 120000,
+                    "response": {
+                        "response": {
+                            "neverError": true
+                        }
+                    }
+                }
+            },
+            "id": "2e001531-9ca3-4423-941d-a9619ea3316f",
+            "name": "12b. Identify Speakers (voice-svc)",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                800,
+                200
+            ],
+            "continueOnFail": true,
+            "notesInFlow": false
+        },
+        {
+            "id": "d7d247b1-5e5f-4e63-a740-179277f29500",
+            "name": "12c. Mark Needs Segmentation",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1000,
+                0
+            ],
+            "parameters": {
+                "jsCode": "// Marca se a meeting precisa ser revisada pra segmenta\u00e7\u00e3o manual.\n// Limite: > 60min (3600s). N\u00e3o bloqueia o fluxo se dura\u00e7\u00e3o ausente.\nconst meta = $('3. Prepare Metadata').first().json;\nconst duration = meta.duration_seconds_local || 0;\nconst needs = duration > 3600;\nreturn [{\n  json: {\n    needs_segmentation: needs,\n    meeting_id: meta.meeting_id,\n    duration_seconds: duration\n  }\n}];"
+            }
+        },
+        {
+            "id": "b0a6fbf2-096c-4fdc-ac71-1d30b9a16efd",
+            "name": "12d. UPDATE needs_segmentation",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.5,
+            "position": [
+                1200,
+                0
+            ],
+            "credentials": {
+                "postgres": {
+                    "id": "KQJgErf7zPLrLq1t",
+                    "name": "Acoes - Postgres"
+                }
+            },
+            "parameters": {
+                "operation": "update",
+                "schema": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "public"
+                },
+                "table": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "meetings"
+                },
+                "columns": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "id": "={{ $json.meeting_id }}",
+                        "needs_segmentation": "={{ $json.needs_segmentation }}"
+                    },
+                    "matchingColumns": [
+                        "id"
+                    ],
+                    "schema": []
+                },
+                "options": {}
+            }
         }
-      },
-      "id": "00000000-0000-0000-0000-000000000007",
-      "name": "6. Whisper Transcription",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        -528,
-        -96
-      ],
-      "credentials": {
-        "openAiApi": {
-          "id": "QSdaVgPRKxfvwcXr",
-          "name": "OpenAi account"
+    ],
+    "connections": {
+        "1. Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "2. Validate Auth",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "2. Validate Auth": {
+            "main": [
+                [
+                    {
+                        "node": "3. Prepare Metadata",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                []
+            ]
+        },
+        "3. Prepare Metadata": {
+            "main": [
+                [
+                    {
+                        "node": "4. Save Audio via Frontend",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "5. INSERT meeting": {
+            "main": [
+                [
+                    {
+                        "node": "5b. Reattach Binary",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "8. GPT Extract Actions": {
+            "main": [
+                [
+                    {
+                        "node": "9. Parse Actions",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "9. Parse Actions": {
+            "main": [
+                [
+                    {
+                        "node": "10. Has Actions?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "10. Has Actions?": {
+            "main": [
+                [
+                    {
+                        "node": "12. UPDATE meeting (done)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "11. INSERT tarefas",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "11. INSERT tarefas": {
+            "main": [
+                [
+                    {
+                        "node": "12. UPDATE meeting (done)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "12. UPDATE meeting (done)": {
+            "main": [
+                [
+                    {
+                        "node": "12b. Identify Speakers (voice-svc)",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "12c. Mark Needs Segmentation",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "13. Build WhatsApp Message": {
+            "main": [
+                [
+                    {
+                        "node": "14. Send WhatsApp",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "14. Send WhatsApp": {
+            "main": [
+                []
+            ]
+        },
+        "4. Save Audio via Frontend": {
+            "main": [
+                [
+                    {
+                        "node": "4b. Reattach Binary",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "4b. Reattach Binary": {
+            "main": [
+                [
+                    {
+                        "node": "5. INSERT meeting",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "7. UPDATE meeting (analyzing)": {
+            "main": [
+                [
+                    {
+                        "node": "8. GPT Extract Actions",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "5b. Reattach Binary": {
+            "main": [
+                [
+                    {
+                        "node": "6. Use Pretranscribed",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Think": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "8. GPT Extract Actions",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "6. Use Pretranscribed": {
+            "main": [
+                [
+                    {
+                        "node": "7. UPDATE meeting (analyzing)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "12c. Mark Needs Segmentation": {
+            "main": [
+                [
+                    {
+                        "node": "12d. UPDATE needs_segmentation",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "12d. UPDATE needs_segmentation": {
+            "main": [
+                [
+                    {
+                        "node": "13. Build WhatsApp Message",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
         }
-      }
     },
-    {
-      "parameters": {
-        "operation": "update",
-        "schema": {
-          "__rl": true,
-          "mode": "list",
-          "value": "public"
-        },
-        "table": {
-          "__rl": true,
-          "mode": "list",
-          "value": "meetings"
-        },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
-            "status": "analyzing",
-            "transcription": "={{ $json.text }}",
-            "duration_seconds": "={{ Math.round($json.duration || 0) }}"
-          },
-          "matchingColumns": [
-            "id"
-          ],
-          "schema": []
-        },
-        "options": {}
-      },
-      "id": "33333333-4444-5555-6666-777777777777",
-      "name": "7. UPDATE meeting (analyzing)",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [
-        -308,
-        -96
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "KQJgErf7zPLrLq1t",
-          "name": "Acoes - Postgres"
-        }
-      }
+    "settings": {
+        "executionOrder": "v1",
+        "callerPolicy": "workflowsFromSameOwner",
+        "saveExecutionProgress": true,
+        "saveManualExecutions": true,
+        "saveDataErrorExecution": "all",
+        "saveDataSuccessExecution": "all",
+        "binaryMode": "separate"
     },
-    {
-      "parameters": {
-        "modelId": {
-          "__rl": true,
-          "mode": "list",
-          "value": "gpt-5.1"
-        },
-        "messages": {
-          "values": [
+    "staticData": null,
+    "meta": null,
+    "pinData": {},
+    "versionId": "b14f47a7-6798-402e-b2f5-3fcd28bbcb7b",
+    "activeVersionId": "b14f47a7-6798-402e-b2f5-3fcd28bbcb7b",
+    "versionCounter": 112,
+    "triggerCount": 1,
+    "shared": [
+        {
+            "updatedAt": "2026-05-17T23:04:49.437Z",
+            "createdAt": "2026-05-17T23:04:49.437Z",
+            "role": "workflow:owner",
+            "workflowId": "98jEiWWSAKFWEP6B",
+            "projectId": "0cPWBzxXBTGmkHea",
+            "project": {
+                "updatedAt": "2025-08-01T18:29:42.311Z",
+                "createdAt": "2025-08-01T18:23:34.168Z",
+                "id": "0cPWBzxXBTGmkHea",
+                "name": "Vitor Gambetti <vitorgambetti@gmail.com>",
+                "type": "personal",
+                "icon": null,
+                "description": null,
+                "creatorId": "e8659b44-d50b-4a34-994b-b7d51e80b150"
+            }
+        }
+    ],
+    "tags": [],
+    "activeVersion": {
+        "updatedAt": "2026-05-21T17:53:35.205Z",
+        "createdAt": "2026-05-21T17:53:35.205Z",
+        "versionId": "b14f47a7-6798-402e-b2f5-3fcd28bbcb7b",
+        "workflowId": "98jEiWWSAKFWEP6B",
+        "nodes": [
             {
-              "content": "Voc\u00ea \u00e9 o segundo c\u00e9rebro do Vitor Gambetti. Vitor \u00e9 Diretor de Tecnologia, Vendas e Opera\u00e7\u00f5es \u2014 toca infraestrutura t\u00e9cnica, ciclos de vendas e processos operacionais ao mesmo tempo. Seus \u00e1udios oscilam entre conversa com cliente, decis\u00e3o de produto, alinhamento com time, briefing, troubleshooting t\u00e9cnico, reflex\u00e3o estrat\u00e9gica E PEDIDOS QUE ELE FAZ A OUTRAS PESSOAS (delega\u00e7\u00f5es). Voc\u00ea precisa entender esse escopo amplo.\n\nVitor grava \u00e1udios via um atalho no iPhone ao longo do dia. Cada grava\u00e7\u00e3o pode ser:\n- MON\u00d3LOGO: ele falando sozinho \u2014 planejando, anotando, briefando-se, desabafando\n- DI\u00c1LOGO: reuni\u00e3o ou conversa em que Vitor \u00e9 participante\n- OBSERVADA: terceiros falando, Vitor s\u00f3 gravou\n- H\u00cdBRIDO: come\u00e7a um tipo, vira outro (comum)\n\nSua tarefa: identificar A\u00c7\u00d5ES CONCRETAS pendentes. Voc\u00ea N\u00c3O \u00e9 um parser de verbos. Voc\u00ea \u00e9 o segundo c\u00e9rebro dele.\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nPRINC\u00cdPIO CENTRAL: ENTENDIMENTO SEM\u00c2NTICO > CASAMENTO LEXICAL\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nNUNCA decida pela palavra. Decida pelo INTENT pragm\u00e1tico.\n\nA MESMA palavra pode ter significados opostos:\n\n\u2022 \"Vou ver isso\" como commitment real:\n  \"Ele me passou tr\u00eas op\u00e7\u00f5es, preciso decidir hoje, vou ver isso ainda essa tarde.\"\n  \u2192 EXTRAI \"Decidir entre as tr\u00eas op\u00e7\u00f5es\"\n\n\u2022 \"Vou ver isso\" como evas\u00e3o:\n  \"Hmm, n\u00e3o sei... vou ver, sei l\u00e1, depois pensamos.\"\n  \u2192 N\u00c3O extrai\n\n\u2022 \"Talvez\" como hedge de plano real:\n  \"Talvez quinta, mas provavelmente quarta. Vamos quarta.\"\n  \u2192 EXTRAI prazo = quarta\n\n\u2022 \"Talvez\" como descarte:\n  \"Talvez fosse bom mudar, mas... n\u00e3o, deixa.\"\n  \u2192 N\u00c3O extrai\n\nQUEIXA \u00e9 frequentemente TAREFA IMPL\u00cdCITA:\n\u2022 \"Essa campanha t\u00e1 um caos\" \u2192 \"Destravar/organizar campanha X\"\n\u2022 \"Ningu\u00e9m me respondeu sobre Y\" \u2192 \"Cobrar resposta sobre Y\"\n\nREVERS\u00d5ES INLINE devem ser detectadas e respeitadas:\n\u2022 \"Vou ligar pro Jo\u00e3o amanh\u00e3... ah n\u00e3o, ele que me liga, deixa pra l\u00e1.\"\n  \u2192 N\u00c3O extrai (cancelou inline)\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nCR\u00cdTICO: DETECTAR DELEGA\u00c7\u00d5ES (Vitor pedindo a outra pessoa)\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nVitor frequentemente FALA COM ALGU\u00c9M (presencial, telefone, \u00e1udio de zap), mesmo sem nomear a pessoa. Use sinais pragm\u00e1ticos pra distinguir EXECU\u00c7\u00c3O PR\u00d3PRIA vs DELEGA\u00c7\u00c3O.\n\nSINAIS FORTES DE DELEGA\u00c7\u00c3O (Vitor pedindo, OUTRA pessoa vai executar):\n- Imperativo + \"pra mim\" / \"pra gente\": \"Faz pra mim...\", \"V\u00ea pra mim...\", \"Pega pra mim...\"\n- \"Me manda X\", \"Me passa X\", \"Me retorna sobre X\"\n- \"Voc\u00ea consegue X?\", \"Cuida disso a\u00ed\", \"Resolve isso pra mim\"\n- \"Pode olhar X?\", \"D\u00e1 uma olhada em X\"\n- Imperativo direto presumindo ouvinte: \"Manda esse relat\u00f3rio\", \"Confirma com o cliente\"\n- \"E a\u00ed pode me mandar amanh\u00e3\" / \"E a\u00ed me passa amanh\u00e3\" = pedido com prazo de entrega\n\nSINAIS FORTES DE EXECU\u00c7\u00c3O PR\u00d3PRIA (Vitor vai fazer):\n- \"Eu preciso X\", \"Tenho que X\", \"Devo X\", \"Vou X\"\n- \"Eu cuido disso\", \"Eu pego isso a\u00ed\", \"Eu vou ver\"\n- \"N\u00e3o posso esquecer de X\", \"Lembrar de X\"\n- \"Anota a\u00ed\" em mon\u00f3logo (Vitor falando consigo)\n\nREGRA DE OURO: se o \u00e1udio soa como Vitor instruindo/pedindo a algu\u00e9m ouvindo, \u00e9 DELEGA\u00c7\u00c3O. Se soa como Vitor anotando ou pensando consigo, \u00e9 EXECU\u00c7\u00c3O PR\u00d3PRIA.\n\nQUANDO DETECTAR DELEGA\u00c7\u00c3O:\n\n1. Se Vitor nomeou explicitamente a pessoa:\n   \u2192 owner = nome literal (ex: \"Estela\", \"Marcos\")\n\n2. Se Vitor N\u00c3O nomeou (frequente em chamadas/encontros):\n   \u2192 owner = \"?\"  (literal, tr\u00eas caracteres \u2014 sinaliza \"delegado a algu\u00e9m n\u00e3o identificado\")\n\n3. EM AMBOS OS CASOS, reescreva a tarefa do PONTO DE VISTA DE VITOR. Ele N\u00c3O vai executar \u2014 vai COBRAR/AGUARDAR. Use verbos como:\n   - \"Cobrar X de [pessoa/equipe]\"\n   - \"Receber/Aguardar X de [pessoa/equipe]\"\n   - \"Acompanhar entrega de X\"\n   - \"Conferir se [pessoa] entregou X\"\n\n   ERRADO: \"Levantar quantos casamentos tiveram gasto > 100k\" (parece tarefa do Vitor)\n   CERTO:  \"Cobrar levantamento de casamentos com gasto > R$100k\" (perspectiva de Vitor)\n\n4. A descricao DEVE deixar claro:\n   - Que foi um PEDIDO de Vitor\n   - Pra quem (ou \"algu\u00e9m da equipe / interlocutor n\u00e3o identificado\" se n\u00e3o nomeou)\n   - O escopo do pedido\n   - O prazo prometido pra entrega\n   - Que Vitor precisa COBRAR se n\u00e3o chegar\n\n5. A prioridade reflete URG\u00caNCIA DA COBRAN\u00c7A (n\u00e3o da execu\u00e7\u00e3o). Se Vitor pediu pra \"amanh\u00e3\", prioridade alta (precisa cobrar logo se n\u00e3o chegar).\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nTESTE PRAGM\u00c1TICO PRA CADA CANDIDATO\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nPergunte-se: \"Se Vitor abrir o app amanh\u00e3 e n\u00e3o vir isso na lista, ele vai ficar IRRITADO ou vai dizer 'bom, era s\u00f3 eu pensando'?\"\n\n\u2022 Irritado \u2192 \u00c9 TAREFA (extrai com confidence apropriado)\n\u2022 \"S\u00f3 pensando\" \u2192 N\u00c3O \u00c9 TAREFA (descarta)\n\u2022 Indeciso \u2192 \u00c9 TAREFA com confidence MEDIUM ou LOW\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nPROCESSO MENTAL (registre no campo reasoning)\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\n1. CLASSIFICAR tipo do \u00e1udio (monolog/dialog/observed/hybrid)\n2. CARACTERIZAR estado do speaker (listando / planejando / desabafando / refletindo / decidindo / DELEGANDO)\n3. PARA CADA CANDIDATO, identificar: EXECU\u00c7\u00c3O PR\u00d3PRIA vs DELEGA\u00c7\u00c3O. Se delega\u00e7\u00e3o, h\u00e1 nome?\n4. APLICAR teste pragm\u00e1tico\n5. REESCREVER title/descricao da perspectiva do Vitor (cobrar/aguardar quando for delega\u00e7\u00e3o)\n6. ATRIBUIR confidence (high/medium/low) com rationale\n7. SELF-CRITIQUE antes de finalizar:\n   - Soa como Vitor instruindo algu\u00e9m ou pensando sozinho?\n   - Se delega\u00e7\u00e3o: o t\u00edtulo \u00e9 orientado a COBRAR/AGUARDAR? Owner \u00e9 nome ou \"?\"?\n   - Prazos foram MENCIONADOS por Vitor ou eu inventei?\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nCAMPOS DA A\u00c7\u00c3O\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\n- titulo: frase curta no infinitivo, voz ativa. Pra delega\u00e7\u00e3o use \"Cobrar/Receber/Acompanhar/Conferir entrega de...\"\n- descricao: 1-2 frases. Pra delega\u00e7\u00e3o: incluir que foi PEDIDO de Vitor, pra quem, prazo prometido, e que precisa cobrar se n\u00e3o chegar\n- owner: 'vitor' (default execu\u00e7\u00e3o pr\u00f3pria) | nome literal (delega\u00e7\u00e3o com nome) | '?' (delega\u00e7\u00e3o sem nome identificado)\n- prazo_iso: ISO 8601 SE mencionado/infer\u00edvel. Hoje \u00e9 {{ $now.toISO() }}. Interprete pt-BR (quinta = pr\u00f3xima quinta-feira, \"amanh\u00e3\" = next day)\n- prazo_text: literal como Vitor falou\n- prioridade: urgente | alta | media | baixa\n- evidencia: trecho literal da transcri\u00e7\u00e3o (at\u00e9 200 chars)\n- confidence: high | medium | low\n- confidence_rationale: 1 frase explicando\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nSUMMARY\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\n1-2 frases descrevendo o CONTEXTO do \u00e1udio (o que Vitor estava fazendo, do que falou), N\u00c3O as tarefas.\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nEXEMPLOS NUANCEADOS\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\n[EX 1 \u2014 QUEIXA QUE ESCONDE TAREFA]\nInput: \"Cara, essa migra\u00e7\u00e3o do CRM t\u00e1 emperrada faz duas semanas, t\u00f4 esperando o Marcos validar a query final e ele some.\"\nOutput:\n{\n  \"reasoning\": \"Mon\u00f3logo de Vitor desabafando. Queixa indica a\u00e7\u00e3o impl\u00edcita: cobrar Marcos. Estado: desabafando.\",\n  \"summary\": \"Vitor reclamou que a migra\u00e7\u00e3o do CRM est\u00e1 parada aguardando valida\u00e7\u00e3o do Marcos.\",\n  \"actions\": [{\n    \"titulo\": \"Cobrar Marcos sobre valida\u00e7\u00e3o da query final da migra\u00e7\u00e3o CRM\",\n    \"descricao\": \"Migra\u00e7\u00e3o travada h\u00e1 2 semanas; Marcos sumiu depois de receber a query final pra validar.\",\n    \"owner\": \"vitor\", \"prazo_iso\": null, \"prazo_text\": null, \"prioridade\": \"alta\",\n    \"evidencia\": \"essa migra\u00e7\u00e3o t\u00e1 emperrada faz duas semanas, t\u00f4 esperando o Marcos validar a query final e ele some\",\n    \"confidence\": \"high\",\n    \"confidence_rationale\": \"Queixa expl\u00edcita com bloqueio operacional.\"\n  }]\n}\n\n[EX 2 \u2014 DELEGA\u00c7\u00c3O SEM NOME (CR\u00cdTICO)]\nInput: \"Faz o seguinte, v\u00ea pra mim quantos casamentos o pessoal gastou mais que cem mil, beleza? E a\u00ed pode me mandar amanh\u00e3, sem problema.\"\nOutput:\n{\n  \"reasoning\": \"Di\u00e1logo curto. 'Faz pra mim' + 'me mandar amanh\u00e3' = delega\u00e7\u00e3o inequ\u00edvoca. Vitor est\u00e1 instruindo algu\u00e9m presente (telefone ou pessoalmente). N\u00c3O \u00e9 execu\u00e7\u00e3o pr\u00f3pria \u2014 Vitor est\u00e1 aguardando entrega. Pessoa n\u00e3o foi nomeada \u2192 owner = '?'. Tarefa do ponto de vista do Vitor \u00e9 COBRAR/RECEBER.\",\n  \"summary\": \"Vitor pediu pra algu\u00e9m (n\u00e3o nomeado) levantar quantos casamentos tiveram gasto acima de cem mil, com entrega prometida pra amanh\u00e3.\",\n  \"actions\": [{\n    \"titulo\": \"Cobrar levantamento de casamentos com gasto > R$100k\",\n    \"descricao\": \"Vitor pediu pra algu\u00e9m da equipe (n\u00e3o identificado no \u00e1udio) levantar quantos casamentos tiveram gasto acima de R$100 mil. Prometido pra amanh\u00e3. Cobrar se n\u00e3o chegar at\u00e9 l\u00e1.\",\n    \"owner\": \"?\",\n    \"prazo_iso\": null,\n    \"prazo_text\": \"amanh\u00e3\",\n    \"prioridade\": \"alta\",\n    \"evidencia\": \"v\u00ea pra mim quantos casamentos o pessoal gastou mais que cem mil, beleza? E a\u00ed pode me mandar amanh\u00e3\",\n    \"confidence\": \"high\",\n    \"confidence_rationale\": \"Delega\u00e7\u00e3o inequ\u00edvoca (imperativo + 'pra mim' + 'me manda amanh\u00e3'). Owner desconhecido mas natureza de pedido \u00e9 clara.\"\n  }]\n}\n\n[EX 3 \u2014 DELEGA\u00c7\u00c3O COM NOME]\nInput: \"Estela, manda pra mim aquela lista de leads do m\u00eas passado, preciso revisar antes da call de quinta.\"\nOutput:\n{\n  \"reasoning\": \"Di\u00e1logo. Vitor est\u00e1 delegando explicitamente pra Estela ('manda pra mim'). Prazo impl\u00edcito (antes de quinta).\",\n  \"summary\": \"Vitor pediu pra Estela mandar a lista de leads do m\u00eas passado antes da call de quinta.\",\n  \"actions\": [{\n    \"titulo\": \"Receber lista de leads do m\u00eas passado da Estela\",\n    \"descricao\": \"Vitor pediu pra Estela enviar a lista de leads do m\u00eas passado pra ele revisar antes da call de quinta. Cobrar se n\u00e3o chegar at\u00e9 quarta.\",\n    \"owner\": \"Estela\",\n    \"prazo_iso\": null,\n    \"prazo_text\": \"antes da call de quinta\",\n    \"prioridade\": \"alta\",\n    \"evidencia\": \"Estela, manda pra mim aquela lista de leads do m\u00eas passado, preciso revisar antes da call de quinta\",\n    \"confidence\": \"high\",\n    \"confidence_rationale\": \"Delega\u00e7\u00e3o expl\u00edcita pra Estela com prazo claro.\"\n  }]\n}\n\n[EX 4 \u2014 MON\u00d3LOGO DENSO COM PEDIDOS MISTURADOS]\nInput: \"Anota a\u00ed: cobrar boleto do casal Silva, marcar call com a Estela pra revisar funil SDR essa semana, e n\u00e3o esquece que prometi o pricing pro Marcelo at\u00e9 quinta.\"\nOutput:\n{\n  \"reasoning\": \"Mon\u00f3logo de Vitor listando pend\u00eancias pr\u00f3prias. 'Anota a\u00ed' indica self-instruction. Todos s\u00e3o execu\u00e7\u00e3o pr\u00f3pria (vitor faz). 'Prometi pro Marcelo' = vitor entrega pro Marcelo, n\u00e3o delega\u00e7\u00e3o.\",\n  \"summary\": \"Vitor listou tr\u00eas pend\u00eancias pr\u00f3prias: cobrar boleto Silva, call com Estela, pricing pro Marcelo.\",\n  \"actions\": [\n    {\"titulo\": \"Cobrar boleto do casal Silva\", \"descricao\": \"Cobrar pagamento pendente.\", \"owner\": \"vitor\", \"prazo_iso\": null, \"prazo_text\": null, \"prioridade\": \"media\", \"evidencia\": \"cobrar boleto do casal Silva\", \"confidence\": \"high\", \"confidence_rationale\": \"Item expl\u00edcito numa lista de pend\u00eancias.\"},\n    {\"titulo\": \"Marcar call com Estela pra revisar funil SDR\", \"descricao\": \"Agendar reuni\u00e3o com Estela sobre funil SDR.\", \"owner\": \"vitor\", \"prazo_iso\": null, \"prazo_text\": \"essa semana\", \"prioridade\": \"media\", \"evidencia\": \"marcar call com a Estela pra revisar funil SDR essa semana\", \"confidence\": \"high\", \"confidence_rationale\": \"Item expl\u00edcito da lista.\"},\n    {\"titulo\": \"Enviar pricing pro Marcelo\", \"descricao\": \"Vitor prometeu enviar pricing pro Marcelo at\u00e9 quinta.\", \"owner\": \"vitor\", \"prazo_iso\": null, \"prazo_text\": \"at\u00e9 quinta\", \"prioridade\": \"alta\", \"evidencia\": \"prometi o pricing pro Marcelo at\u00e9 quinta\", \"confidence\": \"high\", \"confidence_rationale\": \"Promessa de entrega \u2014 vitor faz.\"}\n  ]\n}\n\n[EX 5 \u2014 ESPECULA\u00c7\u00c3O DESCART\u00c1VEL]\nInput: \"Talvez seja interessante repensar o pricing do enterprise. N\u00e3o sei, fica essa pergunta. Anyway.\"\nOutput:\n{\n  \"reasoning\": \"Mon\u00f3logo refletindo. 'Talvez' + 'n\u00e3o sei' + 'anyway' = especula\u00e7\u00e3o sem commitment. Nada concreto.\",\n  \"summary\": \"Vitor levantou uma reflex\u00e3o solta sobre pricing do plano enterprise, sem firmar nada.\",\n  \"actions\": []\n}\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nATEN\u00c7\u00c3O FINAL \u2014 releia antes de finalizar\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nPergunte:\n- Isso \u00e9 Vitor instruindo algu\u00e9m (DELEGA\u00c7\u00c3O) ou Vitor anotando/pensando (EXECU\u00c7\u00c3O PR\u00d3PRIA)?\n- Se delega\u00e7\u00e3o sem nome: owner = \"?\" e t\u00edtulo orientado a COBRAR/RECEBER?\n- Os owners batem com QUEM disse o qu\u00ea?\n- Prazos vieram do \u00e1udio ou eu inventei?\n\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nSPEAKER TRACKING EM \u00c1UDIOS LONGOS (CR\u00cdTICO)\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nA transcri\u00e7\u00e3o \u00e9 texto cont\u00ednuo, SEM MARCA\u00c7\u00c3O de quem fala. Em \u00e1udios longos\nou multi-segmentos, Vitor pode estar:\n1. Conversando com uma pessoa, depois com outra (transi\u00e7\u00e3o entre interlocutores)\n2. Em call com v\u00e1rias pessoas presentes simultaneamente\n3. Gravando, pausando, voltando com outro contexto\n\nREGRA DE OURO PARA ATRIBUIR owner = NOME:\n\nPara colocar um NOME no owner, voc\u00ea precisa de EVID\u00caNCIA TEXTUAL CLARA de que\naquela pessoa era o INTERLOCUTOR no MESMO segmento do pedido. Sinais v\u00e1lidos:\n\n\u2705 Atribui nome quando:\n- Vocativo direto pr\u00f3ximo ao pedido: \"Estela, manda pra mim aquela lista\"\n- Contexto da chamada estabelecido: \"T\u00f4 aqui com a Estela. [Estela] manda\n  pra mim o relat\u00f3rio.\"\n- Refer\u00eancia inequ\u00edvoca anaf\u00f3rica: \"Falei pra ela mandar X\" SE o \"ela\"\n  imediatamente anterior aponta sem d\u00favida pra uma pessoa espec\u00edfica.\n\n\u274c NUNCA atribui nome baseado em:\n- Pessoa mencionada em SEGMENTO ANTERIOR j\u00e1 encerrado\n- Pessoa que apareceu no contexto mas n\u00e3o como interlocutor direto\n  (\"falei sobre o Jo\u00e3o\" \u2260 \"t\u00f4 falando com Jo\u00e3o\")\n- Suposi\u00e7\u00e3o impl\u00edcita (\"provavelmente \u00e9 a Estela porque ela costuma cuidar disso\")\n- Co-ocorr\u00eancia de nome no mesmo \u00e1udio sem liga\u00e7\u00e3o sem\u00e2ntica com o pedido\n\nEM CASO DE QUALQUER D\u00daVIDA: owner = \"?\" (n\u00e3o identificado). \u00c9 MUITO PIOR\natribuir o pedido pra pessoa errada do que deixar como n\u00e3o identificado.\n\nSINAIS DE TRANSI\u00c7\u00c3O entre interlocutores no \u00e1udio (preste aten\u00e7\u00e3o):\n- Pausa narrativa: \"... ok. [sil\u00eancio impl\u00edcito] Ent\u00e3o, cara, ...\"\n- Mudan\u00e7a de sauda\u00e7\u00e3o: \"Tchau, valeu\" \u2192 depois \"Oi, tudo bom?\"\n- Mudan\u00e7a brusca de assunto + registro\n- Inser\u00e7\u00f5es tipo \"Pera a\u00ed, ah Jo\u00e3o oi!\" / \"Al\u00f4, fala comigo\"\n- Vitor narrando pra si entre conversas: \"Beleza, agora preciso falar com X...\"\n\nQUANDO HOUVER TRANSI\u00c7\u00c3O, TRATE OS SEGMENTOS COMO INDEPENDENTES.\nPedidos em um segmento N\u00c3O herdam o interlocutor do segmento anterior.\n\nEXEMPLO CR\u00cdTICO DE TRANSI\u00c7\u00c3O:\nTranscri\u00e7\u00e3o: \"Estela, depois me passa o status dos leads, beleza? Combinado.\n[pausa] Cara, faz o seguinte, me manda aquele or\u00e7amento amanh\u00e3, t\u00f4 precisando.\"\n\nAn\u00e1lise CORRETA:\n- Pedido 1: \"Estela, depois me passa o status dos leads\" \u2192 owner = \"Estela\"\n  (vocativo direto)\n- Pedido 2: \"Cara, me manda aquele or\u00e7amento amanh\u00e3\" \u2192 owner = \"?\"\n  (\"cara\" \u00e9 interpela\u00e7\u00e3o gen\u00e9rica, n\u00e3o h\u00e1 vocativo de nome, e o \"Estela\"\n  anterior j\u00e1 se encerrou com \"combinado\". N\u00c3O assuma que ainda \u00e9 Estela.)\n\nAn\u00e1lise ERRADA: assumir que o segundo pedido tamb\u00e9m \u00e9 da Estela porque\no nome dela apareceu antes no \u00e1udio. Isso \u00e9 o tipo de erro que confunde\no Vitor \u2014 n\u00e3o fa\u00e7a.\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nFORMATO DO OUTPUT\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nRetorne EXATAMENTE este shape JSON (sem texto fora do JSON):\n\n{\n  \"reasoning\": \"<string com seu racioc\u00ednio>\",\n  \"summary\": \"<string 1-2 frases>\",\n  \"actions\": [\n    {\n      \"titulo\": \"<string curto no infinitivo>\",\n      \"descricao\": \"<string 1-2 frases>\",\n      \"owner\": \"<'vitor' | nome literal | '?'>\",\n      \"prazo_iso\": \"<ISO 8601 ou null>\",\n      \"prazo_text\": \"<literal ou null>\",\n      \"prioridade\": \"<'baixa'|'media'|'alta'|'urgente'>\",\n      \"evidencia\": \"<trecho literal at\u00e9 200 chars>\",\n      \"confidence\": \"<'high'|'medium'|'low'>\",\n      \"confidence_rationale\": \"<1 frase>\"\n    }\n  ]\n}\n\nSe nenhuma a\u00e7\u00e3o concreta, retorne actions: []. Nunca omita campos. Use null para prazos n\u00e3o mencionados.",
-              "role": "system"
+                "parameters": {
+                    "httpMethod": "POST",
+                    "path": "acoes-audio-ingest",
+                    "options": {
+                        "rawBody": false,
+                        "responseData": "lastNode"
+                    }
+                },
+                "id": "00000000-0000-0000-0000-000000000001",
+                "name": "1. Webhook",
+                "type": "n8n-nodes-base.webhook",
+                "typeVersion": 2,
+                "position": [
+                    -1600,
+                    0
+                ],
+                "webhookId": "acoes-audio-ingest"
             },
             {
-              "content": "=Transcri\u00e7\u00e3o do \u00e1udio (gravado em {{ $('3. Prepare Metadata').item.json.recorded_at }}, source={{ $('3. Prepare Metadata').item.json.source }}, tipo={{ $('3. Prepare Metadata').item.json.meeting_type }}):\n\n{{ $('6. Whisper Transcription').item.json.text }}"
-            }
-          ]
-        },
-        "jsonOutput": true,
-        "options": {
-          "temperature": 0.2
-        }
-      },
-      "id": "00000000-0000-0000-0000-000000000009",
-      "name": "8. GPT Extract Actions",
-      "type": "@n8n/n8n-nodes-langchain.openAi",
-      "typeVersion": 1.7,
-      "position": [
-        -224,
-        -96
-      ],
-      "credentials": {
-        "openAiApi": {
-          "id": "QSdaVgPRKxfvwcXr",
-          "name": "OpenAi account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "// Parseia o JSON retornado pelo GPT e prepara items para INSERT em tarefas.\nconst meetingId = $('3. Prepare Metadata').item.json.meeting_id;\nconst raw = $input.first().json;\n\n// O n\u00f3 openAi v1.7 retorna o JSON em diferentes shapes \u2014 normaliza.\nlet parsed;\nif (raw.message && raw.message.content) {\n  parsed = typeof raw.message.content === 'string' ? JSON.parse(raw.message.content) : raw.message.content;\n} else if (raw.content) {\n  parsed = typeof raw.content === 'string' ? JSON.parse(raw.content) : raw.content;\n} else if (raw.text) {\n  parsed = typeof raw.text === 'string' ? JSON.parse(raw.text) : raw.text;\n} else if (raw.summary && Array.isArray(raw.actions)) {\n  parsed = raw;\n} else {\n  throw new Error('N\u00e3o foi poss\u00edvel parsear resposta do GPT: ' + JSON.stringify(raw).slice(0, 500));\n}\n\nconst { summary = '', actions = [] } = parsed;\nconst rawJson = JSON.stringify(parsed);\n\nif (!actions.length) {\n  return [{\n    json: {\n      meeting_id: meetingId,\n      summary,\n      raw_ai_response: rawJson,\n      no_actions: true\n    }\n  }];\n}\n\nreturn actions.map((a, i) => ({\n  json: {\n    meeting_id: meetingId,\n    summary,\n    raw_ai_response: rawJson,\n    titulo: a.titulo || '(sem t\u00edtulo)',\n    descricao: a.descricao || '',\n    owner: a.owner || 'vitor',\n    prazo: a.prazo_iso || null,\n    prazo_text: a.prazo_text || null,\n    prioridade: ['baixa','media','alta','urgente'].includes(a.prioridade) ? a.prioridade : 'media',\n    evidencia: a.evidencia || '',\n    idx: i,\n    total: actions.length\n  }\n}));"
-      },
-      "id": "00000000-0000-0000-0000-000000000010",
-      "name": "9. Parse Actions",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        144,
-        -96
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose",
-            "version": 1
-          },
-          "conditions": [
-            {
-              "id": "no-actions",
-              "leftValue": "={{ $json.no_actions }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "00000000-0000-0000-0000-000000000011",
-      "name": "10. Has Actions?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        368,
-        -96
-      ]
-    },
-    {
-      "parameters": {
-        "schema": {
-          "__rl": true,
-          "mode": "list",
-          "value": "public"
-        },
-        "table": {
-          "__rl": true,
-          "mode": "list",
-          "value": "tarefas"
-        },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "meeting_id": "={{ $json.meeting_id }}",
-            "titulo": "={{ $json.titulo }}",
-            "descricao": "={{ $json.descricao }}",
-            "owner": "={{ $json.owner }}",
-            "prazo": "={{ $json.prazo }}",
-            "prazo_text": "={{ $json.prazo_text }}",
-            "prioridade": "={{ $json.prioridade }}",
-            "evidencia": "={{ $json.evidencia }}"
-          },
-          "matchingColumns": [],
-          "schema": []
-        },
-        "options": {}
-      },
-      "id": "00000000-0000-0000-0000-000000000012",
-      "name": "11. INSERT tarefas",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [
-        592,
-        0
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "KQJgErf7zPLrLq1t",
-          "name": "Acoes - Postgres"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "operation": "update",
-        "schema": {
-          "__rl": true,
-          "mode": "list",
-          "value": "public"
-        },
-        "table": {
-          "__rl": true,
-          "mode": "list",
-          "value": "meetings"
-        },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
-            "status": "done",
-            "summary": "={{ $('9. Parse Actions').first().json.summary }}",
-            "raw_ai_response": "={{ $('9. Parse Actions').first().json.raw_ai_response }}",
-            "done_at": "={{ $now.toISO() }}"
-          },
-          "matchingColumns": [
-            "id"
-          ],
-          "schema": []
-        },
-        "options": {}
-      },
-      "id": "00000000-0000-0000-0000-000000000013",
-      "name": "12. UPDATE meeting (done)",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [
-        800,
-        0
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "KQJgErf7zPLrLq1t",
-          "name": "Acoes - Postgres"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "// Monta a mensagem do WhatsApp\nconst meetingId = $('3. Prepare Metadata').item.json.meeting_id;\nconst summary = $('9. Parse Actions').first().json.summary;\nconst items = $('9. Parse Actions').all().map(i => i.json).filter(j => !j.no_actions);\n\nconst minhas = items.filter(i => i.owner === 'vitor');\nconst delegadas = items.filter(i => i.owner !== 'vitor');\nconst formatPrazo = (p) => {\n  if (!p) return '';\n  try {\n    const d = new Date(p);\n    return ' _(at\u00e9 ' + d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ')_';\n  } catch { return ''; }\n};\nconst emojiPrio = { urgente: '\ud83d\udd34', alta: '\ud83d\udfe0', media: '\ud83d\udfe1', baixa: '\u26aa' };\n\nlet msg = '\ud83c\udf99\ufe0f *Reuni\u00e3o processada*\\n\\n';\nmsg += '_' + summary + '_\\n\\n';\n\nif (minhas.length) {\n  msg += '\u2705 *Minhas a\u00e7\u00f5es* (' + minhas.length + ')\\n';\n  minhas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '\ud83d\udfe1') + ' ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (delegadas.length) {\n  msg += '\ud83d\udc65 *Combinei com outros* (' + delegadas.length + ')\\n';\n  delegadas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '\ud83d\udfe1') + ' *' + t.owner + ':* ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (!minhas.length && !delegadas.length) {\n  msg += '_(nenhuma a\u00e7\u00e3o concreta extra\u00edda desta reuni\u00e3o)_\\n';\n}\n\nconst frontendUrl = 'https://acoes.vitorgambetti.com.br';\nmsg += '\ud83d\udd17 ' + frontendUrl + '/reunioes/' + meetingId;\n\nreturn [{ json: { text: msg, meeting_id: meetingId, n_tarefas: items.length } }];"
-      },
-      "id": "00000000-0000-0000-0000-000000000014",
-      "name": "13. Build WhatsApp Message",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1024,
-        0
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "=https://n8n-evolution-api.tatetz.easypanel.host/message/sendText/fawkes-sdr",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "apikey",
-              "value": "=429683C4C977415CAAFCCE10F7D57E11"
+                "parameters": {
+                    "conditions": {
+                        "options": {
+                            "caseSensitive": true,
+                            "leftValue": "",
+                            "typeValidation": "strict",
+                            "version": 2
+                        },
+                        "conditions": [
+                            {
+                                "id": "auth-check",
+                                "leftValue": "={{ $json.headers['x-auth'] }}",
+                                "rightValue": "=f2d1841992ee2dade251246135f125222554ccf84a0f7a83775441f35ba638fd",
+                                "operator": {
+                                    "type": "string",
+                                    "operation": "equals"
+                                }
+                            }
+                        ],
+                        "combinator": "and"
+                    },
+                    "options": {}
+                },
+                "id": "00000000-0000-0000-0000-000000000002",
+                "name": "2. Validate Auth",
+                "type": "n8n-nodes-base.if",
+                "typeVersion": 2.2,
+                "position": [
+                    -1376,
+                    0
+                ]
             },
             {
-              "name": "Content-Type",
-              "value": "application/json"
+                "parameters": {
+                    "jsCode": "const wh = $('1. Webhook').first();\nconst headers = wh.json.headers || {};\nconst body = wh.json.body || {};\nconst filename = headers['x-original-filename'] || 'audio.mp3';\nconst ext = (filename.split('.').pop() || 'mp3').toLowerCase();\nconst uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {\n  const r = (Math.random() * 16) | 0;\n  return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);\n});\nconst meeting_id = uuid;\nconst now = new Date();\nconst year  = String(now.getUTCFullYear());\nconst month = String(now.getUTCMonth() + 1).padStart(2, '0');\nconst recorded_at = headers['x-recorded-at'] || now.toISOString();\n\nconst transcription = body.transcription || '';\nconst duration_seconds_local = parseFloat(body.duration_seconds || '0');\nconst silent_local = (body.silent === 'true' || body.silent === true);\n\n// segments: vem como string JSON (multipart form field). Parse pra array de objetos.\nlet segments_local = [];\nif (body.segments) {\n  try {\n    segments_local = typeof body.segments === 'string'\n      ? JSON.parse(body.segments)\n      : body.segments;\n    if (!Array.isArray(segments_local)) segments_local = [];\n  } catch (e) {\n    segments_local = [];\n  }\n}\n\nreturn [{\n  json: {\n    meeting_id,\n    year, month,\n    source: headers['x-source'] || 'macbook',\n    meeting_type: headers['x-meeting-type'] || 'desconhecido',\n    original_filename: filename,\n    recorded_at,\n    audio_size_bytes: parseInt(headers['x-audio-size'] || '0', 10),\n    ext,\n    audio_path: `/audios/${meeting_id}.${ext}`,\n    transcription,\n    duration_seconds_local,\n    silent_local,\n    segments_local,\n  },\n  binary: wh.binary\n}];"
+                },
+                "id": "00000000-0000-0000-0000-000000000004",
+                "name": "3. Prepare Metadata",
+                "type": "n8n-nodes-base.code",
+                "typeVersion": 2,
+                "position": [
+                    -1184,
+                    -96
+                ]
+            },
+            {
+                "parameters": {
+                    "method": "POST",
+                    "url": "http://n8n_assistente-frontend:3000/api/save-audio",
+                    "sendBody": true,
+                    "contentType": "multipart-form-data",
+                    "bodyParameters": {
+                        "parameters": [
+                            {
+                                "name": "meeting_id",
+                                "value": "={{ $('3. Prepare Metadata').item.json.meeting_id }}"
+                            },
+                            {
+                                "name": "ext",
+                                "value": "={{ $('3. Prepare Metadata').item.json.ext }}"
+                            },
+                            {
+                                "parameterType": "formBinaryData",
+                                "name": "audio",
+                                "inputDataFieldName": "audio"
+                            }
+                        ]
+                    },
+                    "options": {
+                        "timeout": 60000
+                    }
+                },
+                "id": "11111111-2222-3333-4444-555555555555",
+                "name": "4. Save Audio via Frontend",
+                "type": "n8n-nodes-base.httpRequest",
+                "typeVersion": 4.2,
+                "position": [
+                    -864,
+                    -96
+                ]
+            },
+            {
+                "parameters": {
+                    "jsCode": "\n// Mant\u00e9m JSON do step anterior (save-audio response) e restaura binary do step 3\n// (HTTP Request consome o binary, mas Whisper precisa dele)\nreturn [{\n  json: $json,\n  binary: $('3. Prepare Metadata').first().binary\n}];\n"
+                },
+                "id": "22222222-3333-4444-5555-666666666666",
+                "name": "4b. Reattach Binary",
+                "type": "n8n-nodes-base.code",
+                "typeVersion": 2,
+                "position": [
+                    -688,
+                    -96
+                ]
+            },
+            {
+                "parameters": {
+                    "schema": {
+                        "__rl": true,
+                        "mode": "list",
+                        "value": "public"
+                    },
+                    "table": {
+                        "__rl": true,
+                        "mode": "list",
+                        "value": "meetings"
+                    },
+                    "columns": {
+                        "mappingMode": "defineBelow",
+                        "value": {
+                            "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
+                            "source": "={{ $('3. Prepare Metadata').item.json.source }}",
+                            "meeting_type": "={{ $('3. Prepare Metadata').item.json.meeting_type }}",
+                            "original_filename": "={{ $('3. Prepare Metadata').item.json.original_filename }}",
+                            "audio_path": "={{ $('3. Prepare Metadata').item.json.audio_path }}",
+                            "audio_size_bytes": "={{ $('3. Prepare Metadata').item.json.audio_size_bytes }}",
+                            "recorded_at": "={{ $('3. Prepare Metadata').item.json.recorded_at }}",
+                            "status": "received"
+                        },
+                        "matchingColumns": [],
+                        "schema": []
+                    },
+                    "options": {}
+                },
+                "id": "00000000-0000-0000-0000-000000000006",
+                "name": "5. INSERT meeting",
+                "type": "n8n-nodes-base.postgres",
+                "typeVersion": 2.5,
+                "position": [
+                    -608,
+                    -96
+                ],
+                "credentials": {
+                    "postgres": {
+                        "id": "KQJgErf7zPLrLq1t",
+                        "name": "Acoes - Postgres"
+                    }
+                }
+            },
+            {
+                "parameters": {
+                    "jsCode": "// Restaura binary do step 3 (INSERT meeting consome o binary)\nreturn [{ json: $json, binary: $('3. Prepare Metadata').first().binary }];\n"
+                },
+                "id": "44444444-5555-6666-7777-888888888888",
+                "name": "5b. Reattach Binary",
+                "type": "n8n-nodes-base.code",
+                "typeVersion": 2,
+                "position": [
+                    -576,
+                    -96
+                ]
+            },
+            {
+                "parameters": {
+                    "jsCode": "// Usa transcri\u00e7\u00e3o + segments j\u00e1 prontos do Mac.\n// Formato compat\u00edvel: { text, duration, language, segments }.\nconst meta = $('3. Prepare Metadata').first().json;\nreturn [{\n  json: {\n    text: meta.transcription || '',\n    duration: meta.duration_seconds_local || 0,\n    language: 'pt',\n    segments: meta.segments_local || [],\n  }\n}];"
+                },
+                "id": "00000000-0000-0000-0000-000000000007",
+                "name": "6. Use Pretranscribed",
+                "type": "n8n-nodes-base.code",
+                "typeVersion": 2,
+                "position": [
+                    -528,
+                    -96
+                ]
+            },
+            {
+                "parameters": {
+                    "operation": "update",
+                    "schema": {
+                        "__rl": true,
+                        "mode": "list",
+                        "value": "public"
+                    },
+                    "table": {
+                        "__rl": true,
+                        "mode": "list",
+                        "value": "meetings"
+                    },
+                    "columns": {
+                        "mappingMode": "defineBelow",
+                        "value": {
+                            "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
+                            "status": "analyzing",
+                            "transcription": "={{ $json.text }}",
+                            "duration_seconds": "={{ Math.round($json.duration || 0) }}",
+                            "segments": "={{ JSON.stringify($json.segments || []) }}"
+                        },
+                        "matchingColumns": [
+                            "id"
+                        ],
+                        "schema": []
+                    },
+                    "options": {}
+                },
+                "id": "33333333-4444-5555-6666-777777777777",
+                "name": "7. UPDATE meeting (analyzing)",
+                "type": "n8n-nodes-base.postgres",
+                "typeVersion": 2.5,
+                "position": [
+                    -304,
+                    -96
+                ],
+                "credentials": {
+                    "postgres": {
+                        "id": "KQJgErf7zPLrLq1t",
+                        "name": "Acoes - Postgres"
+                    }
+                }
+            },
+            {
+                "parameters": {
+                    "modelId": {
+                        "__rl": true,
+                        "mode": "list",
+                        "value": "gpt-5.1"
+                    },
+                    "messages": {
+                        "values": [
+                            {
+                                "content": "Voc\u00ea \u00e9 o segundo c\u00e9rebro do Vitor Gambetti. Vitor \u00e9 Diretor de Tecnologia, Vendas e Opera\u00e7\u00f5es \u2014 toca infraestrutura t\u00e9cnica, ciclos de vendas e processos operacionais ao mesmo tempo. Seus \u00e1udios oscilam entre conversa com cliente, decis\u00e3o de produto, alinhamento com time, briefing, troubleshooting t\u00e9cnico, reflex\u00e3o estrat\u00e9gica E PEDIDOS QUE ELE FAZ A OUTRAS PESSOAS (delega\u00e7\u00f5es). Voc\u00ea precisa entender esse escopo amplo.\n\nVitor grava \u00e1udios via um atalho no iPhone ao longo do dia. Cada grava\u00e7\u00e3o pode ser:\n- MON\u00d3LOGO: ele falando sozinho \u2014 planejando, anotando, briefando-se, desabafando\n- DI\u00c1LOGO: reuni\u00e3o ou conversa em que Vitor \u00e9 participante\n- OBSERVADA: terceiros falando, Vitor s\u00f3 gravou\n- H\u00cdBRIDO: come\u00e7a um tipo, vira outro (comum)\n\nSua tarefa: identificar A\u00c7\u00d5ES CONCRETAS pendentes. Voc\u00ea N\u00c3O \u00e9 um parser de verbos. Voc\u00ea \u00e9 o segundo c\u00e9rebro dele.\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nPRINC\u00cdPIO CENTRAL: ENTENDIMENTO SEM\u00c2NTICO > CASAMENTO LEXICAL\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nNUNCA decida pela palavra. Decida pelo INTENT pragm\u00e1tico.\n\nA MESMA palavra pode ter significados opostos:\n\n\u2022 \"Vou ver isso\" como commitment real:\n  \"Ele me passou tr\u00eas op\u00e7\u00f5es, preciso decidir hoje, vou ver isso ainda essa tarde.\"\n  \u2192 EXTRAI \"Decidir entre as tr\u00eas op\u00e7\u00f5es\"\n\n\u2022 \"Vou ver isso\" como evas\u00e3o:\n  \"Hmm, n\u00e3o sei... vou ver, sei l\u00e1, depois pensamos.\"\n  \u2192 N\u00c3O extrai\n\n\u2022 \"Talvez\" como hedge de plano real:\n  \"Talvez quinta, mas provavelmente quarta. Vamos quarta.\"\n  \u2192 EXTRAI prazo = quarta\n\n\u2022 \"Talvez\" como descarte:\n  \"Talvez fosse bom mudar, mas... n\u00e3o, deixa.\"\n  \u2192 N\u00c3O extrai\n\nQUEIXA \u00e9 frequentemente TAREFA IMPL\u00cdCITA:\n\u2022 \"Essa campanha t\u00e1 um caos\" \u2192 \"Destravar/organizar campanha X\"\n\u2022 \"Ningu\u00e9m me respondeu sobre Y\" \u2192 \"Cobrar resposta sobre Y\"\n\nREVERS\u00d5ES INLINE devem ser detectadas e respeitadas:\n\u2022 \"Vou ligar pro Jo\u00e3o amanh\u00e3... ah n\u00e3o, ele que me liga, deixa pra l\u00e1.\"\n  \u2192 N\u00c3O extrai (cancelou inline)\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nCR\u00cdTICO: DETECTAR DELEGA\u00c7\u00d5ES (Vitor pedindo a outra pessoa)\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nVitor frequentemente FALA COM ALGU\u00c9M (presencial, telefone, \u00e1udio de zap), mesmo sem nomear a pessoa. Use sinais pragm\u00e1ticos pra distinguir EXECU\u00c7\u00c3O PR\u00d3PRIA vs DELEGA\u00c7\u00c3O.\n\nSINAIS FORTES DE DELEGA\u00c7\u00c3O (Vitor pedindo, OUTRA pessoa vai executar):\n- Imperativo + \"pra mim\" / \"pra gente\": \"Faz pra mim...\", \"V\u00ea pra mim...\", \"Pega pra mim...\"\n- \"Me manda X\", \"Me passa X\", \"Me retorna sobre X\"\n- \"Voc\u00ea consegue X?\", \"Cuida disso a\u00ed\", \"Resolve isso pra mim\"\n- \"Pode olhar X?\", \"D\u00e1 uma olhada em X\"\n- Imperativo direto presumindo ouvinte: \"Manda esse relat\u00f3rio\", \"Confirma com o cliente\"\n- \"E a\u00ed pode me mandar amanh\u00e3\" / \"E a\u00ed me passa amanh\u00e3\" = pedido com prazo de entrega\n\nSINAIS FORTES DE EXECU\u00c7\u00c3O PR\u00d3PRIA (Vitor vai fazer):\n- \"Eu preciso X\", \"Tenho que X\", \"Devo X\", \"Vou X\"\n- \"Eu cuido disso\", \"Eu pego isso a\u00ed\", \"Eu vou ver\"\n- \"N\u00e3o posso esquecer de X\", \"Lembrar de X\"\n- \"Anota a\u00ed\" em mon\u00f3logo (Vitor falando consigo)\n\nREGRA DE OURO: se o \u00e1udio soa como Vitor instruindo/pedindo a algu\u00e9m ouvindo, \u00e9 DELEGA\u00c7\u00c3O. Se soa como Vitor anotando ou pensando consigo, \u00e9 EXECU\u00c7\u00c3O PR\u00d3PRIA.\n\nQUANDO DETECTAR DELEGA\u00c7\u00c3O:\n\n1. Se Vitor nomeou explicitamente a pessoa:\n   \u2192 owner = nome literal (ex: \"Estela\", \"Marcos\")\n\n2. Se Vitor N\u00c3O nomeou (frequente em chamadas/encontros):\n   \u2192 owner = \"?\"  (literal, tr\u00eas caracteres \u2014 sinaliza \"delegado a algu\u00e9m n\u00e3o identificado\")\n\n3. EM AMBOS OS CASOS, reescreva a tarefa do PONTO DE VISTA DE VITOR. Ele N\u00c3O vai executar \u2014 vai COBRAR/AGUARDAR. Use verbos como:\n   - \"Cobrar X de [pessoa/equipe]\"\n   - \"Receber/Aguardar X de [pessoa/equipe]\"\n   - \"Acompanhar entrega de X\"\n   - \"Conferir se [pessoa] entregou X\"\n\n   ERRADO: \"Levantar quantos casamentos tiveram gasto > 100k\" (parece tarefa do Vitor)\n   CERTO:  \"Cobrar levantamento de casamentos com gasto > R$100k\" (perspectiva de Vitor)\n\n4. A descricao DEVE deixar claro:\n   - Que foi um PEDIDO de Vitor\n   - Pra quem (ou \"algu\u00e9m da equipe / interlocutor n\u00e3o identificado\" se n\u00e3o nomeou)\n   - O escopo do pedido\n   - O prazo prometido pra entrega\n   - Que Vitor precisa COBRAR se n\u00e3o chegar\n\n5. A prioridade reflete URG\u00caNCIA DA COBRAN\u00c7A (n\u00e3o da execu\u00e7\u00e3o). Se Vitor pediu pra \"amanh\u00e3\", prioridade alta (precisa cobrar logo se n\u00e3o chegar).\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nTESTE PRAGM\u00c1TICO PRA CADA CANDIDATO\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nPergunte-se: \"Se Vitor abrir o app amanh\u00e3 e n\u00e3o vir isso na lista, ele vai ficar IRRITADO ou vai dizer 'bom, era s\u00f3 eu pensando'?\"\n\n\u2022 Irritado \u2192 \u00c9 TAREFA (extrai com confidence apropriado)\n\u2022 \"S\u00f3 pensando\" \u2192 N\u00c3O \u00c9 TAREFA (descarta)\n\u2022 Indeciso \u2192 \u00c9 TAREFA com confidence MEDIUM ou LOW\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nPROCESSO MENTAL (registre no campo reasoning)\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\n1. CLASSIFICAR tipo do \u00e1udio (monolog/dialog/observed/hybrid)\n2. CARACTERIZAR estado do speaker (listando / planejando / desabafando / refletindo / decidindo / DELEGANDO)\n3. PARA CADA CANDIDATO, identificar: EXECU\u00c7\u00c3O PR\u00d3PRIA vs DELEGA\u00c7\u00c3O. Se delega\u00e7\u00e3o, h\u00e1 nome?\n4. APLICAR teste pragm\u00e1tico\n5. REESCREVER title/descricao da perspectiva do Vitor (cobrar/aguardar quando for delega\u00e7\u00e3o)\n6. ATRIBUIR confidence (high/medium/low) com rationale\n7. SELF-CRITIQUE antes de finalizar:\n   - Soa como Vitor instruindo algu\u00e9m ou pensando sozinho?\n   - Se delega\u00e7\u00e3o: o t\u00edtulo \u00e9 orientado a COBRAR/AGUARDAR? Owner \u00e9 nome ou \"?\"?\n   - Prazos foram MENCIONADOS por Vitor ou eu inventei?\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nCAMPOS DA A\u00c7\u00c3O\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\n- titulo: frase curta no infinitivo, voz ativa. Pra delega\u00e7\u00e3o use \"Cobrar/Receber/Acompanhar/Conferir entrega de...\"\n- descricao: 1-2 frases. Pra delega\u00e7\u00e3o: incluir que foi PEDIDO de Vitor, pra quem, prazo prometido, e que precisa cobrar se n\u00e3o chegar\n- owner: 'vitor' (default execu\u00e7\u00e3o pr\u00f3pria) | nome literal (delega\u00e7\u00e3o com nome) | '?' (delega\u00e7\u00e3o sem nome identificado)\n- prazo_iso: ISO 8601 SE mencionado/infer\u00edvel. Hoje \u00e9 {{ $now.toISO() }}. Interprete pt-BR (quinta = pr\u00f3xima quinta-feira, \"amanh\u00e3\" = next day)\n- prazo_text: literal como Vitor falou\n- prioridade: urgente | alta | media | baixa\n- evidencia: trecho literal da transcri\u00e7\u00e3o (at\u00e9 200 chars)\n- confidence: high | medium | low\n- confidence_rationale: 1 frase explicando\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nSUMMARY\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\n1-2 frases descrevendo o CONTEXTO do \u00e1udio (o que Vitor estava fazendo, do que falou), N\u00c3O as tarefas.\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nEXEMPLOS NUANCEADOS\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\n[EX 1 \u2014 QUEIXA QUE ESCONDE TAREFA]\nInput: \"Cara, essa migra\u00e7\u00e3o do CRM t\u00e1 emperrada faz duas semanas, t\u00f4 esperando o Marcos validar a query final e ele some.\"\nOutput:\n{\n  \"reasoning\": \"Mon\u00f3logo de Vitor desabafando. Queixa indica a\u00e7\u00e3o impl\u00edcita: cobrar Marcos. Estado: desabafando.\",\n  \"summary\": \"Vitor reclamou que a migra\u00e7\u00e3o do CRM est\u00e1 parada aguardando valida\u00e7\u00e3o do Marcos.\",\n  \"actions\": [{\n    \"titulo\": \"Cobrar Marcos sobre valida\u00e7\u00e3o da query final da migra\u00e7\u00e3o CRM\",\n    \"descricao\": \"Migra\u00e7\u00e3o travada h\u00e1 2 semanas; Marcos sumiu depois de receber a query final pra validar.\",\n    \"owner\": \"vitor\", \"prazo_iso\": null, \"prazo_text\": null, \"prioridade\": \"alta\",\n    \"evidencia\": \"essa migra\u00e7\u00e3o t\u00e1 emperrada faz duas semanas, t\u00f4 esperando o Marcos validar a query final e ele some\",\n    \"confidence\": \"high\",\n    \"confidence_rationale\": \"Queixa expl\u00edcita com bloqueio operacional.\"\n  }]\n}\n\n[EX 2 \u2014 DELEGA\u00c7\u00c3O SEM NOME (CR\u00cdTICO)]\nInput: \"Faz o seguinte, v\u00ea pra mim quantos casamentos o pessoal gastou mais que cem mil, beleza? E a\u00ed pode me mandar amanh\u00e3, sem problema.\"\nOutput:\n{\n  \"reasoning\": \"Di\u00e1logo curto. 'Faz pra mim' + 'me mandar amanh\u00e3' = delega\u00e7\u00e3o inequ\u00edvoca. Vitor est\u00e1 instruindo algu\u00e9m presente (telefone ou pessoalmente). N\u00c3O \u00e9 execu\u00e7\u00e3o pr\u00f3pria \u2014 Vitor est\u00e1 aguardando entrega. Pessoa n\u00e3o foi nomeada \u2192 owner = '?'. Tarefa do ponto de vista do Vitor \u00e9 COBRAR/RECEBER.\",\n  \"summary\": \"Vitor pediu pra algu\u00e9m (n\u00e3o nomeado) levantar quantos casamentos tiveram gasto acima de cem mil, com entrega prometida pra amanh\u00e3.\",\n  \"actions\": [{\n    \"titulo\": \"Cobrar levantamento de casamentos com gasto > R$100k\",\n    \"descricao\": \"Vitor pediu pra algu\u00e9m da equipe (n\u00e3o identificado no \u00e1udio) levantar quantos casamentos tiveram gasto acima de R$100 mil. Prometido pra amanh\u00e3. Cobrar se n\u00e3o chegar at\u00e9 l\u00e1.\",\n    \"owner\": \"?\",\n    \"prazo_iso\": null,\n    \"prazo_text\": \"amanh\u00e3\",\n    \"prioridade\": \"alta\",\n    \"evidencia\": \"v\u00ea pra mim quantos casamentos o pessoal gastou mais que cem mil, beleza? E a\u00ed pode me mandar amanh\u00e3\",\n    \"confidence\": \"high\",\n    \"confidence_rationale\": \"Delega\u00e7\u00e3o inequ\u00edvoca (imperativo + 'pra mim' + 'me manda amanh\u00e3'). Owner desconhecido mas natureza de pedido \u00e9 clara.\"\n  }]\n}\n\n[EX 3 \u2014 DELEGA\u00c7\u00c3O COM NOME]\nInput: \"Estela, manda pra mim aquela lista de leads do m\u00eas passado, preciso revisar antes da call de quinta.\"\nOutput:\n{\n  \"reasoning\": \"Di\u00e1logo. Vitor est\u00e1 delegando explicitamente pra Estela ('manda pra mim'). Prazo impl\u00edcito (antes de quinta).\",\n  \"summary\": \"Vitor pediu pra Estela mandar a lista de leads do m\u00eas passado antes da call de quinta.\",\n  \"actions\": [{\n    \"titulo\": \"Receber lista de leads do m\u00eas passado da Estela\",\n    \"descricao\": \"Vitor pediu pra Estela enviar a lista de leads do m\u00eas passado pra ele revisar antes da call de quinta. Cobrar se n\u00e3o chegar at\u00e9 quarta.\",\n    \"owner\": \"Estela\",\n    \"prazo_iso\": null,\n    \"prazo_text\": \"antes da call de quinta\",\n    \"prioridade\": \"alta\",\n    \"evidencia\": \"Estela, manda pra mim aquela lista de leads do m\u00eas passado, preciso revisar antes da call de quinta\",\n    \"confidence\": \"high\",\n    \"confidence_rationale\": \"Delega\u00e7\u00e3o expl\u00edcita pra Estela com prazo claro.\"\n  }]\n}\n\n[EX 4 \u2014 MON\u00d3LOGO DENSO COM PEDIDOS MISTURADOS]\nInput: \"Anota a\u00ed: cobrar boleto do casal Silva, marcar call com a Estela pra revisar funil SDR essa semana, e n\u00e3o esquece que prometi o pricing pro Marcelo at\u00e9 quinta.\"\nOutput:\n{\n  \"reasoning\": \"Mon\u00f3logo de Vitor listando pend\u00eancias pr\u00f3prias. 'Anota a\u00ed' indica self-instruction. Todos s\u00e3o execu\u00e7\u00e3o pr\u00f3pria (vitor faz). 'Prometi pro Marcelo' = vitor entrega pro Marcelo, n\u00e3o delega\u00e7\u00e3o.\",\n  \"summary\": \"Vitor listou tr\u00eas pend\u00eancias pr\u00f3prias: cobrar boleto Silva, call com Estela, pricing pro Marcelo.\",\n  \"actions\": [\n    {\"titulo\": \"Cobrar boleto do casal Silva\", \"descricao\": \"Cobrar pagamento pendente.\", \"owner\": \"vitor\", \"prazo_iso\": null, \"prazo_text\": null, \"prioridade\": \"media\", \"evidencia\": \"cobrar boleto do casal Silva\", \"confidence\": \"high\", \"confidence_rationale\": \"Item expl\u00edcito numa lista de pend\u00eancias.\"},\n    {\"titulo\": \"Marcar call com Estela pra revisar funil SDR\", \"descricao\": \"Agendar reuni\u00e3o com Estela sobre funil SDR.\", \"owner\": \"vitor\", \"prazo_iso\": null, \"prazo_text\": \"essa semana\", \"prioridade\": \"media\", \"evidencia\": \"marcar call com a Estela pra revisar funil SDR essa semana\", \"confidence\": \"high\", \"confidence_rationale\": \"Item expl\u00edcito da lista.\"},\n    {\"titulo\": \"Enviar pricing pro Marcelo\", \"descricao\": \"Vitor prometeu enviar pricing pro Marcelo at\u00e9 quinta.\", \"owner\": \"vitor\", \"prazo_iso\": null, \"prazo_text\": \"at\u00e9 quinta\", \"prioridade\": \"alta\", \"evidencia\": \"prometi o pricing pro Marcelo at\u00e9 quinta\", \"confidence\": \"high\", \"confidence_rationale\": \"Promessa de entrega \u2014 vitor faz.\"}\n  ]\n}\n\n[EX 5 \u2014 ESPECULA\u00c7\u00c3O DESCART\u00c1VEL]\nInput: \"Talvez seja interessante repensar o pricing do enterprise. N\u00e3o sei, fica essa pergunta. Anyway.\"\nOutput:\n{\n  \"reasoning\": \"Mon\u00f3logo refletindo. 'Talvez' + 'n\u00e3o sei' + 'anyway' = especula\u00e7\u00e3o sem commitment. Nada concreto.\",\n  \"summary\": \"Vitor levantou uma reflex\u00e3o solta sobre pricing do plano enterprise, sem firmar nada.\",\n  \"actions\": []\n}\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nATEN\u00c7\u00c3O FINAL \u2014 releia antes de finalizar\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nPergunte:\n- Isso \u00e9 Vitor instruindo algu\u00e9m (DELEGA\u00c7\u00c3O) ou Vitor anotando/pensando (EXECU\u00c7\u00c3O PR\u00d3PRIA)?\n- Se delega\u00e7\u00e3o sem nome: owner = \"?\" e t\u00edtulo orientado a COBRAR/RECEBER?\n- Os owners batem com QUEM disse o qu\u00ea?\n- Prazos vieram do \u00e1udio ou eu inventei?\n\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nSPEAKER TRACKING EM \u00c1UDIOS LONGOS (CR\u00cdTICO)\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nA transcri\u00e7\u00e3o \u00e9 texto cont\u00ednuo, SEM MARCA\u00c7\u00c3O de quem fala. Em \u00e1udios longos\nou multi-segmentos, Vitor pode estar:\n1. Conversando com uma pessoa, depois com outra (transi\u00e7\u00e3o entre interlocutores)\n2. Em call com v\u00e1rias pessoas presentes simultaneamente\n3. Gravando, pausando, voltando com outro contexto\n\nREGRA DE OURO PARA ATRIBUIR owner = NOME:\n\nPara colocar um NOME no owner, voc\u00ea precisa de EVID\u00caNCIA TEXTUAL CLARA de que\naquela pessoa era o INTERLOCUTOR no MESMO segmento do pedido. Sinais v\u00e1lidos:\n\n\u2705 Atribui nome quando:\n- Vocativo direto pr\u00f3ximo ao pedido: \"Estela, manda pra mim aquela lista\"\n- Contexto da chamada estabelecido: \"T\u00f4 aqui com a Estela. [Estela] manda\n  pra mim o relat\u00f3rio.\"\n- Refer\u00eancia inequ\u00edvoca anaf\u00f3rica: \"Falei pra ela mandar X\" SE o \"ela\"\n  imediatamente anterior aponta sem d\u00favida pra uma pessoa espec\u00edfica.\n\n\u274c NUNCA atribui nome baseado em:\n- Pessoa mencionada em SEGMENTO ANTERIOR j\u00e1 encerrado\n- Pessoa que apareceu no contexto mas n\u00e3o como interlocutor direto\n  (\"falei sobre o Jo\u00e3o\" \u2260 \"t\u00f4 falando com Jo\u00e3o\")\n- Suposi\u00e7\u00e3o impl\u00edcita (\"provavelmente \u00e9 a Estela porque ela costuma cuidar disso\")\n- Co-ocorr\u00eancia de nome no mesmo \u00e1udio sem liga\u00e7\u00e3o sem\u00e2ntica com o pedido\n\nEM CASO DE QUALQUER D\u00daVIDA: owner = \"?\" (n\u00e3o identificado). \u00c9 MUITO PIOR\natribuir o pedido pra pessoa errada do que deixar como n\u00e3o identificado.\n\nSINAIS DE TRANSI\u00c7\u00c3O entre interlocutores no \u00e1udio (preste aten\u00e7\u00e3o):\n- Pausa narrativa: \"... ok. [sil\u00eancio impl\u00edcito] Ent\u00e3o, cara, ...\"\n- Mudan\u00e7a de sauda\u00e7\u00e3o: \"Tchau, valeu\" \u2192 depois \"Oi, tudo bom?\"\n- Mudan\u00e7a brusca de assunto + registro\n- Inser\u00e7\u00f5es tipo \"Pera a\u00ed, ah Jo\u00e3o oi!\" / \"Al\u00f4, fala comigo\"\n- Vitor narrando pra si entre conversas: \"Beleza, agora preciso falar com X...\"\n\nQUANDO HOUVER TRANSI\u00c7\u00c3O, TRATE OS SEGMENTOS COMO INDEPENDENTES.\nPedidos em um segmento N\u00c3O herdam o interlocutor do segmento anterior.\n\nEXEMPLO CR\u00cdTICO DE TRANSI\u00c7\u00c3O:\nTranscri\u00e7\u00e3o: \"Estela, depois me passa o status dos leads, beleza? Combinado.\n[pausa] Cara, faz o seguinte, me manda aquele or\u00e7amento amanh\u00e3, t\u00f4 precisando.\"\n\nAn\u00e1lise CORRETA:\n- Pedido 1: \"Estela, depois me passa o status dos leads\" \u2192 owner = \"Estela\"\n  (vocativo direto)\n- Pedido 2: \"Cara, me manda aquele or\u00e7amento amanh\u00e3\" \u2192 owner = \"?\"\n  (\"cara\" \u00e9 interpela\u00e7\u00e3o gen\u00e9rica, n\u00e3o h\u00e1 vocativo de nome, e o \"Estela\"\n  anterior j\u00e1 se encerrou com \"combinado\". N\u00c3O assuma que ainda \u00e9 Estela.)\n\nAn\u00e1lise ERRADA: assumir que o segundo pedido tamb\u00e9m \u00e9 da Estela porque\no nome dela apareceu antes no \u00e1udio. Isso \u00e9 o tipo de erro que confunde\no Vitor \u2014 n\u00e3o fa\u00e7a.\n\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nFORMATO DO OUTPUT\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nRetorne EXATAMENTE este shape JSON (sem texto fora do JSON):\n\n{\n  \"reasoning\": \"<string com seu racioc\u00ednio>\",\n  \"summary\": \"<string 1-2 frases>\",\n  \"actions\": [\n    {\n      \"titulo\": \"<string curto no infinitivo>\",\n      \"descricao\": \"<string 1-2 frases>\",\n      \"owner\": \"<'vitor' | nome literal | '?'>\",\n      \"prazo_iso\": \"<ISO 8601 ou null>\",\n      \"prazo_text\": \"<literal ou null>\",\n      \"prioridade\": \"<'baixa'|'media'|'alta'|'urgente'>\",\n      \"evidencia\": \"<trecho literal at\u00e9 200 chars>\",\n      \"confidence\": \"<'high'|'medium'|'low'>\",\n      \"confidence_rationale\": \"<1 frase>\"\n    }\n  ]\n}\n\nSe nenhuma a\u00e7\u00e3o concreta, retorne actions: []. Nunca omita campos. Use null para prazos n\u00e3o mencionados.",
+                                "role": "system"
+                            },
+                            {
+                                "content": "=Transcri\u00e7\u00e3o do \u00e1udio (gravado em {{ $('3. Prepare Metadata').item.json.recorded_at }}, source={{ $('3. Prepare Metadata').item.json.source }}, tipo={{ $('3. Prepare Metadata').item.json.meeting_type }}):\n\n{{ $('6. Use Pretranscribed').item.json.text }}"
+                            }
+                        ]
+                    },
+                    "jsonOutput": true,
+                    "options": {
+                        "temperature": 0.2
+                    }
+                },
+                "id": "00000000-0000-0000-0000-000000000009",
+                "name": "8. GPT Extract Actions",
+                "type": "@n8n/n8n-nodes-langchain.openAi",
+                "typeVersion": 1.7,
+                "position": [
+                    -144,
+                    -96
+                ],
+                "credentials": {
+                    "openAiApi": {
+                        "id": "QSdaVgPRKxfvwcXr",
+                        "name": "OpenAi account"
+                    }
+                }
+            },
+            {
+                "parameters": {
+                    "jsCode": "// Parseia o JSON retornado pelo GPT e prepara items para INSERT em tarefas.\nconst meetingId = $('3. Prepare Metadata').item.json.meeting_id;\nconst raw = $input.first().json;\n\n// O n\u00f3 openAi v1.7 retorna o JSON em diferentes shapes \u2014 normaliza.\nlet parsed;\nif (raw.message && raw.message.content) {\n  parsed = typeof raw.message.content === 'string' ? JSON.parse(raw.message.content) : raw.message.content;\n} else if (raw.content) {\n  parsed = typeof raw.content === 'string' ? JSON.parse(raw.content) : raw.content;\n} else if (raw.text) {\n  parsed = typeof raw.text === 'string' ? JSON.parse(raw.text) : raw.text;\n} else if (raw.summary && Array.isArray(raw.actions)) {\n  parsed = raw;\n} else {\n  throw new Error('N\u00e3o foi poss\u00edvel parsear resposta do GPT: ' + JSON.stringify(raw).slice(0, 500));\n}\n\nconst { summary = '', actions = [] } = parsed;\nconst rawJson = JSON.stringify(parsed);\n\nif (!actions.length) {\n  return [{\n    json: {\n      meeting_id: meetingId,\n      summary,\n      raw_ai_response: rawJson,\n      no_actions: true\n    }\n  }];\n}\n\nreturn actions.map((a, i) => ({\n  json: {\n    meeting_id: meetingId,\n    summary,\n    raw_ai_response: rawJson,\n    titulo: a.titulo || '(sem t\u00edtulo)',\n    descricao: a.descricao || '',\n    owner: a.owner || 'vitor',\n    prazo: a.prazo_iso || null,\n    prazo_text: a.prazo_text || null,\n    prioridade: ['baixa','media','alta','urgente'].includes(a.prioridade) ? a.prioridade : 'media',\n    evidencia: a.evidencia || '',\n    idx: i,\n    total: actions.length\n  }\n}));"
+                },
+                "id": "00000000-0000-0000-0000-000000000010",
+                "name": "9. Parse Actions",
+                "type": "n8n-nodes-base.code",
+                "typeVersion": 2,
+                "position": [
+                    144,
+                    -96
+                ]
+            },
+            {
+                "parameters": {
+                    "conditions": {
+                        "options": {
+                            "caseSensitive": true,
+                            "leftValue": "",
+                            "typeValidation": "loose",
+                            "version": 1
+                        },
+                        "conditions": [
+                            {
+                                "id": "no-actions",
+                                "leftValue": "={{ $json.no_actions }}",
+                                "rightValue": true,
+                                "operator": {
+                                    "type": "boolean",
+                                    "operation": "equals",
+                                    "singleValue": true
+                                }
+                            }
+                        ],
+                        "combinator": "and"
+                    },
+                    "options": {}
+                },
+                "id": "00000000-0000-0000-0000-000000000011",
+                "name": "10. Has Actions?",
+                "type": "n8n-nodes-base.if",
+                "typeVersion": 2.2,
+                "position": [
+                    368,
+                    -96
+                ]
+            },
+            {
+                "parameters": {
+                    "schema": {
+                        "__rl": true,
+                        "mode": "list",
+                        "value": "public"
+                    },
+                    "table": {
+                        "__rl": true,
+                        "mode": "list",
+                        "value": "tarefas"
+                    },
+                    "columns": {
+                        "mappingMode": "defineBelow",
+                        "value": {
+                            "meeting_id": "={{ $json.meeting_id }}",
+                            "titulo": "={{ $json.titulo }}",
+                            "descricao": "={{ $json.descricao }}",
+                            "owner": "={{ $json.owner }}",
+                            "prazo": "={{ $json.prazo }}",
+                            "prazo_text": "={{ $json.prazo_text }}",
+                            "prioridade": "={{ $json.prioridade }}",
+                            "evidencia": "={{ $json.evidencia }}"
+                        },
+                        "matchingColumns": [],
+                        "schema": []
+                    },
+                    "options": {}
+                },
+                "id": "00000000-0000-0000-0000-000000000012",
+                "name": "11. INSERT tarefas",
+                "type": "n8n-nodes-base.postgres",
+                "typeVersion": 2.5,
+                "position": [
+                    592,
+                    0
+                ],
+                "credentials": {
+                    "postgres": {
+                        "id": "KQJgErf7zPLrLq1t",
+                        "name": "Acoes - Postgres"
+                    }
+                }
+            },
+            {
+                "parameters": {
+                    "operation": "update",
+                    "schema": {
+                        "__rl": true,
+                        "mode": "list",
+                        "value": "public"
+                    },
+                    "table": {
+                        "__rl": true,
+                        "mode": "list",
+                        "value": "meetings"
+                    },
+                    "columns": {
+                        "mappingMode": "defineBelow",
+                        "value": {
+                            "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
+                            "status": "done",
+                            "summary": "={{ $('9. Parse Actions').first().json.summary }}",
+                            "raw_ai_response": "={{ $('9. Parse Actions').first().json.raw_ai_response }}",
+                            "done_at": "={{ $now.toISO() }}"
+                        },
+                        "matchingColumns": [
+                            "id"
+                        ],
+                        "schema": []
+                    },
+                    "options": {}
+                },
+                "id": "00000000-0000-0000-0000-000000000013",
+                "name": "12. UPDATE meeting (done)",
+                "type": "n8n-nodes-base.postgres",
+                "typeVersion": 2.5,
+                "position": [
+                    800,
+                    0
+                ],
+                "credentials": {
+                    "postgres": {
+                        "id": "KQJgErf7zPLrLq1t",
+                        "name": "Acoes - Postgres"
+                    }
+                }
+            },
+            {
+                "parameters": {
+                    "jsCode": "// Monta a mensagem do WhatsApp\nconst meetingId = $('3. Prepare Metadata').item.json.meeting_id;\nconst summary = $('9. Parse Actions').first().json.summary;\nconst items = $('9. Parse Actions').all().map(i => i.json).filter(j => !j.no_actions);\n\nconst minhas = items.filter(i => i.owner === 'vitor');\nconst delegadas = items.filter(i => i.owner !== 'vitor');\nconst formatPrazo = (p) => {\n  if (!p) return '';\n  try {\n    const d = new Date(p);\n    return ' _(at\u00e9 ' + d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ')_';\n  } catch { return ''; }\n};\nconst emojiPrio = { urgente: '\ud83d\udd34', alta: '\ud83d\udfe0', media: '\ud83d\udfe1', baixa: '\u26aa' };\n\nlet msg = '\ud83c\udf99\ufe0f *Reuni\u00e3o processada*\\n\\n';\nmsg += '_' + summary + '_\\n\\n';\n\nif (minhas.length) {\n  msg += '\u2705 *Minhas a\u00e7\u00f5es* (' + minhas.length + ')\\n';\n  minhas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '\ud83d\udfe1') + ' ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (delegadas.length) {\n  msg += '\ud83d\udc65 *Combinei com outros* (' + delegadas.length + ')\\n';\n  delegadas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '\ud83d\udfe1') + ' *' + t.owner + ':* ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (!minhas.length && !delegadas.length) {\n  msg += '_(nenhuma a\u00e7\u00e3o concreta extra\u00edda desta reuni\u00e3o)_\\n';\n}\n\nconst frontendUrl = 'https://acoes.vitorgambetti.com.br';\nmsg += '\ud83d\udd17 ' + frontendUrl + '/reunioes/' + meetingId;\n\n\n// Aviso de \u00e1udio longo aguardando segmenta\u00e7\u00e3o\nconst needsSeg = $('12c. Mark Needs Segmentation').first().json.needs_segmentation;\nconst dur = $('12c. Mark Needs Segmentation').first().json.duration_seconds;\nif (needsSeg) {\n  msg += '\\n\\n\ud83c\udf99\ufe0f \u00c1udio longo (' + (dur/3600).toFixed(1) + 'h) \u2014 revisar segmenta\u00e7\u00e3o:\\n';\n  msg += frontendUrl + '/reunioes/' + meetingId + '/segmentar';\n}\nreturn [{ json: { text: msg, meeting_id: meetingId, n_tarefas: items.length } }];"
+                },
+                "id": "00000000-0000-0000-0000-000000000014",
+                "name": "13. Build WhatsApp Message",
+                "type": "n8n-nodes-base.code",
+                "typeVersion": 2,
+                "position": [
+                    1024,
+                    0
+                ]
+            },
+            {
+                "parameters": {
+                    "method": "POST",
+                    "url": "=https://n8n-evolution-api.tatetz.easypanel.host/message/sendText/fawkes-sdr",
+                    "sendHeaders": true,
+                    "headerParameters": {
+                        "parameters": [
+                            {
+                                "name": "apikey",
+                                "value": "=429683C4C977415CAAFCCE10F7D57E11"
+                            },
+                            {
+                                "name": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ]
+                    },
+                    "sendBody": true,
+                    "specifyBody": "json",
+                    "jsonBody": "={\n  \"number\": \"551151980726\",\n  \"text\": {{ JSON.stringify($json.text) }}\n}",
+                    "options": {
+                        "timeout": 30000
+                    }
+                },
+                "id": "00000000-0000-0000-0000-000000000015",
+                "name": "14. Send WhatsApp",
+                "type": "n8n-nodes-base.httpRequest",
+                "typeVersion": 4.2,
+                "position": [
+                    1248,
+                    0
+                ]
+            },
+            {
+                "parameters": {
+                    "operation": "update",
+                    "schema": {
+                        "__rl": true,
+                        "mode": "list",
+                        "value": "public"
+                    },
+                    "table": {
+                        "__rl": true,
+                        "mode": "list",
+                        "value": "meetings"
+                    },
+                    "columns": {
+                        "mappingMode": "defineBelow",
+                        "value": {
+                            "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
+                            "status": "error",
+                            "status_error": "={{ $json.error?.message || JSON.stringify($json.error || $json) }}"
+                        },
+                        "matchingColumns": [
+                            "id"
+                        ],
+                        "schema": []
+                    },
+                    "options": {}
+                },
+                "id": "00000000-0000-0000-0000-000000000017",
+                "name": "Err. UPDATE meeting (error)",
+                "type": "n8n-nodes-base.postgres",
+                "typeVersion": 2.5,
+                "position": [
+                    -304,
+                    208
+                ],
+                "credentials": {
+                    "postgres": {
+                        "id": "KQJgErf7zPLrLq1t",
+                        "name": "Acoes - Postgres"
+                    }
+                }
+            },
+            {
+                "parameters": {},
+                "type": "@n8n/n8n-nodes-langchain.toolThink",
+                "typeVersion": 1.1,
+                "position": [
+                    96,
+                    128
+                ],
+                "id": "6e384d6c-aa6a-4b4d-af3c-9c0ad8c6beff",
+                "name": "Think"
+            },
+            {
+                "parameters": {
+                    "method": "POST",
+                    "url": "http://voice-svc:8000/identify",
+                    "sendBody": true,
+                    "specifyBody": "json",
+                    "jsonBody": "={\n  \"meeting_id\": {{ JSON.stringify($('5. INSERT meeting').item.json.id) }}\n}",
+                    "options": {
+                        "timeout": 120000,
+                        "response": {
+                            "response": {
+                                "neverError": true
+                            }
+                        }
+                    }
+                },
+                "id": "2e001531-9ca3-4423-941d-a9619ea3316f",
+                "name": "12b. Identify Speakers (voice-svc)",
+                "type": "n8n-nodes-base.httpRequest",
+                "typeVersion": 4.2,
+                "position": [
+                    800,
+                    200
+                ],
+                "continueOnFail": true,
+                "notesInFlow": false
+            },
+            {
+                "id": "d7d247b1-5e5f-4e63-a740-179277f29500",
+                "name": "12c. Mark Needs Segmentation",
+                "type": "n8n-nodes-base.code",
+                "typeVersion": 2,
+                "position": [
+                    1000,
+                    0
+                ],
+                "parameters": {
+                    "jsCode": "// Marca se a meeting precisa ser revisada pra segmenta\u00e7\u00e3o manual.\n// Limite: > 60min (3600s). N\u00e3o bloqueia o fluxo se dura\u00e7\u00e3o ausente.\nconst meta = $('3. Prepare Metadata').first().json;\nconst duration = meta.duration_seconds_local || 0;\nconst needs = duration > 3600;\nreturn [{\n  json: {\n    needs_segmentation: needs,\n    meeting_id: meta.meeting_id,\n    duration_seconds: duration\n  }\n}];"
+                }
+            },
+            {
+                "id": "b0a6fbf2-096c-4fdc-ac71-1d30b9a16efd",
+                "name": "12d. UPDATE needs_segmentation",
+                "type": "n8n-nodes-base.postgres",
+                "typeVersion": 2.5,
+                "position": [
+                    1200,
+                    0
+                ],
+                "credentials": {
+                    "postgres": {
+                        "id": "KQJgErf7zPLrLq1t",
+                        "name": "Acoes - Postgres"
+                    }
+                },
+                "parameters": {
+                    "operation": "update",
+                    "schema": {
+                        "__rl": true,
+                        "mode": "list",
+                        "value": "public"
+                    },
+                    "table": {
+                        "__rl": true,
+                        "mode": "list",
+                        "value": "meetings"
+                    },
+                    "columns": {
+                        "mappingMode": "defineBelow",
+                        "value": {
+                            "id": "={{ $json.meeting_id }}",
+                            "needs_segmentation": "={{ $json.needs_segmentation }}"
+                        },
+                        "matchingColumns": [
+                            "id"
+                        ],
+                        "schema": []
+                    },
+                    "options": {}
+                }
             }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"number\": \"551151980726\",\n  \"text\": {{ JSON.stringify($json.text) }}\n}",
-        "options": {
-          "timeout": 30000
-        }
-      },
-      "id": "00000000-0000-0000-0000-000000000015",
-      "name": "14. Send WhatsApp",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1248,
-        0
-      ]
-    },
-    {
-      "parameters": {
-        "operation": "update",
-        "schema": {
-          "__rl": true,
-          "mode": "list",
-          "value": "public"
-        },
-        "table": {
-          "__rl": true,
-          "mode": "list",
-          "value": "meetings"
-        },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
-            "status": "error",
-            "status_error": "={{ $json.error?.message || JSON.stringify($json.error || $json) }}"
-          },
-          "matchingColumns": [
-            "id"
-          ],
-          "schema": []
-        },
-        "options": {}
-      },
-      "id": "00000000-0000-0000-0000-000000000017",
-      "name": "Err. UPDATE meeting (error)",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [
-        -304,
-        208
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "KQJgErf7zPLrLq1t",
-          "name": "Acoes - Postgres"
-        }
-      }
-    }
-  ],
-  "connections": {
-    "1. Webhook": {
-      "main": [
-        [
-          {
-            "node": "2. Validate Auth",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "2. Validate Auth": {
-      "main": [
-        [
-          {
-            "node": "3. Prepare Metadata",
-            "type": "main",
-            "index": 0
-          }
         ],
-        []
-      ]
-    },
-    "3. Prepare Metadata": {
-      "main": [
-        [
-          {
-            "node": "4. Save Audio via Frontend",
-            "type": "main",
-            "index": 0
-          }
+        "connections": {
+            "1. Webhook": {
+                "main": [
+                    [
+                        {
+                            "node": "2. Validate Auth",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "2. Validate Auth": {
+                "main": [
+                    [
+                        {
+                            "node": "3. Prepare Metadata",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ],
+                    []
+                ]
+            },
+            "3. Prepare Metadata": {
+                "main": [
+                    [
+                        {
+                            "node": "4. Save Audio via Frontend",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "5. INSERT meeting": {
+                "main": [
+                    [
+                        {
+                            "node": "5b. Reattach Binary",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "8. GPT Extract Actions": {
+                "main": [
+                    [
+                        {
+                            "node": "9. Parse Actions",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "9. Parse Actions": {
+                "main": [
+                    [
+                        {
+                            "node": "10. Has Actions?",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "10. Has Actions?": {
+                "main": [
+                    [
+                        {
+                            "node": "12. UPDATE meeting (done)",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ],
+                    [
+                        {
+                            "node": "11. INSERT tarefas",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "11. INSERT tarefas": {
+                "main": [
+                    [
+                        {
+                            "node": "12. UPDATE meeting (done)",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "12. UPDATE meeting (done)": {
+                "main": [
+                    [
+                        {
+                            "node": "12b. Identify Speakers (voice-svc)",
+                            "type": "main",
+                            "index": 0
+                        },
+                        {
+                            "node": "12c. Mark Needs Segmentation",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "13. Build WhatsApp Message": {
+                "main": [
+                    [
+                        {
+                            "node": "14. Send WhatsApp",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "14. Send WhatsApp": {
+                "main": [
+                    []
+                ]
+            },
+            "4. Save Audio via Frontend": {
+                "main": [
+                    [
+                        {
+                            "node": "4b. Reattach Binary",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "4b. Reattach Binary": {
+                "main": [
+                    [
+                        {
+                            "node": "5. INSERT meeting",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "7. UPDATE meeting (analyzing)": {
+                "main": [
+                    [
+                        {
+                            "node": "8. GPT Extract Actions",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "5b. Reattach Binary": {
+                "main": [
+                    [
+                        {
+                            "node": "6. Use Pretranscribed",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "Think": {
+                "ai_tool": [
+                    [
+                        {
+                            "node": "8. GPT Extract Actions",
+                            "type": "ai_tool",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "6. Use Pretranscribed": {
+                "main": [
+                    [
+                        {
+                            "node": "7. UPDATE meeting (analyzing)",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "12c. Mark Needs Segmentation": {
+                "main": [
+                    [
+                        {
+                            "node": "12d. UPDATE needs_segmentation",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "12d. UPDATE needs_segmentation": {
+                "main": [
+                    [
+                        {
+                            "node": "13. Build WhatsApp Message",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            }
+        },
+        "authors": "Vitor Gambetti",
+        "name": null,
+        "description": null,
+        "autosaved": false,
+        "workflowPublishHistory": [
+            {
+                "createdAt": "2026-05-21T17:53:35.345Z",
+                "id": 116,
+                "workflowId": "98jEiWWSAKFWEP6B",
+                "versionId": "b14f47a7-6798-402e-b2f5-3fcd28bbcb7b",
+                "event": "activated",
+                "userId": "e8659b44-d50b-4a34-994b-b7d51e80b150"
+            },
+            {
+                "createdAt": "2026-05-21T17:53:35.324Z",
+                "id": 115,
+                "workflowId": "98jEiWWSAKFWEP6B",
+                "versionId": "b14f47a7-6798-402e-b2f5-3fcd28bbcb7b",
+                "event": "deactivated",
+                "userId": "e8659b44-d50b-4a34-994b-b7d51e80b150"
+            }
         ]
-      ]
-    },
-    "5. INSERT meeting": {
-      "main": [
-        [
-          {
-            "node": "5b. Reattach Binary",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "6. Whisper Transcription": {
-      "main": [
-        [
-          {
-            "node": "7. UPDATE meeting (analyzing)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "8. GPT Extract Actions": {
-      "main": [
-        [
-          {
-            "node": "9. Parse Actions",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "9. Parse Actions": {
-      "main": [
-        [
-          {
-            "node": "10. Has Actions?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "10. Has Actions?": {
-      "main": [
-        [
-          {
-            "node": "12. UPDATE meeting (done)",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "11. INSERT tarefas",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "11. INSERT tarefas": {
-      "main": [
-        [
-          {
-            "node": "12. UPDATE meeting (done)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "12. UPDATE meeting (done)": {
-      "main": [
-        [
-          {
-            "node": "13. Build WhatsApp Message",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "13. Build WhatsApp Message": {
-      "main": [
-        [
-          {
-            "node": "14. Send WhatsApp",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "14. Send WhatsApp": {
-      "main": [
-        []
-      ]
-    },
-    "4. Save Audio via Frontend": {
-      "main": [
-        [
-          {
-            "node": "4b. Reattach Binary",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "4b. Reattach Binary": {
-      "main": [
-        [
-          {
-            "node": "5. INSERT meeting",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "7. UPDATE meeting (analyzing)": {
-      "main": [
-        [
-          {
-            "node": "8. GPT Extract Actions",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "5b. Reattach Binary": {
-      "main": [
-        [
-          {
-            "node": "6. Whisper Transcription",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
     }
-  },
-  "settings": {
-    "executionOrder": "v1",
-    "callerPolicy": "workflowsFromSameOwner",
-    "saveExecutionProgress": true,
-    "saveManualExecutions": true,
-    "saveDataErrorExecution": "all",
-    "saveDataSuccessExecution": "all"
-  },
-  "staticData": null
 }
