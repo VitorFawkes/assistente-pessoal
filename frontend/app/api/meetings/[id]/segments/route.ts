@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
-import { resolve as resolvePath } from "node:path";
-import { mkdtemp, rename, rm } from "node:fs/promises";
+import { resolve as resolvePath, dirname } from "node:path";
+import { mkdtemp, rename, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { withClient } from "@/lib/db";
 import { clipAudio, type ClipInterval } from "@/lib/audio-clip";
@@ -98,6 +98,7 @@ export async function PATCH(
 
   let tempDir: string | null = null;
   let cleanupTemp = true;
+  const movedToFinal: string[] = []; // pra apagar se algo após rename falhar
 
   try {
     const result = await withClient(async (c) => {
@@ -160,6 +161,15 @@ export async function PATCH(
         }));
         await clipAudio(parentPhys, clipIntervals);
 
+        // Pre-cria diretórios de destino + move temp → final ANTES do commit.
+        // Se rename falhar, rollback desfaz o DB (filhos não foram inseridos ainda).
+        for (let i = 0; i < intervals.length; i++) {
+          await mkdir(dirname(physicalPaths[i]), { recursive: true });
+          await rename(tempPaths[i], physicalPaths[i]);
+          movedToFinal.push(physicalPaths[i]);
+        }
+        cleanupTemp = false; // arquivos já moveram
+
         const childResults: ChildResult[] = [];
         const parentSegments = parent.segments || [];
         for (let i = 0; i < intervals.length; i++) {
@@ -214,10 +224,6 @@ export async function PATCH(
 
         await c.query("COMMIT");
 
-        for (const child of childResults) {
-          await rename(child.physical_temp, child.physical_final);
-        }
-        cleanupTemp = false;
         return { parent, children: childResults, archived: false };
       } catch (e) {
         await c.query("ROLLBACK");
@@ -262,6 +268,10 @@ export async function PATCH(
       })),
     });
   } catch (e) {
+    // Se arquivos já moveram pro destino mas a transação falhou depois → apaga órfãos
+    for (const p of movedToFinal) {
+      rm(p, { force: true }).catch(() => {});
+    }
     const msg = e instanceof Error ? e.message : String(e);
     const status =
       msg === "NOT_FOUND" ? 404 :
