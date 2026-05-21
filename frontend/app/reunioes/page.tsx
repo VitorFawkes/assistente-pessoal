@@ -14,6 +14,7 @@ type Meeting = {
   status: string;
   summary: string | null;
   duration_seconds: number | null;
+  needs_segmentation: boolean;
   n_tarefas: number;
   n_minhas: number;
 };
@@ -24,10 +25,11 @@ async function fetchMeetings(): Promise<Meeting[]> {
       m.id, m.source, m.meeting_type,
       to_char(coalesce(m.recorded_at, m.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
       to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
-      m.status, m.summary, m.duration_seconds,
+      m.status, m.summary, m.duration_seconds, m.needs_segmentation,
       (SELECT count(*) FROM tarefas WHERE meeting_id = m.id)::int AS n_tarefas,
       (SELECT count(*) FROM tarefas WHERE meeting_id = m.id AND owner = 'vitor')::int AS n_minhas
     FROM meetings m
+    WHERE m.status != 'archived_session'
     ORDER BY coalesce(m.recorded_at, m.created_at) DESC
     LIMIT 100;
   `);
@@ -130,52 +132,61 @@ export default async function ReunioesPage() {
       ) : (
         <div className="space-y-2.5">
           {meetings.map((m) => (
-            <Link
-              key={m.id}
-              href={`/reunioes/${m.id}`}
-              className="press-feedback group block paper-card rounded-2xl border border-[color:var(--border)] hover:border-[color:var(--muted)] p-4 sm:p-5"
-            >
-              <div className="flex items-start gap-3">
-                <div className="shrink-0 mt-0.5 w-8 h-8 rounded-full bg-[color:var(--accent)] flex items-center justify-center">
-                  <MeetingIcon type={m.meeting_type} />
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="flex-1 text-[15px] leading-snug text-[color:var(--foreground)] line-clamp-2">
-                      {m.summary || "Reunião sem resumo"}
-                    </p>
-                    <StatusPill status={m.status} />
+            <div key={m.id} className="space-y-1.5">
+              <Link
+                href={`/reunioes/${m.id}`}
+                className="press-feedback group block paper-card rounded-2xl border border-[color:var(--border)] hover:border-[color:var(--muted)] p-4 sm:p-5"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="shrink-0 mt-0.5 w-8 h-8 rounded-full bg-[color:var(--accent)] flex items-center justify-center">
+                    <MeetingIcon type={m.meeting_type} />
                   </div>
-                  <div className="mt-2 flex items-center flex-wrap gap-x-3 gap-y-1 text-[12px] text-[color:var(--muted)]">
-                    {m.recorded_at && <span>{fmtDate(m.recorded_at)}</span>}
-                    {m.duration_seconds && m.duration_seconds > 0 ? (
-                      <span>· {Math.max(1, Math.round(m.duration_seconds / 60))} min</span>
-                    ) : null}
-                    {m.n_tarefas > 0 && (
-                      <span className="text-[color:var(--muted-strong)]">
-                        · <span className="font-medium text-[color:var(--foreground)]">{m.n_tarefas}</span>{" "}
-                        {m.n_tarefas === 1 ? "ação" : "ações"}
-                        {m.n_minhas > 0 && (
-                          <span className="text-[color:var(--muted)]">
-                            {" "}
-                            (
-                            <span className="text-[color:var(--foreground)] font-medium">
-                              {m.n_minhas}
-                            </span>{" "}
-                            minhas)
-                          </span>
-                        )}
-                      </span>
-                    )}
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="flex-1 text-[15px] leading-snug text-[color:var(--foreground)] line-clamp-2">
+                        {m.summary || "Reunião sem resumo"}
+                      </p>
+                      <StatusPill status={m.status} />
+                    </div>
+                    <div className="mt-2 flex items-center flex-wrap gap-x-3 gap-y-1 text-[12px] text-[color:var(--muted)]">
+                      {m.recorded_at && <span>{fmtDate(m.recorded_at)}</span>}
+                      {m.duration_seconds && m.duration_seconds > 0 ? (
+                        <span>· {Math.max(1, Math.round(m.duration_seconds / 60))} min</span>
+                      ) : null}
+                      {m.n_tarefas > 0 && (
+                        <span className="text-[color:var(--muted-strong)]">
+                          · <span className="font-medium text-[color:var(--foreground)]">{m.n_tarefas}</span>{" "}
+                          {m.n_tarefas === 1 ? "ação" : "ações"}
+                          {m.n_minhas > 0 && (
+                            <span className="text-[color:var(--muted)]">
+                              {" "}
+                              (
+                              <span className="text-[color:var(--foreground)] font-medium">
+                                {m.n_minhas}
+                              </span>{" "}
+                              minhas)
+                            </span>
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="shrink-0 self-center text-[color:var(--muted)] group-hover:text-[color:var(--foreground)] transition">
+                    <ChevronRight size={18} strokeWidth={1.75} />
                   </div>
                 </div>
-
-                <div className="shrink-0 self-center text-[color:var(--muted)] group-hover:text-[color:var(--foreground)] transition">
-                  <ChevronRight size={18} strokeWidth={1.75} />
-                </div>
-              </div>
-            </Link>
+              </Link>
+              {m.needs_segmentation && (
+                <Link
+                  href={`/reunioes/${m.id}/segmentar`}
+                  className="ml-11 inline-flex items-center gap-1.5 text-[11px] text-[color:var(--warm)] bg-[color:var(--warm-bg)] px-2.5 py-1 rounded-full hover:opacity-80 transition w-fit"
+                >
+                  ⚠️ áudio longo · revisar segmentação
+                </Link>
+              )}
+            </div>
           ))}
         </div>
       )}
