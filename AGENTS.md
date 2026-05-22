@@ -24,6 +24,13 @@ Leia também:
 - 4 CHECK constraints user_id_not_null validadas
 - Roles `app_tenant` (NOBYPASSRLS) e `app_writer` (BYPASSRLS) criados
 
+**Follow-up consciente** (não bloqueante):
+- `/api/admin/reprocess-meeting/[id]` (auth via header X-Admin-Token) usa `query()` cru
+  em meetings. Se DATABASE_URL do frontend trocar pra `app_tenant`, esse endpoint vai
+  retornar 0 rows (RLS bloqueia). Solução: aceitar `user_id` no body + usar `withTenant`,
+  OR usar role app_writer só nesse handler. Por enquanto: manter DATABASE_URL como
+  `assistente` (bypass) até refatorar.
+
 **O que ainda falta deployar:**
 - Frontend (code já mergea-able via `feat/multitenant-foundation` branch)
 - Update workflows n8n via `./n8n-workflows/apply.sh` (JSONs já preparados)
