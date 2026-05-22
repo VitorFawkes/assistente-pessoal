@@ -10,6 +10,7 @@ import {
   type ProposedLabel,
 } from "@/components/transcription-view";
 import { ArrowLeft, Mic, Video, FileQuestion, UsersRound } from "lucide-react";
+import { ExecutiveSummary } from "./executive-summary";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,7 @@ type Meeting = {
   status_error: string | null;
   transcription: string | null;
   summary: string | null;
+  executive_summary: string | null;
   duration_seconds: number | null;
   segments: Segment[] | null;
   speaker_labels: Record<string, string> | null;
@@ -122,6 +124,18 @@ export default async function ReuniaoDetalhePage({
           </div>
         )}
       </header>
+
+      {/* RESUMO EXECUTIVO */}
+      {meeting.executive_summary && (
+        <section className="space-y-3">
+          <h2 className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
+            Resumo executivo
+          </h2>
+          <div className="paper-card rounded-2xl border border-[color:var(--border)] p-5 sm:p-6">
+            <ExecutiveSummary md={meeting.executive_summary} />
+          </div>
+        </section>
+      )}
 
       {/* AÇÕES */}
       <section className="space-y-4">

@@ -188,6 +188,24 @@ export function SegmentTimeline({
     }
   }
 
+  async function markSingleAction() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/meetings/${meetingId}/segments`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mark_single: true }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+      startTransition(() => router.push(`/reunioes/${meetingId}`));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  }
+
   if (archiveOnly) {
     return (
       <div className="mt-6 space-y-3">
@@ -196,15 +214,26 @@ export function SegmentTimeline({
             {error}
           </div>
         )}
-        <button
-          type="button"
-          onClick={archiveOnlyAction}
-          disabled={busy}
-          className="inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-full bg-[color:var(--foreground)] text-[color:var(--background)] disabled:opacity-50"
-        >
-          {busy ? <Sparkles size={12} className="animate-pulse" /> : <Archive size={12} />}
-          {confirmArchive ? "clique de novo pra confirmar" : "arquivar sem segmentar"}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={markSingleAction}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 text-[13px] px-4 py-2 rounded-full bg-[color:var(--foreground)] text-[color:var(--background)] disabled:opacity-50"
+          >
+            {busy ? <Sparkles size={12} className="animate-pulse" /> : <Check size={12} />}
+            é uma reunião só, manter
+          </button>
+          <button
+            type="button"
+            onClick={archiveOnlyAction}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-full bg-[color:var(--card)] border border-[color:var(--border)] text-[color:var(--muted-strong)] hover:opacity-80 disabled:opacity-50"
+          >
+            <Archive size={12} />
+            {confirmArchive ? "clique de novo pra confirmar" : "arquivar sem segmentar"}
+          </button>
+        </div>
       </div>
     );
   }
@@ -320,6 +349,15 @@ export function SegmentTimeline({
         >
           {busy ? <Sparkles size={12} className="animate-pulse" /> : <Check size={12} />}
           confirmar e criar {intervals.length} reuniões
+        </button>
+        <button
+          type="button"
+          onClick={markSingleAction}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-full bg-[color:var(--calm-bg)] text-[color:var(--calm)] hover:opacity-80 disabled:opacity-50"
+        >
+          <Check size={12} />
+          é uma reunião só, manter
         </button>
         <button
           type="button"

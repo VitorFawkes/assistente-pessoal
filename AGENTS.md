@@ -116,11 +116,19 @@ soft_deleted_at IS NULL` — se passar de ~10k, está na hora de migrar.
   n8n (não funcionam). Acesso via curl com `N8N_API_KEY` do `.env`.
   **URL correta:** `https://n8n.vitorgambetti.com.br/` — NÃO o subdomínio
   easypanel `n8n-n8n.ymnmx7.easypanel.host` (key só funciona no domínio
-  custom). Workflows: `Acoes - Audio Ingest` (`98jEiWWSAKFWEP6B`),
-  `Acoes - Process Segment` (`Gt34r0WVdZxCbJet`), `Acoes - Reprocess Tarefas`.
-  Pra sincronizar local → live: `source .env && ./n8n-workflows/apply.sh`.
-  Multi-tenant: workflows propagam `user_id` recebido via header `X-User-Id`
-  ou body, com fallback pra `$env.VITOR_FALLBACK_UUID` durante rollout.
+  custom). Workflows:
+  - `Acoes - Audio Ingest` (id `98jEiWWSAKFWEP6B`) — pipeline principal de
+    áudios. Adiciona `needs_segmentation=true` em meetings >60min via nós
+    12c/12d.
+  - `Acoes - Process Segment` (id `Gt34r0WVdZxCbJet`) — disparado pelo PATCH
+    `/api/meetings/[id]/segments` pra cada filho criado. Extrai tarefas via
+    GPT-5.1 e dispara voice-svc/identify.
+  - `Acoes - Reprocess Tarefas` — disparado pelo PATCH `/api/meetings/[id]/speakers`
+    quando user corrige rotulação.
+  - Pra sincronizar JSON local → live: `source .env && ./n8n-workflows/apply.sh`.
+  - **Multi-tenant**: workflows propagam `user_id` recebido via header
+    `X-User-Id` ou body, com fallback pra `$env.VITOR_FALLBACK_UUID` durante
+    rollout.
 
 - **Frontend (URL pública):** `https://n8n-assistente-frontend.tatetz.easypanel.host/`
   — o domínio `acoes.vitorgambetti.com.br` está com 404 do Traefik (DNS ou
@@ -130,7 +138,16 @@ soft_deleted_at IS NULL` — se passar de ~10k, está na hora de migrar.
   `/termos`, `/admin/convites`. Páginas públicas: `/sem-acesso`, `/c/[code]`.
 - **Easypanel:** API tRPC em `EASYPANEL_URL/api/trpc/*`. Mutations
   funcionam pra create/update/deploy/restart de services, **mas não há
-  endpoint pra mounts**. Mounts são gerenciados via UI.
+  endpoint pra mounts**. Mounts são gerenciados via UI. **CUIDADO:**
+  `services.app.updateEnv` substitui TODO o env (texto multilinha) — pra
+  adicionar 1 var, ler env atual via `inspectService` e preservar o resto.
+
+- **CI/CD:** ambos `frontend/` e `voice-svc/` têm pre-build no GitHub
+  Actions → GHCR (`.github/workflows/{frontend,voice-svc}.yml`). Easypanel
+  consome `image: ghcr.io/vitorfawkes/assistente-pessoal-{frontend,voice-svc}:latest`
+  via `source.type=image`. Deploy de ~17s vs ~30-55min se fosse build no
+  easypanel host. Packages devem estar PUBLIC em
+  github.com/users/VitorFawkes/packages.
 
 ---
 
@@ -144,11 +161,34 @@ chama `requireUser()` automaticamente e retorna 401/403 se não-autenticado.
 | `POST /api/sessao` | Consome invite (form-encoded ou JSON), cria sessão, seta cookie. Rate-limit 5/min/IP |
 | `DELETE /api/sessao` | Logout (revoga sessão atual + deleta cookie) |
 | `POST /api/sessao/revoke-all` | Logout de todos os dispositivos |
-| `PATCH /api/meetings/[id]/speakers` | Salva rotulação speakers (escopado, dispara reprocess + enroll) |
-| `POST /api/meetings/[id]/identify` | Proxy pra voice-svc/identify (passa user_id) |
-| `PATCH /api/meetings/[id]/segments` | Fatia áudio longo em N filhos (multi-tenant safe) |
+| `PATCH /api/meetings/[id]/speakers` | Salva rotulação de speakers (escopado, dispara n8n reprocess + voice-svc/enroll em background) |
+| `POST /api/meetings/[id]/identify` | Proxy pra voice-svc/identify (passa user_id; sugestões automáticas) |
+| `PATCH /api/meetings/[id]/segments` | Fatia meeting longa em N filhos (multi-tenant safe). Modos: `{cuts:[...]}` (fatia), `{archive_only:true}` (só arquiva), `{mark_single:true}` (limpa flag), `{restore:true}` (volta archived → done). Roda ffmpeg local + transação postgres + dispara `Acoes - Process Segment` |
 | `POST /api/save-audio` | **Público** — chamado pelo n8n; exige header `X-User-Id` |
 | `voice-svc:8000/identify` | Embeda speakers, retorna top match (escopado por `user_id`) |
 | `voice-svc:8000/enroll` | Adiciona amostras de voz (idempotente por user+meeting+letter+pessoa) |
 | `voice-svc:8000/samples/{id}` (DELETE/PATCH) | Soft delete / reassign (exige `user_id` query/body) |
 | `voice-svc:8000/clip?user_id=...` | Recorta trecho MP3 (valida ownership do meeting) |
+
+---
+
+## Segmentação de áudios longos
+
+Áudios > 60min ganham flag `needs_segmentation=true` automaticamente. UI em
+`/reunioes/[id]/segmentar` permite revisar cortes propostos pelo detector
+heurístico (`frontend/lib/detect-cuts.ts`) e confirmar fatiamento.
+
+**Schema:** `db/0006_meeting_segmentation.sql` adiciona `parent_meeting_id`,
+`segment_index`, `segment_start_offset`, `segment_end_offset`,
+`needs_segmentation` em `meetings`. Status `archived_session` é o estado do
+pai após fatiar; filhos têm `source='segmented'`.
+
+**Detector:** thresholds calibrados pro pipeline atual onde `transcribe.sh`
+aplica `silenceremove` antes do Whisper (gaps reais entre turnos ficam <25s).
+Constantes em `DETECT_CONSTANTS`: `SILENCE_HARD=20`, `SILENCE_SOFT=10`,
+`MIN_SEGMENT_DURATION=600`, `CONFIDENCE_FLOOR=0.7`. Testes em
+`frontend/lib/detect-cuts.test.ts` (`bun test`).
+
+**ffmpeg:** o handler PATCH escreve direto em `/audios/YYYY/MM/<uuid>.mp3`
+(reencode pra 64kbps mono 16kHz — `-c copy` quebra em `.m4a` iPhone com MOOV
+no final, e `/tmp` ≠ `/audios` no mount easypanel).

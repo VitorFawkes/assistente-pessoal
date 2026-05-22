@@ -118,6 +118,7 @@ export const meetingsFor = (userId: string) => ({
         status_error: string | null;
         transcription: string | null;
         summary: string | null;
+        executive_summary: string | null;
         duration_seconds: number | null;
         segments: unknown;
         speaker_labels: Record<string, string> | null;
@@ -127,7 +128,9 @@ export const meetingsFor = (userId: string) => ({
            id, source, meeting_type, original_filename,
            to_char(coalesce(recorded_at, created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
            to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
-           status, status_error, transcription, summary, duration_seconds, segments,
+           status, status_error, transcription, summary,
+           raw_ai_response->>'executive_summary' AS executive_summary,
+           duration_seconds, segments,
            speaker_labels, speaker_labels_proposed
          FROM meetings WHERE id = $1`,
         [id],

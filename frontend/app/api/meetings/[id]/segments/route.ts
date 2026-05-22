@@ -1,8 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
-import { resolve as resolvePath } from "node:path";
-import { mkdtemp, rename, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { resolve as resolvePath, dirname } from "node:path";
+import { rm, mkdir } from "node:fs/promises";
 import { withAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/db";
 import { clipAudio, type ClipInterval } from "@/lib/audio-clip";
@@ -31,6 +30,8 @@ type ParentRow = {
 type Body = {
   cuts?: Array<{ at_seconds?: number; title?: string | null }>;
   archive_only?: boolean;
+  mark_single?: boolean;
+  restore?: boolean;
 };
 
 type ChildResult = {
@@ -61,18 +62,39 @@ function childAudioPaths(childIds: string[]): { logical: string[]; physical: str
   return { logical, physical };
 }
 
+function coerceSegments(raw: unknown): Segment[] {
+  if (Array.isArray(raw)) return raw as Segment[];
+  if (typeof raw === "string" && raw.trim().startsWith("[")) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed as Segment[];
+    } catch {
+      // fall through
+    }
+  }
+  return [];
+}
+
 function filterSegmentsForInterval(
   segments: Segment[],
   start: number,
   end: number,
 ): { childSegments: Segment[]; transcription: string } {
-  const inRange = segments.filter((s) => s.start >= start && s.end <= end);
-  const childSegments = inRange.map((s) => ({
-    speaker: s.speaker,
-    start: s.start - start,
-    end: s.end - start,
-    text: s.text,
-  }));
+  const inRange = segments.filter((s) => {
+    const ss = typeof s.start === "number" ? s.start : parseFloat(String(s.start));
+    const se = typeof s.end === "number" ? s.end : parseFloat(String(s.end));
+    return ss >= start && se <= end;
+  });
+  const childSegments = inRange.map((s) => {
+    const ss = typeof s.start === "number" ? s.start : parseFloat(String(s.start));
+    const se = typeof s.end === "number" ? s.end : parseFloat(String(s.end));
+    return {
+      speaker: s.speaker,
+      start: ss - start,
+      end: se - start,
+      text: s.text,
+    };
+  });
   const transcription = childSegments.map((s) => s.text).join("");
   return { childSegments, transcription };
 }
@@ -86,7 +108,18 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
   }
   const body: Body = (await (req as NextRequest).json().catch(() => ({}))) as Body;
   const archiveOnly = body.archive_only === true;
+  const markSingle = body.mark_single === true;
+  const restore = body.restore === true;
   const rawCuts = Array.isArray(body.cuts) ? body.cuts : [];
+
+  const modeCount = [archiveOnly, markSingle, restore, rawCuts.length > 0]
+    .filter(Boolean).length;
+  if (modeCount !== 1) {
+    return NextResponse.json(
+      { error: "MUST_SPECIFY_ONE_MODE" },
+      { status: 400 },
+    );
+  }
 
   const cuts: Array<{ at_seconds: number; title: string | null }> = [];
   for (const c of rawCuts) {
@@ -96,12 +129,11 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
   }
   cuts.sort((a, b) => a.at_seconds - b.at_seconds);
 
-  let tempDir: string | null = null;
-  let cleanupTemp = true;
+  const movedToFinal: string[] = []; // pra apagar se algo após rename falhar
 
   try {
     // withTenant abre transação + SET LOCAL app.current_user_id; RLS filtra
-    // meetings/tarefas pelo user automaticamente.
+    // meetings pelo user automaticamente. Sem try/BEGIN/ROLLBACK manuais.
     const result = await withTenant(user.id, async (c) => {
       try {
         const r = await c.query<ParentRow>(
@@ -112,8 +144,40 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
         );
         if (!r.rows.length) throw new Error("NOT_FOUND");
         const parent = r.rows[0];
-        if (parent.status === "archived_session") throw new Error("ALREADY_ARCHIVED");
         if (parent.parent_meeting_id) throw new Error("IS_CHILD");
+
+        if (restore) {
+          if (parent.status !== "archived_session") throw new Error("NOT_ARCHIVED");
+          await c.query(
+            `UPDATE meetings SET status='done', needs_segmentation=false
+             WHERE id = $1::uuid`,
+            [id],
+          );
+          return {
+            parent,
+            children: [] as ChildResult[],
+            archived: false,
+            restored: true,
+            markedSingle: false,
+          };
+        }
+
+        if (parent.status === "archived_session") throw new Error("ALREADY_ARCHIVED");
+
+        if (markSingle) {
+          await c.query(
+            `UPDATE meetings SET needs_segmentation=false WHERE id = $1::uuid`,
+            [id],
+          );
+          return {
+            parent,
+            children: [] as ChildResult[],
+            archived: false,
+            restored: false,
+            markedSingle: true,
+          };
+        }
+
         const duration = parent.duration_seconds || 0;
         if (duration <= 0) throw new Error("PARENT_NO_DURATION");
 
@@ -123,7 +187,13 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
              WHERE id = $1::uuid`,
             [id],
           );
-          return { parent, children: [] as ChildResult[], archived: true };
+          return {
+            parent,
+            children: [] as ChildResult[],
+            archived: true,
+            restored: false,
+            markedSingle: false,
+          };
         }
 
         for (const cut of cuts) {
@@ -151,17 +221,26 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
         const { logical: logicalPaths, physical: physicalPaths } = childAudioPaths(childIds);
 
         const parentPhys = physicalPath(parent.audio_path);
-        tempDir = await mkdtemp(`${tmpdir()}/segments-${id}-`);
-        const tempPaths = childIds.map((cid) => `${tempDir}/${cid}.mp3`);
+        // ffmpeg escreve direto no destino final — /tmp e /audios estão em
+        // mounts diferentes no container easypanel (EXDEV em fs.rename).
+        // Pre-cria dirs primeiro. Se ffmpeg falhar, catch externo apaga órfãos via movedToFinal.
+        for (let i = 0; i < intervals.length; i++) {
+          await mkdir(dirname(physicalPaths[i]), { recursive: true });
+        }
         const clipIntervals: ClipInterval[] = intervals.map((iv, i) => ({
           start: iv.start,
           end: iv.end,
-          outputPath: tempPaths[i],
+          outputPath: physicalPaths[i],
         }));
+        // Marca todos como "potencialmente criados" antes do ffmpeg — se ffmpeg
+        // falhar no meio, alguns existem. Catch apaga.
+        for (const p of physicalPaths) movedToFinal.push(p);
         await clipAudio(parentPhys, clipIntervals);
+        // Daqui em diante: DB INSERTs + UPDATE pre-commit. Se DB falhar, ROLLBACK
+        // + catch apaga arquivos do /audios via movedToFinal.
 
         const childResults: ChildResult[] = [];
-        const parentSegments = parent.segments || [];
+        const parentSegments = coerceSegments(parent.segments);
         for (let i = 0; i < intervals.length; i++) {
           const iv = intervals[i];
           const cid = childIds[i];
@@ -202,7 +281,7 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
             end: iv.end,
             title: iv.title,
             audio_path: logicalPaths[i],
-            physical_temp: tempPaths[i],
+            physical_temp: physicalPaths[i],
             physical_final: physicalPaths[i],
           });
         }
@@ -213,24 +292,17 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
           [id],
         );
 
-        // Move arquivos do tmp pro destino final APÓS withTenant fecha COMMIT
-        // (não dá pra fazer dentro de withTenant porque o rename é I/O fora da tx).
-        // Solução: marcar pra fazer no caller depois do return.
-        return { parent, children: childResults, archived: false };
+        return {
+          parent,
+          children: childResults,
+          archived: false,
+          restored: false,
+          markedSingle: false,
+        };
       } catch (e) {
         throw e;
       }
     });
-
-    // Renomes fora da transação (já COMMITou se chegou aqui).
-    if (!result.archived && result.children.length > 0) {
-      for (const child of result.children) {
-        await rename(child.physical_temp, child.physical_final);
-      }
-      cleanupTemp = false;
-    } else {
-      cleanupTemp = false;
-    }
 
     for (const child of result.children) {
       fetch(N8N_WEBHOOK, {
@@ -249,6 +321,8 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
 
     if (result.archived) {
       sendWhatsApp(`📦 Sessão arquivada sem segmentação.`).catch(() => {});
+    } else if (result.restored) {
+      sendWhatsApp(`♻️ Sessão arquivada restaurada.`).catch(() => {});
     } else if (result.children.length > 0) {
       const recordedAt = result.parent.recorded_at;
       const dateStr = recordedAt
@@ -262,6 +336,8 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
     return NextResponse.json({
       parent_id: result.parent.id,
       archived_only: result.archived,
+      restored: result.restored,
+      marked_single: result.markedSingle,
       segments_created: result.children.map((c) => ({
         id: c.id,
         start: c.start,
@@ -270,17 +346,18 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
       })),
     });
   } catch (e) {
+    // Se arquivos já moveram pro destino mas a transação falhou depois → apaga órfãos
+    for (const p of movedToFinal) {
+      rm(p, { force: true }).catch(() => {});
+    }
     const msg = e instanceof Error ? e.message : String(e);
     const status =
       msg === "NOT_FOUND" ? 404 :
       msg === "ALREADY_ARCHIVED" ? 409 :
+      msg === "NOT_ARCHIVED" ? 409 :
       msg === "IS_CHILD" ? 409 :
       msg.startsWith("CUT_") || msg.startsWith("SEGMENT_") || msg === "PARENT_NO_DURATION" ? 400 :
       500;
     return NextResponse.json({ error: msg }, { status });
-  } finally {
-    if (tempDir && cleanupTemp) {
-      rm(tempDir, { recursive: true, force: true }).catch(() => {});
-    }
   }
 });
