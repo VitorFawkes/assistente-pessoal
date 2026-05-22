@@ -826,9 +826,6 @@
     "saveExecutionProgress": true,
     "saveManualExecutions": true,
     "saveDataErrorExecution": "all",
-    "saveDataSuccessExecution": "all",
-    "binaryMode": "separate"
-  },
-  "staticData": null,
-  "meta": null
+    "saveDataSuccessExecution": "all"
+  }
 }
