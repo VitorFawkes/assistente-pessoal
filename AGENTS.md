@@ -15,7 +15,21 @@ Leia também:
 
 ---
 
-## 🏢 Multi-tenant (foundation v2)
+## 🏢 Multi-tenant (foundation v2 — **APLICADA EM PROD 2026-05-22**)
+
+**Status DB**: `0007_multitenant.sql` aplicada via workflow temporário. Estado:
+- 17 meetings + 17 tarefas + 7 pessoas + 19 voice_samples → backfilled pro Vitor
+- `users` Vitor UUID: `7740e829-9462-416b-81a1-b787e23ba9b2` (is_admin=true, consent_terms_at=now)
+- RLS habilitada + 6 policies criadas
+- 4 CHECK constraints user_id_not_null validadas
+- Roles `app_tenant` (NOBYPASSRLS) e `app_writer` (BYPASSRLS) criados
+
+**O que ainda falta deployar:**
+- Frontend (code já mergea-able via `feat/multitenant-foundation` branch)
+- Update workflows n8n via `./n8n-workflows/apply.sh` (JSONs já preparados)
+- voice-svc redeploy (code já no branch)
+- mac-agent local: já tem `WEBHOOK_USER_ID` no `.env`
+- Trocar DATABASE_URL no easypanel: frontend→app_tenant, n8n+voice-svc→app_writer
 
 A partir de `db/0007_multitenant.sql`:
 - **users / invites / sessions / audit_log / usage_events** são tabelas novas
