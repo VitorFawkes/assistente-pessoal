@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Fraunces } from "next/font/google";
 import Link from "next/link";
+import { cookies } from "next/headers";
+import { query } from "@/lib/db";
+import { UserMenu } from "@/components/user-menu";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -23,9 +26,30 @@ export const metadata: Metadata = {
   description: "Ações extraídas das suas reuniões",
 };
 
-export default function RootLayout({
+// O layout renderiza pra páginas autenticadas E pra /sem-acesso. Pra não
+// vazar query no caminho público, leitura de user é tolerante a "sem sessão".
+async function getCurrentUser(): Promise<{ nome: string; is_admin: boolean } | null> {
+  const sessionId = (await cookies()).get("session")?.value;
+  if (!sessionId) return null;
+  try {
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const rows = await query<{ nome: string; is_admin: boolean }>(
+      `SELECT u.nome, u.is_admin
+         FROM sessions s JOIN users u ON u.id = s.user_id
+        WHERE s.id = $1 AND s.revoked_at IS NULL AND s.last_used_at > $2 AND u.deleted_at IS NULL`,
+      [sessionId, cutoff],
+    );
+    return rows[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const user = await getCurrentUser();
+
   return (
     <html
       lang="pt-BR"
@@ -41,26 +65,31 @@ export default function RootLayout({
             >
               ações<span className="text-[color:var(--urgent)]">.</span>
             </Link>
-            <nav className="flex items-center gap-1 text-sm">
-              <Link
-                href="/"
-                className="px-3 py-1.5 rounded-full hover:bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition"
-              >
-                Pendências
-              </Link>
-              <Link
-                href="/reunioes"
-                className="px-3 py-1.5 rounded-full hover:bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition"
-              >
-                Reuniões
-              </Link>
-              <Link
-                href="/pessoas"
-                className="px-3 py-1.5 rounded-full hover:bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition"
-              >
-                Pessoas
-              </Link>
-            </nav>
+            <div className="flex items-center gap-3">
+              {user && (
+                <nav className="hidden sm:flex items-center gap-1 text-sm">
+                  <Link
+                    href="/"
+                    className="px-3 py-1.5 rounded-full hover:bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition"
+                  >
+                    Pendências
+                  </Link>
+                  <Link
+                    href="/reunioes"
+                    className="px-3 py-1.5 rounded-full hover:bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition"
+                  >
+                    Reuniões
+                  </Link>
+                  <Link
+                    href="/pessoas"
+                    className="px-3 py-1.5 rounded-full hover:bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition"
+                  >
+                    Pessoas
+                  </Link>
+                </nav>
+              )}
+              {user && <UserMenu nome={user.nome} isAdmin={user.is_admin} />}
+            </div>
           </div>
         </header>
         <main className="flex-1 mx-auto max-w-3xl w-full px-5 sm:px-6 py-6 sm:py-10">
