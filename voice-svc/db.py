@@ -10,6 +10,12 @@ postgres atual não tem pgvector instalado. Detalhes em
 search_top_k abaixo carrega TODAS as amostras ativas e calcula cosine
 no Python via numpy. Funciona até ~10k amostras sem dor.
 ═════════════════════════════════════════════════════════════════════
+
+═════════════════════════════════════════════════════════════════════
+MULTI-TENANT (v2): voice-svc roda com role `app_writer` (BYPASSRLS).
+Todas as funções recebem user_id explícito e filtram por user_id nas
+queries — defesa em profundidade. Inserts incluem user_id.
+═════════════════════════════════════════════════════════════════════
 """
 from __future__ import annotations
 
@@ -26,7 +32,7 @@ from psycopg_pool import ConnectionPool
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
-# Single-user; pool pequeno basta. min=1 mantém uma conexão warm.
+# Single-process; pool pequeno basta. min=1 mantém uma conexão warm.
 _pool = ConnectionPool(
     DATABASE_URL,
     min_size=1,
@@ -53,29 +59,34 @@ def conn() -> Iterator[psycopg.Connection]:
         yield c
 
 
-# ─── domain queries ──────────────────────────────────────────────────
+# ─── domain queries (todas escopadas por user_id) ────────────────────
 
 
-def get_meeting(meeting_id: str) -> dict | None:
+def get_meeting(meeting_id: str, user_id: str) -> dict | None:
     with conn() as c:
         row = c.execute(
-            "SELECT id, audio_path, segments, speaker_pessoas FROM meetings WHERE id = %s",
-            (meeting_id,),
+            """
+            SELECT id, audio_path, segments, speaker_pessoas
+            FROM meetings
+            WHERE id = %s AND user_id = %s
+            """,
+            (meeting_id, user_id),
         ).fetchone()
     return row
 
 
-def get_pessoa(pessoa_id: str) -> dict | None:
+def get_pessoa(pessoa_id: str, user_id: str) -> dict | None:
     with conn() as c:
         row = c.execute(
-            "SELECT id, nome FROM pessoas WHERE id = %s",
-            (pessoa_id,),
+            "SELECT id, nome FROM pessoas WHERE id = %s AND user_id = %s",
+            (pessoa_id, user_id),
         ).fetchone()
     return row
 
 
 def insert_voice_sample(
     *,
+    user_id: str,
     pessoa_id: str,
     embedding: np.ndarray,
     source_meeting_id: str,
@@ -89,13 +100,14 @@ def insert_voice_sample(
         row = c.execute(
             """
             INSERT INTO voice_samples (
-              pessoa_id, embedding,
+              user_id, pessoa_id, embedding,
               source_meeting_id, source_speaker_letter,
               source_segment_range, duration_seconds
-            ) VALUES (%s, %s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
+                user_id,
                 pessoa_id,
                 embedding_list,
                 source_meeting_id,
@@ -108,14 +120,11 @@ def insert_voice_sample(
     return str(row["id"])
 
 
-def search_top_k(query_embedding: np.ndarray, k: int = 5) -> list[dict]:
-    """Top-K vizinhos por cosine distance — feito em Python pois não temos pgvector.
+def search_top_k(query_embedding: np.ndarray, user_id: str, k: int = 5) -> list[dict]:
+    """Top-K vizinhos por cosine distance, escopados ao user.
 
     Retorna [{pessoa_id, nome, distance, sample_count}] ordenado por distance ASC
     (mais próximo primeiro). Distance ∈ [0, 2]; 0 = idêntico.
-
-    Performance: SELECT all active + numpy. Linear na quantidade de amostras
-    ativas. Adequado pra single-user até ~10k amostras.
     """
     with conn() as c:
         rows = c.execute(
@@ -123,30 +132,27 @@ def search_top_k(query_embedding: np.ndarray, k: int = 5) -> list[dict]:
             SELECT vs.pessoa_id, p.nome, vs.embedding
             FROM voice_samples vs
             JOIN pessoas p ON p.id = vs.pessoa_id
-            WHERE vs.soft_deleted_at IS NULL
-            """
+            WHERE vs.user_id = %s AND vs.soft_deleted_at IS NULL
+            """,
+            (user_id,),
         ).fetchall()
 
     if not rows:
         return []
 
-    # Embeddings → matrix (n, 192). psycopg devolve list[float] pra REAL[].
     embs = np.array([r["embedding"] for r in rows], dtype=np.float32)
     q = query_embedding.astype(np.float32)
 
     # Vetores estão L2-normalizados, então cosine_similarity = dot product.
-    # cosine_distance = 1 - cosine_similarity.
     sims = embs @ q
     distances = 1.0 - sims
 
-    # Top-K por menor distância
     if len(distances) <= k:
         top_idx = np.argsort(distances)
     else:
         part = np.argpartition(distances, k)[:k]
         top_idx = part[np.argsort(distances[part])]
 
-    # Contagem por pessoa pra exibir sample_count
     pessoa_counts: dict[str, int] = {}
     for r in rows:
         pid = str(r["pessoa_id"])
@@ -163,21 +169,24 @@ def search_top_k(query_embedding: np.ndarray, k: int = 5) -> list[dict]:
     ]
 
 
-def update_speaker_labels_proposed(meeting_id: str, proposed: dict) -> None:
+def update_speaker_labels_proposed(meeting_id: str, user_id: str, proposed: dict) -> None:
     with conn() as c:
         c.execute(
-            "UPDATE meetings SET speaker_labels_proposed = %s::jsonb WHERE id = %s",
-            (json.dumps(proposed), meeting_id),
+            """
+            UPDATE meetings
+               SET speaker_labels_proposed = %s::jsonb
+             WHERE id = %s AND user_id = %s
+            """,
+            (json.dumps(proposed), meeting_id, user_id),
         )
         c.commit()
 
 
-def invalidate_other_pessoa_samples(meeting_id: str, letter: str, current_pessoa_id: str) -> int:
-    """Quando o usuário corrige uma rotulação (Speaker A = Vitor → Speaker A = Ana),
-    soft-delete as amostras antigas da MESMA (meeting, letter) que pertenciam a
-    OUTRA pessoa — evita poluir voice_samples com falsos positivos.
-
-    Retorna quantas amostras foram invalidadas.
+def invalidate_other_pessoa_samples(
+    meeting_id: str, user_id: str, letter: str, current_pessoa_id: str
+) -> int:
+    """Quando o usuário corrige uma rotulação, soft-delete as amostras antigas
+    da MESMA (meeting, letter) que pertenciam a OUTRA pessoa. Escopado ao user.
     """
     with conn() as c:
         row = c.execute(
@@ -185,93 +194,87 @@ def invalidate_other_pessoa_samples(meeting_id: str, letter: str, current_pessoa
             UPDATE voice_samples
                SET soft_deleted_at = now()
              WHERE source_meeting_id = %s
+               AND user_id = %s
                AND source_speaker_letter = %s
                AND pessoa_id <> %s
                AND soft_deleted_at IS NULL
             RETURNING id
             """,
-            (meeting_id, letter, current_pessoa_id),
+            (meeting_id, user_id, letter, current_pessoa_id),
         ).fetchall()
         c.commit()
     return len(row)
 
 
-def has_active_sample(meeting_id: str, letter: str, pessoa_id: str) -> bool:
-    """Já existe amostra ativa pra essa (meeting, letter, pessoa)? Usado pra idempotência do enroll."""
+def has_active_sample(meeting_id: str, user_id: str, letter: str, pessoa_id: str) -> bool:
+    """Já existe amostra ativa pra essa (user, meeting, letter, pessoa)?"""
     with conn() as c:
         row = c.execute(
             """
             SELECT 1 FROM voice_samples
             WHERE source_meeting_id = %s
+              AND user_id = %s
               AND source_speaker_letter = %s
               AND pessoa_id = %s
               AND soft_deleted_at IS NULL
             LIMIT 1
             """,
-            (meeting_id, letter, pessoa_id),
+            (meeting_id, user_id, letter, pessoa_id),
         ).fetchone()
     return row is not None
 
 
-def reassign_sample(sample_id: str, new_pessoa_id: str) -> dict | None:
-    """Reatribui uma amostra ativa pra outra pessoa (correção de rotulagem errada).
-
-    Retorna {sample_id, source_meeting_id, source_speaker_letter} pra que o
-    chamador possa recomputar speaker_labels da meeting afetada.
-    """
+def reassign_sample(sample_id: str, user_id: str, new_pessoa_id: str) -> dict | None:
+    """Reatribui uma amostra ativa pra outra pessoa do mesmo user."""
     with conn() as c:
         row = c.execute(
             """
             UPDATE voice_samples
                SET pessoa_id = %s
-             WHERE id = %s AND soft_deleted_at IS NULL
+             WHERE id = %s AND user_id = %s AND soft_deleted_at IS NULL
             RETURNING id, source_meeting_id, source_speaker_letter
             """,
-            (new_pessoa_id, sample_id),
+            (new_pessoa_id, sample_id, user_id),
         ).fetchone()
         c.commit()
     return row
 
 
-def recompute_meeting_speaker_for_letter(meeting_id: str, letter: str) -> dict | None:
-    """Recomputa speaker_labels[letter] e speaker_pessoas[letter] da meeting com
-    base na pessoa MAJORITÁRIA das amostras ativas de (meeting, letter).
-
-    Caso a maior parte das amostras de Speaker A agora pertença a Cyntya (após
-    o user mover/corrigir), o mapeamento da reunião reflete isso automaticamente.
-
-    Sem amostras ativas → não muda (mantém o que o user rotulou originalmente).
+def recompute_meeting_speaker_for_letter(
+    meeting_id: str, user_id: str, letter: str
+) -> dict | None:
+    """Recomputa speaker_labels[letter] e speaker_pessoas[letter] com base na
+    pessoa majoritária das amostras ativas de (user, meeting, letter).
     """
     with conn() as c:
-        # pessoa majoritária + nome
         majority = c.execute(
             """
             SELECT vs.pessoa_id, p.nome, count(*)::int AS n
             FROM voice_samples vs
             JOIN pessoas p ON p.id = vs.pessoa_id
             WHERE vs.source_meeting_id = %s
+              AND vs.user_id = %s
               AND vs.source_speaker_letter = %s
               AND vs.soft_deleted_at IS NULL
             GROUP BY vs.pessoa_id, p.nome
             ORDER BY n DESC, p.nome ASC
             LIMIT 1
             """,
-            (meeting_id, letter),
+            (meeting_id, user_id, letter),
         ).fetchone()
 
         if not majority:
-            return None  # sem amostras, mantém speaker_labels existente
+            return None
 
         pessoa_id = str(majority["pessoa_id"])
         nome = majority["nome"]
 
-        # Atualiza só essa letter dentro do jsonb existente
         c.execute(
             """
             UPDATE meetings
                SET speaker_labels = jsonb_set(coalesce(speaker_labels, '{}'::jsonb), %s, to_jsonb(%s::text), true),
                    speaker_pessoas = jsonb_set(coalesce(speaker_pessoas, '{}'::jsonb), %s, to_jsonb(%s::text), true)
-             WHERE id = %s
+             WHERE id = %s AND user_id = %s
             """,
             (
                 "{" + letter + "}",
@@ -279,22 +282,23 @@ def recompute_meeting_speaker_for_letter(meeting_id: str, letter: str) -> dict |
                 "{" + letter + "}",
                 pessoa_id,
                 meeting_id,
+                user_id,
             ),
         )
         c.commit()
     return {"pessoa_id": pessoa_id, "nome": nome}
 
 
-def soft_delete_sample(sample_id: str) -> bool:
+def soft_delete_sample(sample_id: str, user_id: str) -> bool:
     with conn() as c:
         row = c.execute(
             """
             UPDATE voice_samples
             SET soft_deleted_at = now()
-            WHERE id = %s AND soft_deleted_at IS NULL
+            WHERE id = %s AND user_id = %s AND soft_deleted_at IS NULL
             RETURNING id
             """,
-            (sample_id,),
+            (sample_id, user_id),
         ).fetchone()
         c.commit()
     return row is not None

@@ -96,6 +96,7 @@ app = FastAPI(title="voice-svc", lifespan=lifespan)
 
 class IdentifyReq(BaseModel):
     meeting_id: str = Field(..., min_length=36, max_length=36)
+    user_id: str = Field(..., min_length=36, max_length=36)
 
 
 class TurnSpec(BaseModel):
@@ -105,6 +106,7 @@ class TurnSpec(BaseModel):
 
 class EnrollReq(BaseModel):
     meeting_id: str = Field(..., min_length=36, max_length=36)
+    user_id: str = Field(..., min_length=36, max_length=36)
     mapping: dict[str, str] = Field(..., description="letter → pessoa_id (uuid)")
     # Opcional: turnos específicos selecionados pelo usuário pra cada letter.
     # Quando vem, pula pick_representative_turns + outlier rejection (user já curou).
@@ -178,16 +180,18 @@ def health() -> dict[str, Any]:
 
 
 @app.get("/clip")
-def clip(meeting_id: str, start: float, end: float) -> FileResponse:
+def clip(meeting_id: str, start: float, end: float, user_id: str) -> FileResponse:
     """Corta um trecho do áudio source e retorna MP3 64kbps mono — pequeno o
     bastante pra player web carregar instantâneo. Útil pra previews de amostras.
     """
     if not is_valid_uuid(meeting_id):
         raise HTTPException(400, "meeting_id inválido")
+    if not is_valid_uuid(user_id):
+        raise HTTPException(400, "user_id inválido")
     if start < 0 or end <= start or (end - start) > 120:
         raise HTTPException(400, "range inválido (start>=0, end>start, max 120s)")
 
-    meeting = get_meeting(meeting_id)
+    meeting = get_meeting(meeting_id, user_id)
     if not meeting:
         raise HTTPException(404, "meeting não encontrada")
 
@@ -258,8 +262,10 @@ def debug_fs() -> dict[str, Any]:
 def identify(req: IdentifyReq) -> dict[str, Any]:
     if not is_valid_uuid(req.meeting_id):
         raise HTTPException(400, "meeting_id inválido")
+    if not is_valid_uuid(req.user_id):
+        raise HTTPException(400, "user_id inválido")
 
-    meeting = get_meeting(req.meeting_id)
+    meeting = get_meeting(req.meeting_id, req.user_id)
     if not meeting:
         raise HTTPException(404, "meeting não encontrada")
 
@@ -294,7 +300,7 @@ def identify(req: IdentifyReq) -> dict[str, Any]:
                 continue
 
             query_vec = average_embeddings(vectors)
-            matches = search_top_k(query_vec, k=TOP_K)
+            matches = search_top_k(query_vec, req.user_id, k=TOP_K)
 
             if not matches:
                 # base vazia — cold start
@@ -329,7 +335,7 @@ def identify(req: IdentifyReq) -> dict[str, Any]:
                 "margin": round(margin, 3),
             }
 
-    update_speaker_labels_proposed(req.meeting_id, labels)
+    update_speaker_labels_proposed(req.meeting_id, req.user_id, labels)
     log.info("meeting %s: proposed %s", req.meeting_id, list(labels.keys()))
     return {"labels": labels}
 
@@ -338,8 +344,10 @@ def identify(req: IdentifyReq) -> dict[str, Any]:
 def enroll(req: EnrollReq) -> dict[str, Any]:
     if not is_valid_uuid(req.meeting_id):
         raise HTTPException(400, "meeting_id inválido")
+    if not is_valid_uuid(req.user_id):
+        raise HTTPException(400, "user_id inválido")
 
-    meeting = get_meeting(req.meeting_id)
+    meeting = get_meeting(req.meeting_id, req.user_id)
     if not meeting:
         raise HTTPException(404, "meeting não encontrada")
 
@@ -347,12 +355,12 @@ def enroll(req: EnrollReq) -> dict[str, Any]:
     if not raw_segments:
         raise HTTPException(400, "meeting sem segments — nada a enroll")
 
-    # valida pessoa_ids
+    # valida pessoa_ids (escopo ao user)
     pessoas_cache: dict[str, dict] = {}
     for letter, pid in req.mapping.items():
         if not is_valid_uuid(pid):
             raise HTTPException(400, f"pessoa_id inválido pra speaker {letter}: {pid}")
-        p = get_pessoa(pid)
+        p = get_pessoa(pid, req.user_id)
         if not p:
             raise HTTPException(404, f"pessoa_id {pid} não encontrada")
         pessoas_cache[letter] = p
@@ -369,7 +377,7 @@ def enroll(req: EnrollReq) -> dict[str, Any]:
             # (rotulação errada anterior), invalida ANTES de inserir as novas.
             # Evita poluir a base com falsos positivos quando o user corrige.
             n_invalidated = invalidate_other_pessoa_samples(
-                req.meeting_id, letter, pessoa_id
+                req.meeting_id, req.user_id, letter, pessoa_id
             )
             if n_invalidated > 0:
                 log.info(
@@ -379,8 +387,8 @@ def enroll(req: EnrollReq) -> dict[str, Any]:
                     pessoa_id,
                 )
 
-            # Idempotência: já existe amostra ativa dessa (meeting, letter, pessoa)? Skip.
-            if has_active_sample(req.meeting_id, letter, pessoa_id):
+            # Idempotência: já existe amostra ativa dessa (user, meeting, letter, pessoa)? Skip.
+            if has_active_sample(req.meeting_id, req.user_id, letter, pessoa_id):
                 log.info(
                     "speaker %s já enrolado pra pessoa %s — pulando",
                     letter,
@@ -455,6 +463,7 @@ def enroll(req: EnrollReq) -> dict[str, Any]:
             for vec, duration, range_str in kept:
                 try:
                     insert_voice_sample(
+                        user_id=req.user_id,
                         pessoa_id=pessoa_id,
                         embedding=vec,
                         source_meeting_id=req.meeting_id,
@@ -480,10 +489,12 @@ def enroll(req: EnrollReq) -> dict[str, Any]:
 
 
 @app.delete("/samples/{sample_id}")
-def delete_sample(sample_id: str) -> dict[str, Any]:
+def delete_sample(sample_id: str, user_id: str) -> dict[str, Any]:
     if not is_valid_uuid(sample_id):
         raise HTTPException(400, "sample_id inválido")
-    ok = soft_delete_sample(sample_id)
+    if not is_valid_uuid(user_id):
+        raise HTTPException(400, "user_id inválido")
+    ok = soft_delete_sample(sample_id, user_id)
     if not ok:
         raise HTTPException(404, "sample não encontrada (ou já deletada)")
     return {"ok": True, "deleted": sample_id}
@@ -491,23 +502,26 @@ def delete_sample(sample_id: str) -> dict[str, Any]:
 
 class ReassignReq(BaseModel):
     pessoa_id: str = Field(..., min_length=36, max_length=36)
+    user_id: str = Field(..., min_length=36, max_length=36)
 
 
 @app.patch("/samples/{sample_id}")
 def patch_sample(sample_id: str, req: ReassignReq) -> dict[str, Any]:
     """Move uma amostra pra outra pessoa (correção de rotulagem) E recomputa
     speaker_labels da reunião com base na pessoa majoritária das amostras
-    ativas do mesmo (meeting, letter).
+    ativas do mesmo (meeting, letter). Escopado por user.
     """
     if not is_valid_uuid(sample_id):
         raise HTTPException(400, "sample_id inválido")
     if not is_valid_uuid(req.pessoa_id):
         raise HTTPException(400, "pessoa_id inválido")
-    p = get_pessoa(req.pessoa_id)
+    if not is_valid_uuid(req.user_id):
+        raise HTTPException(400, "user_id inválido")
+    p = get_pessoa(req.pessoa_id, req.user_id)
     if not p:
         raise HTTPException(404, f"pessoa_id {req.pessoa_id} não encontrada")
 
-    moved = reassign_sample(sample_id, req.pessoa_id)
+    moved = reassign_sample(sample_id, req.user_id, req.pessoa_id)
     if not moved:
         raise HTTPException(404, "sample não encontrada (ou já deletada)")
 
@@ -516,6 +530,7 @@ def patch_sample(sample_id: str, req: ReassignReq) -> dict[str, Any]:
     if moved.get("source_meeting_id") and moved.get("source_speaker_letter"):
         meeting_speaker_update = recompute_meeting_speaker_for_letter(
             str(moved["source_meeting_id"]),
+            req.user_id,
             moved["source_speaker_letter"],
         )
         log.info(
