@@ -47,8 +47,12 @@ export async function POST(req: NextRequest) {
     throw e;
   }
 
-  // Proxy redireciona pra /termos se consent_terms_at IS NULL
-  return NextResponse.redirect(new URL("/", req.url), 303);
+  // Proxy redireciona pra /termos se consent_terms_at IS NULL.
+  // Construímos a URL externa via headers (req.url retorna URL interna do
+  // container easypanel = http://0.0.0.0:3000 → chrome-error em redirect).
+  const proto = req.headers.get("x-forwarded-proto") || "https";
+  const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost";
+  return NextResponse.redirect(`${proto}://${host}/`, 303);
 }
 
 export async function DELETE() {
