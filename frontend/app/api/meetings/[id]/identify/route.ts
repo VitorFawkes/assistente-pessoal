@@ -1,15 +1,12 @@
-import { type NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/auth";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-// Microservice voice-svc (Python + SpeechBrain ECAPA + pgvector).
-// Default aponta pro DNS interno do easypanel — sem domínio público.
 const VOICE_SVC_URL = process.env.VOICE_SVC_URL || "http://voice-svc:8000";
 
-export async function POST(
-  _req: NextRequest,
-  ctx: { params: Promise<{ id: string }> },
-) {
+type Ctx = { params: Promise<{ id: string }> };
+
+export const POST = withAuth<Ctx>(async (user, _req, ctx) => {
   const { id } = await ctx.params;
   if (!UUID_RE.test(id)) {
     return NextResponse.json({ error: "id inválido" }, { status: 400 });
@@ -19,8 +16,7 @@ export async function POST(
     const res = await fetch(`${VOICE_SVC_URL}/identify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ meeting_id: id }),
-      // Identify pode demorar (extração ffmpeg + N embeddings + pgvector)
+      body: JSON.stringify({ meeting_id: id, user_id: user.id }),
       signal: AbortSignal.timeout(120_000),
     });
 
@@ -49,4 +45,4 @@ export async function POST(
       { status: 502 },
     );
   }
-}
+});

@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto";
 import { resolve as resolvePath } from "node:path";
 import { mkdtemp, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { withClient } from "@/lib/db";
+import { withAuth } from "@/lib/auth";
+import { withTenant } from "@/lib/db";
 import { clipAudio, type ClipInterval } from "@/lib/audio-clip";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { DETECT_CONSTANTS } from "@/lib/detect-cuts";
@@ -76,15 +77,14 @@ function filterSegmentsForInterval(
   return { childSegments, transcription };
 }
 
-export async function PATCH(
-  req: NextRequest,
-  ctx: { params: Promise<{ id: string }> },
-) {
+type Ctx = { params: Promise<{ id: string }> };
+
+export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
   const { id } = await ctx.params;
   if (!UUID_RE.test(id)) {
     return NextResponse.json({ error: "id inválido" }, { status: 400 });
   }
-  const body: Body = (await req.json().catch(() => ({}))) as Body;
+  const body: Body = (await (req as NextRequest).json().catch(() => ({}))) as Body;
   const archiveOnly = body.archive_only === true;
   const rawCuts = Array.isArray(body.cuts) ? body.cuts : [];
 
@@ -100,8 +100,9 @@ export async function PATCH(
   let cleanupTemp = true;
 
   try {
-    const result = await withClient(async (c) => {
-      await c.query("BEGIN");
+    // withTenant abre transação + SET LOCAL app.current_user_id; RLS filtra
+    // meetings/tarefas pelo user automaticamente.
+    const result = await withTenant(user.id, async (c) => {
       try {
         const r = await c.query<ParentRow>(
           `SELECT id, status, parent_meeting_id, audio_path, duration_seconds,
@@ -122,7 +123,6 @@ export async function PATCH(
              WHERE id = $1::uuid`,
             [id],
           );
-          await c.query("COMMIT");
           return { parent, children: [] as ChildResult[], archived: true };
         }
 
@@ -172,11 +172,11 @@ export async function PATCH(
           );
           await c.query(
             `INSERT INTO meetings (
-               id, source, meeting_type, original_filename, audio_path,
+               id, user_id, source, meeting_type, original_filename, audio_path,
                duration_seconds, recorded_at, status, transcription, segments,
                parent_meeting_id, segment_index, segment_start_offset, segment_end_offset
              ) VALUES (
-               $1::uuid, 'segmented', $2, $3, $4,
+               $1::uuid, $13::uuid, 'segmented', $2, $3, $4,
                $5, $6, 'received', $7, $8::jsonb,
                $9::uuid, $10, $11, $12
              )`,
@@ -193,6 +193,7 @@ export async function PATCH(
               i,
               iv.start,
               iv.end,
+              user.id,
             ],
           );
           childResults.push({
@@ -212,18 +213,24 @@ export async function PATCH(
           [id],
         );
 
-        await c.query("COMMIT");
-
-        for (const child of childResults) {
-          await rename(child.physical_temp, child.physical_final);
-        }
-        cleanupTemp = false;
+        // Move arquivos do tmp pro destino final APÓS withTenant fecha COMMIT
+        // (não dá pra fazer dentro de withTenant porque o rename é I/O fora da tx).
+        // Solução: marcar pra fazer no caller depois do return.
         return { parent, children: childResults, archived: false };
       } catch (e) {
-        await c.query("ROLLBACK");
         throw e;
       }
     });
+
+    // Renomes fora da transação (já COMMITou se chegou aqui).
+    if (!result.archived && result.children.length > 0) {
+      for (const child of result.children) {
+        await rename(child.physical_temp, child.physical_final);
+      }
+      cleanupTemp = false;
+    } else {
+      cleanupTemp = false;
+    }
 
     for (const child of result.children) {
       fetch(N8N_WEBHOOK, {
@@ -231,8 +238,9 @@ export async function PATCH(
         headers: {
           "Content-Type": "application/json",
           "x-auth": WEBHOOK_TOKEN,
+          "x-user-id": user.id,
         },
-        body: JSON.stringify({ meeting_id: child.id }),
+        body: JSON.stringify({ meeting_id: child.id, user_id: user.id }),
         signal: AbortSignal.timeout(15_000),
       }).catch(() => {
         console.warn(`[segments] webhook n8n falhou pra ${child.id}`);
@@ -275,4 +283,4 @@ export async function PATCH(
       rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }
   }
-}
+});

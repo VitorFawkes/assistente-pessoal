@@ -154,3 +154,30 @@ export async function revokeAllSessions(userId: string): Promise<void> {
 export async function getCurrentSessionId(): Promise<string | null> {
   return (await cookies()).get(COOKIE_NAME)?.value ?? null;
 }
+
+/**
+ * Wrapper pra Route Handlers: chama fn(user, req, ctx) se autenticado;
+ * retorna 401/403 (Response) se não. Reduz boilerplate de try/catch AuthError.
+ *
+ * Uso:
+ *   export const GET = withAuth(async (user, req, ctx) => {
+ *     const data = await meetingsFor(user.id).list();
+ *     return Response.json(data);
+ *   });
+ */
+export function withAuth<TCtx = unknown>(
+  fn: (user: User, req: Request, ctx: TCtx) => Promise<Response>,
+  opts?: { admin?: boolean },
+): (req: Request, ctx: TCtx) => Promise<Response> {
+  return async (req, ctx) => {
+    try {
+      const user = opts?.admin ? await requireAdmin() : await requireUser();
+      return await fn(user, req, ctx);
+    } catch (e) {
+      if (e instanceof AuthError) {
+        return new Response(null, { status: e.status });
+      }
+      throw e;
+    }
+  };
+}

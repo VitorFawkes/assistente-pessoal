@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { query } from "@/lib/db";
+import { withAuth } from "@/lib/auth";
+import { withTenant } from "@/lib/db";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -9,10 +10,9 @@ type PatchBody = Partial<{
   notas: string | null;
 }>;
 
-export async function PATCH(
-  req: NextRequest,
-  ctx: { params: Promise<{ id: string }> },
-) {
+type Ctx = { params: Promise<{ id: string }> };
+
+export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
   const { id } = await ctx.params;
   if (!UUID_RE.test(id)) {
     return NextResponse.json({ error: "id inválido" }, { status: 400 });
@@ -20,7 +20,7 @@ export async function PATCH(
 
   let body: PatchBody;
   try {
-    body = (await req.json()) as PatchBody;
+    body = (await (req as NextRequest).json()) as PatchBody;
   } catch {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
@@ -60,7 +60,10 @@ export async function PATCH(
                          to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated_at`;
 
   try {
-    const rows = await query(sql, values);
+    const rows = await withTenant(user.id, async (db) => {
+      const r = await db.query(sql, values);
+      return r.rows;
+    });
     if (!rows.length) return NextResponse.json({ error: "pessoa não encontrada" }, { status: 404 });
     return NextResponse.json(rows[0]);
   } catch (e) {
@@ -69,32 +72,32 @@ export async function PATCH(
       { status: 500 },
     );
   }
-}
+});
 
-export async function DELETE(
-  _req: NextRequest,
-  ctx: { params: Promise<{ id: string }> },
-) {
+export const DELETE = withAuth<Ctx>(async (user, _req, ctx) => {
   const { id } = await ctx.params;
   if (!UUID_RE.test(id)) {
     return NextResponse.json({ error: "id inválido" }, { status: 400 });
   }
 
   try {
-    const rows = await query<{ id: string; is_vitor: boolean }>(
-      "SELECT id, is_vitor FROM pessoas WHERE id = $1",
-      [id],
-    );
-    if (!rows.length) return NextResponse.json({ error: "pessoa não encontrada" }, { status: 404 });
-    if (rows[0].is_vitor) {
-      return NextResponse.json({ error: "não pode deletar Vitor (dono)" }, { status: 400 });
-    }
-    await query("DELETE FROM pessoas WHERE id = $1", [id]);
-    return NextResponse.json({ ok: true, deleted: id });
+    const result = await withTenant(user.id, async (db) => {
+      const r = await db.query<{ id: string; is_vitor: boolean }>(
+        "SELECT id, is_vitor FROM pessoas WHERE id = $1",
+        [id],
+      );
+      if (!r.rows.length) return { found: false as const };
+      if (r.rows[0].is_vitor) return { found: true as const, blocked: true as const };
+      await db.query("DELETE FROM pessoas WHERE id = $1", [id]);
+      return { found: true as const, blocked: false as const, deleted: id };
+    });
+    if (!result.found) return NextResponse.json({ error: "pessoa não encontrada" }, { status: 404 });
+    if (result.blocked) return NextResponse.json({ error: "não pode deletar Vitor (dono)" }, { status: 400 });
+    return NextResponse.json({ ok: true, deleted: result.deleted });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : String(e) },
       { status: 500 },
     );
   }
-}
+});

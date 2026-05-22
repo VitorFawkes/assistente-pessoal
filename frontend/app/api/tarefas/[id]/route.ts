@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { query, withClient } from "@/lib/db";
+import { withAuth } from "@/lib/auth";
+import { withTenant } from "@/lib/db";
 
 const VALID_STATUS = ["aberta", "em_andamento", "concluida", "cancelada"] as const;
 const VALID_PRIORIDADE = ["baixa", "media", "alta", "urgente"] as const;
@@ -14,14 +15,13 @@ type PatchBody = Partial<{
   status: (typeof VALID_STATUS)[number];
 }>;
 
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const { id } = await params;
+type Ctx = { params: Promise<{ id: string }> };
+
+export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
+  const { id } = await ctx.params;
   let body: PatchBody;
   try {
-    body = (await req.json()) as PatchBody;
+    body = (await (req as NextRequest).json()) as PatchBody;
   } catch {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
@@ -65,7 +65,7 @@ export async function PATCH(
   const sql = `UPDATE tarefas SET ${sets.join(", ")} WHERE id = $${values.length} RETURNING *`;
 
   try {
-    const updated = await withClient(async (c) => {
+    const updated = await withTenant(user.id, async (c) => {
       const { rows } = await c.query(sql, values);
       if (rows[0] && body.status) {
         const evento =
@@ -90,25 +90,22 @@ export async function PATCH(
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
-}
+});
 
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const { id } = await params;
-  const rows = await query("SELECT * FROM tarefas WHERE id = $1", [id]);
+export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
+  const { id } = await ctx.params;
+  const rows = await withTenant(user.id, async (db) => {
+    const r = await db.query("SELECT * FROM tarefas WHERE id = $1", [id]);
+    return r.rows;
+  });
   if (!rows.length) return NextResponse.json({ error: "não encontrada" }, { status: 404 });
   return NextResponse.json(rows[0]);
-}
+});
 
-export async function DELETE(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const { id } = await params;
+export const DELETE = withAuth<Ctx>(async (user, _req, ctx) => {
+  const { id } = await ctx.params;
   try {
-    const result = await withClient(async (c) => {
+    const result = await withTenant(user.id, async (c) => {
       await c.query("DELETE FROM tarefa_eventos WHERE tarefa_id = $1", [id]);
       const t = await c.query("DELETE FROM tarefas WHERE id = $1 RETURNING id", [id]);
       return t.rowCount ?? 0;
@@ -123,4 +120,4 @@ export async function DELETE(
       { status: 500 },
     );
   }
-}
+});

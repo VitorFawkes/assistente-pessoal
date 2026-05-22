@@ -1,3 +1,12 @@
+// /api/save-audio
+// Endpoint público (no PUBLIC_PREFIXES do proxy.ts) — chamado pelo n8n durante
+// o ingest. NÃO usa requireUser; valida via X-User-Id que deve vir do header
+// (n8n propaga vindo do webhook do mac-agent/PWA). Multi-tenant safe porque o
+// arquivo é nomeado por meeting_id (UUID) e o INSERT na meeting já vai com
+// user_id correto pelo workflow n8n.
+//
+// Esse endpoint SÓ escreve no disco; o INSERT em meetings é feito pelo workflow
+// n8n (que usa role app_writer com BYPASSRLS e propaga user_id explícito).
 import { type NextRequest, NextResponse } from "next/server";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -9,6 +18,16 @@ const ALLOWED_EXT = new Set(["mp3", "m4a", "wav", "aac", "flac", "ogg", "mp4"]);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function POST(req: NextRequest) {
+  // X-User-Id é obrigatório pra rastrear ownership. n8n propaga.
+  // Durante o rollout, o n8n usa VITOR_FALLBACK_UUID se header ausente.
+  const userId = req.headers.get("x-user-id") || "";
+  if (!UUID_RE.test(userId)) {
+    return NextResponse.json(
+      { error: "X-User-Id header obrigatório (UUID)" },
+      { status: 400 },
+    );
+  }
+
   const form = await req.formData().catch(() => null);
   if (!form) {
     return NextResponse.json({ error: "expected multipart/form-data" }, { status: 400 });
@@ -41,6 +60,7 @@ export async function POST(req: NextRequest) {
       ok: true,
       audio_path: `/audios/${meetingId}.${ext}`,
       bytes: bytes.length,
+      user_id: userId,
     });
   } catch (e) {
     return NextResponse.json(

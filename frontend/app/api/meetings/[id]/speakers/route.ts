@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { withClient } from "@/lib/db";
+import { withAuth } from "@/lib/auth";
+import { withTenant } from "@/lib/db";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -17,16 +18,15 @@ const VOICE_SVC_URL = process.env.VOICE_SVC_URL || "http://voice-svc:8000";
 //   - { pessoa_id: uuid, nome?: string }     → usa pessoa_id direto
 type RawLabelValue = string | { pessoa_id?: string; nome?: string };
 
-export async function PATCH(
-  req: NextRequest,
-  ctx: { params: Promise<{ id: string }> },
-) {
+type Ctx = { params: Promise<{ id: string }> };
+
+export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
   const { id } = await ctx.params;
   if (!UUID_RE.test(id)) {
     return NextResponse.json({ error: "id inválido" }, { status: 400 });
   }
 
-  const body = await req.json().catch(() => null);
+  const body = await (req as NextRequest).json().catch(() => null);
   const labels = body?.labels;
   if (!labels || typeof labels !== "object" || Array.isArray(labels)) {
     return NextResponse.json(
@@ -79,74 +79,65 @@ export async function PATCH(
   }
 
   try {
-    const result = await withClient(async (c) => {
-      // 1) resolve cada entry pra { letter, pessoa_id, nome } numa transação
-      await c.query("BEGIN");
-      try {
-        const resolved: Array<{ letter: string; pessoa_id: string; nome: string }> = [];
-        for (const e of parsed) {
-          if (e.pessoaId) {
-            const r = await c.query<{ id: string; nome: string }>(
-              "SELECT id, nome FROM pessoas WHERE id = $1",
-              [e.pessoaId],
-            );
-            if (!r.rows.length) {
-              throw new Error(`pessoa_id ${e.pessoaId} não encontrada`);
-            }
-            resolved.push({ letter: e.letter, pessoa_id: r.rows[0].id, nome: r.rows[0].nome });
-          } else if (e.rawNome) {
-            // get-or-create por nome
-            const ins = await c.query<{ id: string; nome: string }>(
-              `INSERT INTO pessoas (nome) VALUES ($1)
-               ON CONFLICT (nome) DO UPDATE SET nome = EXCLUDED.nome
-               RETURNING id, nome`,
-              [e.rawNome],
-            );
-            resolved.push({
-              letter: e.letter,
-              pessoa_id: ins.rows[0].id,
-              nome: ins.rows[0].nome,
-            });
+    // withTenant já abre a transação e seta SET LOCAL app.current_user_id.
+    // RLS filtra meetings/pessoas pelo user. get-or-create de pessoa inclui user_id.
+    const result = await withTenant(user.id, async (c) => {
+      const resolved: Array<{ letter: string; pessoa_id: string; nome: string }> = [];
+      for (const e of parsed) {
+        if (e.pessoaId) {
+          const r = await c.query<{ id: string; nome: string }>(
+            "SELECT id, nome FROM pessoas WHERE id = $1",
+            [e.pessoaId],
+          );
+          if (!r.rows.length) {
+            throw new Error(`pessoa_id ${e.pessoaId} não encontrada`);
           }
+          resolved.push({ letter: e.letter, pessoa_id: r.rows[0].id, nome: r.rows[0].nome });
+        } else if (e.rawNome) {
+          const ins = await c.query<{ id: string; nome: string }>(
+            `INSERT INTO pessoas (user_id, nome) VALUES ($1, $2)
+             ON CONFLICT (user_id, nome) DO UPDATE SET nome = EXCLUDED.nome
+             RETURNING id, nome`,
+            [user.id, e.rawNome],
+          );
+          resolved.push({
+            letter: e.letter,
+            pessoa_id: ins.rows[0].id,
+            nome: ins.rows[0].nome,
+          });
         }
-
-        // 2) constrói os dois mapas
-        const speakerLabels: Record<string, string> = {};
-        const speakerPessoas: Record<string, string> = {};
-        for (const r of resolved) {
-          speakerLabels[r.letter] = r.nome;
-          speakerPessoas[r.letter] = r.pessoa_id;
-        }
-
-        // 3) UPDATE atômico
-        const upd = await c.query<{
-          id: string;
-          speaker_labels: Record<string, string>;
-          speaker_pessoas: Record<string, string>;
-        }>(
-          `UPDATE meetings
-             SET speaker_labels = $1::jsonb,
-                 speaker_pessoas = $2::jsonb
-           WHERE id = $3::uuid
-           RETURNING id, speaker_labels, speaker_pessoas`,
-          [JSON.stringify(speakerLabels), JSON.stringify(speakerPessoas), id],
-        );
-        if (!upd.rows.length) {
-          throw new Error("meeting não encontrada");
-        }
-        await c.query("COMMIT");
-        return upd.rows[0];
-      } catch (e) {
-        await c.query("ROLLBACK");
-        throw e;
       }
+
+      const speakerLabels: Record<string, string> = {};
+      const speakerPessoas: Record<string, string> = {};
+      for (const r of resolved) {
+        speakerLabels[r.letter] = r.nome;
+        speakerPessoas[r.letter] = r.pessoa_id;
+      }
+
+      const upd = await c.query<{
+        id: string;
+        speaker_labels: Record<string, string>;
+        speaker_pessoas: Record<string, string>;
+      }>(
+        `UPDATE meetings
+           SET speaker_labels = $1::jsonb,
+               speaker_pessoas = $2::jsonb
+         WHERE id = $3::uuid
+         RETURNING id, speaker_labels, speaker_pessoas`,
+        [JSON.stringify(speakerLabels), JSON.stringify(speakerPessoas), id],
+      );
+      if (!upd.rows.length) {
+        throw new Error("meeting não encontrada");
+      }
+      return upd.rows[0];
     });
 
     // Dispara reprocessamento das tarefas (fire-and-forget — não bloqueia resposta)
     fetch(REPROCESS_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ meeting_id: id }),
+      body: JSON.stringify({ meeting_id: id, user_id: user.id }),
     }).catch(() => {
       // erro silencioso — usuário pode tentar de novo se notar que tarefas não atualizaram
     });
@@ -158,9 +149,10 @@ export async function PATCH(
     if (enrollMapping && Object.keys(enrollMapping).length > 0) {
       const enrollBody: {
         meeting_id: string;
+        user_id: string;
         mapping: Record<string, string>;
         turns_by_letter?: Record<string, Array<{ start: number; end: number }>>;
-      } = { meeting_id: id, mapping: enrollMapping };
+      } = { meeting_id: id, user_id: user.id, mapping: enrollMapping };
       if (Object.keys(turnsByLetter).length > 0) {
         enrollBody.turns_by_letter = turnsByLetter;
       }
@@ -184,4 +176,4 @@ export async function PATCH(
     const status = msg.includes("não encontrada") ? 404 : 500;
     return NextResponse.json({ error: "falha ao salvar speaker_labels", message: msg }, { status });
   }
-}
+});

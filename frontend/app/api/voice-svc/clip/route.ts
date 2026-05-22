@@ -1,11 +1,12 @@
 // Proxy pro voice-svc/clip — recorta trecho via ffmpeg, retorna MP3 64kbps.
 // Frontend serve o stream direto pro <audio>.
-import { type NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/auth";
 
 const VOICE_SVC_URL = process.env.VOICE_SVC_URL || "http://voice-svc:8000";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export async function GET(req: NextRequest) {
+export const GET = withAuth(async (user, req) => {
   const url = new URL(req.url);
   const meetingId = url.searchParams.get("meeting_id") || "";
   const start = url.searchParams.get("start") || "";
@@ -20,7 +21,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "start/end inválidos" }, { status: 400 });
   }
 
-  const upstream = `${VOICE_SVC_URL}/clip?meeting_id=${meetingId}&start=${s}&end=${e}`;
+  // Passa user_id pro voice-svc validar ownership do meeting
+  const upstream = `${VOICE_SVC_URL}/clip?meeting_id=${meetingId}&start=${s}&end=${e}&user_id=${encodeURIComponent(user.id)}`;
   try {
     const res = await fetch(upstream, { signal: AbortSignal.timeout(60_000) });
     if (!res.ok) {
@@ -43,4 +45,4 @@ export async function GET(req: NextRequest) {
       { status: 502 },
     );
   }
-}
+});

@@ -2,7 +2,8 @@ import { type NextRequest, NextResponse } from "next/server";
 import { createReadStream, statSync } from "node:fs";
 import { Readable } from "node:stream";
 import { resolve, sep } from "node:path";
-import { query } from "@/lib/db";
+import { withAuth } from "@/lib/auth";
+import { withTenant } from "@/lib/db";
 
 const AUDIO_ROOT = process.env.AUDIO_ROOT || "/audios";
 
@@ -16,17 +17,20 @@ function contentTypeFor(path: string): string {
   return "application/octet-stream";
 }
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ meetingId: string }> },
-) {
-  try {
-    const { meetingId } = await params;
+type Ctx = { params: Promise<{ meetingId: string }> };
 
-    const rows = await query<{ audio_path: string | null }>(
-      "SELECT audio_path FROM meetings WHERE id = $1",
-      [meetingId],
-    );
+export const GET = withAuth<Ctx>(async (user, req, ctx) => {
+  try {
+    const { meetingId } = await ctx.params;
+
+    // RLS garante que o user só acessa meetings próprios. Se não for dele, retorna 404.
+    const rows = await withTenant(user.id, async (db) => {
+      const r = await db.query<{ audio_path: string | null }>(
+        "SELECT audio_path FROM meetings WHERE id = $1",
+        [meetingId],
+      );
+      return r.rows;
+    });
     if (!rows.length) {
       return NextResponse.json({ error: "meeting nao encontrada" }, { status: 404 });
     }
@@ -115,4 +119,4 @@ export async function GET(
       { status: 500 },
     );
   }
-}
+});

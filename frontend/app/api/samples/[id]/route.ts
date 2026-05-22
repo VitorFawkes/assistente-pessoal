@@ -1,26 +1,30 @@
 // /api/samples/[id]
-//   DELETE — soft delete de uma amostra de voz
-//   PATCH  — reatribui pra outra pessoa (aceita pessoa_id uuid OU nome — string vira get-or-create)
-// Proxy pro voice-svc; pra nome string, faz get-or-create pessoa antes.
+//   DELETE — soft delete de uma amostra de voz (proxy pro voice-svc)
+//   PATCH  — reatribui pra outra pessoa (pessoa_id uuid OU nome → get-or-create)
+// Multi-tenant: get-or-create de pessoa é escopado ao user; user_id é passado
+// pro voice-svc no body (voice-svc usa app_writer role com BYPASSRLS).
 import { type NextRequest, NextResponse } from "next/server";
-import { query } from "@/lib/db";
+import { withAuth } from "@/lib/auth";
+import { withTenant } from "@/lib/db";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VOICE_SVC_URL = process.env.VOICE_SVC_URL || "http://voice-svc:8000";
 
-export async function DELETE(
-  _req: NextRequest,
-  ctx: { params: Promise<{ id: string }> },
-) {
+type Ctx = { params: Promise<{ id: string }> };
+
+export const DELETE = withAuth<Ctx>(async (user, _req, ctx) => {
   const { id } = await ctx.params;
   if (!UUID_RE.test(id)) {
     return NextResponse.json({ error: "id inválido" }, { status: 400 });
   }
   try {
-    const res = await fetch(`${VOICE_SVC_URL}/samples/${id}`, {
-      method: "DELETE",
-      signal: AbortSignal.timeout(15_000),
-    });
+    const res = await fetch(
+      `${VOICE_SVC_URL}/samples/${id}?user_id=${encodeURIComponent(user.id)}`,
+      {
+        method: "DELETE",
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
     const text = await res.text();
     let parsed: unknown = text;
     try {
@@ -35,12 +39,9 @@ export async function DELETE(
       { status: 502 },
     );
   }
-}
+});
 
-export async function PATCH(
-  req: NextRequest,
-  ctx: { params: Promise<{ id: string }> },
-) {
+export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
   const { id } = await ctx.params;
   if (!UUID_RE.test(id)) {
     return NextResponse.json({ error: "id inválido" }, { status: 400 });
@@ -48,12 +49,11 @@ export async function PATCH(
 
   let body: { pessoa_id?: string; nome?: string };
   try {
-    body = (await req.json()) as { pessoa_id?: string; nome?: string };
+    body = (await (req as NextRequest).json()) as { pessoa_id?: string; nome?: string };
   } catch {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
 
-  // Resolve pessoa_id: aceita uuid direto, ou nome string (get-or-create)
   let pessoaId = typeof body.pessoa_id === "string" ? body.pessoa_id.trim() : "";
   const nome = typeof body.nome === "string" ? body.nome.trim() : "";
 
@@ -66,24 +66,25 @@ export async function PATCH(
 
   try {
     if (!UUID_RE.test(pessoaId)) {
-      // Veio nome (ou pessoa_id mal formado) → get-or-create por nome
       const lookupNome = pessoaId && !nome ? pessoaId : nome;
       if (!lookupNome) {
         return NextResponse.json({ error: "nome vazio" }, { status: 400 });
       }
-      const rows = await query<{ id: string }>(
-        `INSERT INTO pessoas (nome) VALUES ($1)
-         ON CONFLICT (nome) DO UPDATE SET nome = EXCLUDED.nome
-         RETURNING id`,
-        [lookupNome.slice(0, 80)],
-      );
-      pessoaId = rows[0].id;
+      pessoaId = await withTenant(user.id, async (db) => {
+        const r = await db.query<{ id: string }>(
+          `INSERT INTO pessoas (user_id, nome) VALUES ($1, $2)
+           ON CONFLICT (user_id, nome) DO UPDATE SET nome = EXCLUDED.nome
+           RETURNING id`,
+          [user.id, lookupNome.slice(0, 80)],
+        );
+        return r.rows[0].id;
+      });
     }
 
     const res = await fetch(`${VOICE_SVC_URL}/samples/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pessoa_id: pessoaId }),
+      body: JSON.stringify({ pessoa_id: pessoaId, user_id: user.id }),
       signal: AbortSignal.timeout(15_000),
     });
     const text = await res.text();
@@ -100,4 +101,4 @@ export async function PATCH(
       { status: 500 },
     );
   }
-}
+});
