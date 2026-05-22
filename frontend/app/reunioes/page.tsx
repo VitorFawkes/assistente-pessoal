@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { query } from "@/lib/db";
 import { fmtDate } from "@/lib/utils";
-import { Mic, Video, FileQuestion, ChevronRight } from "lucide-react";
+import { Mic, Video, FileQuestion, ChevronRight, Archive } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -120,6 +120,12 @@ export default async function ReunioesPage() {
           Reuniões e voice notes processados pelo pipeline, do mais recente pro
           mais antigo.
         </p>
+        <Link
+          href="/reunioes/arquivadas"
+          className="inline-flex items-center gap-1.5 text-[12px] text-[color:var(--muted)] hover:text-[color:var(--foreground)] transition"
+        >
+          <Archive size={12} /> ver arquivadas
+        </Link>
       </header>
 
       {meetings.length === 0 ? (

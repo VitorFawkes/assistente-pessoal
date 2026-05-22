@@ -1,8 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { resolve as resolvePath, dirname } from "node:path";
-import { mkdtemp, rename, rm, mkdir } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { rm, mkdir } from "node:fs/promises";
 import { withClient } from "@/lib/db";
 import { clipAudio, type ClipInterval } from "@/lib/audio-clip";
 import { sendWhatsApp } from "@/lib/whatsapp";
@@ -130,8 +129,6 @@ export async function PATCH(
   }
   cuts.sort((a, b) => a.at_seconds - b.at_seconds);
 
-  let tempDir: string | null = null;
-  let cleanupTemp = true;
   const movedToFinal: string[] = []; // pra apagar se algo após rename falhar
 
   try {
@@ -376,9 +373,5 @@ export async function PATCH(
       msg.startsWith("CUT_") || msg.startsWith("SEGMENT_") || msg === "PARENT_NO_DURATION" ? 400 :
       500;
     return NextResponse.json({ error: msg }, { status });
-  } finally {
-    if (tempDir && cleanupTemp) {
-      rm(tempDir, { recursive: true, force: true }).catch(() => {});
-    }
   }
 }

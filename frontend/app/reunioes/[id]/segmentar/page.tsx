@@ -52,8 +52,9 @@ export default async function SegmentarPage({
         </Link>
         <div className="paper-card rounded-2xl border border-dashed border-[color:var(--border)] p-10 text-center space-y-4">
           <p className="text-sm text-[color:var(--muted)]">
-            Esse áudio não tem transcrição diarizada — não dá pra detectar cortes.
-            Você ainda pode arquivar sem segmentar.
+            Esse áudio não tem transcrição diarizada — não dá pra detectar cortes
+            automaticamente. Se é uma reunião só, marque como única. Caso queira
+            descartar a sessão inteira, arquive.
           </p>
           <SegmentTimeline
             meetingId={id}
