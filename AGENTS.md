@@ -1,13 +1,38 @@
 # Agentes — leia ANTES de mexer
 
-Este projeto é o **assistente pessoal do Vitor**: mac-agent grava áudios →
-n8n processa (Whisper + GPT-4o-transcribe-diarize) → Postgres + frontend
-Next.js + voice-svc Python pra fingerprinting de voz.
+Este projeto começou como **assistente pessoal do Vitor** e agora está virando
+**multi-tenant** (beta semi-aberto de 50-200 pessoas): mac-agent + PWA gravam
+áudios → n8n processa (Whisper + GPT-4o-transcribe-diarize) → Postgres com RLS
++ frontend Next.js com auth por convite + voice-svc Python pra fingerprinting.
 
 Leia também:
 - `README.md` — visão geral do produto
-- `frontend/AGENTS.md` — **Next.js 16 tem APIs diferentes**, consultar `node_modules/next/dist/docs/` antes de escrever código de frontend
+- `docs/superpowers/specs/2026-05-21-foundation-multitenant-design.md` — spec do multi-tenant
+- `docs/superpowers/plans/2026-05-21-foundation-multitenant.md` — plano de execução
+- `frontend/AGENTS.md` — **Next.js 16 tem APIs diferentes** (`middleware.ts`→`proxy.ts`, cookies async); regras multi-tenant pro frontend
 - `voice-svc/README.md` — microservice de voz
+- `db/README.md` — migrations + roles Postgres (app_tenant / app_writer)
+
+---
+
+## 🏢 Multi-tenant (foundation v2)
+
+A partir de `db/0007_multitenant.sql`:
+- **users / invites / sessions / audit_log / usage_events** são tabelas novas
+- **meetings, tarefas, pessoas, voice_samples** ganharam `user_id NOT NULL` (via CHECK NOT VALID + VALIDATE)
+- **RLS habilitada** em meetings/tarefas/pessoas/voice_samples/usage_events/tarefa_eventos
+- **2 roles Postgres separados:**
+  - `app_tenant` (NOBYPASSRLS) → frontend Next.js; `lib/db.ts` faz `SET LOCAL app.current_user_id` por request via `withTenant(userId, fn)`
+  - `app_writer` (BYPASSRLS) → n8n + voice-svc; propagam `user_id` explícito em INSERTs/SELECTs
+- **Pessoas**: `UNIQUE (user_id, nome)` (não global). `is_vitor` é por-user
+- **Auth**: cookie httpOnly 30d sliding, validado em `proxy.ts` (Node runtime nativo Next 16) + `requireUser()` / `requireUserOrRedirect()` / `withAuth()` em `lib/auth.ts`
+- **Invite**: `/admin/convites` (Vitor cria, copia link, manda no WhatsApp); página `/c/[code]` consome com rate-limit
+- **Termos LGPD**: usuário aceita em `/termos` antes do app (column `users.consent_terms_at`); proxy força redirect se NULL
+
+**Antes de tocar qualquer query:** leia `frontend/AGENTS.md` seção "Multi-tenant: regras críticas". Resumo:
+- Dados de usuário → helpers tipados em `lib/queries.ts` (meetingsFor, tarefasFor, pessoasFor, voiceSamplesFor)
+- Queries de sistema (sessions/invites/users/audit_log) → `query()` direto de `lib/db.ts`
+- Páginas com `requireUser()` precisam de `export const dynamic = 'force-dynamic'`
 
 ---
 
@@ -77,12 +102,18 @@ soft_deleted_at IS NULL` — se passar de ~10k, está na hora de migrar.
   n8n (não funcionam). Acesso via curl com `N8N_API_KEY` do `.env`.
   **URL correta:** `https://n8n.vitorgambetti.com.br/` — NÃO o subdomínio
   easypanel `n8n-n8n.ymnmx7.easypanel.host` (key só funciona no domínio
-  custom). Workflow principal: `Acoes - Audio Ingest` (id `98jEiWWSAKFWEP6B`).
+  custom). Workflows: `Acoes - Audio Ingest` (`98jEiWWSAKFWEP6B`),
+  `Acoes - Process Segment` (`Gt34r0WVdZxCbJet`), `Acoes - Reprocess Tarefas`.
+  Pra sincronizar local → live: `source .env && ./n8n-workflows/apply.sh`.
+  Multi-tenant: workflows propagam `user_id` recebido via header `X-User-Id`
+  ou body, com fallback pra `$env.VITOR_FALLBACK_UUID` durante rollout.
 
 - **Frontend (URL pública):** `https://n8n-assistente-frontend.tatetz.easypanel.host/`
   — o domínio `acoes.vitorgambetti.com.br` está com 404 do Traefik (DNS ou
   basic auth quebrado). NÃO usar `acoes.vitorgambetti.com.br` até consertar.
-  Páginas: `/reunioes`, `/reunioes/[id]`, `/pessoas`, `/pessoas/[id]`.
+  Páginas autenticadas: `/`, `/reunioes`, `/reunioes/[id]`, `/reunioes/[id]/identificar`,
+  `/reunioes/[id]/segmentar`, `/pessoas`, `/pessoas/[id]`, `/seguranca/sessoes`,
+  `/termos`, `/admin/convites`. Páginas públicas: `/sem-acesso`, `/c/[code]`.
 - **Easypanel:** API tRPC em `EASYPANEL_URL/api/trpc/*`. Mutations
   funcionam pra create/update/deploy/restart de services, **mas não há
   endpoint pra mounts**. Mounts são gerenciados via UI.
@@ -91,10 +122,19 @@ soft_deleted_at IS NULL` — se passar de ~10k, está na hora de migrar.
 
 ## Endpoints-chave
 
+Todos os Route Handlers que retornam dados de usuário usam `withAuth(fn)` que
+chama `requireUser()` automaticamente e retorna 401/403 se não-autenticado.
+
 | Endpoint | Função |
 |----------|--------|
-| `PATCH /api/meetings/[id]/speakers` | Salva rotulação de speakers (nome→pessoa_id), dispara n8n reprocess + voice-svc/enroll em background |
-| `POST /api/meetings/[id]/identify` | Proxy pra voice-svc/identify (sugestões automáticas) |
-| `voice-svc:8000/identify` | Embeda speakers, retorna top match contra base |
-| `voice-svc:8000/enroll` | Adiciona amostras de voz ao DB (idempotente por meeting+letter+pessoa) |
-| `voice-svc:8000/samples/{id}` (DELETE) | Soft delete de amostra ruim |
+| `POST /api/sessao` | Consome invite (form-encoded ou JSON), cria sessão, seta cookie. Rate-limit 5/min/IP |
+| `DELETE /api/sessao` | Logout (revoga sessão atual + deleta cookie) |
+| `POST /api/sessao/revoke-all` | Logout de todos os dispositivos |
+| `PATCH /api/meetings/[id]/speakers` | Salva rotulação speakers (escopado, dispara reprocess + enroll) |
+| `POST /api/meetings/[id]/identify` | Proxy pra voice-svc/identify (passa user_id) |
+| `PATCH /api/meetings/[id]/segments` | Fatia áudio longo em N filhos (multi-tenant safe) |
+| `POST /api/save-audio` | **Público** — chamado pelo n8n; exige header `X-User-Id` |
+| `voice-svc:8000/identify` | Embeda speakers, retorna top match (escopado por `user_id`) |
+| `voice-svc:8000/enroll` | Adiciona amostras de voz (idempotente por user+meeting+letter+pessoa) |
+| `voice-svc:8000/samples/{id}` (DELETE/PATCH) | Soft delete / reassign (exige `user_id` query/body) |
+| `voice-svc:8000/clip?user_id=...` | Recorta trecho MP3 (valida ownership do meeting) |

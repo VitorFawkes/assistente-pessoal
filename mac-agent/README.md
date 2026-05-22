@@ -21,7 +21,12 @@ Roda como **LaunchAgent** do macOS, observa as duas pastas de áudio e dispara o
 
 ## Instalação
 
-1. Na raiz do projeto: `cp .env.example .env` e preencha **pelo menos** `WEBHOOK_URL` e `WEBHOOK_TOKEN` (use um token longo e aleatório — pode gerar com `openssl rand -hex 32`).
+1. Na raiz do projeto: `cp .env.example .env` e preencha:
+   - `WEBHOOK_URL` e `WEBHOOK_TOKEN` (use um token longo e aleatório — pode gerar com `openssl rand -hex 32`)
+   - `WEBHOOK_USER_ID` — UUID do seu user. Pós-multitenant (db/0007), descubra com:
+     ```bash
+     psql "$DATABASE_URL" -c "SELECT id FROM users WHERE is_admin AND deleted_at IS NULL"
+     ```
 2. `cd mac-agent && ./install.sh`
 3. Pra testar: copie um `.mp3` qualquer pra `~/Documents/AudiosMacbook/` e veja `watcher.log`.
 
@@ -101,6 +106,7 @@ POST /webhook/acoes-audio-ingest HTTP/1.1
 Host: n8n-n8n.ymnmx7.easypanel.host
 Content-Type: multipart/form-data; boundary=...
 X-Auth: <WEBHOOK_TOKEN>
+X-User-Id: <WEBHOOK_USER_ID>          ← UUID do dono do áudio (multi-tenant)
 X-Source: macbook | iphone
 X-Meeting-Type: online | presencial | desconhecido
 X-Original-Filename: mic - 20260517 1709 .mp3
@@ -114,4 +120,7 @@ Content-Type: audio/mpeg
 <bytes do arquivo>
 ```
 
-O webhook do n8n valida `X-Auth`, salva no volume, e dispara o pipeline.
+O webhook do n8n valida `X-Auth`, propaga `X-User-Id` em todos os INSERTs
+(meetings, tarefas), salva no volume, e dispara o pipeline. Se `X-User-Id`
+ausente, o node 3 do workflow usa `$env.VITOR_FALLBACK_UUID` (config no
+easypanel UI do n8n service durante rollout — remover depois).
