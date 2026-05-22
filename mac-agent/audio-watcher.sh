@@ -20,6 +20,7 @@ fi
 
 : "${WEBHOOK_URL:?WEBHOOK_URL não definida — copie .env.example para .env}"
 : "${WEBHOOK_TOKEN:?WEBHOOK_TOKEN não definida}"
+: "${WEBHOOK_USER_ID:?WEBHOOK_USER_ID não definida — busque com: psql \"\$DATABASE_URL\" -c \"SELECT id FROM users WHERE is_admin\"}"
 : "${MACBOOK_FOLDER:?MACBOOK_FOLDER não definida}"
 : "${IPHONE_FOLDER:?IPHONE_FOLDER não definida}"
 IPHONE_READONLY="${IPHONE_READONLY:-0}"
@@ -235,6 +236,7 @@ process_file() {
     --max-time 120 \
     -X POST "$WEBHOOK_URL" \
     -H "X-Auth: $WEBHOOK_TOKEN" \
+    -H "X-User-Id: $WEBHOOK_USER_ID" \
     -H "X-Source: $source" \
     -H "X-Meeting-Type: $meeting_type" \
     -H "X-Original-Filename: $basename" \
