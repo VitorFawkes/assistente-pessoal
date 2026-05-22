@@ -9,6 +9,7 @@ import {
   type ProposedLabel,
 } from "@/components/transcription-view";
 import { ArrowLeft, Mic, Video, FileQuestion, UsersRound } from "lucide-react";
+import { ExecutiveSummary } from "./executive-summary";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,7 @@ type Meeting = {
   status_error: string | null;
   transcription: string | null;
   summary: string | null;
+  executive_summary: string | null;
   duration_seconds: number | null;
   segments: Segment[] | null;
   speaker_labels: Record<string, string> | null;
@@ -36,7 +38,9 @@ async function fetchMeeting(id: string): Promise<Meeting | null> {
       id, source, meeting_type, original_filename,
       to_char(coalesce(recorded_at, created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
       to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
-      status, status_error, transcription, summary, duration_seconds, segments,
+      status, status_error, transcription, summary,
+      raw_ai_response->>'executive_summary' AS executive_summary,
+      duration_seconds, segments,
       speaker_labels, speaker_labels_proposed
     FROM meetings WHERE id = $1
     `,
@@ -158,6 +162,18 @@ export default async function ReuniaoDetalhePage({
           </div>
         )}
       </header>
+
+      {/* RESUMO EXECUTIVO */}
+      {meeting.executive_summary && (
+        <section className="space-y-3">
+          <h2 className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
+            Resumo executivo
+          </h2>
+          <div className="paper-card rounded-2xl border border-[color:var(--border)] p-5 sm:p-6">
+            <ExecutiveSummary md={meeting.executive_summary} />
+          </div>
+        </section>
+      )}
 
       {/* AÇÕES */}
       <section className="space-y-4">

@@ -2,7 +2,15 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, Check, X, UserRound, Sparkles, AudioLines } from "lucide-react";
+import {
+  Pencil,
+  Check,
+  X,
+  UserRound,
+  Sparkles,
+  AudioLines,
+  Scissors,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Nome canônico do dono do sistema (corresponde a pessoas.is_vitor=TRUE).
@@ -26,16 +34,32 @@ export type ProposedLabel = {
   margin: number;
 };
 
-function groupTurns(segments: Segment[]) {
+type Turn = {
+  speaker: string;
+  start: number;
+  end: number;
+  text: string;
+  segmentIndices: number[];
+};
+
+function groupTurns(segments: Segment[]): Turn[] {
   if (!segments?.length) return [];
-  const turns: Array<{ speaker: string; start: number; end: number; text: string }> = [];
-  for (const s of segments) {
+  const turns: Turn[] = [];
+  for (let i = 0; i < segments.length; i++) {
+    const s = segments[i];
     const last = turns[turns.length - 1];
     if (last && last.speaker === s.speaker) {
       last.end = s.end;
       last.text += s.text;
+      last.segmentIndices.push(i);
     } else {
-      turns.push({ speaker: s.speaker, start: s.start, end: s.end, text: s.text });
+      turns.push({
+        speaker: s.speaker,
+        start: s.start,
+        end: s.end,
+        text: s.text,
+        segmentIndices: [i],
+      });
     }
   }
   return turns;
@@ -205,6 +229,161 @@ function SpeakerChip({
   );
 }
 
+function MoveTurnMenu({
+  meetingId,
+  segmentIndices,
+  sourceLetter,
+  otherLetters,
+  labels,
+  onDone,
+}: {
+  meetingId: string;
+  segmentIndices: number[];
+  sourceLetter: string;
+  otherLetters: string[];
+  labels: Record<string, string>;
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function move(targetLetter: string | null, name?: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/meetings/${meetingId}/segments/move`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          segment_indices: segmentIndices,
+          target_letter: targetLetter || "_new_",
+          new_name: name || undefined,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+      setOpen(false);
+      setCreating(false);
+      setNewName("");
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        title="mover este trecho pra outro speaker (a diarização errou)"
+        className="opacity-30 hover:opacity-100 text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition shrink-0 mt-0.5"
+        aria-label="mover este trecho"
+      >
+        <Scissors size={12} />
+      </button>
+    );
+  }
+
+  return (
+    <div className="absolute right-0 top-6 z-10 paper-card rounded-xl border border-[color:var(--border)] shadow-lg p-2 w-56 space-y-1">
+      <p className="text-[10px] tracking-[0.16em] uppercase text-[color:var(--muted)] px-1 pb-1">
+        mover trecho pra:
+      </p>
+      {otherLetters.length === 0 && !creating && (
+        <p className="text-[11px] text-[color:var(--muted)] px-1 italic">
+          nenhum outro speaker — crie um novo
+        </p>
+      )}
+      {otherLetters.map((l) => (
+        <button
+          key={l}
+          type="button"
+          onClick={() => move(l)}
+          disabled={busy}
+          className="w-full text-left text-[12px] px-2 py-1 rounded-md hover:bg-[color:var(--accent)] disabled:opacity-50"
+        >
+          {labels[l] || `Speaker ${l}`}{" "}
+          <span className="text-[color:var(--muted)]">({l})</span>
+        </button>
+      ))}
+      {!creating ? (
+        <button
+          type="button"
+          onClick={() => setCreating(true)}
+          disabled={busy}
+          className="w-full text-left text-[12px] px-2 py-1 rounded-md hover:bg-[color:var(--accent)] text-[color:var(--calm)] disabled:opacity-50"
+        >
+          + novo speaker
+        </button>
+      ) : (
+        <div className="space-y-1 px-1">
+          <input
+            type="text"
+            autoFocus
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") move(null, newName.trim());
+              if (e.key === "Escape") setCreating(false);
+            }}
+            placeholder="nome (opcional)"
+            className="w-full text-[12px] px-2 py-1 rounded-md bg-[color:var(--card)] border border-[color:var(--border)] outline-none focus:border-[color:var(--foreground)]"
+            disabled={busy}
+          />
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => move(null, newName.trim())}
+              disabled={busy}
+              className="flex-1 text-[11px] px-2 py-1 rounded-md bg-[color:var(--foreground)] text-[color:var(--background)] disabled:opacity-50"
+            >
+              {busy ? "movendo…" : "criar e mover"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCreating(false);
+                setNewName("");
+              }}
+              disabled={busy}
+              className="text-[11px] px-2 py-1 rounded-md text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
+            >
+              cancelar
+            </button>
+          </div>
+        </div>
+      )}
+      {error && (
+        <p className="text-[10px] text-[color:var(--urgent)] px-1">{error}</p>
+      )}
+      <div className="border-t border-[color:var(--border)]/50 pt-1 mt-1">
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            setCreating(false);
+            setNewName("");
+            setError(null);
+          }}
+          className="w-full text-[11px] text-[color:var(--muted)] hover:text-[color:var(--foreground)] px-2 py-0.5"
+        >
+          fechar
+        </button>
+      </div>
+      <p className="text-[10px] text-[color:var(--muted)] px-1 pt-1">
+        movendo {segmentIndices.length}{" "}
+        {segmentIndices.length === 1 ? "trecho" : "trechos"} do {sourceLetter}
+      </p>
+    </div>
+  );
+}
+
 export function TranscriptionView({
   meetingId,
   segments,
@@ -327,7 +506,7 @@ export function TranscriptionView({
         </div>
       )}
       {turns.map((t, i) => (
-        <div key={i} className="flex gap-3">
+        <div key={i} className="flex gap-3 relative">
           <div className="shrink-0 w-24 sm:w-28 flex flex-col items-start gap-1">
             <SpeakerChip
               speaker={t.speaker}
@@ -343,6 +522,16 @@ export function TranscriptionView({
           <p className="flex-1 text-[14px] leading-relaxed text-[color:var(--foreground)] pt-0.5">
             {t.text.trim()}
           </p>
+          <div className="relative shrink-0">
+            <MoveTurnMenu
+              meetingId={meetingId}
+              segmentIndices={t.segmentIndices}
+              sourceLetter={t.speaker}
+              otherLetters={distinctSpeakers.filter((s) => s !== t.speaker)}
+              labels={labels}
+              onDone={() => router.refresh()}
+            />
+          </div>
         </div>
       ))}
     </div>
