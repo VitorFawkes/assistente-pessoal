@@ -8,7 +8,13 @@ export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon|api/health|api/save-audio).*)"],
 };
 
-const PUBLIC_PREFIXES = ["/c/", "/sem-acesso", "/termos"];
+const PUBLIC_PREFIXES = [
+  "/c/",            // página de convite (consume)
+  "/sem-acesso",
+  "/api/sessao",    // POST consume invite (cria sessão), DELETE logout
+];
+// /termos é semi-público: precisa de sessão, mas SEM consent_terms_at.
+// Tratado inline abaixo, não no PUBLIC_PREFIXES.
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export default async function proxy(req: NextRequest) {
@@ -19,6 +25,7 @@ export default async function proxy(req: NextRequest) {
 
   const sessionId = req.cookies.get("session")?.value;
   if (!sessionId) {
+    // /termos requer sessão (mas não consent). Sem sessão → /sem-acesso.
     return NextResponse.redirect(new URL("/sem-acesso", req.url));
   }
 
@@ -43,8 +50,8 @@ export default async function proxy(req: NextRequest) {
       return res;
     }
 
-    // Força aceite dos termos antes do app
-    if (!row.consent_terms_at && pathname !== "/termos" && !pathname.startsWith("/api/sessao")) {
+    // Força aceite dos termos antes do app (exceto /termos e /api/termos)
+    if (!row.consent_terms_at && pathname !== "/termos") {
       return NextResponse.redirect(new URL("/termos", req.url));
     }
   } catch (err) {
