@@ -242,16 +242,7 @@ export async function PATCH(
         // + catch apaga arquivos do /audios via movedToFinal.
 
         const childResults: ChildResult[] = [];
-        const rawSegs = parent.segments;
-        const parentSegments = coerceSegments(rawSegs);
-        // Debug exposto no response pra diagnosticar (remover depois)
-        const debugSegs = {
-          raw_type: rawSegs === null ? "null" : Array.isArray(rawSegs) ? "array" : typeof rawSegs,
-          raw_length: Array.isArray(rawSegs) ? rawSegs.length : (typeof rawSegs === "string" ? (rawSegs as string).length : null),
-          coerced_count: parentSegments.length,
-          first_raw: Array.isArray(rawSegs) && rawSegs.length > 0 ? rawSegs[0] : null,
-        };
-        console.log("[segments]", JSON.stringify(debugSegs));
+        const parentSegments = coerceSegments(parent.segments);
         for (let i = 0; i < intervals.length; i++) {
           const iv = intervals[i];
           const cid = childIds[i];
@@ -310,7 +301,6 @@ export async function PATCH(
           archived: false,
           restored: false,
           markedSingle: false,
-          _debug: debugSegs,
         };
       } catch (e) {
         await c.query("ROLLBACK");
@@ -357,7 +347,6 @@ export async function PATCH(
         end: c.end,
         title: c.title,
       })),
-      _debug: (result as { _debug?: unknown })._debug,
     });
   } catch (e) {
     // Se arquivos já moveram pro destino mas a transação falhou depois → apaga órfãos
