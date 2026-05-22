@@ -62,18 +62,39 @@ function childAudioPaths(childIds: string[]): { logical: string[]; physical: str
   return { logical, physical };
 }
 
+function coerceSegments(raw: unknown): Segment[] {
+  if (Array.isArray(raw)) return raw as Segment[];
+  if (typeof raw === "string" && raw.trim().startsWith("[")) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed as Segment[];
+    } catch {
+      // fall through
+    }
+  }
+  return [];
+}
+
 function filterSegmentsForInterval(
   segments: Segment[],
   start: number,
   end: number,
 ): { childSegments: Segment[]; transcription: string } {
-  const inRange = segments.filter((s) => s.start >= start && s.end <= end);
-  const childSegments = inRange.map((s) => ({
-    speaker: s.speaker,
-    start: s.start - start,
-    end: s.end - start,
-    text: s.text,
-  }));
+  const inRange = segments.filter((s) => {
+    const ss = typeof s.start === "number" ? s.start : parseFloat(String(s.start));
+    const se = typeof s.end === "number" ? s.end : parseFloat(String(s.end));
+    return ss >= start && se <= end;
+  });
+  const childSegments = inRange.map((s) => {
+    const ss = typeof s.start === "number" ? s.start : parseFloat(String(s.start));
+    const se = typeof s.end === "number" ? s.end : parseFloat(String(s.end));
+    return {
+      speaker: s.speaker,
+      start: ss - start,
+      end: se - start,
+      text: s.text,
+    };
+  });
   const transcription = childSegments.map((s) => s.text).join("");
   return { childSegments, transcription };
 }
@@ -224,7 +245,8 @@ export async function PATCH(
         // + catch apaga arquivos do /audios via movedToFinal.
 
         const childResults: ChildResult[] = [];
-        const parentSegments = parent.segments || [];
+        const parentSegments = coerceSegments(parent.segments);
+        console.log(`[segments] parent ${parent.id} segs count=${parentSegments.length}`);
         for (let i = 0; i < intervals.length; i++) {
           const iv = intervals[i];
           const cid = childIds[i];
