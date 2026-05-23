@@ -189,6 +189,14 @@ process_file() {
   wait_until_stable "$file"
   [ -f "$file" ] || { log "VANISHED $file"; return 0; }
 
+  # Safety net (2026-05-23 multi-tenant validation):
+  # Copia raw pra backup local antes de processar. check-backup.sh cruza
+  # com meetings no DB via cron e alerta se algo sumir. Remover quando
+  # confiança no pipeline novo (~2 dias).
+  backup_dir="$HOME/Documents/AudiosBackup/$(date +%Y/%m)"
+  mkdir -p "$backup_dir"
+  cp "$file" "$backup_dir/" 2>/dev/null && log "BACKUP $(basename "$file") → $backup_dir"
+
   # Materializa pra tmp (resolve iCloud placeholder)
   local materialized_path
   materialized_path="$(materialize_for_upload "$file")"
