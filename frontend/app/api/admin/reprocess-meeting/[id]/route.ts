@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { readFile, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve as resolvePath, join } from "node:path";
-import { query } from "@/lib/db";
+import { withTenant } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 600; // segundos — operação pode levar minutos
@@ -162,6 +162,17 @@ export async function POST(
     return NextResponse.json({ error: "OPENAI_API_KEY missing" }, { status: 500 });
   }
 
+  // Multi-tenant: precisa de user_id pra escopar. Admin/caller informa no body.
+  // Se não vier, body pode ser vazio — só validado se tentar query escopada.
+  const body = await req.json().catch(() => ({} as { user_id?: string }));
+  const userId = typeof body?.user_id === "string" ? body.user_id : null;
+  if (!userId || !UUID_RE.test(userId)) {
+    return NextResponse.json(
+      { error: "user_id (UUID) obrigatório no body — meeting é escopada por user" },
+      { status: 400 },
+    );
+  }
+
   type Row = {
     id: string;
     audio_path: string;
@@ -170,14 +181,17 @@ export async function POST(
     source: string;
     recorded_at: string | null;
   };
-  const rows = await query<Row>(
-    `SELECT id, audio_path, duration_seconds, meeting_type, source,
-            to_char(coalesce(recorded_at, created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at
-       FROM meetings WHERE id = $1::uuid`,
-    [id],
-  );
+  const rows = await withTenant(userId, async (db) => {
+    const r = await db.query<Row>(
+      `SELECT id, audio_path, duration_seconds, meeting_type, source,
+              to_char(coalesce(recorded_at, created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at
+         FROM meetings WHERE id = $1::uuid`,
+      [id],
+    );
+    return r.rows;
+  });
   if (rows.length === 0) {
-    return NextResponse.json({ error: "meeting não encontrada" }, { status: 404 });
+    return NextResponse.json({ error: "meeting não encontrada (ou não pertence a esse user)" }, { status: 404 });
   }
   const m = rows[0];
   const phys = physicalPath(m.audio_path);
@@ -212,6 +226,7 @@ export async function POST(
       },
       body: JSON.stringify({
         meeting_id: m.id,
+        user_id: userId,
         text: result.text,
         segments: result.segments,
         recorded_at: m.recorded_at,
