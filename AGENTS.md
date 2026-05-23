@@ -15,28 +15,32 @@ Leia também:
 
 ---
 
-## 🏢 Multi-tenant (foundation v2 — **APLICADA EM PROD 2026-05-22**)
+## 🏢 Multi-tenant (foundation v2 — **AO VIVO EM PROD 2026-05-22/23**)
 
-**Status DB**: `0007_multitenant.sql` aplicada via workflow temporário. Estado:
-- 17 meetings + 17 tarefas + 7 pessoas + 19 voice_samples → backfilled pro Vitor
-- `users` Vitor UUID: `7740e829-9462-416b-81a1-b787e23ba9b2` (is_admin=true, consent_terms_at=now)
-- RLS habilitada + 6 policies criadas
-- 4 CHECK constraints user_id_not_null validadas
+**Status DB:** `0007_multitenant.sql` aplicada.
+- 17 meetings + 17 tarefas + 7 pessoas + 19 voice_samples backfilled pro Vitor
+- Vitor UUID: `7740e829-9462-416b-81a1-b787e23ba9b2` (is_admin=true)
+- RLS habilitada em 6 tabelas + 6 policies + 4 CHECK constraints validadas
 - Roles `app_tenant` (NOBYPASSRLS) e `app_writer` (BYPASSRLS) criados
 
-**Follow-up consciente** (não bloqueante):
-- `/api/admin/reprocess-meeting/[id]` (auth via header X-Admin-Token) usa `query()` cru
-  em meetings. Se DATABASE_URL do frontend trocar pra `app_tenant`, esse endpoint vai
-  retornar 0 rows (RLS bloqueia). Solução: aceitar `user_id` no body + usar `withTenant`,
-  OR usar role app_writer só nesse handler. Por enquanto: manter DATABASE_URL como
-  `assistente` (bypass) até refatorar.
+**Status deploys (todos OK):**
+- ✅ Frontend deployado com código novo (proxy.ts, withTenant, helpers, auth)
+- ✅ **Frontend conecta como `app_tenant`** → RLS ativo, isolamento real validado
+- ✅ Workflows n8n `Acoes - Audio Ingest` + `Acoes - Process Segment` propagam user_id
+- ✅ n8n env tem `VITOR_FALLBACK_UUID` setado
+- ✅ voice-svc deployado com código novo (user_id em todas queries)
+- ✅ mac-agent reloaded com `WEBHOOK_USER_ID=7740e829-...`
+- ✅ `/api/admin/reprocess-meeting/[id]` exige user_id no body (escopado via withTenant)
 
-**O que ainda falta deployar:**
-- Frontend (code já mergea-able via `feat/multitenant-foundation` branch)
-- Update workflows n8n via `./n8n-workflows/apply.sh` (JSONs já preparados)
-- voice-svc redeploy (code já no branch)
-- mac-agent local: já tem `WEBHOOK_USER_ID` no `.env`
-- Trocar DATABASE_URL no easypanel: frontend→app_tenant, n8n+voice-svc→app_writer
+**Status n8n/voice-svc DATABASE_URL:** ainda `assistente` (BYPASSRLS). Funciona
+porque propagam user_id explícito nos INSERTs. Trocar pra `app_writer` (mesma senha
+em `~/.config/superpowers/multitenant-roles.txt`) é melhoria opcional.
+
+**Teste e2e (2026-05-22 21:00):**
+- Vitor logado: vê 17 meetings + 13 tarefas ✓
+- Beta Teste 1 (convite consumido + termos aceitos): vê "Nenhuma reunião" ✓
+- Convite reusado: "Convite não está mais válido" ✓
+- Redirect /termos no primeiro acesso ✓
 
 A partir de `db/0007_multitenant.sql`:
 - **users / invites / sessions / audit_log / usage_events** são tabelas novas
