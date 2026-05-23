@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────
-# transcribe.sh — pipeline de transcrição com diarização (roda no Mac)
+# transcribe.sh — pipeline de transcrição com diarização via AssemblyAI Universal-2
+#
+# Substituiu gpt-4o-transcribe-diarize (que tinha limite efetivo de 1500s/chamada e
+# resetava speaker labels entre chunks). AssemblyAI faz diarização global de áudios
+# até 10h em uma única chamada, mantendo letras de speaker consistentes.
 #
 # Uso:
 #   ./transcribe.sh <audio_file>
@@ -9,50 +13,45 @@
 #   1. ffmpeg volumedetect → detecta silêncio total (gate)
 #   2. ffmpeg compress + silenceremove (48kbps mono 16kHz)
 #   3. ffprobe pega duração do ORIGINAL
-#   4. Se compressed > 24MB → chunka, transcreve em paralelo, concatena
-#   5. Senão → 1× chamada gpt-4o-transcribe-diarize
+#   4. Upload pro AssemblyAI (/v2/upload)
+#   5. Solicita transcrição com diarização (/v2/transcript)
+#   6. Polling até status=completed
+#   7. Converte utterances → segments {speaker, start, end, text}
 #
 # Output (stdout): JSON
 #   { text, duration_seconds, silent, n_chunks, compressed_path, segments }
 #
 # segments = [{ speaker, start, end, text }, ...]
-# Em chunks, start/end têm offset somado por chunk_index*CHUNK_SECONDS.
-# Speaker label "A","B","C"... vindo do modelo (pode haver overlap entre chunks).
+# AssemblyAI diariza globalmente: speaker "A" no minuto 0 É a mesma pessoa que
+# "A" no minuto 200 (não reseta como o pipeline antigo OpenAI chunked).
+#
+# Backup do pipeline OpenAI antigo em mac-agent/transcribe-openai.sh.bak.
 #
 # Dependências: ffmpeg, ffprobe, curl, jq
-# Env: OPENAI_API_KEY
+# Env: ASSEMBLYAI_API_KEY
 # ─────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
 
 INPUT="${1:?uso: transcribe.sh <audio_file>}"
 [ -f "$INPUT" ] || { echo "ERR input não existe: $INPUT" >&2; exit 1; }
-: "${OPENAI_API_KEY:?OPENAI_API_KEY não definida}"
+: "${ASSEMBLYAI_API_KEY:?ASSEMBLYAI_API_KEY não definida}"
 
 # config
-MODEL="gpt-4o-transcribe-diarize"
 SILENCE_GATE_DB="-50"
 SILENCEREMOVE_DB="-30dB"
 SILENCEREMOVE_MIN="2"
 BITRATE="48k"
 SAMPLE_RATE="16000"
-CHUNK_SECONDS="1200"            # 20 min/chunk — fallback se single-shot falhar
-# Sem MAX_DURATION: tenta single-shot SEMPRE que o size cabe em MAX_BYTES.
-# A API moderna faz chunking interno com `chunking_strategy=auto` mantendo
-# consistência global de speaker labels. Se ela rejeitar (ex: "audio corrupt/unsupported"
-# em arquivos próximos do limite), o fallback automático abaixo cai pro chunking manual.
-MAX_BYTES=$((24 * 1024 * 1024))
-PARALLEL=4
+ASSEMBLYAI_BASE="https://api.assemblyai.com"
+SPEECH_MODEL="${SPEECH_MODEL:-universal}"  # universal=Universal-2 (default); slam-1 e best também disponíveis
+POLL_INTERVAL="${POLL_INTERVAL:-8}"          # seg entre polls de status
+POLL_MAX_SECONDS="${POLL_MAX_SECONDS:-1800}" # 30min limite total de polling (cobre 8h de áudio)
 
 TMPDIR_JOB="$(mktemp -d -t transcribe-XXXXXX)"
 log() { echo "[transcribe] $*" >&2; }
-
-# Authorization em arquivo (modo 600) pra não vazar via `ps aux`.
-# Curl lê o header de arquivo com -H @path
-AUTH_FILE="$TMPDIR_JOB/.auth"
-umask 077
-printf 'Authorization: Bearer %s\n' "$OPENAI_API_KEY" > "$AUTH_FILE"
-chmod 600 "$AUTH_FILE"
+cleanup() { :; }  # tmpdir é cleanedup pelo OS
+trap cleanup EXIT
 
 # ─── 1. silêncio total ────────────────────────────────────────────
 log "analisando volume de $(basename "$INPUT")"
@@ -82,97 +81,90 @@ ffmpeg -hide_banner -loglevel error -y -i "$INPUT" \
   "$COMPRESSED"
 
 COMP_SIZE=$(stat -f%z "$COMPRESSED" 2>/dev/null || stat -c%s "$COMPRESSED")
-log "comprimido=${COMP_SIZE}B (limite=${MAX_BYTES})"
+log "comprimido=${COMP_SIZE}B"
 
-# helper: chama API, retorna JSON cru (.text + .segments)
-# gpt-4o-transcribe-diarize exige chunking_strategy="auto"
-transcribe_call() {
-  local file="$1"
-  local resp
-  resp=$(curl -sS -X POST "https://api.openai.com/v1/audio/transcriptions" \
-    -H "@${AUTH_FILE}" \
-    -F "model=$MODEL" \
-    -F "language=pt" \
-    -F "response_format=diarized_json" \
-    -F "chunking_strategy=auto" \
-    -F "file=@${file}")
-  # Se não é JSON válido, é erro (HTML/texto). Loga e falha.
-  if ! echo "$resp" | jq -e . >/dev/null 2>&1; then
-    echo "ERR API (resp não-JSON): $(echo "$resp" | head -c 500)" >&2
-    return 1
-  fi
-  if echo "$resp" | jq -e '.error' >/dev/null 2>&1; then
-    echo "ERR API: $resp" >&2
-    return 1
-  fi
-  echo "$resp"
-}
-
-# ─── 3a. cabe single-shot (size E duração dentro do limite da API) ───
-if [ "$COMP_SIZE" -le "$MAX_BYTES" ]; then
-  log "single-shot $MODEL (dur=${DURATION_INT}s, size=${COMP_SIZE}B)"
-  # Tenta single-shot; se a API rejeitar (size/duration/timeout), cai pro chunking.
-  if RESP=$(transcribe_call "$COMPRESSED" 2>&1); then
-    TEXT=$(echo "$RESP" | jq -r '.text // ""')
-    # Filtra labels espúrios — gpt-4o-transcribe-diarize às vezes emite "@" ou
-    # outros chars não-alfabéticos. Só aceita [A-Z]+ (letras puras).
-    SEGMENTS=$(echo "$RESP" | jq '[.segments[]? | select((.speaker // "") | test("^[A-Z]+$")) | {speaker, start, end, text}]')
-    jq -n --arg t "$TEXT" --argjson dur "$DURATION_INT" --arg p "$COMPRESSED" --argjson seg "$SEGMENTS" \
-      '{text:$t, duration_seconds:$dur, silent:false, n_chunks:1, compressed_path:$p, segments:$seg}'
-    exit 0
-  else
-    log "single-shot falhou — caindo pro chunking. erro: $(echo "$RESP" | head -c 200)"
-  fi
+# ─── 3. Upload pro AssemblyAI ────────────────────────────────────
+log "upload pra AssemblyAI"
+UPLOAD_RESP=$(curl -sS -X POST "$ASSEMBLYAI_BASE/v2/upload" \
+  -H "Authorization: $ASSEMBLYAI_API_KEY" \
+  -H "Content-Type: application/octet-stream" \
+  --data-binary @"$COMPRESSED")
+UPLOAD_URL=$(echo "$UPLOAD_RESP" | jq -r '.upload_url // empty')
+if [ -z "$UPLOAD_URL" ]; then
+  echo "ERR upload falhou: $UPLOAD_RESP" >&2
+  exit 1
 fi
+log "upload OK (url=${UPLOAD_URL:0:60}...)"
 
-# ─── 3b. chunka + paraleliza ───────────────────────────────────────
-log "chunking ${CHUNK_SECONDS}s/chunk"
-CHUNK_PREFIX="$TMPDIR_JOB/chunk_"
-ffmpeg -hide_banner -loglevel error -y -i "$COMPRESSED" \
-  -f segment -segment_time "$CHUNK_SECONDS" \
-  -c copy "${CHUNK_PREFIX}%03d.mp3"
+# ─── 4. Solicita transcrição com diarização ───────────────────────
+log "solicitando transcrição (model=$SPEECH_MODEL, speaker_labels=true, language=pt)"
+REQ_BODY=$(jq -n \
+  --arg url "$UPLOAD_URL" \
+  --arg model "$SPEECH_MODEL" \
+  '{audio_url: $url, language_code: "pt", speaker_labels: true, speech_model: $model}')
+TRANS_RESP=$(curl -sS -X POST "$ASSEMBLYAI_BASE/v2/transcript" \
+  -H "Authorization: $ASSEMBLYAI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "$REQ_BODY")
+TRANS_ID=$(echo "$TRANS_RESP" | jq -r '.id // empty')
+if [ -z "$TRANS_ID" ]; then
+  echo "ERR transcript request falhou: $TRANS_RESP" >&2
+  exit 1
+fi
+log "transcript_id=$TRANS_ID"
 
-CHUNKS=()
-while IFS= read -r f; do CHUNKS+=("$f"); done < <(ls -1 "$TMPDIR_JOB"/chunk_*.mp3 | sort)
-N=${#CHUNKS[@]}
-log "n_chunks=$N — paralelo max=$PARALLEL"
-
-# salva resposta JSON crua de cada chunk em .json adjacente
-transcribe_chunk_to_file() {
-  local chunk="$1"
-  local out="${chunk%.mp3}.json"
-  if transcribe_call "$chunk" > "$out"; then
-    log "  ok: $(basename "$chunk")"
-  else
-    log "  FAIL: $(basename "$chunk")"
-    return 1
-  fi
-}
-export -f transcribe_call transcribe_chunk_to_file log
-export AUTH_FILE MODEL
-
-printf '%s\n' "${CHUNKS[@]}" | xargs -I{} -P "$PARALLEL" \
-  bash -c 'transcribe_chunk_to_file "$@"' _ {}
-
-# concatena text e segments (com offset de tempo por chunk_index)
-FULL_TEXT=""
-FULL_SEGMENTS="[]"
-for i in "${!CHUNKS[@]}"; do
-  c="${CHUNKS[$i]}"
-  j="${c%.mp3}.json"
-  [ -f "$j" ] || { echo "ERR chunk json faltando: $j" >&2; exit 1; }
-  CHUNK_TEXT=$(jq -r '.text // ""' "$j")
-  OFFSET=$((i * CHUNK_SECONDS))
-  # Filtra labels espúrios (ver comentário no single-shot acima)
-  CHUNK_SEGS=$(jq --argjson off "$OFFSET" \
-    '[.segments[]? | select((.speaker // "") | test("^[A-Z]+$")) | {speaker, start: (.start + $off), end: (.end + $off), text}]' "$j")
-  if [ -z "$FULL_TEXT" ]; then
-    FULL_TEXT="$CHUNK_TEXT"
-  else
-    FULL_TEXT="$FULL_TEXT $CHUNK_TEXT"
-  fi
-  FULL_SEGMENTS=$(jq --argjson a "$FULL_SEGMENTS" --argjson b "$CHUNK_SEGS" -n '$a + $b')
+# ─── 5. Polling ───────────────────────────────────────────────────
+START_TS=$(date +%s)
+STATUS_RESP=""
+while true; do
+  STATUS_RESP=$(curl -sS "$ASSEMBLYAI_BASE/v2/transcript/$TRANS_ID" \
+    -H "Authorization: $ASSEMBLYAI_API_KEY")
+  STATUS=$(echo "$STATUS_RESP" | jq -r '.status // "unknown"')
+  ELAPSED=$(( $(date +%s) - START_TS ))
+  case "$STATUS" in
+    completed)
+      log "completed em ${ELAPSED}s"
+      break
+      ;;
+    error)
+      ERR=$(echo "$STATUS_RESP" | jq -r '.error // "unknown"')
+      echo "ERR AssemblyAI: $ERR" >&2
+      exit 1
+      ;;
+    queued|processing)
+      if [ "$ELAPSED" -gt "$POLL_MAX_SECONDS" ]; then
+        echo "ERR polling timeout após ${POLL_MAX_SECONDS}s (último status=$STATUS)" >&2
+        exit 1
+      fi
+      log "status=$STATUS (elapsed=${ELAPSED}s), aguardando ${POLL_INTERVAL}s"
+      sleep "$POLL_INTERVAL"
+      ;;
+    *)
+      echo "ERR status inesperado: $STATUS — resp=$(echo "$STATUS_RESP" | head -c 300)" >&2
+      exit 1
+      ;;
+  esac
 done
 
-jq -n --arg t "$FULL_TEXT" --argjson dur "$DURATION_INT" --argjson n "$N" --arg p "$COMPRESSED" --argjson seg "$FULL_SEGMENTS" \
-  '{text:$t, duration_seconds:$dur, silent:false, n_chunks:$n, compressed_path:$p, segments:$seg}'
+# ─── 6. Constrói output JSON compatível com schema antigo ─────────
+# AssemblyAI retorna utterances [{speaker, start (ms), end (ms), text, words}].
+# Convertendo pra segments [{speaker, start (s), end (s), text}].
+# Filtra labels não [A-Z]+ por segurança (defesa contra futuras mudanças do modelo).
+TEXT=$(echo "$STATUS_RESP" | jq -r '.text // ""')
+SEGMENTS=$(echo "$STATUS_RESP" | jq '[
+  .utterances[]? |
+    select((.speaker // "") | test("^[A-Z]+$")) |
+    {speaker, start: (.start / 1000), end: (.end / 1000), text}
+]')
+
+# Conta speakers distintos pra log
+N_SPEAKERS=$(echo "$SEGMENTS" | jq '[.[].speaker] | unique | length')
+N_TURNS=$(echo "$SEGMENTS" | jq 'length')
+log "saída: ${N_TURNS} turnos, ${N_SPEAKERS} speakers distintos"
+
+jq -n \
+  --arg t "$TEXT" \
+  --argjson dur "$DURATION_INT" \
+  --arg p "$COMPRESSED" \
+  --argjson seg "$SEGMENTS" \
+  '{text:$t, duration_seconds:$dur, silent:false, n_chunks:1, compressed_path:$p, segments:$seg}'
