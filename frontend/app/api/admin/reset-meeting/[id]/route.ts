@@ -58,7 +58,7 @@ export async function POST(
            raw_ai_response = NULL,
            speaker_labels = '{}'::jsonb,
            speaker_pessoas = '{}'::jsonb,
-           speaker_labels_proposed = NULL,
+           speaker_labels_proposed = '{}'::jsonb,
            status_error = NULL,
            done_at = NULL
          WHERE id = $3::uuid
