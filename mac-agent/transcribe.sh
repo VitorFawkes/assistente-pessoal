@@ -37,11 +37,10 @@ SILENCEREMOVE_MIN="2"
 BITRATE="48k"
 SAMPLE_RATE="16000"
 CHUNK_SECONDS="1200"            # 20 min/chunk — fallback se single-shot falhar
-# MAX_DURATION elevado pra 4200s (70min). A API moderna do gpt-4o-transcribe-diarize
-# faz chunking interno com `chunking_strategy=auto` mantendo consistência GLOBAL de
-# speaker labels (não reseta letras como nosso chunking manual). Single-shot resolve
-# fragmentação inter-chunk. Hard limit real é 25MB do arquivo (a 48kbps mono cabe ~70min).
-MAX_DURATION="4200"
+# Sem MAX_DURATION: tenta single-shot SEMPRE que o size cabe em MAX_BYTES.
+# A API moderna faz chunking interno com `chunking_strategy=auto` mantendo
+# consistência global de speaker labels. Se ela rejeitar (ex: "audio corrupt/unsupported"
+# em arquivos próximos do limite), o fallback automático abaixo cai pro chunking manual.
 MAX_BYTES=$((24 * 1024 * 1024))
 PARALLEL=4
 
@@ -97,6 +96,11 @@ transcribe_call() {
     -F "response_format=diarized_json" \
     -F "chunking_strategy=auto" \
     -F "file=@${file}")
+  # Se não é JSON válido, é erro (HTML/texto). Loga e falha.
+  if ! echo "$resp" | jq -e . >/dev/null 2>&1; then
+    echo "ERR API (resp não-JSON): $(echo "$resp" | head -c 500)" >&2
+    return 1
+  fi
   if echo "$resp" | jq -e '.error' >/dev/null 2>&1; then
     echo "ERR API: $resp" >&2
     return 1
@@ -105,7 +109,7 @@ transcribe_call() {
 }
 
 # ─── 3a. cabe single-shot (size E duração dentro do limite da API) ───
-if [ "$COMP_SIZE" -le "$MAX_BYTES" ] && [ "$DURATION_INT" -le "$MAX_DURATION" ]; then
+if [ "$COMP_SIZE" -le "$MAX_BYTES" ]; then
   log "single-shot $MODEL (dur=${DURATION_INT}s, size=${COMP_SIZE}B)"
   # Tenta single-shot; se a API rejeitar (size/duration/timeout), cai pro chunking.
   if RESP=$(transcribe_call "$COMPRESSED" 2>&1); then
