@@ -12,6 +12,7 @@ const PUBLIC_PREFIXES = [
   "/c/",            // página de convite (consume)
   "/sem-acesso",
   "/api/sessao",    // POST consume invite (cria sessão), DELETE logout
+  "/api/admin/",    // rotas admin têm auth própria via x-admin-token (WEBHOOK_TOKEN)
 ];
 // /termos é semi-público: precisa de sessão, mas SEM consent_terms_at.
 // Tratado inline abaixo, não no PUBLIC_PREFIXES.
