@@ -44,7 +44,11 @@ SILENCEREMOVE_MIN="2"
 BITRATE="48k"
 SAMPLE_RATE="16000"
 ASSEMBLYAI_BASE="https://api.assemblyai.com"
-SPEECH_MODEL="${SPEECH_MODEL:-universal}"  # universal=Universal-2 (default); slam-1 e best também disponíveis
+# speech_models: lista de fallback ordenada. AssemblyAI tenta o primeiro;
+# se indisponível ou conta sem acesso, cai pro próximo. Universal-3 Pro é
+# o mais accurate pra PT-BR (otimizado especificamente); Universal-2 é
+# o fallback estável e mais barato.
+SPEECH_MODELS_JSON="${SPEECH_MODELS_JSON:-[\"universal-3-pro\",\"universal-2\"]}"
 POLL_INTERVAL="${POLL_INTERVAL:-8}"          # seg entre polls de status
 POLL_MAX_SECONDS="${POLL_MAX_SECONDS:-1800}" # 30min limite total de polling (cobre 8h de áudio)
 
@@ -97,11 +101,11 @@ fi
 log "upload OK (url=${UPLOAD_URL:0:60}...)"
 
 # ─── 4. Solicita transcrição com diarização ───────────────────────
-log "solicitando transcrição (model=$SPEECH_MODEL, speaker_labels=true, language=pt)"
+log "solicitando transcrição (speech_models=$SPEECH_MODELS_JSON, speaker_labels=true, language=pt)"
 REQ_BODY=$(jq -n \
   --arg url "$UPLOAD_URL" \
-  --arg model "$SPEECH_MODEL" \
-  '{audio_url: $url, language_code: "pt", speaker_labels: true, speech_model: $model}')
+  --argjson models "$SPEECH_MODELS_JSON" \
+  '{audio_url: $url, language_code: "pt", speaker_labels: true, speech_models: $models}')
 TRANS_RESP=$(curl -sS -X POST "$ASSEMBLYAI_BASE/v2/transcript" \
   -H "Authorization: $ASSEMBLYAI_API_KEY" \
   -H "Content-Type: application/json" \
