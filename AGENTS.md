@@ -122,7 +122,14 @@ soft_deleted_at IS NULL` — se passar de ~10k, está na hora de migrar.
   Fraunces pra display, Geist pro corpo. Ver `frontend/components/` pra
   padrões.
 - **Mac-agent:** bash scripts em `mac-agent/`. Lê áudio do iCloud,
-  transcreve com `gpt-4o-transcribe-diarize`, envia ao n8n via webhook.
+  transcreve com **AssemblyAI Universal-3-Pro** (`speech_models=["universal-3-pro","universal-2"]`)
+  com `speaker_labels=true`, envia ao n8n via webhook. Migrado em 2026-05-23
+  de `gpt-4o-transcribe-diarize` (que tinha limite efetivo de 1500s/chamada
+  e resetava speaker labels entre chunks manuais). Backup do pipeline OpenAI
+  em `mac-agent/transcribe-openai.sh.bak` pra rollback. Env: `ASSEMBLYAI_API_KEY`,
+  opcional `SPEECH_MODELS_JSON`, `POLL_INTERVAL`, `POLL_MAX_SECONDS`.
+  Benchmark validado: meeting de 70min em **65s single-shot, 4 speakers consistentes**
+  (vs antigo 4 chunks paralelos + 7 letras fragmentadas).
 - **n8n:** workflows em `n8n-workflows/*.json`. NUNCA usar MCP tools do
   n8n (não funcionam). Acesso via curl com `N8N_API_KEY` do `.env`.
   **URL correta:** `https://n8n.vitorgambetti.com.br/` — NÃO o subdomínio
