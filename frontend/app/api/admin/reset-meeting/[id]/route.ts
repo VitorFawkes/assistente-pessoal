@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { withClient } from "@/lib/db";
+import { query, withTenant } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +11,7 @@ type Segment = { speaker: string; start: number; end: number; text: string };
 type Body = {
   segments?: Segment[];
   text?: string;
+  user_id?: string;
 };
 
 export async function POST(
@@ -31,40 +32,49 @@ export async function POST(
   const segments = Array.isArray(body.segments) ? body.segments : [];
   const text = typeof body.text === "string" ? body.text : "";
 
+  // Resolve user_id: do body se vier, senão admin user (única conta no setup atual).
+  // `users` não tem RLS, então essa query passa direto.
+  let userId = typeof body.user_id === "string" && UUID_RE.test(body.user_id)
+    ? body.user_id
+    : "";
+  if (!userId) {
+    const r = await query<{ id: string }>(
+      `SELECT id FROM users WHERE is_admin = TRUE AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1`,
+    );
+    if (!r.length) {
+      return NextResponse.json({ error: "no admin user found" }, { status: 500 });
+    }
+    userId = r[0].id;
+  }
+
   try {
-    const result = await withClient(async (c) => {
-      await c.query("BEGIN");
-      try {
-        const r = await c.query<{ id: string }>(
-          `UPDATE meetings SET
-             status = 'analyzing',
-             segments = $1::jsonb,
-             transcription = $2,
-             summary = NULL,
-             raw_ai_response = NULL,
-             speaker_labels = '{}'::jsonb,
-             speaker_pessoas = '{}'::jsonb,
-             speaker_labels_proposed = NULL,
-             status_error = NULL,
-             done_at = NULL
-           WHERE id = $3::uuid
-           RETURNING id`,
-          [JSON.stringify(segments), text, id],
-        );
-        if (!r.rows.length) throw new Error("NOT_FOUND");
-        await c.query(`DELETE FROM tarefas WHERE meeting_id = $1::uuid`, [id]);
-        await c.query("COMMIT");
-        return { id: r.rows[0].id };
-      } catch (e) {
-        await c.query("ROLLBACK");
-        throw e;
-      }
+    const result = await withTenant(userId, async (c) => {
+      const r = await c.query<{ id: string }>(
+        `UPDATE meetings SET
+           status = 'analyzing',
+           segments = $1::jsonb,
+           transcription = $2,
+           summary = NULL,
+           raw_ai_response = NULL,
+           speaker_labels = '{}'::jsonb,
+           speaker_pessoas = '{}'::jsonb,
+           speaker_labels_proposed = NULL,
+           status_error = NULL,
+           done_at = NULL
+         WHERE id = $3::uuid
+         RETURNING id`,
+        [JSON.stringify(segments), text, id],
+      );
+      if (!r.rows.length) throw new Error("NOT_FOUND");
+      await c.query(`DELETE FROM tarefas WHERE meeting_id = $1::uuid`, [id]);
+      return { id: r.rows[0].id };
     });
     return NextResponse.json({
       ok: true,
       meeting_id: result.id,
       segments_count: segments.length,
       text_length: text.length,
+      user_id_used: userId,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
