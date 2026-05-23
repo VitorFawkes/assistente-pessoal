@@ -24,7 +24,10 @@ fi
 
 : "${WEBHOOK_TOKEN:?WEBHOOK_TOKEN não definida no .env}"
 : "${WEBHOOK_USER_ID:?WEBHOOK_USER_ID não definida no .env}"
-FRONTEND_DOMAIN="${FRONTEND_DOMAIN:-n8n-assistente-frontend.tatetz.easypanel.host}"
+# Default pro subdomínio easypanel direto (acoes.vitorgambetti.com.br
+# está com 404 do Traefik — ver AGENTS.md raiz).
+# Override via FRONTEND_API_URL no .env se mover pra domínio próprio.
+FRONTEND_API_URL="${FRONTEND_API_URL:-https://n8n-assistente-frontend.tatetz.easypanel.host}"
 
 BACKUP_DIR="$HOME/Documents/AudiosBackup"
 LOG="$SCRIPT_DIR/check-backup.log"
@@ -33,7 +36,7 @@ LOG="$SCRIPT_DIR/check-backup.log"
 mkdir -p "$BACKUP_DIR"
 
 # Pega lista de meetings recentes (últimas 48h)
-API_URL="https://$FRONTEND_DOMAIN/api/admin/check-recent-meetings?user_id=$WEBHOOK_USER_ID&hours=48"
+API_URL="$FRONTEND_API_URL/api/admin/check-recent-meetings?user_id=$WEBHOOK_USER_ID&hours=48"
 resp=$(curl -sS --max-time 15 "$API_URL" -H "X-Admin-Token: $WEBHOOK_TOKEN" 2>/dev/null)
 if [ -z "$resp" ]; then
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] API offline ou sem resposta" >> "$LOG"
