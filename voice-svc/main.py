@@ -66,6 +66,9 @@ CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.60"))
 HIGH_CONFIDENCE = float(os.environ.get("HIGH_CONFIDENCE", "0.80"))
 MARGIN_THRESHOLD = float(os.environ.get("MARGIN_THRESHOLD", "0.08"))
 TOP_K = int(os.environ.get("TOP_K", "5"))
+# Mínimo de samples ativas da pessoa pra propor match. Com 1 sample só,
+# qualquer turno bate com confidence ~1.0 espuriamente.
+MIN_SAMPLE_COUNT = int(os.environ.get("MIN_SAMPLE_COUNT", "2"))
 OUTLIER_MIN_SIMILARITY = float(os.environ.get("OUTLIER_MIN_SIMILARITY", "0.5"))
 
 logging.basicConfig(
@@ -175,6 +178,7 @@ def health() -> dict[str, Any]:
             "high_confidence": HIGH_CONFIDENCE,
             "margin": MARGIN_THRESHOLD,
             "top_k": TOP_K,
+            "min_sample_count": MIN_SAMPLE_COUNT,
         },
     }
 
@@ -324,6 +328,17 @@ def identify(req: IdentifyReq) -> dict[str, Any]:
                     letter,
                     sim_top1,
                     margin,
+                )
+                continue
+
+            top1_sample_count = int(top1["sample_count"])
+            if top1_sample_count < MIN_SAMPLE_COUNT:
+                log.info(
+                    "speaker %s: top1=%s tem só %d samples (<%d) — não propõe (degenerado)",
+                    letter,
+                    top1["nome"],
+                    top1_sample_count,
+                    MIN_SAMPLE_COUNT,
                 )
                 continue
 

@@ -36,8 +36,12 @@ SILENCEREMOVE_DB="-30dB"
 SILENCEREMOVE_MIN="2"
 BITRATE="48k"
 SAMPLE_RATE="16000"
-CHUNK_SECONDS="1200"            # 20 min/chunk (gpt-4o-transcribe-diarize limita 1400s/chamada)
-MAX_DURATION="1300"             # se > 1300s, força chunking mesmo se size couber
+CHUNK_SECONDS="1200"            # 20 min/chunk — fallback se single-shot falhar
+# MAX_DURATION elevado pra 4200s (70min). A API moderna do gpt-4o-transcribe-diarize
+# faz chunking interno com `chunking_strategy=auto` mantendo consistência GLOBAL de
+# speaker labels (não reseta letras como nosso chunking manual). Single-shot resolve
+# fragmentação inter-chunk. Hard limit real é 25MB do arquivo (a 48kbps mono cabe ~70min).
+MAX_DURATION="4200"
 MAX_BYTES=$((24 * 1024 * 1024))
 PARALLEL=4
 
@@ -103,12 +107,18 @@ transcribe_call() {
 # ─── 3a. cabe single-shot (size E duração dentro do limite da API) ───
 if [ "$COMP_SIZE" -le "$MAX_BYTES" ] && [ "$DURATION_INT" -le "$MAX_DURATION" ]; then
   log "single-shot $MODEL (dur=${DURATION_INT}s, size=${COMP_SIZE}B)"
-  RESP=$(transcribe_call "$COMPRESSED")
-  TEXT=$(echo "$RESP" | jq -r '.text // ""')
-  SEGMENTS=$(echo "$RESP" | jq '[.segments[]? | {speaker, start, end, text}]')
-  jq -n --arg t "$TEXT" --argjson dur "$DURATION_INT" --arg p "$COMPRESSED" --argjson seg "$SEGMENTS" \
-    '{text:$t, duration_seconds:$dur, silent:false, n_chunks:1, compressed_path:$p, segments:$seg}'
-  exit 0
+  # Tenta single-shot; se a API rejeitar (size/duration/timeout), cai pro chunking.
+  if RESP=$(transcribe_call "$COMPRESSED" 2>&1); then
+    TEXT=$(echo "$RESP" | jq -r '.text // ""')
+    # Filtra labels espúrios — gpt-4o-transcribe-diarize às vezes emite "@" ou
+    # outros chars não-alfabéticos. Só aceita [A-Z]+ (letras puras).
+    SEGMENTS=$(echo "$RESP" | jq '[.segments[]? | select((.speaker // "") | test("^[A-Z]+$")) | {speaker, start, end, text}]')
+    jq -n --arg t "$TEXT" --argjson dur "$DURATION_INT" --arg p "$COMPRESSED" --argjson seg "$SEGMENTS" \
+      '{text:$t, duration_seconds:$dur, silent:false, n_chunks:1, compressed_path:$p, segments:$seg}'
+    exit 0
+  else
+    log "single-shot falhou — caindo pro chunking. erro: $(echo "$RESP" | head -c 200)"
+  fi
 fi
 
 # ─── 3b. chunka + paraleliza ───────────────────────────────────────
@@ -149,8 +159,9 @@ for i in "${!CHUNKS[@]}"; do
   [ -f "$j" ] || { echo "ERR chunk json faltando: $j" >&2; exit 1; }
   CHUNK_TEXT=$(jq -r '.text // ""' "$j")
   OFFSET=$((i * CHUNK_SECONDS))
+  # Filtra labels espúrios (ver comentário no single-shot acima)
   CHUNK_SEGS=$(jq --argjson off "$OFFSET" \
-    '[.segments[]? | {speaker, start: (.start + $off), end: (.end + $off), text}]' "$j")
+    '[.segments[]? | select((.speaker // "") | test("^[A-Z]+$")) | {speaker, start: (.start + $off), end: (.end + $off), text}]' "$j")
   if [ -z "$FULL_TEXT" ]; then
     FULL_TEXT="$CHUNK_TEXT"
   else
