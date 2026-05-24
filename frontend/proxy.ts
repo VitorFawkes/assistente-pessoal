@@ -17,11 +17,22 @@ const PUBLIC_PREFIXES = [
 // /termos é semi-público: precisa de sessão, mas SEM consent_terms_at.
 // Tratado inline abaixo, não no PUBLIC_PREFIXES.
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const WEBHOOK_TOKEN = process.env.WEBHOOK_TOKEN || "";
 
 export default async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   if (PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) {
     return NextResponse.next();
+  }
+
+  // Service-to-service auth: voice-svc/n8n acessam APIs internas com
+  // X-Webhook-Token + X-User-Id. A rota destino valida os headers de novo
+  // (defesa em profundidade); aqui só evitamos o redirect pra /sem-acesso.
+  if (WEBHOOK_TOKEN) {
+    const token = req.headers.get("x-webhook-token");
+    if (token && token === WEBHOOK_TOKEN) {
+      return NextResponse.next();
+    }
   }
 
   const sessionId = req.cookies.get("session")?.value;
