@@ -119,13 +119,18 @@ class EnrollReq(BaseModel):
 # ─── helpers ─────────────────────────────────────────────────────────
 
 
-def _resolve_audio(meeting_id: str, audio_path: str, tmpdir: str) -> str:
+WEBHOOK_TOKEN = os.environ.get("WEBHOOK_TOKEN", "")
+
+
+def _resolve_audio(meeting_id: str, audio_path: str, tmpdir: str, user_id: str) -> str:
     """Garante que o áudio source esteja disponível em disco local.
 
     Estratégia:
       1. Se o mount /audios estiver compartilhado e o arquivo existir lá → usa direto.
-      2. Senão, baixa via HTTP do frontend (GET /api/audio/{meeting_id}).
-         Funciona mesmo quando o easypanel cria volumes separados por service.
+      2. Senão, baixa via HTTP do frontend (GET /api/audio/{meeting_id}) usando
+         service-to-service auth: X-Webhook-Token (shared secret) + X-User-Id.
+         No multi-tenant, o /api/audio requer auth — o session cookie do user
+         não está disponível aqui, então usamos o token interno.
     """
     # Tenta mount local primeiro
     local = audio_path if audio_path.startswith("/") else os.path.join(AUDIO_BASE, audio_path)
@@ -136,13 +141,25 @@ def _resolve_audio(meeting_id: str, audio_path: str, tmpdir: str) -> str:
     log.info("audio %s não está em mount local, baixando do frontend…", meeting_id)
     url = f"{FRONTEND_INTERNAL_URL}/api/audio/{meeting_id}"
     dst = os.path.join(tmpdir, f"{meeting_id}.audio")
+    headers: dict[str, str] = {}
+    if WEBHOOK_TOKEN:
+        headers["X-Webhook-Token"] = WEBHOOK_TOKEN
+        headers["X-User-Id"] = user_id
     try:
-        with requests.get(url, stream=True, timeout=120) as r:
-            r.raise_for_status()
+        with requests.get(url, stream=True, timeout=120, headers=headers, allow_redirects=False) as r:
+            if r.status_code != 200:
+                # Se cair em 307 (redirect pra /sem-acesso) significa que o auth bypass falhou
+                snippet = r.text[:200] if r.text else ""
+                raise HTTPException(
+                    502,
+                    f"frontend retornou {r.status_code} pra {url} (auth bypass falhou?). body: {snippet}",
+                )
             with open(dst, "wb") as f:
                 for chunk in r.iter_content(chunk_size=1024 * 1024):
                     if chunk:
                         f.write(chunk)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             502, f"falha ao baixar áudio do frontend ({url}): {e}"
@@ -208,7 +225,7 @@ def clip(meeting_id: str, start: float, end: float, user_id: str) -> FileRespons
     if not os.path.exists(out_path):
         # Resolve audio source (mount local OU download HTTP do frontend)
         with tempfile.TemporaryDirectory(prefix="voice-svc-clip-") as tmpdir:
-            audio_src = _resolve_audio(meeting_id, meeting["audio_path"], tmpdir)
+            audio_src = _resolve_audio(meeting_id, meeting["audio_path"], tmpdir, user_id)
             duration = end - start
             import subprocess
             cmd = [
@@ -285,7 +302,7 @@ def identify(req: IdentifyReq) -> dict[str, Any]:
     labels: dict[str, Any] = {}
 
     with tempfile.TemporaryDirectory(prefix="voice-svc-") as tmpdir:
-        audio_src = _resolve_audio(req.meeting_id, meeting["audio_path"], tmpdir)
+        audio_src = _resolve_audio(req.meeting_id, meeting["audio_path"], tmpdir, req.user_id)
         for letter in speakers:
             picked = pick_representative_turns(turns, letter)
             if not picked:
@@ -386,7 +403,7 @@ def enroll(req: EnrollReq) -> dict[str, Any]:
     enrolled: dict[str, int] = {}
 
     with tempfile.TemporaryDirectory(prefix="voice-svc-") as tmpdir:
-        audio_src = _resolve_audio(req.meeting_id, meeting["audio_path"], tmpdir)
+        audio_src = _resolve_audio(req.meeting_id, meeting["audio_path"], tmpdir, req.user_id)
         for letter, pessoa_id in req.mapping.items():
             # Correção: se essa (meeting, letter) já tinha amostras de OUTRA pessoa
             # (rotulação errada anterior), invalida ANTES de inserir as novas.

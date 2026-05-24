@@ -6,6 +6,8 @@ import { withAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/db";
 
 const AUDIO_ROOT = process.env.AUDIO_ROOT || "/audios";
+const WEBHOOK_TOKEN = process.env.WEBHOOK_TOKEN || "";
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Sniff dos primeiros bytes pra detectar o container real (extensão pode mentir —
 // nosso pipeline antigo salvava mp3 com nome .m4a, fazendo o player rejeitar).
@@ -50,12 +52,11 @@ function contentTypeFor(path: string): string {
 
 type Ctx = { params: Promise<{ meetingId: string }> };
 
-export const GET = withAuth<Ctx>(async (user, req, ctx) => {
+// Handler interno parametrizado por user_id (resolvido por session OU service token).
+async function serveAudio(userId: string, meetingId: string, req: NextRequest) {
   try {
-    const { meetingId } = await ctx.params;
-
     // RLS garante que o user só acessa meetings próprios. Se não for dele, retorna 404.
-    const rows = await withTenant(user.id, async (db) => {
+    const rows = await withTenant(userId, async (db) => {
       const r = await db.query<{ audio_path: string | null }>(
         "SELECT audio_path FROM meetings WHERE id = $1",
         [meetingId],
@@ -150,4 +151,30 @@ export const GET = withAuth<Ctx>(async (user, req, ctx) => {
       { status: 500 },
     );
   }
+}
+
+// Wrapper com auth normal (browser do user)
+const authedGet = withAuth<Ctx>(async (user, req, ctx) => {
+  const { meetingId } = await ctx.params;
+  return serveAudio(user.id, meetingId, req as NextRequest);
 });
+
+// Dispatcher: rota aceita 2 fluxos
+//  1. Service-to-service: X-Webhook-Token + X-User-Id headers (usado por voice-svc).
+//     Necessário porque voice-svc não tem cookie de sessão e o volume /audios
+//     no easypanel não é compartilhado entre services.
+//  2. Auth normal via cookie de sessão (player do user no browser).
+export async function GET(req: NextRequest, ctx: Ctx) {
+  const token = req.headers.get("x-webhook-token") || "";
+  const userIdHeader = req.headers.get("x-user-id") || "";
+  if (
+    WEBHOOK_TOKEN &&
+    token &&
+    token === WEBHOOK_TOKEN &&
+    UUID_RE.test(userIdHeader)
+  ) {
+    const { meetingId } = await ctx.params;
+    return serveAudio(userIdHeader, meetingId, req);
+  }
+  return authedGet(req, ctx);
+}
