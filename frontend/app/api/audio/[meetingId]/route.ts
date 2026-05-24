@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { createReadStream, statSync } from "node:fs";
+import { createReadStream, statSync, openSync, readSync, closeSync } from "node:fs";
 import { Readable } from "node:stream";
 import { resolve, sep } from "node:path";
 import { withAuth } from "@/lib/auth";
@@ -7,7 +7,38 @@ import { withTenant } from "@/lib/db";
 
 const AUDIO_ROOT = process.env.AUDIO_ROOT || "/audios";
 
+// Sniff dos primeiros bytes pra detectar o container real (extensão pode mentir —
+// nosso pipeline antigo salvava mp3 com nome .m4a, fazendo o player rejeitar).
+// Lê 12 bytes que cobrem todos os magic numbers comuns.
+function detectMagicContentType(filePath: string): string | null {
+  let fd: number | null = null;
+  try {
+    fd = openSync(filePath, "r");
+    const buf = Buffer.alloc(12);
+    readSync(fd, buf, 0, 12, 0);
+    // MP3: ID3v2 header "ID3" OR frame sync 0xFFE/0xFFF
+    if (buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) return "audio/mpeg";
+    if (buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0) return "audio/mpeg";
+    // M4A/MP4: bytes 4..7 são "ftyp"
+    if (buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70) return "audio/mp4";
+    // WAV: "RIFF" .. "WAVE"
+    if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46) return "audio/wav";
+    // OGG: "OggS"
+    if (buf[0] === 0x4f && buf[1] === 0x67 && buf[2] === 0x67 && buf[3] === 0x53) return "audio/ogg";
+    // FLAC: "fLaC"
+    if (buf[0] === 0x66 && buf[1] === 0x4c && buf[2] === 0x61 && buf[3] === 0x43) return "audio/flac";
+    return null;
+  } catch {
+    return null;
+  } finally {
+    if (fd !== null) try { closeSync(fd); } catch {}
+  }
+}
+
 function contentTypeFor(path: string): string {
+  // Magic-byte sniff primeiro (extensão pode estar errada em meetings antigas)
+  const magic = detectMagicContentType(path);
+  if (magic) return magic;
   if (path.endsWith(".mp3")) return "audio/mpeg";
   if (path.endsWith(".m4a")) return "audio/mp4";
   if (path.endsWith(".wav")) return "audio/wav";
