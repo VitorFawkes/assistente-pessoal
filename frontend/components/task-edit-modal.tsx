@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { X, Trash2, Calendar } from "lucide-react";
 import { cn, type Prioridade } from "@/lib/utils";
-import type { Tarefa } from "./task-row";
+import type { Tarefa, Acao } from "./task-row";
 
 type Props = {
   tarefa: Tarefa;
@@ -13,6 +13,11 @@ type Props = {
 
 const PRIORIDADES: Prioridade[] = ["baixa", "media", "alta", "urgente"];
 const STATUSES: Tarefa["status"][] = ["aberta", "em_andamento", "concluida", "cancelada"];
+const ACOES: { value: Acao; label: string; hint: string }[] = [
+  { value: "executar", label: "executar", hint: "eu faço o trabalho" },
+  { value: "cobrar", label: "cobrar", hint: "outro faz, eu cobro / acompanho" },
+  { value: "aguardar", label: "aguardar", hint: "outro faz, não preciso cobrar" },
+];
 
 function toDateInput(iso: string | null | undefined): string {
   if (!iso) return "";
@@ -52,6 +57,7 @@ export function TaskEditModal({ tarefa, onClose }: Props) {
   const [titulo, setTitulo] = useState(tarefa.titulo);
   const [descricao, setDescricao] = useState(tarefa.descricao ?? "");
   const [owner, setOwner] = useState(tarefa.owner);
+  const [acao, setAcao] = useState<Acao>(tarefa.acao);
   const [prazo, setPrazo] = useState(toDateInput(tarefa.prazo));
   const [prazoText, setPrazoText] = useState(tarefa.prazo_text ?? "");
   const [prioridade, setPrioridade] = useState<Prioridade>(tarefa.prioridade);
@@ -97,6 +103,7 @@ export function TaskEditModal({ tarefa, onClose }: Props) {
           titulo: titulo.trim(),
           descricao: descricao.trim() || null,
           owner: owner.trim() || "vitor",
+          acao,
           prazo: dateInputToIso(prazo),
           prazo_text: prazoText.trim() || null,
           prioridade,
@@ -182,6 +189,33 @@ export function TaskEditModal({ tarefa, onClose }: Props) {
               rows={3}
               className="w-full px-3 py-2 rounded-md border border-[color:var(--border)] bg-transparent text-sm focus:outline-none focus:border-zinc-400 dark:focus:border-zinc-600 resize-none"
             />
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-[color:var(--muted)] block mb-1">
+              Ação
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {ACOES.map((a) => (
+                <button
+                  key={a.value}
+                  type="button"
+                  onClick={() => setAcao(a.value)}
+                  title={a.hint}
+                  className={cn(
+                    "text-xs px-3 py-1.5 rounded-full border transition",
+                    acao === a.value
+                      ? "bg-[color:var(--foreground)] text-[color:var(--background)] border-[color:var(--foreground)] font-semibold"
+                      : "border-[color:var(--border)] text-[color:var(--muted-strong)] hover:border-[color:var(--muted)]",
+                  )}
+                >
+                  {a.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-[color:var(--muted)] mt-1.5">
+              {ACOES.find((a) => a.value === acao)?.hint}
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

@@ -4,11 +4,13 @@ import { withTenant } from "@/lib/db";
 
 const VALID_STATUS = ["aberta", "em_andamento", "concluida", "cancelada"] as const;
 const VALID_PRIORIDADE = ["baixa", "media", "alta", "urgente"] as const;
+const VALID_ACAO = ["executar", "cobrar", "aguardar"] as const;
 
 type PatchBody = Partial<{
   titulo: string;
   descricao: string | null;
   owner: string;
+  acao: (typeof VALID_ACAO)[number];
   prazo: string | null;
   prazo_text: string | null;
   prioridade: (typeof VALID_PRIORIDADE)[number];
@@ -37,6 +39,12 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
   if (body.titulo !== undefined) push("titulo", body.titulo);
   if (body.descricao !== undefined) push("descricao", body.descricao);
   if (body.owner !== undefined) push("owner", body.owner);
+  if (body.acao !== undefined) {
+    if (!VALID_ACAO.includes(body.acao)) {
+      return NextResponse.json({ error: "acao inválida" }, { status: 400 });
+    }
+    push("acao", body.acao);
+  }
   if (body.prazo !== undefined) push("prazo", body.prazo);
   if (body.prazo_text !== undefined) push("prazo_text", body.prazo_text);
   if (body.prioridade !== undefined) {

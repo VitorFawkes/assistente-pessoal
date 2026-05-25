@@ -13,10 +13,13 @@ import {
   AlertCircle,
   UserRound,
   Send,
+  Bell,
   Flame,
 } from "lucide-react";
 import { cn, formatPrazo, formatCreatedAt, fmtDate, type Prioridade } from "@/lib/utils";
 import { TaskEditModal } from "./task-edit-modal";
+
+export type Acao = "executar" | "cobrar" | "aguardar";
 
 export type Tarefa = {
   id: string;
@@ -25,6 +28,7 @@ export type Tarefa = {
   descricao: string | null;
   owner: string;
   is_mine: boolean;
+  acao: Acao;
   prazo: string | null;
   prazo_text: string | null;
   prioridade: Prioridade;
@@ -66,9 +70,9 @@ function prazoChipColor(
   }
 }
 
-// Chip claro de "quem faz" — Minha vs Aguardando.
-function OwnerChip({ tarefa }: { tarefa: Tarefa }) {
-  if (tarefa.is_mine) {
+// Chip mostrando ação + owner.
+function AcaoChip({ tarefa }: { tarefa: Tarefa }) {
+  if (tarefa.acao === "executar") {
     return (
       <span className="inline-flex items-center gap-1 text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-[color:var(--calm-bg)] text-[color:var(--calm)] font-medium">
         <UserRound size={11} strokeWidth={2} />
@@ -76,12 +80,66 @@ function OwnerChip({ tarefa }: { tarefa: Tarefa }) {
       </span>
     );
   }
-  const label =
-    tarefa.owner === "?" ? "aguardando alguém" : `aguardando ${tarefa.owner}`;
+  const ownerLabel =
+    !tarefa.owner || tarefa.owner === "?" || tarefa.owner.trim() === ""
+      ? "alguém"
+      : tarefa.owner;
+  if (tarefa.acao === "cobrar") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-[color:var(--warm-bg)] text-[color:var(--warm)] font-semibold ring-1 ring-[color:var(--warm)]/30">
+        <Bell size={11} strokeWidth={2} />
+        cobrar {ownerLabel}
+      </span>
+    );
+  }
+  // aguardar
   return (
-    <span className="inline-flex items-center gap-1 text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-[color:var(--warm-bg)] text-[color:var(--warm)] font-medium">
+    <span className="inline-flex items-center gap-1 text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-[color:var(--warm-bg)]/60 text-[color:var(--warm)] font-medium">
       <Send size={11} strokeWidth={2} />
-      {label}
+      aguardando {ownerLabel}
+    </span>
+  );
+}
+
+// Toggle inline pra mudar acao em 1 clique.
+function AcaoToggle({
+  tarefa,
+  onChange,
+  disabled,
+}: {
+  tarefa: Tarefa;
+  onChange: (next: Acao) => void;
+  disabled: boolean;
+}) {
+  const opts: { value: Acao; label: string }[] = [
+    { value: "executar", label: "executar" },
+    { value: "cobrar", label: "cobrar" },
+    { value: "aguardar", label: "aguardar" },
+  ];
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 rounded-full bg-[color:var(--accent)]/40 p-0.5"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {opts.map((o) => {
+        const active = tarefa.acao === o.value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            disabled={disabled || active}
+            onClick={() => onChange(o.value)}
+            className={cn(
+              "text-[10px] tracking-wide px-1.5 py-0.5 rounded-full transition",
+              active
+                ? "bg-[color:var(--foreground)] text-[color:var(--background)] font-semibold"
+                : "text-[color:var(--muted)] hover:text-[color:var(--foreground)]",
+            )}
+          >
+            {o.label}
+          </button>
+        );
+      })}
     </span>
   );
 }
@@ -105,6 +163,18 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: next }),
+      });
+      router.refresh();
+    });
+  }
+
+  function changeAcao(next: Acao) {
+    if (next === tarefa.acao) return;
+    startTransition(async () => {
+      await fetch(`/api/tarefas/${tarefa.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ acao: next }),
       });
       router.refresh();
     });
@@ -158,7 +228,7 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
 
         {/* conteúdo da tarefa */}
         <div className="flex-1 min-w-0 py-3.5 pr-3 sm:pr-4">
-          {/* Linha de chips no topo: status (vencida/urgente) + owner */}
+          {/* Linha de chips no topo: status (vencida/urgente) + ação */}
           <div className="flex items-center flex-wrap gap-1.5 mb-1.5">
             {isOverdue && !isDone && (
               <span className="inline-flex items-center gap-1 text-[10px] tracking-[0.1em] uppercase font-bold px-2 py-0.5 rounded-full bg-[color:var(--urgent)] text-white">
@@ -172,7 +242,14 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
                 urgente
               </span>
             )}
-            <OwnerChip tarefa={tarefa} />
+            <AcaoChip tarefa={tarefa} />
+            {!isDone && !isCancelled && (
+              <AcaoToggle
+                tarefa={tarefa}
+                onChange={changeAcao}
+                disabled={isPending}
+              />
+            )}
           </div>
 
           <p

@@ -36,6 +36,8 @@ export type Meeting = {
   done_at: string | null;
 };
 
+export type Acao = "executar" | "cobrar" | "aguardar";
+
 export type Tarefa = {
   id: string;
   user_id: string;
@@ -44,6 +46,7 @@ export type Tarefa = {
   descricao: string | null;
   owner: string;
   is_mine: boolean;
+  acao: Acao;
   prazo: string | null;
   prazo_text: string | null;
   prioridade: "baixa" | "media" | "alta" | "urgente";
@@ -176,7 +179,7 @@ export const meetingsFor = (userId: string) => ({
            to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
            m.status, m.summary, m.duration_seconds, m.needs_segmentation,
            (SELECT count(*) FROM tarefas WHERE meeting_id = m.id)::int AS n_tarefas,
-           (SELECT count(*) FROM tarefas WHERE meeting_id = m.id AND owner = 'vitor')::int AS n_minhas
+           (SELECT count(*) FROM tarefas WHERE meeting_id = m.id AND acao IN ('executar','cobrar'))::int AS n_minhas
          FROM meetings m
          WHERE m.status != 'archived_session'
          ORDER BY coalesce(m.recorded_at, m.created_at) DESC
@@ -203,7 +206,7 @@ export const tarefasFor = (userId: string) => ({
            FROM tarefas t
            LEFT JOIN meetings m ON m.id = t.meeting_id
           WHERE t.status IN ('aberta','em_andamento')
-          ORDER BY (t.prazo IS NULL), t.prazo ASC, t.created_at DESC
+          ORDER BY (t.acao = 'aguardar'), (t.prazo IS NULL), t.prazo ASC, t.created_at DESC
           LIMIT 200`,
       );
       return r.rows;
@@ -236,20 +239,20 @@ export const tarefasFor = (userId: string) => ({
       return r.rows[0] ?? null;
     }),
 
-  /** Lista tarefas de um meeting com ordenação minhas-primeiro-aberta. */
+  /** Lista tarefas de um meeting. Ordem: suas (executar/cobrar) > aguardando, aberta > finalizada, prazo asc. */
   byMeeting: (meetingId: string) =>
     withTenant(userId, async (db) => {
       const r = await db.query<
         Tarefa & { prazo: string | null; created_at: string }
       >(
         `SELECT
-           id, meeting_id, titulo, descricao, owner, is_mine,
+           id, meeting_id, titulo, descricao, owner, is_mine, acao,
            to_char(prazo AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS prazo,
            prazo_text, prioridade, status, evidencia,
            to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
          FROM tarefas
          WHERE meeting_id = $1
-         ORDER BY (status NOT IN ('aberta','em_andamento')), is_mine DESC, (prazo IS NULL), prazo ASC, created_at ASC`,
+         ORDER BY (status NOT IN ('aberta','em_andamento')), (acao = 'aguardar'), (prazo IS NULL), prazo ASC, created_at ASC`,
         [meetingId],
       );
       return r.rows;

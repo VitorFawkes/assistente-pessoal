@@ -132,8 +132,9 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
     [filteredByCreated, onlyUrgent],
   );
 
-  const minhas = filtered.filter((t) => t.is_mine);
-  const aguardando = filtered.filter((t) => !t.is_mine);
+  const executar = filtered.filter((t) => t.acao === "executar");
+  const cobrar = filtered.filter((t) => t.acao === "cobrar");
+  const aguardando = filtered.filter((t) => t.acao === "aguardar");
 
   const urgentCount = useMemo(
     () =>
@@ -253,18 +254,27 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
             ),
           },
           {
-            key: "minhas",
+            key: "executar",
             label: "Eu faço",
-            count: minhas.length,
-            content: renderList(minhas, "Nada pra você fazer nesse filtro."),
+            count: executar.length,
+            content: renderList(executar, "Nada pra você fazer nesse filtro."),
+          },
+          {
+            key: "cobrar",
+            label: "Eu cobro",
+            count: cobrar.length,
+            content: renderList(
+              cobrar,
+              "Nada pra cobrar de ninguém nesse filtro.",
+            ),
           },
           {
             key: "aguardando",
-            label: "Eu cobro",
+            label: "Aguardando",
             count: aguardando.length,
             content: renderList(
               aguardando,
-              "Nada pra cobrar de ninguém nesse filtro.",
+              "Nada esperando entrega de outros nesse filtro.",
             ),
           },
         ]}

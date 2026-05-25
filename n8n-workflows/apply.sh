@@ -49,8 +49,9 @@ apply_workflow() {
   fi
 }
 
-apply_workflow "98jEiWWSAKFWEP6B" "acoes-audio-ingest.json"   "Acoes - Audio Ingest"
-apply_workflow "Gt34r0WVdZxCbJet" "acoes-process-segment.json" "Acoes - Process Segment"
+apply_workflow "98jEiWWSAKFWEP6B" "acoes-audio-ingest.json"      "Acoes - Audio Ingest"
+apply_workflow "Gt34r0WVdZxCbJet" "acoes-process-segment.json"    "Acoes - Process Segment"
+apply_workflow "l1xcOvuEru496Zql" "acoes-reprocess-tarefas.json"  "Acoes - Reprocess Tarefas"
 
 echo ""
 echo "Pronto. Verifica que os workflows continuam ativos:"

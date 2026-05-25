@@ -4,6 +4,7 @@ import { requireUserOrRedirect } from "@/lib/auth";
 import { meetingsFor, tarefasFor, pessoasFor } from "@/lib/queries";
 import { fmtDate } from "@/lib/utils";
 import { TaskRow, type Tarefa } from "@/components/task-row";
+import { MeetingTaskSummary } from "@/components/meeting-task-summary";
 import {
   TranscriptionView,
   type Segment,
@@ -54,9 +55,10 @@ export default async function ReuniaoDetalhePage({
     tarefasFor(user.id).byMeeting(id) as Promise<Tarefa[]>,
     pessoasFor(user.id).listMinimal(),
   ]);
-  const minhas = tarefas.filter((t) => t.is_mine && t.status !== "concluida" && t.status !== "cancelada");
-  const delegadas = tarefas.filter((t) => !t.is_mine && t.status !== "concluida" && t.status !== "cancelada");
-  const concluidas = tarefas.filter((t) => t.status === "concluida" || t.status === "cancelada");
+  const aberta = (t: Tarefa) => t.status !== "concluida" && t.status !== "cancelada";
+  const suas = tarefas.filter((t) => aberta(t) && t.acao !== "aguardar");
+  const aguardando = tarefas.filter((t) => aberta(t) && t.acao === "aguardar");
+  const concluidas = tarefas.filter((t) => !aberta(t));
 
   const typeLabel =
     meeting.meeting_type === "online"
@@ -168,25 +170,27 @@ export default async function ReuniaoDetalhePage({
           </div>
         ) : (
           <div className="space-y-6">
-            {minhas.length > 0 && (
+            <MeetingTaskSummary tarefas={tarefas} />
+
+            {suas.length > 0 && (
               <div className="space-y-2.5">
                 <h3 className="text-[11px] tracking-[0.16em] uppercase text-[color:var(--muted-strong)]">
-                  Minhas ({minhas.length})
+                  Suas ({suas.length})
                 </h3>
                 <div className="flex flex-col gap-2">
-                  {minhas.map((t) => (
+                  {suas.map((t) => (
                     <TaskRow key={t.id} tarefa={t} />
                   ))}
                 </div>
               </div>
             )}
-            {delegadas.length > 0 && (
+            {aguardando.length > 0 && (
               <div className="space-y-2.5">
                 <h3 className="text-[11px] tracking-[0.16em] uppercase text-[color:var(--muted-strong)]">
-                  Aguardando outros ({delegadas.length})
+                  Aguardando outros ({aguardando.length})
                 </h3>
                 <div className="flex flex-col gap-2">
-                  {delegadas.map((t) => (
+                  {aguardando.map((t) => (
                     <TaskRow key={t.id} tarefa={t} />
                   ))}
                 </div>
