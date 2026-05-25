@@ -37,23 +37,29 @@ log() {
   printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$LOG_FILE"
 }
 
-# Aguarda gravação estabilizar — tamanho não muda em 3 leituras de 1s.
-wait_until_stable() {
+# Aguarda gravação terminar de verdade: nenhum processo com FD aberto no arquivo.
+# Necessário pra Audio Hijack (online + presencial), que mantém o file descriptor
+# aberto durante TODA a gravação e escreve incrementalmente — o stable-by-size
+# antigo declarava "estável" durante pausas de flush e processava só o início,
+# truncando reuniões longas. Voice Memos (iphone) não é afetado: ele fecha o FD
+# antes do fswatch ver, então lsof já retorna vazio na primeira iteração.
+wait_until_closed() {
   local file="$1"
-  local prev=-1 cur=0 stable=0
-  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+  local elapsed=0
+  local max_wait=14400  # 4h
+  local poll=5
+  while [ "$elapsed" -lt "$max_wait" ]; do
     [ -f "$file" ] || return 1
-    cur=$(stat -f%z "$file" 2>/dev/null || echo 0)
-    if [ "$cur" = "$prev" ]; then
-      stable=$((stable+1))
-      [ "$stable" -ge 2 ] && return 0
-    else
-      stable=0
+    if ! lsof -- "$file" >/dev/null 2>&1; then
+      local size
+      size=$(stat -Lf%z "$file" 2>/dev/null || echo 0)
+      [ "$size" -gt 0 ] && return 0
     fi
-    prev=$cur
-    sleep 1
+    sleep "$poll"
+    elapsed=$((elapsed + poll))
   done
-  return 0   # se passou de 15s, manda do jeito que tá
+  log "WARN wait_until_closed timeout (${max_wait}s) — $file ainda com FD aberto, prosseguindo"
+  return 0
 }
 
 # Garante que o arquivo está materializado no disco (iCloud placeholder → bytes reais).
@@ -70,7 +76,7 @@ wait_until_stable() {
 materialize_for_upload() {
   local src="$1"
   local expected
-  expected=$(stat -f%z "$src" 2>/dev/null || echo 0)
+  expected=$(stat -Lf%z "$src" 2>/dev/null || echo 0)
   [ "$expected" -eq 0 ] && return 1
 
   # 1) Pede pro iCloud baixar (não-bloqueante, mas ajuda)
@@ -90,14 +96,14 @@ materialize_for_upload() {
 
   # 3) Confere que o tmp tem o tamanho real esperado
   local tmp_size
-  tmp_size=$(stat -f%z "$tmp" 2>/dev/null || echo 0)
+  tmp_size=$(stat -Lf%z "$tmp" 2>/dev/null || echo 0)
   if [ "$tmp_size" != "$expected" ]; then
     log "ERR tmp size ($tmp_size) != expected ($expected) — retry após 3s"
     sleep 3
     rm -f "$tmp"
     tmp="$(mktemp -t audio-upload).${ext}"
     cp "$src" "$tmp" 2>/dev/null
-    tmp_size=$(stat -f%z "$tmp" 2>/dev/null || echo 0)
+    tmp_size=$(stat -Lf%z "$tmp" 2>/dev/null || echo 0)
     if [ "$tmp_size" != "$expected" ]; then
       log "ERR tmp ainda divergente ($tmp_size vs $expected) — abortando"
       rm -f "$tmp"
@@ -186,7 +192,7 @@ process_file() {
   fi
 
   log "DETECT $file"
-  wait_until_stable "$file"
+  wait_until_closed "$file"
   [ -f "$file" ] || { log "VANISHED $file"; return 0; }
 
   # Safety net (2026-05-23 multi-tenant validation):
@@ -234,8 +240,18 @@ process_file() {
   source="$(derive_source "$file")"
   meeting_type="$(derive_meeting_type "$file")"
   basename="$(basename "$file")"
-  size="$(stat -f%z "$compressed_path" 2>/dev/null || echo 0)"
+  size="$(stat -Lf%z "$compressed_path" 2>/dev/null || echo 0)"
   recorded_at="$(stat -f '%Sm' -t '%Y-%m-%dT%H:%M:%SZ' "$file" 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+  # Guarda anti-silêncio: gravação longa 100% silenciosa = provável falha de captura
+  # (ex: Audio Hijack sem ACE driver, mic mutado, TCC revogada). Notifica via banner
+  # macOS pra detectar ANTES de perder mais reuniões. Threshold de 60s evita ruído
+  # de testes curtos e dedo escorregando no Audio Hijack.
+  local dur_int=${duration%.*}
+  if [ "$silent" = "true" ] && [ "${dur_int:-0}" -ge 60 ]; then
+    log "ALERT silêncio digital em $basename (dur=${duration}s) — verifique captura"
+    osascript -e "display notification \"Gravação de ${dur_int}s sem áudio capturado. Verifique mic/Audio Hijack.\" with title \"Pipeline Áudio — silêncio detectado\" sound name \"Sosumi\"" >/dev/null 2>&1 || true
+  fi
 
   log "POST source=$source type=$meeting_type size=$size duration=${duration}s silent=$silent chunks=$n_chunks file=$basename"
 

@@ -39,7 +39,7 @@ INPUT="${1:?uso: transcribe.sh <audio_file>}"
 
 # config
 SILENCE_GATE_DB="-50"
-SILENCEREMOVE_DB="-30dB"
+SILENCEREMOVE_DB="-50dB"
 SILENCEREMOVE_MIN="2"
 BITRATE="48k"
 SAMPLE_RATE="16000"
