@@ -9,6 +9,8 @@ import {
   type Segment,
   type ProposedLabel,
 } from "@/components/transcription-view";
+import { SpeakersStrip } from "@/components/speakers-strip";
+import { buildSpeakerCards } from "@/lib/speakers";
 import { ArrowLeft, Mic, Video, FileQuestion, UsersRound } from "lucide-react";
 import { ExecutiveSummary } from "./executive-summary";
 
@@ -62,6 +64,11 @@ export default async function ReuniaoDetalhePage({
       : meeting.meeting_type === "presencial"
       ? "presencial"
       : "voice note";
+
+  const speakerCards =
+    meeting.segments && meeting.segments.length > 0
+      ? buildSpeakerCards(meeting.segments, meeting.speaker_labels || {})
+      : [];
 
   return (
     <div className="space-y-7 sm:space-y-9">
@@ -124,6 +131,16 @@ export default async function ReuniaoDetalhePage({
           </div>
         )}
       </header>
+
+      {/* SPEAKERS INLINE — escutar/identificar sem sair da página */}
+      {speakerCards.length > 0 && (
+        <SpeakersStrip
+          meetingId={meeting.id}
+          speakers={speakerCards}
+          pessoas={pessoas}
+          speakerLabelsProposed={meeting.speaker_labels_proposed || {}}
+        />
+      )}
 
       {/* RESUMO EXECUTIVO */}
       {meeting.executive_summary && (
