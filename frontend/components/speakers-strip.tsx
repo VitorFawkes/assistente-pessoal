@@ -192,15 +192,6 @@ export function SpeakersStrip({
                   {Math.round(s.total_seconds)}s · {s.total_turns}{" "}
                   {s.total_turns === 1 ? "fala" : "falas"}
                 </span>
-                {labeled ? (
-                  <Check size={13} className="text-[color:var(--calm)] shrink-0" />
-                ) : proposal ? (
-                  <span className="text-[10px] text-[color:var(--muted-strong)] italic shrink-0">
-                    ≈ {proposal.nome}
-                  </span>
-                ) : (
-                  <span className="text-[10px] text-[color:var(--muted)] shrink-0">?</span>
-                )}
                 <ChevronDown
                   size={13}
                   className={cn(
@@ -209,6 +200,43 @@ export function SpeakersStrip({
                   )}
                 />
               </button>
+
+              {/* Status row — texto explícito em vez de só ícone */}
+              {!isOpen && (
+                <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                  {labeled ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-[color:var(--calm)] font-medium">
+                      <Check size={11} /> confirmado
+                    </span>
+                  ) : proposal ? (
+                    <>
+                      <span className="text-[10px] text-[color:var(--muted)]">
+                        voice-svc sugere
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          saveOne(s.letter, proposal.nome, s);
+                        }}
+                        disabled={busyLetter === s.letter}
+                        className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-[color:var(--warm-bg)] text-[color:var(--warm)] border border-[color:var(--warm)]/40 hover:opacity-90 disabled:opacity-50 font-medium"
+                      >
+                        {busyLetter === s.letter ? (
+                          <Sparkles size={9} className="animate-pulse" />
+                        ) : (
+                          <Check size={9} />
+                        )}
+                        confirmar &ldquo;{proposal.nome}&rdquo;
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-[10px] text-[color:var(--muted)]">
+                      sem nome — clique pra identificar
+                    </span>
+                  )}
+                </div>
+              )}
 
               {firstTurn && !isOpen && (
                 <audio
