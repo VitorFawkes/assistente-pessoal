@@ -161,22 +161,29 @@ export function SpeakersStrip({
           const firstTurn = s.top_turns[0];
           const savedMsg = savedMessages[s.letter];
 
+          const toggle = () => setExpanded(isOpen ? null : s.letter);
           return (
             <div
               key={s.letter}
+              role="button"
+              tabIndex={0}
+              aria-expanded={isOpen}
+              onClick={toggle}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  toggle();
+                }
+              }}
               className={cn(
-                "paper-card rounded-2xl border p-3 transition",
+                "paper-card rounded-2xl border p-3 transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--foreground)]/30",
+                isOpen && "ring-2 ring-[color:var(--foreground)]/20",
                 labeled
                   ? "border-[color:var(--calm)]/40 bg-[color:var(--calm-bg)]/20"
                   : "border-[color:var(--border)]",
               )}
             >
-              <button
-                type="button"
-                onClick={() => setExpanded(isOpen ? null : s.letter)}
-                className="w-full flex items-center gap-2 cursor-pointer"
-                aria-expanded={isOpen}
-              >
+              <div className="w-full flex items-center gap-2">
                 <span
                   className={cn(
                     "inline-flex items-center gap-1 text-[11px] tracking-wide font-medium px-2 py-0.5 rounded-full shrink-0",
@@ -199,7 +206,7 @@ export function SpeakersStrip({
                     isOpen ? "rotate-180" : "",
                   )}
                 />
-              </button>
+              </div>
 
               {/* Status row — texto explícito em vez de só ícone */}
               {!isOpen && (
@@ -238,22 +245,16 @@ export function SpeakersStrip({
                 </div>
               )}
 
-              {firstTurn && !isOpen && (
-                <audio
-                  controls
-                  preload="none"
-                  src={`/api/voice-svc/clip?meeting_id=${meetingId}&start=${firstTurn.start}&end=${Math.min(firstTurn.end, firstTurn.start + 15)}`}
-                  className="w-full mt-2"
-                  style={{ height: 28 }}
-                />
-              )}
-
               {savedMsg && !isOpen && (
                 <p className="text-[11px] text-[color:var(--calm)] mt-2">{savedMsg}</p>
               )}
 
               {isOpen && (
-                <div className="mt-3 space-y-3 pt-3 border-t border-[color:var(--border)]/50">
+                <div
+                  className="mt-3 space-y-3 pt-3 border-t border-[color:var(--border)]/50"
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
                   {savedMsg && (
                     <p className="text-[12px] text-[color:var(--calm)] bg-[color:var(--calm-bg)] px-3 py-1.5 rounded-lg">
                       {savedMsg}
