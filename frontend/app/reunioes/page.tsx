@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireUserOrRedirect } from "@/lib/auth";
 import { meetingsFor } from "@/lib/queries";
 import { fmtDate } from "@/lib/utils";
-import { Mic, Video, FileQuestion, ChevronRight, Archive } from "lucide-react";
+import { Mic, Video, Smartphone, ChevronRight, Archive } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -20,18 +20,14 @@ type Meeting = {
   n_minhas: number;
 };
 
-function MeetingIcon({ type }: { type: string | null }) {
+function MeetingIcon({ type, source }: { type: string | null; source: string | null }) {
   if (type === "online")
     return <Video size={16} strokeWidth={1.75} className="text-[color:var(--muted-strong)]" />;
   if (type === "presencial")
     return <Mic size={16} strokeWidth={1.75} className="text-[color:var(--muted-strong)]" />;
-  return (
-    <FileQuestion
-      size={16}
-      strokeWidth={1.75}
-      className="text-[color:var(--muted)]"
-    />
-  );
+  if (source === "iphone")
+    return <Smartphone size={16} strokeWidth={1.75} className="text-[color:var(--muted-strong)]" />;
+  return <Mic size={16} strokeWidth={1.75} className="text-[color:var(--muted)]" />;
 }
 
 function StatusPill({ status }: { status: string }) {
@@ -131,12 +127,15 @@ export default async function ReunioesPage() {
               >
                 <div className="flex items-start gap-3">
                   <div className="shrink-0 mt-0.5 w-8 h-8 rounded-full bg-[color:var(--accent)] flex items-center justify-center">
-                    <MeetingIcon type={m.meeting_type} />
+                    <MeetingIcon type={m.meeting_type} source={m.source} />
                   </div>
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-3">
-                      <p className="flex-1 text-[15px] leading-snug text-[color:var(--foreground)] line-clamp-2">
+                      <p
+                        className="flex-1 text-[15px] leading-snug text-[color:var(--foreground)] line-clamp-1"
+                        title={m.summary ?? undefined}
+                      >
                         {m.summary || "Reunião sem resumo"}
                       </p>
                       <StatusPill status={m.status} />
