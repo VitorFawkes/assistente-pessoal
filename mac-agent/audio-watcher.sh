@@ -37,28 +37,38 @@ log() {
   printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$LOG_FILE"
 }
 
-# Aguarda gravação terminar de verdade: nenhum processo com FD aberto no arquivo.
-# Necessário pra Audio Hijack (online + presencial), que mantém o file descriptor
-# aberto durante TODA a gravação e escreve incrementalmente — o stable-by-size
-# antigo declarava "estável" durante pausas de flush e processava só o início,
-# truncando reuniões longas. Voice Memos (iphone) não é afetado: ele fecha o FD
-# antes do fswatch ver, então lsof já retorna vazio na primeira iteração.
+# Aguarda gravação terminar de verdade. Não basta só "lsof vazio" pq Audio
+# Hijack escreve em ciclos write-flush-close-reopen — lsof entre ciclos
+# retorna vazio mesmo durante gravação ativa (perdi reuniões de 24min e 15min
+# por causa disso). Não basta só "size estável" pq Voice Memos fecha antes do
+# fswatch ver. Combinamos: arquivo só está "terminado" se size NÃO cresceu E
+# lsof vazio por STABLE_REQUIRED iterações consecutivas (cada uma de POLL segundos).
 wait_until_closed() {
   local file="$1"
-  local elapsed=0
-  local max_wait=14400  # 4h
   local poll=5
+  local stable_required=3   # 3 × 5s = 15s estável consecutivo
+  local max_wait=14400      # 4h
+  local elapsed=0
+  local prev_size=-1
+  local stable_count=0
+
   while [ "$elapsed" -lt "$max_wait" ]; do
     [ -f "$file" ] || return 1
-    if ! lsof -- "$file" >/dev/null 2>&1; then
-      local size
-      size=$(stat -Lf%z "$file" 2>/dev/null || echo 0)
-      [ "$size" -gt 0 ] && return 0
+    local cur_size has_fd
+    cur_size=$(stat -Lf%z "$file" 2>/dev/null || echo 0)
+    if lsof -- "$file" >/dev/null 2>&1; then has_fd=1; else has_fd=0; fi
+
+    if [ "$cur_size" = "$prev_size" ] && [ "$has_fd" = "0" ] && [ "$cur_size" -gt 0 ]; then
+      stable_count=$((stable_count + 1))
+      [ "$stable_count" -ge "$stable_required" ] && return 0
+    else
+      stable_count=0
     fi
+    prev_size=$cur_size
     sleep "$poll"
     elapsed=$((elapsed + poll))
   done
-  log "WARN wait_until_closed timeout (${max_wait}s) — $file ainda com FD aberto, prosseguindo"
+  log "WARN wait_until_closed timeout (${max_wait}s) — $file ainda ativo, prosseguindo"
   return 0
 }
 
