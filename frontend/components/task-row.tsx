@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -71,8 +71,71 @@ function prazoChipColor(
   }
 }
 
-// Chip mostrando ação + owner.
-function AcaoChip({ tarefa }: { tarefa: Tarefa }) {
+// Input inline pra editar o nome do owner sem abrir modal.
+function OwnerInput({
+  initial,
+  onSave,
+  onCancel,
+  className,
+}: {
+  initial: string;
+  onSave: (value: string) => void;
+  onCancel: () => void;
+  className?: string;
+}) {
+  const [value, setValue] = useState(
+    initial === "?" || !initial ? "" : initial,
+  );
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    ref.current?.focus();
+    ref.current?.select();
+  }, []);
+  function commit() {
+    const trimmed = value.trim();
+    onSave(trimmed || "?");
+  }
+  return (
+    <input
+      ref={ref}
+      type="text"
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          onCancel();
+        }
+      }}
+      onBlur={commit}
+      placeholder="nome"
+      className={cn(
+        "text-[11px] tracking-wide px-1.5 py-0 rounded bg-transparent outline-none ring-1 ring-[color:var(--foreground)]/40 focus:ring-[color:var(--foreground)] min-w-[80px] max-w-[140px]",
+        className,
+      )}
+    />
+  );
+}
+
+// Chip mostrando ação + owner. Owner clicável → editável inline (exceto executar).
+function AcaoChip({
+  tarefa,
+  editingOwner,
+  onStartEdit,
+  onSaveOwner,
+  onCancelEdit,
+}: {
+  tarefa: Tarefa;
+  editingOwner: boolean;
+  onStartEdit: () => void;
+  onSaveOwner: (value: string) => void;
+  onCancelEdit: () => void;
+}) {
   if (tarefa.acao === "executar") {
     return (
       <span className="inline-flex items-center gap-1 text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-[color:var(--calm-bg)] text-[color:var(--calm)] font-medium">
@@ -85,19 +148,38 @@ function AcaoChip({ tarefa }: { tarefa: Tarefa }) {
     !tarefa.owner || tarefa.owner === "?" || tarefa.owner.trim() === ""
       ? "alguém"
       : tarefa.owner;
-  if (tarefa.acao === "cobrar") {
-    return (
-      <span className="inline-flex items-center gap-1 text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-[color:var(--warm-bg)] text-[color:var(--warm)] font-semibold ring-1 ring-[color:var(--warm)]/30">
-        <Bell size={11} strokeWidth={2} />
-        cobrar {ownerLabel}
-      </span>
-    );
-  }
-  // aguardar
+  const isCobrar = tarefa.acao === "cobrar";
+  const wrapperClass = isCobrar
+    ? "inline-flex items-center gap-1 text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-[color:var(--warm-bg)] text-[color:var(--warm)] font-semibold ring-1 ring-[color:var(--warm)]/30"
+    : "inline-flex items-center gap-1 text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-[color:var(--warm-bg)]/60 text-[color:var(--warm)] font-medium";
+  const verb = isCobrar ? "cobrar" : "aguardando";
   return (
-    <span className="inline-flex items-center gap-1 text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-[color:var(--warm-bg)]/60 text-[color:var(--warm)] font-medium">
-      <Send size={11} strokeWidth={2} />
-      aguardando {ownerLabel}
+    <span className={wrapperClass}>
+      {isCobrar ? (
+        <Bell size={11} strokeWidth={2} />
+      ) : (
+        <Send size={11} strokeWidth={2} />
+      )}
+      <span>{verb}</span>
+      {editingOwner ? (
+        <OwnerInput
+          initial={tarefa.owner}
+          onSave={onSaveOwner}
+          onCancel={onCancelEdit}
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onStartEdit();
+          }}
+          className="underline decoration-dotted underline-offset-2 hover:decoration-solid"
+          title="Clique pra editar o nome"
+        >
+          {ownerLabel}
+        </button>
+      )}
     </span>
   );
 }
@@ -149,6 +231,7 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
+  const [editingOwner, setEditingOwner] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const prazo = formatPrazo(tarefa.prazo);
@@ -197,6 +280,19 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
   function cancelDelete(e: React.MouseEvent) {
     e.stopPropagation();
     setConfirmDelete(false);
+  }
+
+  function saveOwner(next: string) {
+    setEditingOwner(false);
+    if (next === tarefa.owner) return;
+    startTransition(async () => {
+      await fetch(`/api/tarefas/${tarefa.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ owner: next }),
+      });
+      router.refresh();
+    });
   }
 
   return (
@@ -261,7 +357,13 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
                 urgente
               </span>
             )}
-            <AcaoChip tarefa={tarefa} />
+            <AcaoChip
+              tarefa={tarefa}
+              editingOwner={editingOwner}
+              onStartEdit={() => setEditingOwner(true)}
+              onSaveOwner={saveOwner}
+              onCancelEdit={() => setEditingOwner(false)}
+            />
             {!isDone && !isCancelled && (
               <AcaoToggle
                 tarefa={tarefa}
@@ -347,7 +449,7 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
                 onClick={handleDelete}
                 disabled={isPending}
                 aria-label="Deletar tarefa"
-                className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1.5 rounded-full hover:bg-[color:var(--urgent)]/10 hover:text-[color:var(--urgent)] transition"
+                className="p-1.5 rounded-full text-[color:var(--muted)] hover:bg-[color:var(--urgent)]/10 hover:text-[color:var(--urgent)] transition"
               >
                 <Trash2 size={15} strokeWidth={1.75} />
               </button>
