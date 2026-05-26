@@ -192,7 +192,8 @@ export const meetingsFor = (userId: string) => ({
 // ─── tarefasFor ───────────────────────────────────────────────────────
 
 export const tarefasFor = (userId: string) => ({
-  abertas: () =>
+  /** Tarefas recentes — inclui abertas E concluídas/canceladas. UI filtra por status. */
+  recentes: () =>
     withTenant(userId, async (db) => {
       const r = await db.query<
         Tarefa & {
@@ -205,9 +206,10 @@ export const tarefasFor = (userId: string) => ({
                 m.summary AS meeting_summary
            FROM tarefas t
            LEFT JOIN meetings m ON m.id = t.meeting_id
-          WHERE t.status IN ('aberta','em_andamento')
-          ORDER BY (t.acao = 'aguardar'), (t.prazo IS NULL), t.prazo ASC, t.created_at DESC
-          LIMIT 200`,
+          ORDER BY (t.status NOT IN ('aberta','em_andamento')),
+                   (t.acao = 'aguardar'),
+                   (t.prazo IS NULL), t.prazo ASC, t.created_at DESC
+          LIMIT 300`,
       );
       return r.rows;
     }),

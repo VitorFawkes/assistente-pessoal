@@ -11,9 +11,9 @@ export default async function HomePage() {
   let tarefas: Tarefa[] = [];
   let dbError: string | null = null;
   try {
-    // tarefasFor.abertas() já retorna com meeting_recorded_at + meeting_summary
-    // joinados. RLS filtra por user_id automaticamente.
-    tarefas = (await tarefasFor(user.id).abertas()) as unknown as Tarefa[];
+    // tarefasFor.recentes() retorna abertas + concluídas/canceladas com meeting joinado.
+    // RLS filtra por user_id automaticamente. UI filtra por status.
+    tarefas = (await tarefasFor(user.id).recentes()) as unknown as Tarefa[];
   } catch (e: unknown) {
     dbError = e instanceof Error ? e.message : String(e);
   }

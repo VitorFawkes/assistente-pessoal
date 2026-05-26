@@ -132,9 +132,13 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
     [filteredByCreated, onlyUrgent],
   );
 
-  const executar = filtered.filter((t) => t.acao === "executar");
-  const cobrar = filtered.filter((t) => t.acao === "cobrar");
-  const aguardando = filtered.filter((t) => t.acao === "aguardar");
+  const aberta = (t: Tarefa) =>
+    t.status !== "concluida" && t.status !== "cancelada";
+  const executar = filtered.filter((t) => aberta(t) && t.acao === "executar");
+  const cobrar = filtered.filter((t) => aberta(t) && t.acao === "cobrar");
+  const aguardando = filtered.filter((t) => aberta(t) && t.acao === "aguardar");
+  const concluidas = filtered.filter((t) => !aberta(t));
+  const abertas = filtered.filter(aberta);
 
   const urgentCount = useMemo(
     () =>
@@ -245,9 +249,9 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
           {
             key: "todas",
             label: "Todas",
-            count: filtered.length,
+            count: abertas.length,
             content: renderList(
-              filtered,
+              abertas,
               tarefas.length === 0
                 ? "Nada por aqui ainda. Grave um áudio e em ~30s aparece."
                 : "Nenhuma pendência nesse filtro.",
@@ -275,6 +279,15 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
             content: renderList(
               aguardando,
               "Nada esperando entrega de outros nesse filtro.",
+            ),
+          },
+          {
+            key: "concluidas",
+            label: "Concluídas",
+            count: concluidas.length,
+            content: renderList(
+              concluidas,
+              "Nenhuma tarefa concluída nesse filtro.",
             ),
           },
         ]}

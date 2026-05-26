@@ -15,6 +15,7 @@ import {
   Send,
   Bell,
   Flame,
+  Trash2,
 } from "lucide-react";
 import { cn, formatPrazo, formatCreatedAt, fmtDate, type Prioridade } from "@/lib/utils";
 import { TaskEditModal } from "./task-edit-modal";
@@ -148,6 +149,7 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const prazo = formatPrazo(tarefa.prazo);
   const isDone = tarefa.status === "concluida";
@@ -178,6 +180,23 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
       });
       router.refresh();
     });
+  }
+
+  function handleDelete(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+    startTransition(async () => {
+      await fetch(`/api/tarefas/${tarefa.id}`, { method: "DELETE" });
+      router.refresh();
+    });
+  }
+
+  function cancelDelete(e: React.MouseEvent) {
+    e.stopPropagation();
+    setConfirmDelete(false);
   }
 
   return (
@@ -299,8 +318,46 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
           </div>
         </div>
 
-        <div className="shrink-0 flex items-center pr-3 sm:pr-4 text-[color:var(--muted)] group-hover:text-[color:var(--foreground)] transition">
-          <ChevronRight size={18} strokeWidth={1.75} />
+        <div className="shrink-0 flex items-center gap-1 pr-2 sm:pr-3 text-[color:var(--muted)]">
+          {confirmDelete ? (
+            <>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isPending}
+                aria-label="Confirmar deletar"
+                className="text-[10px] tracking-[0.1em] uppercase font-bold px-2 py-1 rounded-full bg-[color:var(--urgent)] text-white hover:opacity-90 disabled:opacity-50"
+              >
+                {isPending ? "..." : "deletar"}
+              </button>
+              <button
+                type="button"
+                onClick={cancelDelete}
+                disabled={isPending}
+                aria-label="Cancelar"
+                className="text-[11px] px-1.5 py-1 text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
+              >
+                ✕
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isPending}
+                aria-label="Deletar tarefa"
+                className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1.5 rounded-full hover:bg-[color:var(--urgent)]/10 hover:text-[color:var(--urgent)] transition"
+              >
+                <Trash2 size={15} strokeWidth={1.75} />
+              </button>
+              <ChevronRight
+                size={18}
+                strokeWidth={1.75}
+                className="group-hover:text-[color:var(--foreground)] transition"
+              />
+            </>
+          )}
         </div>
       </div>
 
