@@ -402,19 +402,26 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
               <Link
                 href={`/reunioes/${tarefa.meeting_id}`}
                 onClick={(e) => e.stopPropagation()}
-                className="press-feedback inline-flex items-center gap-1 text-[12px] px-2 py-0.5 rounded-full bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:bg-[color:var(--foreground)] hover:text-[color:var(--background)] transition"
+                title={tarefa.meeting_summary ?? undefined}
+                className="press-feedback inline-flex items-center gap-1 text-[12px] px-2 py-0.5 rounded-full bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:bg-[color:var(--foreground)] hover:text-[color:var(--background)] transition max-w-[280px]"
               >
-                <Mic size={11} />
-                ver reunião
+                <Mic size={11} className="shrink-0" />
+                <span className="truncate">
+                  {tarefa.meeting_summary || "ver reunião"}
+                </span>
               </Link>
             )}
-            {tarefa.created_at && (
+            {(tarefa.meeting_recorded_at || tarefa.created_at) && (
               <span
                 className="inline-flex items-center gap-1 text-[12px] text-[color:var(--muted)]"
-                title={`Criada em ${fmtDate(tarefa.created_at)}`}
+                title={
+                  tarefa.meeting_recorded_at
+                    ? `Reunião em ${fmtDate(tarefa.meeting_recorded_at)}`
+                    : `Tarefa criada em ${fmtDate(tarefa.created_at)}`
+                }
               >
                 <CalendarPlus size={11} />
-                {formatCreatedAt(tarefa.created_at)}
+                {formatCreatedAt(tarefa.meeting_recorded_at ?? tarefa.created_at)}
               </span>
             )}
           </div>
