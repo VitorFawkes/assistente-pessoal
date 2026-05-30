@@ -47,10 +47,39 @@ targets:
           - "Resources/WelcomeAssistente.entitlements"
     resources:
       - WelcomeAssistente/Resources/PrivacyInfo.xcprivacy
+    # XcodeGen regenera info.path E entitlements.path a cada `generate`.
+    # Por isso TODOS os keys customizados precisam vir aqui via `properties:`.
+    # Não edite o Info.plist gerado manualmente — qualquer mudança é sobrescrita.
     info:
       path: WelcomeAssistente/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: TTARS BR
+        CFBundleDevelopmentRegion: pt-BR
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSApplicationCategoryType: public.app-category.productivity
+        LSRequiresIPhoneOS: true
+        UILaunchScreen:
+          UIColorName: AccentColor
+        UIRequiredDeviceCapabilities:
+          - armv7
+          - microphone
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIBackgroundModes:
+          - audio
+        NSMicrophoneUsageDescription: TTARS BR usa o microfone pra gravar suas reuniões e extrair tarefas automaticamente.
+        # URLs setadas via xcconfig por configuration (Debug vs Release).
+        # O $() workaround é necessário no xcconfig porque `//` é comentário lá;
+        # aqui no plist viraria string normal "https://host" no build.
+        WelcomeBaseURL: $(WELCOME_BASE_URL)
+        WelcomeIngestURL: $(WELCOME_INGEST_URL)
     entitlements:
       path: WelcomeAssistente/Resources/WelcomeAssistente.entitlements
+      properties:
+        com.apple.developer.associated-domains:
+          - applinks:acoes.vitorgambetti.com.br
+          - applinks:n8n-assistente-frontend.tatetz.easypanel.host
     settings:
       base:
         PRODUCT_NAME: TTARS BR
