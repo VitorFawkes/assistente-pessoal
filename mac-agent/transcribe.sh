@@ -39,10 +39,15 @@ INPUT="${1:?uso: transcribe.sh <audio_file>}"
 
 # config
 SILENCE_GATE_DB="-50"
+# Threshold conservador. Paridade com ingest-svc/transcribe.py (que estava -30dB,
+# agora alinhado a -50dB). NÃO re-divergir — -30dB corta fala de baixo volume.
 SILENCEREMOVE_DB="-50dB"
 SILENCEREMOVE_MIN="2"
 BITRATE="48k"
 SAMPLE_RATE="16000"
+# Garantia defensiva: AssemblyAI rejeita áudio > 10h. Medimos a duração do
+# COMPRESSED (pós-silenceremove — o que de fato sobe), não do original. 35880s = 9h58m.
+MAX_AUDIO_SECONDS="${MAX_AUDIO_SECONDS:-35880}"
 ASSEMBLYAI_BASE="https://api.assemblyai.com"
 # speech_models: lista de fallback ordenada. AssemblyAI tenta o primeiro;
 # se indisponível ou conta sem acesso, cai pro próximo. Universal-3 Pro é
@@ -50,7 +55,7 @@ ASSEMBLYAI_BASE="https://api.assemblyai.com"
 # o fallback estável e mais barato.
 SPEECH_MODELS_JSON="${SPEECH_MODELS_JSON:-[\"universal-3-pro\",\"universal-2\"]}"
 POLL_INTERVAL="${POLL_INTERVAL:-8}"          # seg entre polls de status
-POLL_MAX_SECONDS="${POLL_MAX_SECONDS:-1800}" # 30min limite total de polling (cobre 8h de áudio)
+POLL_MAX_SECONDS="${POLL_MAX_SECONDS:-3600}" # 60min limite total (12x margem p/ caso 10h; RTF real ~0.008x)
 
 TMPDIR_JOB="$(mktemp -d -t transcribe-XXXXXX)"
 log() { echo "[transcribe] $*" >&2; }
@@ -86,6 +91,17 @@ ffmpeg -hide_banner -loglevel error -y -i "$INPUT" \
 
 COMP_SIZE=$(stat -f%z "$COMPRESSED" 2>/dev/null || stat -c%s "$COMPRESSED")
 log "comprimido=${COMP_SIZE}B"
+
+# ─── 2b. Guard ≤10h — medido no COMPRESSED (o que sobe pro AssemblyAI) ──────
+# Gravação de dia inteiro mayoritariamente silenciosa encolhe pra poucas horas e
+# passa; só barra quem realmente tem >~10h de som. Falha antes do upload.
+COMP_DURATION=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$COMPRESSED" 2>/dev/null || echo "0")
+COMP_DURATION_INT=$(printf '%.0f' "$COMP_DURATION")
+log "duração pós-silenceremove=${COMP_DURATION_INT}s (limite=${MAX_AUDIO_SECONDS}s)"
+if [ "$COMP_DURATION_INT" -gt "$MAX_AUDIO_SECONDS" ]; then
+  echo "ERR áudio pós-silenceremove tem ${COMP_DURATION_INT}s (> ${MAX_AUDIO_SECONDS}s ≈ 10h) — AssemblyAI rejeita" >&2
+  exit 1
+fi
 
 # ─── 3. Upload pro AssemblyAI ────────────────────────────────────
 log "upload pra AssemblyAI"
