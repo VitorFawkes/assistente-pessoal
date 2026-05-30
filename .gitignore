@@ -41,3 +41,14 @@ mac-agent/.last_response.json
 
 # git worktrees (workspace isolado pra trabalho longo)
 .worktrees/
+
+# Claude Code configs locais (não compartilhar)
+.claude/
+
+# MCP server configs com secrets embutidos (rotacionar se ja exposto)
+hostinger-mcp
+
+# Backups locais de workflows n8n (já versionamos os JSONs limpos)
+.backup-*.json
+.backup-wf-*.json
+n8n-workflows/.backup-*.json
