@@ -5,14 +5,17 @@ import { query } from "@/lib/db";
 // ao middleware do 15 que era Edge). Permite acesso direto ao pg.
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon|api/health|api/save-audio).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon|api/health|api/save-audio|\\.well-known).*)"],
 };
 
 const PUBLIC_PREFIXES = [
-  "/c/",            // página de convite (consume)
+  "/c/",                  // página de convite (consume)
   "/sem-acesso",
-  "/api/sessao",    // POST consume invite (cria sessão), DELETE logout
-  "/api/admin/",    // rotas admin têm auth própria via x-admin-token (WEBHOOK_TOKEN)
+  "/api/sessao",          // POST consume invite (cria sessão), DELETE logout
+  "/api/admin/",          // rotas admin têm auth própria via x-admin-token (WEBHOOK_TOKEN)
+  "/api/auth/mobile/",    // app iOS: exchange invite/session → access_token (auth própria via body)
+  "/api/mobile/",         // app iOS: rotas autenticadas via Authorization: Bearer (auth própria na rota)
+  "/api/internal/",       // service-to-service (ingest-svc valida session com INTERNAL_SVC_TOKEN)
 ];
 // /termos é semi-público: precisa de sessão, mas SEM consent_terms_at.
 // Tratado inline abaixo, não no PUBLIC_PREFIXES.

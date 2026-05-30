@@ -29,16 +29,11 @@ export class InviteError extends Error {
 }
 
 /**
- * Retorna o user da sessão atual + atualiza last_used_at (sliding expiration).
- * Throws AuthError(401) se sessão inválida/expirada/revogada/user soft-deleted.
- *
- * SOMENTE chamar em Route Handlers e Server Actions (têm error handling explícito).
- * Em Server Components, chamar requireUserOrRedirect (que faz catch + redirect).
+ * Valida sessionId + atualiza last_used_at (sliding expiration). Retorna User
+ * ou null. Usado por requireUser (cookie), requireUserFromBearer (header) e
+ * pelo endpoint de refresh mobile.
  */
-export async function requireUser(): Promise<User> {
-  const sessionId = (await cookies()).get(COOKIE_NAME)?.value;
-  if (!sessionId) throw new AuthError(401);
-
+export async function getUserBySessionId(sessionId: string): Promise<User | null> {
   const cutoff = new Date(Date.now() - SESSION_MAX_AGE * 1000).toISOString();
   const rows = await query<{ user: User | null }>(
     `UPDATE sessions s SET last_used_at = now()
@@ -50,7 +45,20 @@ export async function requireUser(): Promise<User> {
      ) AS user`,
     [sessionId, cutoff],
   );
-  const user = rows[0]?.user;
+  return rows[0]?.user ?? null;
+}
+
+/**
+ * Retorna o user da sessão atual + atualiza last_used_at (sliding expiration).
+ * Throws AuthError(401) se sessão inválida/expirada/revogada/user soft-deleted.
+ *
+ * SOMENTE chamar em Route Handlers e Server Actions (têm error handling explícito).
+ * Em Server Components, chamar requireUserOrRedirect (que faz catch + redirect).
+ */
+export async function requireUser(): Promise<User> {
+  const sessionId = (await cookies()).get(COOKIE_NAME)?.value;
+  if (!sessionId) throw new AuthError(401);
+  const user = await getUserBySessionId(sessionId);
   if (!user) throw new AuthError(401);
   return user;
 }
@@ -59,6 +67,22 @@ export async function requireAdmin(): Promise<User> {
   const u = await requireUser();
   if (!u.is_admin) throw new AuthError(403);
   return u;
+}
+
+/**
+ * Versão Bearer-token de requireUser, pra clientes nativos (iOS app).
+ * Token = sessions.id (mesmo UUID que vai no cookie). Diferente do cookie,
+ * vem do header Authorization. Sliding expiration igual ao cookie.
+ */
+export async function requireUserFromBearer(req: Request): Promise<User> {
+  const header = req.headers.get("authorization") || "";
+  const sessionId = header.startsWith("Bearer ")
+    ? header.slice(7).trim()
+    : null;
+  if (!sessionId) throw new AuthError(401);
+  const user = await getUserBySessionId(sessionId);
+  if (!user) throw new AuthError(401);
+  return user;
 }
 
 /** Use em Server Components: catch AuthError → redirect pra /sem-acesso. */
@@ -172,6 +196,26 @@ export function withAuth<TCtx = unknown>(
   return async (req, ctx) => {
     try {
       const user = opts?.admin ? await requireAdmin() : await requireUser();
+      return await fn(user, req, ctx);
+    } catch (e) {
+      if (e instanceof AuthError) {
+        return new Response(null, { status: e.status });
+      }
+      throw e;
+    }
+  };
+}
+
+/**
+ * Wrapper Bearer pra Route Handlers de /api/mobile/*. Mesma ideia de withAuth
+ * mas valida via Authorization header em vez de cookie.
+ */
+export function withBearerAuth<TCtx = unknown>(
+  fn: (user: User, req: Request, ctx: TCtx) => Promise<Response>,
+): (req: Request, ctx: TCtx) => Promise<Response> {
+  return async (req, ctx) => {
+    try {
+      const user = await requireUserFromBearer(req);
       return await fn(user, req, ctx);
     } catch (e) {
       if (e instanceof AuthError) {
