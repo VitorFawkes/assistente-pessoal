@@ -1,0 +1,19 @@
+// Build config para Debug — usado no simulador e em builds locais.
+// Substitua WELCOME_BASE_URL / WELCOME_INGEST_URL pelos endpoints que VOCÊ está
+// rodando localmente (ex: `ngrok` apontando pro frontend Next.js + ingest-svc).
+
+WELCOME_BASE_URL = https:/$()/n8n-assistente-frontend.tatetz.easypanel.host
+WELCOME_INGEST_URL = https:/$()/ingest.acoes.vitorgambetti.com.br
+
+// Bundle ID. Mesmo do Apple Developer Portal.
+PRODUCT_BUNDLE_IDENTIFIER = br.com.ttars
+
+// Versão semver (CFBundleShortVersionString). Bump manual entre releases.
+MARKETING_VERSION = 1.0.0
+
+// Build number (CFBundleVersion). Bump a cada upload pro TestFlight.
+CURRENT_PROJECT_VERSION = 1
+
+// Code signing — preenchido pelo Xcode quando você logar com Apple ID.
+DEVELOPMENT_TEAM =
+CODE_SIGN_STYLE = Automatic

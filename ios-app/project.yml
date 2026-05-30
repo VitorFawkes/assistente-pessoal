@@ -1,0 +1,64 @@
+# XcodeGen spec — gera WelcomeAssistente.xcodeproj a partir desse YAML.
+#
+# Pra gerar/regenerar o project:
+#   brew install xcodegen
+#   cd ios-app && xcodegen generate
+#
+# O .xcodeproj resultante é gitignored — sempre regerável.
+
+name: WelcomeAssistente
+options:
+  bundleIdPrefix: br.com.ttars
+  deploymentTarget:
+    iOS: "18.0"
+  developmentLanguage: pt-BR
+  generateEmptyDirectories: true
+  groupSortPosition: top
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEAD_CODE_STRIPPING: YES
+    ENABLE_MODULE_VERIFIER: YES
+    IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+    TARGETED_DEVICE_FAMILY: "1"  # iPhone only
+
+configs:
+  Debug: debug
+  Release: release
+
+configFiles:
+  Debug: Configs/Debug.xcconfig
+  Release: Configs/Release.xcconfig
+
+targets:
+  WelcomeAssistente:
+    type: application
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: WelcomeAssistente
+        excludes:
+          - "Resources/Info.plist"
+          - "Resources/PrivacyInfo.xcprivacy"
+          - "Resources/WelcomeAssistente.entitlements"
+    resources:
+      - WelcomeAssistente/Resources/PrivacyInfo.xcprivacy
+    info:
+      path: WelcomeAssistente/Resources/Info.plist
+    entitlements:
+      path: WelcomeAssistente/Resources/WelcomeAssistente.entitlements
+    settings:
+      base:
+        PRODUCT_NAME: TTARS BR
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_OBJC_BRIDGING_HEADER: ""
+        ENABLE_PREVIEWS: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        TARGETED_DEVICE_FAMILY: "1"

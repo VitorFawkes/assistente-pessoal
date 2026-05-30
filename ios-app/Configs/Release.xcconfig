@@ -1,0 +1,15 @@
+// Build config para Release — usado no TestFlight e App Store.
+// Decisão 2026-05-28: usa o host do easypanel (acoes.vitorgambetti.com.br tá 404).
+// Quando custom domain voltar, é só trocar essas 2 linhas + regerar projeto +
+// rebuild. Universal Link entitlement já lista ambos os hosts.
+
+WELCOME_BASE_URL = https:/$()/n8n-assistente-frontend.tatetz.easypanel.host
+WELCOME_INGEST_URL = https:/$()/ingest.acoes.vitorgambetti.com.br
+
+PRODUCT_BUNDLE_IDENTIFIER = br.com.ttars
+
+MARKETING_VERSION = 1.0.0
+CURRENT_PROJECT_VERSION = 1
+
+DEVELOPMENT_TEAM =
+CODE_SIGN_STYLE = Automatic
