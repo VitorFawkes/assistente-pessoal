@@ -69,6 +69,9 @@ targets:
         UIBackgroundModes:
           - audio
         NSMicrophoneUsageDescription: TTARS BR usa o microfone pra gravar suas reuniões e extrair tarefas automaticamente.
+        # App não usa criptografia além da padrão do sistema (HTTPS) — evita
+        # bloqueio MISSING_EXPORT_COMPLIANCE em cada build novo no TestFlight.
+        ITSAppUsesNonExemptEncryption: false
         # URLs setadas via xcconfig por configuration (Debug vs Release).
         # O $() workaround é necessário no xcconfig porque `//` é comentário lá;
         # aqui no plist viraria string normal "https://host" no build.
