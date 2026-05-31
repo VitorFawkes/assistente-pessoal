@@ -80,15 +80,16 @@ final class AudioRecorder: NSObject {
         rec.delegate = self
         rec.isMeteringEnabled = true
 
-        guard rec.prepareToRecord() else {
-            throw NSError(domain: "AudioRecorder", code: -5,
-                userInfo: [NSLocalizedDescriptionKey:
-                    "prepareToRecord() retornou false — provavelmente Mac não autorizou Simulator a usar microfone (System Settings → Privacy & Security → Microphone)"])
-        }
+        // prepareToRecord() é opcional — Apple docs dizem que record() prepara
+        // automaticamente. Simuladores às vezes retornam false aqui mas record()
+        // funciona. Pulamos pra reduzir falsos negativos.
         guard rec.record() else {
+            // No simulator, isso geralmente significa "Use Mac Microphone" não
+            // está habilitado no menu Device/Features → Microphone do Simulator.
+            // Em device físico = permissão revogada ou audio hw indisponível.
             throw NSError(domain: "AudioRecorder", code: -6,
                 userInfo: [NSLocalizedDescriptionKey:
-                    "record() retornou false — sample rate ou formato podem estar inválidos"])
+                    "record() retornou false. No simulator: menu Simulator → Device → Microphone → 'Use Mac Microphone' ligado. No iPhone: revisar permissão de mic em Ajustes."])
         }
 
         recorder = rec
