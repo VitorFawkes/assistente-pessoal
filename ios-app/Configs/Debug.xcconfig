@@ -15,5 +15,5 @@ MARKETING_VERSION = 1.0.0
 CURRENT_PROJECT_VERSION = 1
 
 // Code signing — preenchido pelo Xcode quando você logar com Apple ID.
-DEVELOPMENT_TEAM =
+DEVELOPMENT_TEAM = 8J472F3RHN
 CODE_SIGN_STYLE = Automatic
