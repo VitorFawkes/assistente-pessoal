@@ -3,7 +3,7 @@
 // rodando localmente (ex: `ngrok` apontando pro frontend Next.js + ingest-svc).
 
 WELCOME_BASE_URL = https:/$()/n8n-assistente-frontend.tatetz.easypanel.host
-WELCOME_INGEST_URL = https:/$()/ingest.acoes.vitorgambetti.com.br
+WELCOME_INGEST_URL = https:/$()/n8n-ingest-svc.tatetz.easypanel.host
 
 // Bundle ID. Mesmo do Apple Developer Portal.
 PRODUCT_BUNDLE_IDENTIFIER = br.com.ttars

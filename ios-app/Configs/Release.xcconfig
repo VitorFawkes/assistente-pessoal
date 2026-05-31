@@ -4,7 +4,7 @@
 // rebuild. Universal Link entitlement já lista ambos os hosts.
 
 WELCOME_BASE_URL = https:/$()/n8n-assistente-frontend.tatetz.easypanel.host
-WELCOME_INGEST_URL = https:/$()/ingest.acoes.vitorgambetti.com.br
+WELCOME_INGEST_URL = https:/$()/n8n-ingest-svc.tatetz.easypanel.host
 
 PRODUCT_BUNDLE_IDENTIFIER = br.com.ttars
 
