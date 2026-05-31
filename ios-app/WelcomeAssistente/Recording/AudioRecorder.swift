@@ -36,10 +36,26 @@ final class AudioRecorder: NSObject {
     @discardableResult
     func start() async throws -> URL {
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord,
-                                mode: .default,
-                                options: [.allowBluetooth, .defaultToSpeaker])
-        try session.setActive(true)
+
+        // .allowBluetooth quebra em simulator iOS 26 (Bluetooth não existe).
+        // .defaultToSpeaker em iPhone real direciona o playback pra speaker, não
+        // afeta o input. Mode .spokenAudio é o recomendado pra voz humana (filtros
+        // tuned pra fala).
+        do {
+            try session.setCategory(.playAndRecord, mode: .spokenAudio,
+                                    options: [.defaultToSpeaker, .duckOthers])
+        } catch {
+            throw NSError(domain: "AudioRecorder", code: -2,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "Audio session setCategory falhou: \(error.localizedDescription)"])
+        }
+        do {
+            try session.setActive(true, options: [])
+        } catch {
+            throw NSError(domain: "AudioRecorder", code: -3,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "Audio session setActive falhou: \(error.localizedDescription)"])
+        }
 
         let pendingDir = try ensurePendingDir()
         let id = UUID().uuidString
@@ -53,15 +69,26 @@ final class AudioRecorder: NSObject {
             AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
         ]
 
-        let rec = try AVAudioRecorder(url: url, settings: settings)
+        let rec: AVAudioRecorder
+        do {
+            rec = try AVAudioRecorder(url: url, settings: settings)
+        } catch {
+            throw NSError(domain: "AudioRecorder", code: -4,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "AVAudioRecorder init falhou: \(error.localizedDescription)"])
+        }
         rec.delegate = self
         rec.isMeteringEnabled = true
+
+        guard rec.prepareToRecord() else {
+            throw NSError(domain: "AudioRecorder", code: -5,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "prepareToRecord() retornou false — provavelmente Mac não autorizou Simulator a usar microfone (System Settings → Privacy & Security → Microphone)"])
+        }
         guard rec.record() else {
-            throw NSError(
-                domain: "AudioRecorder",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Falha ao iniciar gravação"]
-            )
+            throw NSError(domain: "AudioRecorder", code: -6,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "record() retornou false — sample rate ou formato podem estar inválidos"])
         }
 
         recorder = rec
