@@ -5,7 +5,7 @@ import { withTenant } from "./db";
 export type Meeting = {
   id: string;
   user_id: string;
-  source: "macbook" | "iphone" | "segmented";
+  source: "macbook" | "iphone" | "ios-app" | "segmented";
   meeting_type: "online" | "presencial" | "desconhecido" | null;
   original_filename: string;
   audio_path: string;
