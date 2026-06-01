@@ -37,33 +37,36 @@ final class AudioRecorder: NSObject {
     func start() async throws -> URL {
         let session = AVAudioSession.sharedInstance()
 
-        // .allowBluetooth quebra em simulator iOS 26 (Bluetooth não existe).
-        // .defaultToSpeaker em iPhone real direciona o playback pra speaker, não
-        // afeta o input. Mode .spokenAudio é o recomendado pra voz humana (filtros
-        // tuned pra fala).
+        // Config minimalista pra evitar incompatibilidades iOS 26:
+        // - mode .default em vez de .spokenAudio (.spokenAudio rejeita em alguns hw)
+        // - sem .duckOthers (interage com Now Playing system de forma errática)
+        // - .defaultToSpeaker direciona playback apenas (não afeta input)
         do {
-            try session.setCategory(.playAndRecord, mode: .spokenAudio,
-                                    options: [.defaultToSpeaker, .duckOthers])
+            try session.setCategory(.playAndRecord, mode: .default,
+                                    options: [.defaultToSpeaker])
         } catch {
             throw NSError(domain: "AudioRecorder", code: -2,
                 userInfo: [NSLocalizedDescriptionKey:
-                    "Audio session setCategory falhou: \(error.localizedDescription)"])
+                    "setCategory falhou: \(error.localizedDescription)"])
         }
         do {
-            try session.setActive(true, options: [])
+            try session.setActive(true)
         } catch {
             throw NSError(domain: "AudioRecorder", code: -3,
                 userInfo: [NSLocalizedDescriptionKey:
-                    "Audio session setActive falhou: \(error.localizedDescription)"])
+                    "setActive falhou: \(error.localizedDescription) (categoria=\(session.category.rawValue), sampleRate=\(session.sampleRate))"])
         }
 
         let pendingDir = try ensurePendingDir()
         let id = UUID().uuidString
         let url = pendingDir.appendingPathComponent("\(id).m4a")
 
+        // Sample rate 44100 é mais universal em hardware iOS — 16kHz nativo pode
+        // ser rejeitado pelo AVAudioRecorder em alguns iPhones, exige resampling
+        // manual. ingest-svc reencoda pra 16kHz no ffmpeg de qualquer jeito.
         let settings: [String: Any] = [
             AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey: 16000.0,
+            AVSampleRateKey: 44100.0,
             AVNumberOfChannelsKey: 1,
             AVEncoderBitRateKey: 64000,
             AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
@@ -80,16 +83,20 @@ final class AudioRecorder: NSObject {
         rec.delegate = self
         rec.isMeteringEnabled = true
 
-        // prepareToRecord() é opcional — Apple docs dizem que record() prepara
-        // automaticamente. Simuladores às vezes retornam false aqui mas record()
-        // funciona. Pulamos pra reduzir falsos negativos.
-        guard rec.record() else {
-            // No simulator, isso geralmente significa "Use Mac Microphone" não
-            // está habilitado no menu Device/Features → Microphone do Simulator.
-            // Em device físico = permissão revogada ou audio hw indisponível.
-            throw NSError(domain: "AudioRecorder", code: -6,
-                userInfo: [NSLocalizedDescriptionKey:
-                    "record() retornou false. No simulator: menu Simulator → Device → Microphone → 'Use Mac Microphone' ligado. No iPhone: revisar permissão de mic em Ajustes."])
+        // Logging detalhado pra debug remoto via Xcode console
+        let perm = AVAudioApplication.shared.recordPermission
+        let route = session.currentRoute.inputs.map { "\($0.portName)(\($0.portType.rawValue))" }.joined(separator: ",")
+        print("[Recorder] permission=\(perm.rawValue) inputs=[\(route)] cat=\(session.category.rawValue) mode=\(session.mode.rawValue)")
+
+        if !rec.record() {
+            let info: [String: Any] = [
+                NSLocalizedDescriptionKey: "Gravação falhou. Permission=\(perm.rawValue), inputs=[\(route.isEmpty ? "nenhum" : route)]. Tente: feche outros apps que usam áudio (gravador, chamada, Spotify) e tente de novo.",
+                "permission": perm.rawValue,
+                "inputs": route,
+                "category": session.category.rawValue,
+                "mode": session.mode.rawValue
+            ]
+            throw NSError(domain: "AudioRecorder", code: -6, userInfo: info)
         }
 
         recorder = rec
