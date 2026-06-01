@@ -27,7 +27,17 @@ export async function GET(
 
   const proto = req.headers.get("x-forwarded-proto") || "https";
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost";
-  const res = NextResponse.redirect(`${proto}://${host}/`, 303);
+
+  // Aceita ?next=/algum/path pra abrir uma rota específica pós-login (ex: app
+  // iOS tap em meeting → bridge auth → /reunioes/<id>). Validamos que é path
+  // relativo começando com '/' pra prevenir open redirect.
+  const rawNext = req.nextUrl.searchParams.get("next");
+  const safePath =
+    rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//")
+      ? rawNext
+      : "/";
+
+  const res = NextResponse.redirect(`${proto}://${host}${safePath}`, 303);
   res.cookies.set("session", session_id, {
     httpOnly: true,
     secure: true,

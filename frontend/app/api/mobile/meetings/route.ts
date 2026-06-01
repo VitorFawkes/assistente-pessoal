@@ -19,19 +19,30 @@ export const GET = withBearerAuth(async (user, req) => {
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "";
   const baseUrl = `${proto}://${host}`;
 
+  // Bearer token vem do header (já validado por withBearerAuth). Constrói
+  // web_url usando o bridge /api/admin/login/<token>?next=/reunioes/<id>
+  // pra Safari/SFSafariViewController entrar logado direto (sem login screen).
+  const bearer = req.headers.get("authorization")?.slice("Bearer ".length).trim() ?? "";
+
   const rows = await meetingsFor(user.id).listForIndex();
-  const meetings = rows.slice(0, limit).map((m) => ({
-    id: m.id,
-    recorded_at: m.recorded_at,
-    status: mapStatus(m.status),
-    raw_status: m.status,
-    summary: m.summary,
-    duration_seconds: m.duration_seconds,
-    source: m.source,
-    meeting_type: m.meeting_type,
-    tarefas_count: m.n_tarefas,
-    web_url: `${baseUrl}/reunioes/${m.id}`,
-  }));
+  const meetings = rows.slice(0, limit).map((m) => {
+    const target = `/reunioes/${m.id}`;
+    const webUrl = bearer
+      ? `${baseUrl}/api/admin/login/${bearer}?next=${encodeURIComponent(target)}`
+      : `${baseUrl}${target}`;
+    return {
+      id: m.id,
+      recorded_at: m.recorded_at,
+      status: mapStatus(m.status),
+      raw_status: m.status,
+      summary: m.summary,
+      duration_seconds: m.duration_seconds,
+      source: m.source,
+      meeting_type: m.meeting_type,
+      tarefas_count: m.n_tarefas,
+      web_url: webUrl,
+    };
+  });
 
   return NextResponse.json({ meetings });
 });
