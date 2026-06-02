@@ -40,6 +40,13 @@ SAMPLE_RATE = 16000
 # encolhe pra poucas horas, passa normal. 35880s = 9h58m (margem sob 36000s).
 MAX_AUDIO_SECONDS = int(os.environ.get("MAX_AUDIO_SECONDS", "35880"))
 
+# Split por gap de silêncio no áudio CRU (antes do silenceremove): silêncio
+# >= GAP_SECONDS separa reuniões distintas num upload longo. Threshold
+# conservador (5min) — partir errado é pior que colar (a UI de segmentar é a
+# rede). Ilhas < MIN_MEETING_SECONDS são descartadas (ruído curto).
+GAP_SECONDS = int(os.environ.get("GAP_SECONDS", "300"))
+MIN_MEETING_SECONDS = int(os.environ.get("MIN_MEETING_SECONDS", "60"))
+
 ASSEMBLYAI_BASE = "https://api.assemblyai.com"
 ASSEMBLYAI_API_KEY = os.environ.get("ASSEMBLYAI_API_KEY", "")
 
@@ -313,6 +320,73 @@ async def transcribe(input_path: str, workdir: str) -> TranscribeResult:
         compressed_path=compressed_path,
         segments=segments,
     )
+
+
+def _detect_meeting_segments(input_path: str) -> list[tuple[float, float]]:
+    """Detecta reuniões distintas por gap de silêncio no áudio CRU.
+
+    Retorna lista de (start, end) em segundos. 1 elemento = arquivo inteiro
+    (sem gaps grandes — caminho normal). Espelha mac-agent/audio-watcher.sh.
+    """
+    dur = _detect_duration(input_path)
+    if dur <= 0:
+        return [(0.0, 0.0)]
+    # Curto demais pra conter 2 reuniões + um gap → não vale a varredura.
+    if dur < GAP_SECONDS + 2 * MIN_MEETING_SECONDS:
+        return [(0.0, float(dur))]
+    proc = _run(
+        ["ffmpeg", "-hide_banner", "-nostats", "-i", input_path,
+         "-af", f"silencedetect=noise=-50dB:d={GAP_SECONDS}", "-f", "null", "-"],
+        check=False,
+    )
+    # silencedetect loga no stderr.
+    events = re.findall(r"silence_(start|end):\s*([0-9.]+)", proc.stderr)
+    islands: list[tuple[float, float]] = []
+    cur = 0.0
+    for kind, val in events:
+        v = float(val)
+        if kind == "start":
+            if v - cur >= MIN_MEETING_SECONDS:
+                islands.append((cur, v))
+        else:  # end
+            cur = v
+    if dur - cur >= MIN_MEETING_SECONDS:
+        islands.append((cur, float(dur)))
+    return islands if islands else [(0.0, float(dur))]
+
+
+async def transcribe_segments(input_path: str, workdir: str) -> list[TranscribeResult]:
+    """Igual a transcribe(), mas separa reuniões distintas (gap de silêncio).
+
+    1 segmento → [transcribe(arquivo inteiro)] (comportamento idêntico ao de antes).
+    N segmentos → recorta cada reunião e transcreve isolada (diarização por reunião).
+    Segmentos vazios/too-long são pulados (lista pode ter < N itens).
+    """
+    segs = _detect_meeting_segments(input_path)
+    if len(segs) <= 1:
+        return [await transcribe(input_path, workdir)]
+
+    log.info("SPLIT: %d reuniões detectadas (gap>=%ds)", len(segs), GAP_SECONDS)
+    results: list[TranscribeResult] = []
+    for i, (start, end) in enumerate(segs, 1):
+        clip = os.path.join(workdir, f"seg_{i}.mp3")
+        _run([
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-ss", str(start), "-to", str(end), "-i", input_path,
+            "-ar", str(SAMPLE_RATE), "-ac", "1", "-b:a", BITRATE, clip,
+        ])
+        sub = os.path.join(workdir, f"seg_{i}_work")
+        os.makedirs(sub, exist_ok=True)
+        try:
+            results.append(await transcribe(clip, sub))
+        except AudioTooLongError as e:
+            log.warning("segmento %d (%ds) too long — pulando: %s", i, int(end - start), e)
+        finally:
+            try:
+                os.remove(clip)
+            except OSError:
+                pass
+    return results
 
 
 async def cleanup_compressed(result: TranscribeResult) -> None:

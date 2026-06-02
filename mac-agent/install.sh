@@ -62,6 +62,21 @@ launchctl enable "gui/$(id -u)/$LABEL" 2>/dev/null || true
 launchctl kickstart -k "gui/$(id -u)/$LABEL"
 echo "✓ Launch agent carregado e ativo."
 
+# 7) Monitor de auto-stop do Audio Hijack (fecha sessão esquecida > AH_MAX_SECONDS)
+MON_LABEL="com.vitor.audio-hijack-monitor"
+MON_SRC="$SCRIPT_DIR/$MON_LABEL.plist"
+MON_DST="$HOME/Library/LaunchAgents/$MON_LABEL.plist"
+if [ -f "$MON_SRC" ]; then
+  chmod +x "$SCRIPT_DIR/audio-hijack-stop.sh"
+  sed "s|__PROJECT_DIR__|$PROJECT_DIR|g" "$MON_SRC" > "$MON_DST"
+  if launchctl print "gui/$(id -u)/$MON_LABEL" >/dev/null 2>&1; then
+    launchctl bootout "gui/$(id -u)" "$MON_DST" 2>/dev/null || true
+  fi
+  launchctl bootstrap "gui/$(id -u)" "$MON_DST"
+  launchctl enable "gui/$(id -u)/$MON_LABEL" 2>/dev/null || true
+  echo "✓ Monitor de auto-stop do Audio Hijack carregado (limite via AH_MAX_SECONDS no plist)."
+fi
+
 echo ""
 echo "Status:"
 launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null | grep -E "(state|pid|last exit code)" || true

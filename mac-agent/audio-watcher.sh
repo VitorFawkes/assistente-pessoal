@@ -47,7 +47,8 @@ wait_until_closed() {
   local file="$1"
   local poll=5
   local stable_required=3   # 3 × 5s = 15s estável consecutivo
-  local max_wait=14400      # 4h
+  local max_wait=25200      # 7h — maior que o auto-stop do AH (6h), pra esperar a
+                            # gravação parar de verdade em vez de processar truncado
   local elapsed=0
   local prev_size=-1
   local stable_count=0
@@ -68,7 +69,18 @@ wait_until_closed() {
     sleep "$poll"
     elapsed=$((elapsed + poll))
   done
-  log "WARN wait_until_closed timeout (${max_wait}s) — $file ainda ativo, prosseguindo"
+  # Timeout. Pode ser gravação ainda ATIVA (AH em ciclo flush-close engana o lsof).
+  # Processar agora = snapshot truncado → mp3 corrompido → "silêncio" falso. Então
+  # checamos crescimento: se ainda cresce, NÃO processa (defere); senão, segue.
+  local s1 s2
+  s1=$(stat -Lf%z "$file" 2>/dev/null || echo 0); sleep 6
+  s2=$(stat -Lf%z "$file" 2>/dev/null || echo 0)
+  if [ "$s2" -gt "$s1" ]; then
+    log "WARN wait_until_closed timeout (${max_wait}s) e arquivo AINDA crescendo ($s1→$s2) — DEFER (não processo): $file"
+    osascript -e "display notification \"Gravação ativa há +${max_wait}s e não parou. Pare o Audio Hijack.\" with title \"Pipeline Áudio — gravação travada\" sound name \"Sosumi\"" >/dev/null 2>&1 || true
+    return 2
+  fi
+  log "WARN wait_until_closed timeout (${max_wait}s) — arquivo estável, prosseguindo: $file"
   return 0
 }
 
@@ -180,6 +192,72 @@ move_to_failed() {
   mv "$file" "$FAILED_DIR/" 2>/dev/null || log "WARN não conseguiu mover $file para failed"
 }
 
+# ─── 2.2: detecta reuniões distintas por gap de silêncio no áudio CRU ──────
+# Saída: 1+ linhas "start end" (segundos). 1 linha = arquivo inteiro (sem split).
+# Threshold conservador (gap>=5min) pra evitar partir uma reunião com pausa longa
+# — partir errado é pior que colar (colado tem a UI de segmentar como rede).
+GAP_SECONDS="${GAP_SECONDS:-300}"
+MIN_MEETING_SECONDS="${MIN_MEETING_SECONDS:-60}"
+detect_meeting_segments() {
+  local f="$1" dur
+  dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$f" 2>/dev/null || echo 0)
+  dur=${dur%.*}
+  if [ "${dur:-0}" -le 0 ]; then echo "0 0"; return 0; fi
+  # Curto demais pra conter 2 reuniões + um gap → não vale a varredura.
+  if [ "$dur" -lt $((GAP_SECONDS + 2 * MIN_MEETING_SECONDS)) ]; then echo "0 $dur"; return 0; fi
+  local islands
+  islands="$(ffmpeg -hide_banner -nostats -i "$f" -af "silencedetect=noise=-50dB:d=${GAP_SECONDS}" -f null - 2>&1 \
+    | grep -oE 'silence_(start|end): [0-9.]+' \
+    | awk -v dur="$dur" -v minlen="$MIN_MEETING_SECONDS" '
+        BEGIN{cur=0}
+        /start/{ s=$2+0; if (s-cur>=minlen) printf "%.0f %.0f\n", cur, s }
+        /end/  { cur=$2+0 }
+        END    { if (dur-cur>=minlen) printf "%.0f %.0f\n", cur, dur }')"
+  if [ -z "$islands" ]; then echo "0 $dur"; else printf '%s\n' "$islands"; fi
+}
+
+# Transcreve UM arquivo e posta pro n8n. NÃO move/marca o original (caller faz).
+# Pula POST se vazio/silencioso (não cria meeting fantasma).
+transcribe_and_post() {
+  local audio="$1" pbase="$2" rec="$3" src="$4" mt="$5"
+  local tj te
+  tj="$("$SCRIPT_DIR/transcribe.sh" "$audio" 2>>"$LOG_FILE")" && te=0 || te=$?
+  if [ "$te" -ne 0 ] || [ -z "$tj" ]; then
+    log "ERR transcribe.sh falhou (exit=$te) em $pbase"; return 1
+  fi
+  local text duration silent n_chunks compressed_path segments size
+  text=$(echo "$tj" | jq -r '.text // ""')
+  duration=$(echo "$tj" | jq -r '.duration_seconds // 0')
+  silent=$(echo "$tj" | jq -r '.silent // false')
+  n_chunks=$(echo "$tj" | jq -r '.n_chunks // 0')
+  compressed_path=$(echo "$tj" | jq -r '.compressed_path // ""')
+  segments=$(echo "$tj" | jq -c '.segments // []')
+  [ -f "$compressed_path" ] || { log "ERR compressed_path inexistente em $pbase"; return 1; }
+  if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
+    log "SKIP-EMPTY $pbase (transcrição vazia) — não posta"
+    rm -rf "$(dirname "$compressed_path")" 2>/dev/null; return 0
+  fi
+  size="$(stat -Lf%z "$compressed_path" 2>/dev/null || echo 0)"
+  log "POST source=$src type=$mt size=$size duration=${duration}s silent=$silent file=$pbase"
+  local http_code
+  http_code=$(curl -sS -o "$SCRIPT_DIR/.last_response.json" -w '%{http_code}' --max-time 120 \
+    -X POST "$WEBHOOK_URL" \
+    -H "X-Auth: $WEBHOOK_TOKEN" -H "X-User-Id: $WEBHOOK_USER_ID" \
+    -H "X-Source: $src" -H "X-Meeting-Type: $mt" \
+    -H "X-Original-Filename: $pbase" -H "X-Recorded-At: $rec" \
+    -H "X-Audio-Size: $size" -H "X-Duration-Seconds: $duration" \
+    -H "X-Silent: $silent" -H "X-N-Chunks: $n_chunks" \
+    -F "audio=@$compressed_path;filename=$pbase" \
+    -F "transcription=$text" -F "duration_seconds=$duration" \
+    -F "silent=$silent" -F "segments=$segments" \
+    2>>"$LOG_FILE") || http_code="000"
+  rm -rf "$(dirname "$compressed_path")" 2>/dev/null
+  if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+    log "OK http=$http_code ($pbase)"; return 0
+  fi
+  log "ERR http=$http_code ($pbase) body=$(head -c 300 "$SCRIPT_DIR/.last_response.json" 2>/dev/null)"; return 1
+}
+
 process_file() {
   local file="$1"
 
@@ -202,7 +280,15 @@ process_file() {
   fi
 
   log "DETECT $file"
-  wait_until_closed "$file"
+  local wclosed_rc=0
+  wait_until_closed "$file" || wclosed_rc=$?
+  # rc=2: gravação ainda ativa após o teto de espera — NÃO processa truncado.
+  # Não marca como processado: quando a gravação parar de fato (auto-stop do AH),
+  # um novo evento/relançe do watcher reprocessa o arquivo já completo.
+  if [ "$wclosed_rc" = "2" ]; then
+    log "DEFER $file — gravação ainda ativa, adiando (não processo truncado)"
+    return 0
+  fi
   [ -f "$file" ] || { log "VANISHED $file"; return 0; }
 
   # Safety net (2026-05-23 multi-tenant validation):
@@ -218,6 +304,33 @@ process_file() {
   materialized_path="$(materialize_for_upload "$file")"
   if [ -z "$materialized_path" ] || [ ! -f "$materialized_path" ]; then
     log "ERR não conseguiu materializar (iCloud?) $file"
+    return 0
+  fi
+
+  # ── 2.2: separa reuniões distintas (gap de silêncio grande no áudio cru) ──
+  # Caminho normal (1 segmento) cai fora deste if e segue idêntico ao de antes.
+  local seglist nseg
+  seglist="$(detect_meeting_segments "$materialized_path")"
+  nseg="$(printf '%s\n' "$seglist" | grep -c .)"
+  if [ "${nseg:-1}" -gt 1 ]; then
+    local _src _mt _rec _base _ro _i=0
+    _src="$(derive_source "$file")"; _mt="$(derive_meeting_type "$file")"
+    _rec="$(stat -f '%Sm' -t '%Y-%m-%dT%H:%M:%SZ' "$file" 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)"
+    _base="$(basename "$file")"; _base="${_base%.*}"
+    log "SPLIT $_base: $nseg reuniões detectadas (gap>=${GAP_SECONDS}s)"
+    while read -r _st _en; do
+      [ -z "$_st" ] && continue
+      _i=$((_i + 1))
+      local _clip="$(dirname "$materialized_path")/seg_${_i}.mp3"
+      ffmpeg -hide_banner -loglevel error -ss "$_st" -to "$_en" -i "$materialized_path" \
+        -ar 16000 -ac 1 -b:a 48k "$_clip" </dev/null 2>>"$LOG_FILE"
+      transcribe_and_post "$_clip" "${_base} parte${_i}.mp3" "$_rec" "$_src" "$_mt"
+      rm -f "$_clip"
+    done <<< "$seglist"
+    rm -f "$materialized_path"
+    mark_processed "$file"
+    _ro=0; { [ "$IPHONE_READONLY" = "1" ] && [ "$_src" = "iphone" ]; } && _ro=1
+    [ "$_ro" = "1" ] || move_to_processed "$file"
     return 0
   fi
 
@@ -261,6 +374,18 @@ process_file() {
   if [ "$silent" = "true" ] && [ "${dur_int:-0}" -ge 60 ]; then
     log "ALERT silêncio digital em $basename (dur=${duration}s) — verifique captura"
     osascript -e "display notification \"Gravação de ${dur_int}s sem áudio capturado. Verifique mic/Audio Hijack.\" with title \"Pipeline Áudio — silêncio detectado\" sound name \"Sosumi\"" >/dev/null 2>&1 || true
+  fi
+
+  # 1.2: transcrição vazia (silêncio OU áudio alto sem fala — música/ruído) →
+  # NÃO cria meeting fantasma no n8n. Backup já foi feito; marca e arquiva.
+  if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
+    log "SKIP-EMPTY $basename (transcrição vazia) — não posta pro n8n"
+    rm -rf "$(dirname "$compressed_path")" 2>/dev/null
+    mark_processed "$file"
+    if ! { [ "$IPHONE_READONLY" = "1" ] && [ "$source" = "iphone" ]; }; then
+      move_to_processed "$file"
+    fi
+    return 0
   fi
 
   log "POST source=$source type=$meeting_type size=$size duration=${duration}s silent=$silent chunks=$n_chunks file=$basename"

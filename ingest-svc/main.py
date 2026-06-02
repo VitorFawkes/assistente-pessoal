@@ -43,6 +43,7 @@ from transcribe import (
     AudioTooLongError,
     cleanup_compressed,
     transcribe,
+    transcribe_segments,
 )
 
 logging.basicConfig(
@@ -215,32 +216,61 @@ def _process_job_sync(job_id: str, meta: dict[str, Any]) -> None:
     async def _run() -> None:
         workdir = tempfile.mkdtemp(prefix=f"ingest-{job_id}-")
         try:
-            result = await transcribe(raw, workdir)
-            try:
-                http_code, body = await post_to_n8n(
-                    auth_token=INGEST_TOKEN,
-                    user_id=meta["user_id"],
-                    source=meta["source"],
-                    meeting_type=meta["meeting_type"],
-                    original_filename=meta["original_filename"],
-                    recorded_at=meta["recorded_at"],
-                    audio_path=result.compressed_path,
-                    duration_seconds=result.duration_seconds,
-                    silent=result.silent,
-                    n_chunks=result.n_chunks,
-                    transcription=result.text,
-                    segments=result.segments,
-                )
-            finally:
-                await cleanup_compressed(result)
+            # Separa reuniões distintas (gap de silêncio). 1 item = comportamento
+            # normal de antes; N itens = upload longo com várias reuniões.
+            results = await transcribe_segments(raw, workdir)
+            if not results:
+                log.error("job %s: nenhum segmento transcrito (too long?) — preservando cru", job_id)
+                _move_to_failed(job_id, ext, "nenhum segmento transcrito")
+                return
 
-            if 200 <= http_code < 300:
-                log.info("job %s OK (n8n http=%d duration=%ds silent=%s)",
-                         job_id, http_code, result.duration_seconds, result.silent)
-                _cleanup_job(job_id, ext)
+            multi = len(results) > 1
+            stem, dot, fext = meta["original_filename"].rpartition(".")
+            if not dot:
+                stem, fext = meta["original_filename"], ""
+
+            posted = skipped = failed = 0
+            for idx, result in enumerate(results, 1):
+                # vazio/silencioso → NÃO cria meeting fantasma
+                if result.silent or not result.text.strip():
+                    log.info("job %s seg %d: vazio/silent — não posta", job_id, idx)
+                    skipped += 1
+                    await cleanup_compressed(result)
+                    continue
+                fname = meta["original_filename"]
+                if multi:
+                    fname = f"{stem} parte{idx}" + (f".{fext}" if fext else "")
+                try:
+                    http_code, body = await post_to_n8n(
+                        auth_token=INGEST_TOKEN,
+                        user_id=meta["user_id"],
+                        source=meta["source"],
+                        meeting_type=meta["meeting_type"],
+                        original_filename=fname,
+                        recorded_at=meta["recorded_at"],
+                        audio_path=result.compressed_path,
+                        duration_seconds=result.duration_seconds,
+                        silent=result.silent,
+                        n_chunks=result.n_chunks,
+                        transcription=result.text,
+                        segments=result.segments,
+                    )
+                finally:
+                    await cleanup_compressed(result)
+                if 200 <= http_code < 300:
+                    posted += 1
+                    log.info("job %s seg %d/%d OK (http=%d dur=%ds)",
+                             job_id, idx, len(results), http_code, result.duration_seconds)
+                else:
+                    failed += 1
+                    log.error("job %s seg %d: n8n http=%d body=%s", job_id, idx, http_code, body)
+
+            if failed > 0:
+                _move_to_failed(job_id, ext, f"n8n falhou em {failed}/{len(results)} segmentos")
             else:
-                log.error("job %s: n8n rejeitou http=%d body=%s", job_id, http_code, body)
-                _move_to_failed(job_id, ext, f"n8n http={http_code}")
+                log.info("job %s OK (%d postados, %d vazios pulados, %d segmentos)",
+                         job_id, posted, skipped, len(results))
+                _cleanup_job(job_id, ext)
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
 
