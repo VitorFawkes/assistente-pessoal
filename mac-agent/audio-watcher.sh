@@ -194,9 +194,9 @@ move_to_failed() {
 
 # ─── 2.2: detecta reuniões distintas por gap de silêncio no áudio CRU ──────
 # Saída: 1+ linhas "start end" (segundos). 1 linha = arquivo inteiro (sem split).
-# Threshold conservador (gap>=5min) pra evitar partir uma reunião com pausa longa
+# Threshold (gap>=3min) — gap entre reuniões costuma ser silêncio real; pausa
 # — partir errado é pior que colar (colado tem a UI de segmentar como rede).
-GAP_SECONDS="${GAP_SECONDS:-300}"
+GAP_SECONDS="${GAP_SECONDS:-180}"
 MIN_MEETING_SECONDS="${MIN_MEETING_SECONDS:-60}"
 detect_meeting_segments() {
   local f="$1" dur

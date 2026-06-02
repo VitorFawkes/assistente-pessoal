@@ -42,9 +42,9 @@ MAX_AUDIO_SECONDS = int(os.environ.get("MAX_AUDIO_SECONDS", "35880"))
 
 # Split por gap de silêncio no áudio CRU (antes do silenceremove): silêncio
 # >= GAP_SECONDS separa reuniões distintas num upload longo. Threshold
-# conservador (5min) — partir errado é pior que colar (a UI de segmentar é a
+# 3min — gap entre reuniões é silêncio real; pausa dentro tem ruído (a UI é a
 # rede). Ilhas < MIN_MEETING_SECONDS são descartadas (ruído curto).
-GAP_SECONDS = int(os.environ.get("GAP_SECONDS", "300"))
+GAP_SECONDS = int(os.environ.get("GAP_SECONDS", "180"))
 MIN_MEETING_SECONDS = int(os.environ.get("MIN_MEETING_SECONDS", "60"))
 
 ASSEMBLYAI_BASE = "https://api.assemblyai.com"
