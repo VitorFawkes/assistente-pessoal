@@ -14,6 +14,7 @@ import { SpeakersStrip } from "@/components/speakers-strip";
 import { buildSpeakerCards } from "@/lib/speakers";
 import { ArrowLeft, Mic, Video, FileQuestion, UsersRound } from "lucide-react";
 import { ExecutiveSummary } from "./executive-summary";
+import { DeleteMeetingButton } from "@/components/delete-meeting-button";
 
 export const dynamic = "force-dynamic";
 
@@ -74,12 +75,15 @@ export default async function ReuniaoDetalhePage({
 
   return (
     <div className="space-y-7 sm:space-y-9">
-      <Link
-        href="/reunioes"
-        className="inline-flex items-center gap-1.5 text-[13px] text-[color:var(--muted)] hover:text-[color:var(--foreground)] transition"
-      >
-        <ArrowLeft size={14} /> reuniões
-      </Link>
+      <div className="flex items-center justify-between gap-3">
+        <Link
+          href="/reunioes"
+          className="inline-flex items-center gap-1.5 text-[13px] text-[color:var(--muted)] hover:text-[color:var(--foreground)] transition"
+        >
+          <ArrowLeft size={14} /> reuniões
+        </Link>
+        <DeleteMeetingButton meetingId={meeting.id} redirectTo="/reunioes" label="deletar" />
+      </div>
 
       {/* HEADER da reunião */}
       <header className="space-y-4">

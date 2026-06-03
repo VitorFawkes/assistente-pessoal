@@ -3,6 +3,7 @@ import { requireUserOrRedirect } from "@/lib/auth";
 import { meetingsFor } from "@/lib/queries";
 import { fmtDate } from "@/lib/utils";
 import { Mic, Video, Smartphone, ChevronRight, Archive } from "lucide-react";
+import { DeleteMeetingButton } from "@/components/delete-meeting-button";
 
 export const dynamic = "force-dynamic";
 
@@ -121,9 +122,10 @@ export default async function ReunioesPage() {
         <div className="space-y-2.5">
           {meetings.map((m) => (
             <div key={m.id} className="space-y-1.5">
+              <div className="flex items-stretch gap-2">
               <Link
                 href={`/reunioes/${m.id}`}
-                className="press-feedback group block paper-card rounded-2xl border border-[color:var(--border)] hover:border-[color:var(--muted)] p-4 sm:p-5"
+                className="press-feedback group block flex-1 min-w-0 paper-card rounded-2xl border border-[color:var(--border)] hover:border-[color:var(--muted)] p-4 sm:p-5"
               >
                 <div className="flex items-start gap-3">
                   <div className="shrink-0 mt-0.5 w-8 h-8 rounded-full bg-[color:var(--accent)] flex items-center justify-center">
@@ -169,6 +171,11 @@ export default async function ReunioesPage() {
                   </div>
                 </div>
               </Link>
+              <DeleteMeetingButton
+                meetingId={m.id}
+                className="shrink-0 flex items-center justify-center px-3 rounded-2xl border border-[color:var(--border)] text-[color:var(--muted)] hover:text-[color:var(--urgent)] hover:border-[color:var(--urgent)]/40 transition disabled:opacity-50"
+              />
+              </div>
               {m.needs_segmentation && (
                 <Link
                   href={`/reunioes/${m.id}/segmentar`}

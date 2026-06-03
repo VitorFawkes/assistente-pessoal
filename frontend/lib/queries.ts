@@ -107,6 +107,26 @@ export const meetingsFor = (userId: string) => ({
       return r.rows[0] ?? null;
     }),
 
+  /** Hard delete: apaga a reunião + segmentos-filhos. tarefas/eventos caem por FK CASCADE.
+   *  Retorna os audio_paths (alvo + filhos) pra o handler apagar do volume. */
+  deleteCascade: (id: string) =>
+    withTenant(userId, async (db) => {
+      const paths = await db.query<{ audio_path: string | null }>(
+        `SELECT audio_path FROM meetings WHERE id = $1 OR parent_meeting_id = $1`,
+        [id],
+      );
+      const del = await db.query<{ id: string }>(
+        `DELETE FROM meetings WHERE id = $1 OR parent_meeting_id = $1 RETURNING id`,
+        [id],
+      );
+      return {
+        deleted: del.rowCount ?? 0,
+        audioPaths: paths.rows
+          .map((r) => r.audio_path)
+          .filter((p): p is string => Boolean(p)),
+      };
+    }),
+
   /** Versão pra página de detalhe — recorded_at já formatado pra ISO UTC. */
   byIdDetailed: (id: string) =>
     withTenant(userId, async (db) => {
