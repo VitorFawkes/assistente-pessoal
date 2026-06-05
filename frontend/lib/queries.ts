@@ -470,3 +470,27 @@ export const voiceSamplesFor = (userId: string) => ({
       return r.rows[0] ?? null;
     }),
 });
+
+// ─── frentesFor ───────────────────────────────────────────────────────
+
+export const frentesFor = (userId: string) => ({
+  list: () =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<{ id: string; nome: string }>(
+        `SELECT id, nome FROM frentes WHERE ativo ORDER BY ordem, nome`,
+      );
+      return r.rows;
+    }),
+  /** get-or-create por slug; retorna a frente. */
+  create: (nome: string) =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<{ id: string; nome: string }>(
+        `INSERT INTO frentes (user_id, nome, slug, ordem)
+         VALUES ($1, $2, app_slugify($2), 999)
+         ON CONFLICT (user_id, slug) DO UPDATE SET ativo = true
+         RETURNING id, nome`,
+        [userId, nome.trim()],
+      );
+      return r.rows[0];
+    }),
+});
