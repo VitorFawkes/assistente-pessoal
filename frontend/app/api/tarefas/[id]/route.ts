@@ -15,6 +15,8 @@ type PatchBody = Partial<{
   prazo_text: string | null;
   prioridade: (typeof VALID_PRIORIDADE)[number];
   status: (typeof VALID_STATUS)[number];
+  frente_id: string | null;
+  pessoas: { nome: string; principal?: boolean }[];
 }>;
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -65,29 +67,59 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
     }
   }
 
-  if (!sets.length) {
+  if (body.frente_id !== undefined) {
+    push("frente_id", body.frente_id);
+    if (body.frente_id) sets.push("frente_proposta = NULL");
+  }
+
+  const hasPessoas = Array.isArray(body.pessoas);
+  if (!sets.length && !hasPessoas) {
     return NextResponse.json({ error: "nada para atualizar" }, { status: 400 });
   }
 
-  values.push(id);
-  const sql = `UPDATE tarefas SET ${sets.join(", ")} WHERE id = $${values.length} RETURNING *`;
-
   try {
     const updated = await withTenant(user.id, async (c) => {
-      const { rows } = await c.query(sql, values);
-      if (rows[0] && body.status) {
-        const evento =
-          body.status === "concluida"
-            ? "concluida"
-            : body.status === "cancelada"
-            ? "cancelada"
-            : "reaberta";
-        await c.query(
-          "INSERT INTO tarefa_eventos (tarefa_id, evento, payload) VALUES ($1,$2,$3)",
-          [id, evento, JSON.stringify(body)],
-        );
+      let row: unknown;
+      if (sets.length) {
+        values.push(id);
+        const sql = `UPDATE tarefas SET ${sets.join(", ")} WHERE id = $${values.length} RETURNING *`;
+        const { rows } = await c.query(sql, values);
+        row = rows[0];
+        if (row && body.status) {
+          const evento =
+            body.status === "concluida"
+              ? "concluida"
+              : body.status === "cancelada"
+              ? "cancelada"
+              : "reaberta";
+          await c.query(
+            "INSERT INTO tarefa_eventos (tarefa_id, evento, payload) VALUES ($1,$2,$3)",
+            [id, evento, JSON.stringify(body)],
+          );
+        }
+      } else {
+        const { rows } = await c.query("SELECT * FROM tarefas WHERE id = $1", [id]);
+        row = rows[0];
       }
-      return rows[0];
+      if (!row) return null;
+      if (hasPessoas) {
+        await c.query("DELETE FROM tarefa_pessoas WHERE tarefa_id = $1", [id]);
+        for (const p of body.pessoas!) {
+          const nome = (p.nome || "").trim();
+          if (!nome || nome === "?") continue;
+          const pr = await c.query<{ id: string }>(
+            `INSERT INTO pessoas (user_id, nome) VALUES ($1,$2)
+             ON CONFLICT (user_id, nome) DO UPDATE SET updated_at = now() RETURNING id`,
+            [user.id, nome],
+          );
+          await c.query(
+            `INSERT INTO tarefa_pessoas (tarefa_id, pessoa_id, principal) VALUES ($1,$2,$3)
+             ON CONFLICT (tarefa_id, pessoa_id) DO UPDATE SET principal = EXCLUDED.principal`,
+            [id, pr.rows[0].id, !!p.principal],
+          );
+        }
+      }
+      return row;
     });
 
     if (!updated) {
