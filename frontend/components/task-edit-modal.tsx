@@ -62,6 +62,24 @@ export function TaskEditModal({ tarefa, onClose }: Props) {
   const [prazoText, setPrazoText] = useState(tarefa.prazo_text ?? "");
   const [prioridade, setPrioridade] = useState<Prioridade>(tarefa.prioridade);
   const [status, setStatus] = useState<Tarefa["status"]>(tarefa.status);
+  const [frenteId, setFrenteId] = useState<string | null>(null);
+  const [frentes, setFrentes] = useState<{ id: string; nome: string }[]>([]);
+  const [pessoas, setPessoas] = useState<{ nome: string; principal: boolean }[]>(
+    (tarefa.pessoas ?? []).map((p) => ({ nome: p.nome, principal: p.principal })),
+  );
+  const [novaPessoa, setNovaPessoa] = useState("");
+
+  useEffect(() => {
+    fetch("/api/frentes")
+      .then((r) => r.json())
+      .then((d: { frentes?: { id: string; nome: string }[] }) => {
+        const list = d.frentes ?? [];
+        setFrentes(list);
+        const atual = list.find((f) => f.nome === tarefa.frente);
+        if (atual) setFrenteId(atual.id);
+      })
+      .catch(() => {});
+  }, [tarefa.frente]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -108,6 +126,8 @@ export function TaskEditModal({ tarefa, onClose }: Props) {
           prazo_text: prazoText.trim() || null,
           prioridade,
           status,
+          frente_id: frenteId,
+          pessoas,
         };
         const r = await fetch(`/api/tarefas/${tarefa.id}`, {
           method: "PATCH",
@@ -289,6 +309,124 @@ export function TaskEditModal({ tarefa, onClose }: Props) {
                 Texto original do prazo: &ldquo;{tarefa.prazo_text}&rdquo;
               </p>
             )}
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-[color:var(--muted)] block mb-1">
+              Área
+            </label>
+            <select
+              value={frenteId ?? ""}
+              onChange={(e) => setFrenteId(e.target.value || null)}
+              className="w-full px-3 py-2 rounded-md border border-[color:var(--border)] bg-transparent text-sm focus:outline-none focus:border-zinc-400 dark:focus:border-zinc-600"
+            >
+              <option value="">— sem área —</option>
+              {frentes.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.nome}
+                </option>
+              ))}
+            </select>
+            {!frenteId && tarefa.frente_proposta && (
+              <button
+                type="button"
+                onClick={async () => {
+                  const r = await fetch("/api/frentes", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ nome: tarefa.frente_proposta }),
+                  });
+                  const d = (await r.json()) as {
+                    frente?: { id: string; nome: string };
+                  };
+                  if (d.frente) {
+                    const nova = d.frente;
+                    setFrentes((prev) =>
+                      prev.some((f) => f.id === nova.id) ? prev : [...prev, nova],
+                    );
+                    setFrenteId(nova.id);
+                  }
+                }}
+                className="mt-1.5 text-[11px] px-2 py-1 rounded-full bg-[color:var(--warm-bg)] text-[color:var(--warm)] border border-dashed border-[color:var(--warm)]/40"
+              >
+                + aprovar sugestão: {tarefa.frente_proposta}
+              </button>
+            )}
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-[color:var(--muted)] block mb-1">
+              Pessoas envolvidas
+            </label>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {pessoas.map((p, i) => (
+                <span
+                  key={`${p.nome}-${i}`}
+                  className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full border border-[color:var(--border)]"
+                >
+                  <button
+                    type="button"
+                    title={
+                      p.principal
+                        ? "Principal (agrupa por esta)"
+                        : "Marcar como principal"
+                    }
+                    onClick={() =>
+                      setPessoas((prev) =>
+                        prev.map((x, j) => ({ ...x, principal: j === i })),
+                      )
+                    }
+                    className={cn(
+                      p.principal
+                        ? "text-[color:var(--warm)]"
+                        : "text-[color:var(--muted)]",
+                    )}
+                  >
+                    {p.principal ? "★" : "☆"}
+                  </button>
+                  {p.nome}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPessoas((prev) => prev.filter((_, j) => j !== i))
+                    }
+                    className="text-[color:var(--muted)] hover:text-[color:var(--urgent)]"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              {pessoas.length === 0 && (
+                <span className="text-[11px] text-[color:var(--muted)]">
+                  nenhuma — agrupa em &ldquo;Você&rdquo;
+                </span>
+              )}
+            </div>
+            <input
+              type="text"
+              value={novaPessoa}
+              onChange={(e) => setNovaPessoa(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const nome = novaPessoa.trim();
+                  if (
+                    nome &&
+                    !pessoas.some(
+                      (p) => p.nome.toLowerCase() === nome.toLowerCase(),
+                    )
+                  ) {
+                    setPessoas((prev) => [
+                      ...prev,
+                      { nome, principal: prev.length === 0 },
+                    ]);
+                  }
+                  setNovaPessoa("");
+                }
+              }}
+              placeholder="adicionar pessoa + Enter"
+              className="w-full px-3 py-2 rounded-md border border-[color:var(--border)] bg-transparent text-sm focus:outline-none focus:border-zinc-400 dark:focus:border-zinc-600"
+            />
           </div>
 
           <div>
