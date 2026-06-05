@@ -4,6 +4,7 @@ import { requireUserOrRedirect } from "@/lib/auth";
 import { meetingsFor, tarefasFor, pessoasFor } from "@/lib/queries";
 import { fmtDate } from "@/lib/utils";
 import { TaskRow, type Tarefa } from "@/components/task-row";
+import { TaskGroupByPerson } from "@/components/task-group-by-person";
 import { MeetingTaskSummary } from "@/components/meeting-task-summary";
 import {
   TranscriptionView,
@@ -181,11 +182,7 @@ export default async function ReuniaoDetalhePage({
                 <h3 className="text-[11px] tracking-[0.16em] uppercase text-[color:var(--muted-strong)]">
                   Suas ({suas.length})
                 </h3>
-                <div className="flex flex-col gap-2">
-                  {suas.map((t) => (
-                    <TaskRow key={t.id} tarefa={t} />
-                  ))}
-                </div>
+                <TaskGroupByPerson tarefas={suas} />
               </div>
             )}
             {aguardando.length > 0 && (
