@@ -52,6 +52,7 @@ apply_workflow() {
 apply_workflow "98jEiWWSAKFWEP6B" "acoes-audio-ingest.json"      "Acoes - Audio Ingest"
 apply_workflow "Gt34r0WVdZxCbJet" "acoes-process-segment.json"    "Acoes - Process Segment"
 apply_workflow "l1xcOvuEru496Zql" "acoes-reprocess-tarefas.json"  "Acoes - Reprocess Tarefas"
+apply_workflow "vZJgZV9dqGvrCTv1" "acoes-reprocess-meeting.json"   "Acoes - Reprocess Meeting"
 
 echo ""
 echo "Pronto. Verifica que os workflows continuam ativos:"
