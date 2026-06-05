@@ -56,7 +56,7 @@ CREATE OR REPLACE FUNCTION app_slugify(txt text) RETURNS text AS $$
   SELECT trim(both '-' from regexp_replace(
     lower(translate(coalesce(txt,''),
       'ÁÀÂÃÄáàâãäÉÈÊËéèêëÍÌÎÏíìîïÓÒÔÕÖóòôõöÚÙÛÜúùûüÇç',
-      'aaaaaaaaaaeeeeeeeeiiiiiiiioooooooooooouuuuuuuucc')),
+      'aaaaaaaaaaeeeeeeeeiiiiiiiioooooooooouuuuuuuucc')),
     '[^a-z0-9]+', '-', 'g'));
 $$ LANGUAGE sql IMMUTABLE;
 
@@ -116,7 +116,7 @@ CREATE TRIGGER trg_resolve_tarefa_area
 -- ─── trigger AFTER: pessoas_raw → pessoas + tarefa_pessoas ──────────
 CREATE OR REPLACE FUNCTION resolve_tarefa_pessoas() RETURNS trigger AS $$
 DECLARE
-  nome text;
+  v_nome text;
   pid uuid;
   owner_slug text := app_slugify(NEW.owner);
   delegada boolean := NEW.acao IN ('cobrar','aguardar');
@@ -126,23 +126,23 @@ BEGIN
   IF NEW.pessoas_raw IS NULL OR jsonb_typeof(NEW.pessoas_raw) <> 'array' THEN
     RETURN NULL;
   END IF;
-  FOR nome IN SELECT jsonb_array_elements_text(NEW.pessoas_raw) LOOP
-    nome := trim(nome);
-    CONTINUE WHEN nome = '' OR nome = '?' OR app_slugify(nome) = 'vitor';
+  FOR v_nome IN SELECT jsonb_array_elements_text(NEW.pessoas_raw) LOOP
+    v_nome := trim(v_nome);
+    CONTINUE WHEN v_nome = '' OR v_nome = '?' OR app_slugify(v_nome) = 'vitor';
     -- get-or-create pessoa (match por slug do nome OU alias)
     SELECT id INTO pid FROM pessoas
       WHERE user_id = NEW.user_id
-        AND (app_slugify(nome) = app_slugify(pessoas.nome)
-             OR EXISTS (SELECT 1 FROM unnest(aliases) a WHERE app_slugify(a) = app_slugify(nome)))
+        AND (app_slugify(v_nome) = app_slugify(pessoas.nome)
+             OR EXISTS (SELECT 1 FROM unnest(pessoas.aliases) a WHERE app_slugify(a) = app_slugify(v_nome)))
       LIMIT 1;
     IF pid IS NULL THEN
-      INSERT INTO pessoas (user_id, nome) VALUES (NEW.user_id, nome)
+      INSERT INTO pessoas (user_id, nome) VALUES (NEW.user_id, v_nome)
         ON CONFLICT (user_id, nome) DO UPDATE SET updated_at = now()
         RETURNING id INTO pid;
     END IF;
     -- principal: pessoa do owner se delegada; senão a 1ª válida
     is_principal := (NOT marcou_principal) AND
-      (CASE WHEN delegada THEN app_slugify(nome) = owner_slug ELSE true END);
+      (CASE WHEN delegada THEN app_slugify(v_nome) = owner_slug ELSE true END);
     IF is_principal THEN marcou_principal := true; END IF;
     INSERT INTO tarefa_pessoas (tarefa_id, pessoa_id, principal)
       VALUES (NEW.id, pid, is_principal)
