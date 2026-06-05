@@ -38,6 +38,8 @@ export type Meeting = {
 
 export type Acao = "executar" | "cobrar" | "aguardar";
 
+export type TarefaPessoa = { id: string; nome: string; principal: boolean };
+
 export type Tarefa = {
   id: string;
   user_id: string;
@@ -52,6 +54,9 @@ export type Tarefa = {
   prioridade: "baixa" | "media" | "alta" | "urgente";
   status: "aberta" | "em_andamento" | "concluida" | "cancelada";
   evidencia: string | null;
+  frente: string | null;
+  frente_proposta: string | null;
+  pessoas: TarefaPessoa[];
   created_at: string;
   updated_at: string;
   concluida_em: string | null;
@@ -268,13 +273,21 @@ export const tarefasFor = (userId: string) => ({
         Tarefa & { prazo: string | null; created_at: string }
       >(
         `SELECT
-           id, meeting_id, titulo, descricao, owner, is_mine, acao,
-           to_char(prazo AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS prazo,
-           prazo_text, prioridade, status, evidencia,
-           to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
-         FROM tarefas
-         WHERE meeting_id = $1
-         ORDER BY (status NOT IN ('aberta','em_andamento')), (acao = 'aguardar'), (prazo IS NULL), prazo ASC, created_at ASC`,
+           t.id, t.meeting_id, t.titulo, t.descricao, t.owner, t.is_mine, t.acao,
+           to_char(t.prazo AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS prazo,
+           t.prazo_text, t.prioridade, t.status, t.evidencia,
+           to_char(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+           f.nome AS frente, t.frente_proposta,
+           COALESCE((
+             SELECT jsonb_agg(jsonb_build_object('id', p.id, 'nome', p.nome, 'principal', tp.principal)
+                             ORDER BY tp.principal DESC, p.nome)
+             FROM tarefa_pessoas tp JOIN pessoas p ON p.id = tp.pessoa_id
+             WHERE tp.tarefa_id = t.id
+           ), '[]'::jsonb) AS pessoas
+         FROM tarefas t
+         LEFT JOIN frentes f ON f.id = t.frente_id
+         WHERE t.meeting_id = $1
+         ORDER BY (t.status NOT IN ('aberta','em_andamento')), (t.acao = 'aguardar'), (t.prazo IS NULL), t.prazo ASC, t.created_at ASC`,
         [meetingId],
       );
       return r.rows;
