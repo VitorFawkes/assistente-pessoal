@@ -16,6 +16,10 @@ import {
   Bell,
   Flame,
   Trash2,
+  Tag,
+  Users,
+  Quote,
+  ChevronDown,
 } from "lucide-react";
 import { cn, formatPrazo, formatCreatedAt, fmtDate, type Prioridade } from "@/lib/utils";
 import { TaskEditModal } from "./task-edit-modal";
@@ -35,6 +39,9 @@ export type Tarefa = {
   prioridade: Prioridade;
   status: "aberta" | "em_andamento" | "concluida" | "cancelada";
   evidencia: string | null;
+  frente: string | null;
+  frente_proposta: string | null;
+  pessoas: { id: string; nome: string; principal: boolean }[];
   created_at: string;
   meeting_recorded_at?: string | null;
   meeting_summary?: string | null;
@@ -233,6 +240,7 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
   const [editing, setEditing] = useState(false);
   const [editingOwner, setEditingOwner] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showEvidencia, setShowEvidencia] = useState(false);
 
   const prazo = formatPrazo(tarefa.prazo);
   const isDone = tarefa.status === "concluida";
@@ -371,6 +379,32 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
                 disabled={isPending}
               />
             )}
+            {tarefa.frente && (
+              <span className="inline-flex items-center gap-1 text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-[color:var(--accent)] text-[color:var(--muted-strong)]">
+                <Tag size={11} strokeWidth={2} />
+                {tarefa.frente}
+              </span>
+            )}
+            {!tarefa.frente && tarefa.frente_proposta && (
+              <span
+                className="inline-flex items-center gap-1 text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-[color:var(--warm-bg)] text-[color:var(--warm)] border border-dashed border-[color:var(--warm)]/40"
+                title="Área sugerida pela IA — aprovar na edição (em breve)"
+              >
+                <Tag size={11} strokeWidth={2} />
+                {tarefa.frente_proposta}?
+              </span>
+            )}
+            {(tarefa.pessoas ?? [])
+              .filter((p) => !p.principal)
+              .map((p) => (
+                <span
+                  key={p.id}
+                  className="inline-flex items-center gap-1 text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-[color:var(--accent)]/60 text-[color:var(--muted-strong)]"
+                >
+                  <Users size={11} strokeWidth={2} />
+                  {p.nome}
+                </span>
+              ))}
           </div>
 
           <p
@@ -381,6 +415,12 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
           >
             {tarefa.titulo}
           </p>
+
+          {tarefa.descricao && (
+            <p className="mt-1 text-[13px] leading-snug text-[color:var(--muted-strong)] line-clamp-2">
+              {tarefa.descricao}
+            </p>
+          )}
 
           {/* Linha de metadata: prazo + link reunião */}
           <div className="mt-2 flex items-center flex-wrap gap-x-2 gap-y-1">
@@ -424,7 +464,30 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
                 {formatCreatedAt(tarefa.meeting_recorded_at ?? tarefa.created_at)}
               </span>
             )}
+            {tarefa.evidencia && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowEvidencia((v) => !v);
+                }}
+                className="inline-flex items-center gap-1 text-[11px] text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
+              >
+                <Quote size={11} />
+                trecho
+                <ChevronDown
+                  size={11}
+                  className={cn("transition", showEvidencia && "rotate-180")}
+                />
+              </button>
+            )}
           </div>
+
+          {showEvidencia && tarefa.evidencia && (
+            <p className="mt-2 text-[12px] italic text-[color:var(--muted)] border-l-2 border-[color:var(--border)] pl-3">
+              &ldquo;{tarefa.evidencia}&rdquo;
+            </p>
+          )}
         </div>
 
         <div className="shrink-0 flex items-center gap-1 pr-2 sm:pr-3 text-[color:var(--muted)]">

@@ -228,9 +228,17 @@ export const tarefasFor = (userId: string) => ({
       >(
         `SELECT t.*,
                 to_char(m.recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS meeting_recorded_at,
-                m.summary AS meeting_summary
+                m.summary AS meeting_summary,
+                f.nome AS frente,
+                COALESCE((
+                  SELECT jsonb_agg(jsonb_build_object('id', p.id, 'nome', p.nome, 'principal', tp.principal)
+                                  ORDER BY tp.principal DESC, p.nome)
+                  FROM tarefa_pessoas tp JOIN pessoas p ON p.id = tp.pessoa_id
+                  WHERE tp.tarefa_id = t.id
+                ), '[]'::jsonb) AS pessoas
            FROM tarefas t
            LEFT JOIN meetings m ON m.id = t.meeting_id
+           LEFT JOIN frentes f ON f.id = t.frente_id
           ORDER BY (t.status NOT IN ('aberta','em_andamento')),
                    (t.acao = 'aguardar'),
                    (t.prazo IS NULL), t.prazo ASC, t.created_at DESC
