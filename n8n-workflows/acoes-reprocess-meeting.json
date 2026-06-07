@@ -80,7 +80,7 @@
               "role": "system"
             },
             {
-              "content": "=Transcrição do áudio (gravado em {{ $('3. Prepare Metadata').item.json.recorded_at }}, source={{ $('3. Prepare Metadata').item.json.source }}, tipo={{ $('3. Prepare Metadata').item.json.meeting_type }}):\n\n{{ $('3. Prepare Metadata').item.json.text }}"
+              "content": "=Transcrição rotulada (gravado em {{ $('Build Labeled Text').item.json.recorded_at }}, source={{ $('Build Labeled Text').item.json.source }}, tipo={{ $('Build Labeled Text').item.json.meeting_type }}):\n\n{{ $('Build Labeled Text').item.json.labeled_text }}"
             }
           ]
         },
@@ -322,6 +322,40 @@
         -700,
         0
       ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, user_id, source, meeting_type, transcription, segments, speaker_labels, duration_seconds, to_char(recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS recorded_at FROM meetings WHERE id = '{{ $('3. Prepare Metadata').item.json.meeting_id }}'::uuid",
+        "options": {}
+      },
+      "id": "selmeet-198cce6b",
+      "name": "SELECT meeting",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -620,
+        180
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "KQJgErf7zPLrLq1t",
+          "name": "Acoes - Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Monta texto rotulado a partir dos segments + speaker_labels.\n// Input: meeting row do SELECT (com segments e speaker_labels).\nconst row = $('SELECT meeting').first().json;\nconst segments = row.segments || [];\nconst labels = row.speaker_labels || {};\n\nif (!segments.length) {\n  // sem segments — usa transcrição crua como fallback\n  return [{\n    json: {\n      meeting_id: row.id,\n      user_id: row.user_id,\n      recorded_at: row.recorded_at,\n      source: row.source,\n      meeting_type: row.meeting_type,\n      labeled_text: row.transcription || '',\n      duration_seconds: row.duration_seconds || 0,\n    }\n  }];\n}\n\n// agrupa segments contíguos do mesmo speaker em turnos\nconst turns = [];\nfor (const s of segments) {\n  const last = turns[turns.length - 1];\n  if (last && last.speaker === s.speaker) {\n    last.text += s.text;\n  } else {\n    turns.push({ speaker: s.speaker, text: s.text });\n  }\n}\n\n// monta texto rotulado: \"Nome: texto\" ou \"Speaker X: texto\" se não rotulado\nconst lines = turns.map(t => {\n  const name = labels[t.speaker] || `Speaker ${t.speaker}`;\n  return `${name}: ${t.text.trim()}`;\n});\n\nreturn [{\n  json: {\n    meeting_id: row.id,\n    user_id: row.user_id,\n    recorded_at: row.recorded_at,\n    source: row.source,\n    meeting_type: row.meeting_type,\n    labeled_text: lines.join('\\n'),\n    duration_seconds: row.duration_seconds || 0,\n  }\n}];"
+      },
+      "id": "bltext-bc851a54",
+      "name": "Build Labeled Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -500,
+        180
+      ]
     }
   ],
   "connections": {
@@ -432,6 +466,28 @@
       ]
     },
     "4. Reset Meeting (HTTP)": {
+      "main": [
+        [
+          {
+            "node": "SELECT meeting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SELECT meeting": {
+      "main": [
+        [
+          {
+            "node": "Build Labeled Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Labeled Text": {
       "main": [
         [
           {

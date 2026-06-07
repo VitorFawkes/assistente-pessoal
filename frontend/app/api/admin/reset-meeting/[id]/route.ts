@@ -49,22 +49,41 @@ export async function POST(
 
   try {
     const result = await withTenant(userId, async (c) => {
-      const r = await c.query<{ id: string }>(
-        `UPDATE meetings SET
-           status = 'analyzing',
-           segments = $1::jsonb,
-           transcription = $2,
-           summary = NULL,
-           raw_ai_response = NULL,
-           speaker_labels = '{}'::jsonb,
-           speaker_pessoas = '{}'::jsonb,
-           speaker_labels_proposed = '{}'::jsonb,
-           status_error = NULL,
-           done_at = NULL
-         WHERE id = $3::uuid
-         RETURNING id`,
-        [JSON.stringify(segments), text, id],
-      );
+      let r;
+      if (segments.length > 0) {
+        // Re-transcrição: novos segments substituem a diarização → zera speakers
+        // (serão re-identificados pelo voice-svc / confirmados pelo usuário).
+        r = await c.query<{ id: string }>(
+          `UPDATE meetings SET
+             status = 'analyzing',
+             segments = $1::jsonb,
+             transcription = $2,
+             summary = NULL,
+             raw_ai_response = NULL,
+             speaker_labels = '{}'::jsonb,
+             speaker_pessoas = '{}'::jsonb,
+             speaker_labels_proposed = '{}'::jsonb,
+             status_error = NULL,
+             done_at = NULL
+           WHERE id = $3::uuid
+           RETURNING id`,
+          [JSON.stringify(segments), text, id],
+        );
+      } else {
+        // Re-extração de tarefas/resumo (sem re-transcrever): PRESERVA segments,
+        // transcrição e a identificação de speakers (speaker_labels/pessoas/proposed).
+        r = await c.query<{ id: string }>(
+          `UPDATE meetings SET
+             status = 'analyzing',
+             summary = NULL,
+             raw_ai_response = NULL,
+             status_error = NULL,
+             done_at = NULL
+           WHERE id = $1::uuid
+           RETURNING id`,
+          [id],
+        );
+      }
       if (!r.rows.length) throw new Error("NOT_FOUND");
       await c.query(`DELETE FROM tarefas WHERE meeting_id = $1::uuid`, [id]);
       return { id: r.rows[0].id };
