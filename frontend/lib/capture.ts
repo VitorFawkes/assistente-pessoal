@@ -60,3 +60,61 @@ export function precisaRevisao(d: Pick<CaptureDraft, "confidence" | "prazo" | "p
   if (d.prazo_text && !d.prazo) return true; // disse "semana que vem" mas não resolveu data
   return false;
 }
+
+export type CaptureCtx = {
+  hoje: string; // "2026-06-08"
+  tz: string; // "America/Sao_Paulo"
+  frentes: { nome: string }[];
+  owners: { name: string; is_me: boolean }[];
+};
+
+const CAPTURE_MODEL = process.env.CAPTURE_MODEL || "gpt-5.1";
+
+const SYSTEM_PROMPT = `Você converte UMA frase solta do Vitor em UMA tarefa estruturada (JSON).
+
+REGRAS:
+- Extraia SÓ a tarefa principal. Se houver duas coisas, escolha a mais importante e ignore o resto.
+- PRESERVE as palavras do Vitor no "titulo". NÃO parafraseie, não floreie. Tire data/pessoa/prioridade de DENTRO do título (elas viram campos), deixando o título enxuto. Ex.: "ligar pro contador sexta de manhã" → titulo "ligar pro contador" (NUNCA "Realizar contato telefônico com o contador").
+- "acao": "executar" se o próprio Vitor faz (ou owner=vitor); "cobrar" se outra pessoa faz e o Vitor precisa acompanhar/cobrar; "aguardar" se outra pessoa faz sozinha e o Vitor não precisa cobrar. Na dúvida em delegação, use "cobrar".
+- "owner": "vitor" se é o Vitor que faz; o nome da pessoa se for dela; "?" se mencionou alguém sem nome.
+- "prazo": resolva expressões em pt-BR relativas a HOJE (no fuso informado) pra ISO 8601 com hora 23:59 local; null se não houver prazo. "prazo_text": o texto literal dito ("sexta de manhã", "semana que vem").
+- "prioridade": baixa/media/alta/urgente pelo tom ("hoje/agora/asap"→urgente; "amanhã/antes da call"→alta; default media; "talvez/algum dia"→baixa).
+- "area_raw": escolha UM nome da lista de áreas fornecida se encaixar; senão proponha um nome curto novo; null se nada se aplica.
+- "pessoas": nomes citados envolvidos na tarefa (sem "vitor").
+- "confidence": "high" só se título, owner e prazo estão claros; senão "medium"/"low". "confidence_rationale": 1 linha.
+
+Responda APENAS com JSON: {titulo, descricao, owner, acao, prazo, prazo_text, prioridade, area_raw, pessoas, confidence, confidence_rationale}.`;
+
+export async function parseCapture(raw: string, ctx: CaptureCtx): Promise<CaptureDraft> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY ausente no ambiente");
+
+  const userPayload = {
+    texto: raw,
+    hoje: ctx.hoje,
+    tz: ctx.tz,
+    areas: ctx.frentes.map((f) => f.nome),
+    pessoas_conhecidas: ctx.owners.map((o) => o.name),
+  };
+
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: CAPTURE_MODEL,
+      temperature: 0.2,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: JSON.stringify(userPayload) },
+      ],
+    }),
+    signal: AbortSignal.timeout(15_000),
+  });
+
+  if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`);
+  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error("OpenAI: resposta sem conteúdo");
+  return normalizeDraft(JSON.parse(content) as RawDraft);
+}
