@@ -116,7 +116,7 @@ export function CaptureComposer({ onOpenFull }: { onOpenFull: () => void }) {
             onChange={(v: PraQuem) => patch({ owner: v.owner, acao: v.acao })} />
           <QuandoChip value={criada.prazo} onChange={(iso) => patch({ prazo: iso, prazo_text: null })} />
           <PrioridadeChip value={criada.prioridade as Prioridade} onChange={(p) => patch({ prioridade: p })} />
-          <AreaChip value={criada.frente} onChange={(nome) => patch({ area_raw: nome })} />
+          <AreaChip value={criada.frente} onChange={(f) => patch({ frente_id: f?.id ?? null, frente: f?.nome ?? null })} />
           <button type="button" onClick={() => setCriada(null)} className="text-[12px] text-[color:var(--muted)] hover:text-[color:var(--foreground)] ml-auto">ok</button>
         </div>
       )}

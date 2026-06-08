@@ -4,7 +4,7 @@ import { Tag } from "lucide-react";
 import { Popover } from "./popover";
 import { cn } from "@/lib/utils";
 
-export function AreaChip({ value, onChange }: { value: string | null; onChange: (nome: string | null) => void }) {
+export function AreaChip({ value, onChange }: { value: string | null; onChange: (frente: { id: string; nome: string } | null) => void }) {
   const [frentes, setFrentes] = useState<{ id: string; nome: string }[]>([]);
   useEffect(() => { fetch("/api/frentes").then((r) => r.json()).then((d) => setFrentes(d.frentes ?? [])).catch(() => {}); }, []);
   return (
@@ -22,7 +22,7 @@ export function AreaChip({ value, onChange }: { value: string | null; onChange: 
             onClick={() => { onChange(null); close(); }}>— sem área —</button>
           {frentes.map((f) => (
             <button key={f.id} type="button" className="text-left text-sm px-2 py-1.5 rounded hover:bg-[color:var(--accent)]"
-              onClick={() => { onChange(f.nome); close(); }}>{f.nome}</button>
+              onClick={() => { onChange({ id: f.id, nome: f.nome }); close(); }}>{f.nome}</button>
           ))}
         </div>
       )}
