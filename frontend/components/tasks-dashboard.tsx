@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Sparkles, Flame } from "lucide-react";
+import { Sparkles, Flame, Plus } from "lucide-react";
 import { TaskRow, type Tarefa } from "./task-row";
+import { TaskCreateModal } from "./task-create-modal";
 import { Tabs } from "./tabs";
 import { DateFilter, filterByDate, type DateBucket } from "./date-filter";
 import {
@@ -90,6 +91,7 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
   const [bucket, setBucket] = useState<DateBucket>("todos");
   const [createdBucket, setCreatedBucket] = useState<CreatedBucket>("todas");
   const [onlyUrgent, setOnlyUrgent] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const counts = useMemo(() => {
     const bs: DateBucket[] = [
@@ -213,6 +215,16 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
   return (
     <div className="space-y-5">
       <div className="sticky top-14 z-30 -mx-5 sm:-mx-6 px-5 sm:px-6 py-3 bg-[color:var(--background)]/95 backdrop-blur-md border-b border-[color:var(--border)] space-y-3">
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="press-feedback inline-flex items-center gap-1.5 text-[13px] font-medium px-3 py-1.5 rounded-full bg-[color:var(--foreground)] text-[color:var(--background)] hover:opacity-90 transition cursor-pointer"
+          >
+            <Plus size={15} strokeWidth={2.5} />
+            Nova tarefa
+          </button>
+        </div>
         <DateFilter value={bucket} onChange={setBucket} counts={counts} />
         <CreatedFilter
           value={createdBucket}
@@ -253,7 +265,7 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
             content: renderList(
               abertas,
               tarefas.length === 0
-                ? "Nada por aqui ainda. Grave um áudio e em ~30s aparece."
+                ? "Nada por aqui ainda. Grave um áudio ou toque em “Nova tarefa”."
                 : "Nenhuma pendência nesse filtro.",
             ),
           },
@@ -292,6 +304,8 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
           },
         ]}
       />
+
+      {creating && <TaskCreateModal onClose={() => setCreating(false)} />}
     </div>
   );
 }

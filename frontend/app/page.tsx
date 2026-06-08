@@ -48,8 +48,9 @@ export default async function HomePage() {
           </span>
         </h1>
         <p className="text-[14px] text-[color:var(--muted-strong)] max-w-md">
-          Tudo que apareceu nas suas reuniões e voice notes, capturado e
-          organizado pra você não perder nada.
+          Tudo que apareceu nas suas reuniões e voice notes — mais o que você
+          adicionar na mão — capturado e organizado num lugar só pra você não
+          perder nada.
         </p>
       </header>
 
