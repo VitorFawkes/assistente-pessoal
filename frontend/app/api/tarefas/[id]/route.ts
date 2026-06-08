@@ -16,6 +16,7 @@ type PatchBody = Partial<{
   prioridade: (typeof VALID_PRIORIDADE)[number];
   status: (typeof VALID_STATUS)[number];
   frente_id: string | null;
+  area_raw: string | null;
   pessoas: { nome: string; principal?: boolean }[];
 }>;
 
@@ -70,6 +71,10 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
   if (body.frente_id !== undefined) {
     push("frente_id", body.frente_id);
     if (body.frente_id) sets.push("frente_proposta = NULL");
+  }
+
+  if (body.area_raw !== undefined) {
+    push("area_raw", body.area_raw);
   }
 
   const hasPessoas = Array.isArray(body.pessoas);
