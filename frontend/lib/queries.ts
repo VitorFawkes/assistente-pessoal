@@ -61,6 +61,7 @@ export type Tarefa = {
   updated_at: string;
   concluida_em: string | null;
   cancelada_em: string | null;
+  precisa_revisao: boolean;
 };
 
 export type Pessoa = {
