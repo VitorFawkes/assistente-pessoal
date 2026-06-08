@@ -76,11 +76,11 @@ REGRAS:
 - Extraia SÓ a tarefa principal. Se houver duas coisas, escolha a mais importante e ignore o resto.
 - PRESERVE as palavras do Vitor no "titulo". NÃO parafraseie, não floreie. Tire data/pessoa/prioridade de DENTRO do título (elas viram campos), deixando o título enxuto. Ex.: "ligar pro contador sexta de manhã" → titulo "ligar pro contador" (NUNCA "Realizar contato telefônico com o contador").
 - "acao": "executar" se o próprio Vitor faz (ou owner=vitor); "cobrar" se outra pessoa faz e o Vitor precisa acompanhar/cobrar; "aguardar" se outra pessoa faz sozinha e o Vitor não precisa cobrar. Na dúvida em delegação, use "cobrar".
-- "owner": "vitor" se é o Vitor que faz; o nome da pessoa se for dela; "?" se mencionou alguém sem nome.
+- "owner": coerente com "acao". Se acao="executar", owner="vitor". Se acao="cobrar" ou "aguardar", owner é a PESSOA que vai executar (NUNCA "vitor") — use o nome citado, ou "?" se foi alguém sem nome.
 - "prazo": resolva expressões em pt-BR relativas a HOJE (no fuso informado) pra ISO 8601 com hora 23:59 local; null se não houver prazo. "prazo_text": o texto literal dito ("sexta de manhã", "semana que vem").
 - "prioridade": baixa/media/alta/urgente pelo tom ("hoje/agora/asap"→urgente; "amanhã/antes da call"→alta; default media; "talvez/algum dia"→baixa).
 - "area_raw": escolha UM nome da lista de áreas fornecida se encaixar; senão proponha um nome curto novo; null se nada se aplica.
-- "pessoas": nomes citados envolvidos na tarefa (sem "vitor").
+- "pessoas": só NOMES PRÓPRIOS de pessoas citadas e envolvidas (sem "vitor"). NÃO inclua papéis/genéricos como "contador", "investidor", "cliente" nem "?".
 - "confidence": "high" só se título, owner e prazo estão claros; senão "medium"/"low". "confidence_rationale": 1 linha.
 
 Responda APENAS com JSON: {titulo, descricao, owner, acao, prazo, prazo_text, prioridade, area_raw, pessoas, confidence, confidence_rationale}.`;
