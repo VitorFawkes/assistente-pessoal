@@ -43,6 +43,7 @@ export type Tarefa = {
   frente_proposta: string | null;
   pessoas: { id: string; nome: string; principal: boolean }[];
   created_at: string;
+  precisa_revisao: boolean;
   meeting_recorded_at?: string | null;
   meeting_summary?: string | null;
 };
@@ -363,6 +364,12 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
               <span className="inline-flex items-center gap-1 text-[10px] tracking-[0.1em] uppercase font-bold px-2 py-0.5 rounded-full bg-[color:var(--urgent)]/15 text-[color:var(--urgent)]">
                 <Flame size={10} strokeWidth={2.5} />
                 urgente
+              </span>
+            )}
+            {tarefa.precisa_revisao && (
+              <span title="IA com baixa confiança — confira prazo / pessoa / área"
+                className="inline-flex items-center gap-1 text-[10px] tracking-[0.1em] uppercase font-bold px-2 py-0.5 rounded-full bg-[color:var(--warm-bg)] text-[color:var(--warm)] border border-[color:var(--warm)]/40">
+                revisar
               </span>
             )}
             <AcaoChip
