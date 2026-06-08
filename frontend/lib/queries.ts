@@ -64,6 +64,26 @@ export type Tarefa = {
   precisa_revisao: boolean;
 };
 
+export type TarefaDraft = {
+  titulo: string;
+  descricao?: string | null;
+  owner?: string;
+  acao?: Acao;
+  prazo?: string | null;
+  prazo_text?: string | null;
+  prioridade?: Tarefa["prioridade"];
+  pessoas?: string[] | { nome: string; principal?: boolean }[];
+  frente_id?: string | null;
+  area_raw?: string | null;
+  precisa_revisao?: boolean;
+};
+
+export type CriarMeta = {
+  origem: "manual" | "captura_texto" | "captura_voz";
+  raw?: string;
+  confidence?: "high" | "medium" | "low";
+};
+
 export type Pessoa = {
   id: string;
   user_id: string;
@@ -87,6 +107,25 @@ export type VoiceSample = {
   soft_deleted_at: string | null;
   created_at: string;
 };
+
+// ─── TAREFA_SELECT (fragmento canônico) ───────────────────────────────
+
+// SELECT canônico de uma tarefa serializada (frente + pessoas agregadas).
+// Use com um WHERE depois. Mantém o shape idêntico em recentes/criar.
+const TAREFA_SELECT = `
+  SELECT t.*,
+         to_char(m.recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS meeting_recorded_at,
+         m.summary AS meeting_summary,
+         f.nome AS frente,
+         COALESCE((
+           SELECT jsonb_agg(jsonb_build_object('id', p.id, 'nome', p.nome, 'principal', tp.principal)
+                            ORDER BY tp.principal DESC, p.nome)
+           FROM tarefa_pessoas tp JOIN pessoas p ON p.id = tp.pessoa_id
+           WHERE tp.tarefa_id = t.id
+         ), '[]'::jsonb) AS pessoas
+    FROM tarefas t
+    LEFT JOIN meetings m ON m.id = t.meeting_id
+    LEFT JOIN frentes f ON f.id = t.frente_id`;
 
 // ─── meetingsFor ──────────────────────────────────────────────────────
 // Queries NÃO precisam de WHERE user_id — RLS filtra automaticamente.
@@ -227,25 +266,75 @@ export const tarefasFor = (userId: string) => ({
           meeting_summary: string | null;
         }
       >(
-        `SELECT t.*,
-                to_char(m.recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS meeting_recorded_at,
-                m.summary AS meeting_summary,
-                f.nome AS frente,
-                COALESCE((
-                  SELECT jsonb_agg(jsonb_build_object('id', p.id, 'nome', p.nome, 'principal', tp.principal)
-                                  ORDER BY tp.principal DESC, p.nome)
-                  FROM tarefa_pessoas tp JOIN pessoas p ON p.id = tp.pessoa_id
-                  WHERE tp.tarefa_id = t.id
-                ), '[]'::jsonb) AS pessoas
-           FROM tarefas t
-           LEFT JOIN meetings m ON m.id = t.meeting_id
-           LEFT JOIN frentes f ON f.id = t.frente_id
+        `${TAREFA_SELECT}
           ORDER BY (t.status NOT IN ('aberta','em_andamento')),
                    (t.acao = 'aguardar'),
                    (t.prazo IS NULL), t.prazo ASC, t.created_at DESC
           LIMIT 300`,
       );
       return r.rows;
+    }),
+
+  /** Cria uma tarefa (manual ou captura) e devolve a Tarefa COMPLETA serializada.
+   *  meeting_id é sempre NULL aqui (tarefa não vem de reunião). */
+  criar: (draft: TarefaDraft, meta: CriarMeta) =>
+    withTenant(userId, async (db) => {
+      const pessoasRaw = Array.isArray(draft.pessoas) && typeof draft.pessoas[0] === "string"
+        ? JSON.stringify(draft.pessoas)
+        : null;
+
+      const ins = await db.query<{ id: string }>(
+        `INSERT INTO tarefas
+           (user_id, titulo, descricao, owner, acao, prazo, prazo_text, prioridade,
+            frente_id, area_raw, pessoas_raw, precisa_revisao)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         RETURNING id`,
+        [
+          userId,
+          draft.titulo.trim(),
+          draft.descricao?.trim() || null,
+          (draft.owner ?? "vitor").trim() || "vitor",
+          draft.acao ?? "executar",
+          draft.prazo ?? null,
+          draft.prazo_text?.trim() || null,
+          draft.prioridade ?? "media",
+          draft.frente_id ?? null,
+          draft.area_raw?.trim() || null,
+          pessoasRaw,
+          draft.precisa_revisao ?? false,
+        ],
+      );
+      const id = ins.rows[0].id;
+
+      await db.query(
+        "INSERT INTO tarefa_eventos (tarefa_id, evento, payload) VALUES ($1,'criada',$2)",
+        [id, JSON.stringify({ origem: meta.origem, raw: meta.raw ?? null, confidence: meta.confidence ?? null })],
+      );
+
+      // Caminho manual: pessoas como objetos {nome, principal} (com flag principal explícita).
+      if (Array.isArray(draft.pessoas) && draft.pessoas.length > 0 && typeof draft.pessoas[0] !== "string") {
+        for (const p of draft.pessoas as { nome: string; principal?: boolean }[]) {
+          const nome = (p.nome || "").trim();
+          if (!nome || nome === "?") continue;
+          const pr = await db.query<{ id: string }>(
+            `INSERT INTO pessoas (user_id, nome) VALUES ($1,$2)
+             ON CONFLICT (user_id, nome) DO UPDATE SET updated_at = now() RETURNING id`,
+            [userId, nome],
+          );
+          await db.query(
+            `INSERT INTO tarefa_pessoas (tarefa_id, pessoa_id, principal) VALUES ($1,$2,$3)
+             ON CONFLICT (tarefa_id, pessoa_id) DO UPDATE SET principal = EXCLUDED.principal`,
+            [id, pr.rows[0].id, !!p.principal],
+          );
+        }
+      }
+      // (caminho captura: pessoas_raw acima → trigger resolve_tarefa_pessoas resolve sozinho)
+
+      const out = await db.query<Tarefa & { meeting_recorded_at: string | null; meeting_summary: string | null }>(
+        `${TAREFA_SELECT} WHERE t.id = $1`,
+        [id],
+      );
+      return out.rows[0];
     }),
 
   byId: (id: string) =>

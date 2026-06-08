@@ -1,6 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
-import { withTenant } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -47,51 +46,21 @@ export const POST = withAuth(async (user, req) => {
   const owner = (body.owner ?? "").trim() || "vitor";
 
   try {
-    const created = await withTenant(user.id, async (c) => {
-      const { rows } = await c.query(
-        `INSERT INTO tarefas
-           (user_id, titulo, descricao, owner, acao, prazo, prazo_text, prioridade, frente_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-         RETURNING *`,
-        [
-          user.id,
-          titulo,
-          body.descricao?.trim() || null,
-          owner,
-          acao,
-          body.prazo ?? null,
-          body.prazo_text?.trim() || null,
-          prioridade,
-          body.frente_id ?? null,
-        ],
-      );
-      const row = rows[0] as { id: string };
-
-      await c.query(
-        "INSERT INTO tarefa_eventos (tarefa_id, evento, payload) VALUES ($1,'criada',$2)",
-        [row.id, JSON.stringify({ manual: true })],
-      );
-
-      if (Array.isArray(body.pessoas)) {
-        for (const p of body.pessoas) {
-          const nome = (p.nome || "").trim();
-          if (!nome || nome === "?") continue;
-          const pr = await c.query<{ id: string }>(
-            `INSERT INTO pessoas (user_id, nome) VALUES ($1,$2)
-             ON CONFLICT (user_id, nome) DO UPDATE SET updated_at = now() RETURNING id`,
-            [user.id, nome],
-          );
-          await c.query(
-            `INSERT INTO tarefa_pessoas (tarefa_id, pessoa_id, principal) VALUES ($1,$2,$3)
-             ON CONFLICT (tarefa_id, pessoa_id) DO UPDATE SET principal = EXCLUDED.principal`,
-            [row.id, pr.rows[0].id, !!p.principal],
-          );
-        }
-      }
-
-      return row;
-    });
-
+    const { tarefasFor } = await import("@/lib/queries");
+    const created = await tarefasFor(user.id).criar(
+      {
+        titulo,
+        descricao: body.descricao ?? null,
+        owner,
+        acao,
+        prazo: body.prazo ?? null,
+        prazo_text: body.prazo_text ?? null,
+        prioridade,
+        frente_id: body.frente_id ?? null,
+        pessoas: Array.isArray(body.pessoas) ? body.pessoas : undefined,
+      },
+      { origem: "manual" },
+    );
     return NextResponse.json(created, { status: 201 });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
