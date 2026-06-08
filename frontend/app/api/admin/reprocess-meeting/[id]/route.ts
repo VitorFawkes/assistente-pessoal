@@ -1,25 +1,27 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { spawn } from "node:child_process";
-import { readFile, mkdtemp, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { resolve as resolvePath, join } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { resolve as resolvePath } from "node:path";
 import { withTenant } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 600; // segundos — operação pode levar minutos
+
+// Reprocessa o áudio de uma meeting: RE-TRANSCREVE (com diarização) e dispara o
+// webhook n8n que restaura segments + re-extrai tarefas com texto rotulado.
+//
+// NÃO-BLOQUEANTE: responde 202 na hora e faz o trabalho pesado em background.
+// Transcrição longa síncrona estourava o timeout do gateway (502) e o handler era
+// abortado ao cliente desconectar. Transcrição via AssemblyAA (assíncrono, aguenta
+// áudio de horas em uma chamada) em vez de gpt-4o-transcribe-diarize em chunks.
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const AUDIO_ROOT = process.env.AUDIO_ROOT || "/audios";
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+const ASSEMBLYAI_API_KEY = process.env.ASSEMBLYAI_API_KEY || "";
 const WEBHOOK_TOKEN = process.env.WEBHOOK_TOKEN || "";
+const VOICE_SVC_URL = process.env.VOICE_SVC_URL || "http://voice-svc:8000";
 const REPROCESS_WEBHOOK =
   process.env.N8N_REPROCESS_MEETING_URL ||
   "https://n8n.vitorgambetti.com.br/webhook/acoes-reprocess-meeting";
-
-const MODEL = "gpt-4o-transcribe-diarize";
-const CHUNK_SECONDS = 1200;
-const MAX_DURATION_SINGLE = 1300;
-const PARALLEL = 4;
+const AAI = "https://api.assemblyai.com";
 
 type Segment = { speaker: string; start: number; end: number; text: string };
 
@@ -30,119 +32,61 @@ function physicalPath(audioPath: string): string {
   return resolvePath(AUDIO_ROOT, audioPath.replace(/^\/audios\//, ""));
 }
 
-async function runFfmpeg(args: string[]): Promise<void> {
-  return new Promise((res, rej) => {
-    const proc = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
-    let stderr = "";
-    proc.stderr.on("data", (c) => (stderr += c.toString()));
-    proc.on("error", rej);
-    proc.on("close", (code) => {
-      if (code === 0) res();
-      else rej(new Error(`ffmpeg ${code}: ${stderr.slice(-200)}`));
-    });
-  });
-}
+type Utterance = { speaker?: string; start?: number; end?: number; text?: string };
 
-async function splitToChunks(inputPath: string, outDir: string): Promise<string[]> {
-  // ffmpeg segmenter: produz chunk_000.mp3, chunk_001.mp3...
-  await runFfmpeg([
-    "-y",
-    "-i", inputPath,
-    "-f", "segment",
-    "-segment_time", String(CHUNK_SECONDS),
-    "-c:a", "libmp3lame",
-    "-b:a", "48k",
-    "-ac", "1",
-    "-ar", "16000",
-    join(outDir, "chunk_%03d.mp3"),
-  ]);
-  // lista os arquivos gerados ordenados
-  const { readdir } = await import("node:fs/promises");
-  const files = (await readdir(outDir))
-    .filter((f) => /^chunk_\d{3}\.mp3$/.test(f))
-    .sort()
-    .map((f) => join(outDir, f));
-  if (files.length === 0) throw new Error("ffmpeg não gerou chunks");
-  return files;
-}
-
-type TranscribeResult = { text: string; segments: Segment[] };
-
-async function transcribeOne(filePath: string): Promise<TranscribeResult> {
+async function transcribeAssemblyAI(
+  filePath: string,
+): Promise<{ text: string; segments: Segment[] }> {
+  const aaiHeaders = { Authorization: ASSEMBLYAI_API_KEY };
+  // 1) upload
   const bytes = await readFile(filePath);
-  const form = new FormData();
-  form.append("model", MODEL);
-  form.append("language", "pt");
-  form.append("response_format", "diarized_json");
-  form.append("chunking_strategy", "auto");
-  form.append(
-    "file",
-    new Blob([new Uint8Array(bytes)], { type: "audio/mpeg" }),
-    filePath.split("/").pop() || "audio.mp3",
-  );
-  const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+  const up = await fetch(`${AAI}/v2/upload`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
-    body: form,
+    headers: aaiHeaders,
+    body: new Uint8Array(bytes),
     signal: AbortSignal.timeout(300_000),
   });
-  if (!r.ok) {
-    const t = await r.text();
-    throw new Error(`OpenAI ${r.status}: ${t.slice(0, 400)}`);
-  }
-  const json = (await r.json()) as { text?: string; segments?: Segment[] };
-  return {
-    text: json.text || "",
-    segments: Array.isArray(json.segments)
-      ? json.segments.map((s) => ({
-        speaker: s.speaker,
-        start: s.start,
-        end: s.end,
-        text: s.text,
-      }))
-      : [],
-  };
-}
+  if (!up.ok) throw new Error(`AAI upload ${up.status}: ${(await up.text()).slice(0, 200)}`);
+  const { upload_url } = (await up.json()) as { upload_url: string };
 
-async function transcribeWithChunking(audioFile: string, duration: number): Promise<TranscribeResult> {
-  const size = (await stat(audioFile)).size;
-  const needChunks = duration > MAX_DURATION_SINGLE || size > 24 * 1024 * 1024;
-  if (!needChunks) {
-    return transcribeOne(audioFile);
-  }
-  const tmp = await mkdtemp(`${tmpdir()}/reprocess-`);
-  try {
-    const chunks = await splitToChunks(audioFile, tmp);
-    // paraleliza com cap
-    const results: TranscribeResult[] = new Array(chunks.length);
-    let nextIdx = 0;
-    async function worker() {
-      while (true) {
-        const i = nextIdx++;
-        if (i >= chunks.length) return;
-        results[i] = await transcribeOne(chunks[i]);
-      }
+  // 2) solicita transcrição com diarização
+  const tr = await fetch(`${AAI}/v2/transcript`, {
+    method: "POST",
+    headers: { ...aaiHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      audio_url: upload_url,
+      language_code: "pt",
+      speaker_labels: true,
+      speech_models: ["universal-3-pro", "universal-2"],
+    }),
+  });
+  if (!tr.ok) throw new Error(`AAI transcript ${tr.status}: ${(await tr.text()).slice(0, 200)}`);
+  const { id } = (await tr.json()) as { id: string };
+
+  // 3) poll (até ~30min)
+  for (let i = 0; i < 180; i++) {
+    await new Promise((r) => setTimeout(r, 10_000));
+    const s = await fetch(`${AAI}/v2/transcript/${id}`, { headers: aaiHeaders });
+    const j = (await s.json()) as {
+      status: string;
+      text?: string;
+      error?: string;
+      utterances?: Utterance[];
+    };
+    if (j.status === "completed") {
+      const segments: Segment[] = (j.utterances || [])
+        .filter((u) => /^[A-Z]+$/.test(u.speaker || ""))
+        .map((u) => ({
+          speaker: u.speaker as string,
+          start: (u.start || 0) / 1000,
+          end: (u.end || 0) / 1000,
+          text: u.text || "",
+        }));
+      return { text: j.text || "", segments };
     }
-    await Promise.all(Array.from({ length: Math.min(PARALLEL, chunks.length) }, worker));
-    // concatena com offset
-    let fullText = "";
-    const fullSegments: Segment[] = [];
-    for (let i = 0; i < results.length; i++) {
-      const off = i * CHUNK_SECONDS;
-      fullText += (fullText ? " " : "") + results[i].text;
-      for (const s of results[i].segments) {
-        fullSegments.push({
-          speaker: s.speaker,
-          start: s.start + off,
-          end: s.end + off,
-          text: s.text,
-        });
-      }
-    }
-    return { text: fullText, segments: fullSegments };
-  } finally {
-    rm(tmp, { recursive: true, force: true }).catch(() => {});
+    if (j.status === "error") throw new Error(`AAI error: ${j.error}`);
   }
+  throw new Error("AAI poll timeout");
 }
 
 export async function POST(
@@ -158,13 +102,11 @@ export async function POST(
   if (!WEBHOOK_TOKEN || authHeader !== WEBHOOK_TOKEN) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  if (!OPENAI_API_KEY) {
-    return NextResponse.json({ error: "OPENAI_API_KEY missing" }, { status: 500 });
+  if (!ASSEMBLYAI_API_KEY) {
+    return NextResponse.json({ error: "ASSEMBLYAI_API_KEY missing" }, { status: 500 });
   }
 
-  // Multi-tenant: precisa de user_id pra escopar. Admin/caller informa no body.
-  // Se não vier, body pode ser vazio — só validado se tentar query escopada.
-  const body = await req.json().catch(() => ({} as { user_id?: string }));
+  const body = await req.json().catch(() => ({}) as { user_id?: string });
   const userId = typeof body?.user_id === "string" ? body.user_id : null;
   if (!userId || !UUID_RE.test(userId)) {
     return NextResponse.json(
@@ -176,14 +118,13 @@ export async function POST(
   type Row = {
     id: string;
     audio_path: string;
-    duration_seconds: number | null;
     meeting_type: string | null;
     source: string;
     recorded_at: string | null;
   };
   const rows = await withTenant(userId, async (db) => {
     const r = await db.query<Row>(
-      `SELECT id, audio_path, duration_seconds, meeting_type, source,
+      `SELECT id, audio_path, meeting_type, source,
               to_char(coalesce(recorded_at, created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at
          FROM meetings WHERE id = $1::uuid`,
       [id],
@@ -191,64 +132,57 @@ export async function POST(
     return r.rows;
   });
   if (rows.length === 0) {
-    return NextResponse.json({ error: "meeting não encontrada (ou não pertence a esse user)" }, { status: 404 });
-  }
-  const m = rows[0];
-  const phys = physicalPath(m.audio_path);
-  try {
-    await stat(phys);
-  } catch {
-    return NextResponse.json({ error: `áudio não existe em ${phys}` }, { status: 404 });
-  }
-  const duration = m.duration_seconds || 0;
-
-  const t0 = Date.now();
-  let result: TranscribeResult;
-  try {
-    result = await transcribeWithChunking(phys, duration);
-  } catch (e) {
     return NextResponse.json(
-      { error: "transcribe falhou", message: e instanceof Error ? e.message : String(e) },
-      { status: 502 },
+      { error: "meeting não encontrada (ou não pertence a esse user)" },
+      { status: 404 },
     );
   }
-  const elapsedMs = Date.now() - t0;
-
-  // Dispara webhook do n8n com a nova transcrição
-  let webhookStatus = 0;
-  let webhookBody = "";
+  const m = rows[0];
+  let phys: string;
   try {
-    const wr = await fetch(REPROCESS_WEBHOOK, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-auth": WEBHOOK_TOKEN,
-      },
-      body: JSON.stringify({
-        meeting_id: m.id,
-        user_id: userId,
-        text: result.text,
-        segments: result.segments,
-        recorded_at: m.recorded_at,
-        source: m.source,
-        meeting_type: m.meeting_type || "desconhecido",
-      }),
-      signal: AbortSignal.timeout(60_000),
-    });
-    webhookStatus = wr.status;
-    webhookBody = (await wr.text()).slice(0, 300);
-  } catch (e) {
-    webhookBody = e instanceof Error ? e.message : String(e);
+    phys = physicalPath(m.audio_path);
+    await stat(phys);
+  } catch {
+    return NextResponse.json({ error: `áudio inacessível: ${m.audio_path}` }, { status: 404 });
   }
 
-  return NextResponse.json({
-    ok: true,
-    meeting_id: m.id,
-    transcribe_ms: elapsedMs,
-    text_length: result.text.length,
-    segments_count: result.segments.length,
-    distinct_speakers: Array.from(new Set(result.segments.map((s) => s.speaker))).sort(),
-    webhook_status: webhookStatus,
-    webhook_body: webhookBody,
-  });
+  // marca analyzing já (UI mostra "processando")
+  await withTenant(userId, (db) =>
+    db.query("UPDATE meetings SET status = 'analyzing', status_error = NULL WHERE id = $1::uuid", [id]),
+  );
+
+  // trabalho pesado em background — não bloqueia a resposta
+  void (async () => {
+    try {
+      const { text, segments } = await transcribeAssemblyAI(phys);
+      await fetch(REPROCESS_WEBHOOK, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-auth": WEBHOOK_TOKEN },
+        body: JSON.stringify({
+          meeting_id: id,
+          user_id: userId,
+          text,
+          segments,
+          recorded_at: m.recorded_at,
+          source: m.source,
+          meeting_type: m.meeting_type || "desconhecido",
+        }),
+        signal: AbortSignal.timeout(180_000),
+      });
+      // sugere nomes dos speakers (best-effort; segments já foram gravados pelo reset)
+      await fetch(`${VOICE_SVC_URL}/identify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ meeting_id: id, user_id: userId }),
+        signal: AbortSignal.timeout(120_000),
+      }).catch(() => {});
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      await withTenant(userId, (db) =>
+        db.query("UPDATE meetings SET status = 'error', status_error = $2 WHERE id = $1::uuid", [id, msg.slice(0, 500)]),
+      ).catch(() => {});
+    }
+  })();
+
+  return NextResponse.json({ status: "processing", meeting_id: id }, { status: 202 });
 }
