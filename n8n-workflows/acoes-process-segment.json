@@ -84,7 +84,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "// Adapta dados do SELECT pra ficar compatível com nós copiados do principal\n// (que referenciam $('3. Prepare Metadata').item.json.*).\nconst meeting = $input.first().json;\nif (!meeting || !meeting.id) {\n  throw new Error('meeting não encontrada: ' + JSON.stringify(meeting).slice(0, 200));\n}\nreturn [{\n  json: {\n    meeting_id: meeting.id,\n    user_id: meeting.user_id,\n    transcription: meeting.transcription || '',\n    duration_seconds_local: meeting.duration_seconds || 0,\n    recorded_at: meeting.recorded_at,\n    source: meeting.source || 'segmented',\n    meeting_type: meeting.meeting_type || 'desconhecido',\n    segments_local: meeting.segments || []\n  }\n}];"
+        "jsCode": "// Adapta dados do SELECT pra ficar compatível com nós copiados do principal\n// (que referenciam $('3. Prepare Metadata').first().json.*).\nconst meeting = $input.first().json;\nif (!meeting || !meeting.id) {\n  throw new Error('meeting não encontrada: ' + JSON.stringify(meeting).slice(0, 200));\n}\nreturn [{\n  json: {\n    meeting_id: meeting.id,\n    user_id: meeting.user_id,\n    transcription: meeting.transcription || '',\n    duration_seconds_local: meeting.duration_seconds || 0,\n    recorded_at: meeting.recorded_at,\n    source: meeting.source || 'segmented',\n    meeting_type: meeting.meeting_type || 'desconhecido',\n    segments_local: meeting.segments || []\n  }\n}];"
       }
     },
     {
@@ -103,12 +103,12 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
+            "id": "={{ $('3. Prepare Metadata').first().json.meeting_id }}",
             "status": "analyzing",
             "transcription": "={{ $json.text }}",
             "duration_seconds": "={{ Math.round($json.duration || 0) }}",
             "segments": "={{ JSON.stringify($json.segments || []) }}",
-            "user_id": "={{ $('3. Prepare Metadata').item.json.user_id }}"
+            "user_id": "={{ $('3. Prepare Metadata').first().json.user_id }}"
           },
           "matchingColumns": [
             "id",
@@ -160,7 +160,7 @@
               "role": "system"
             },
             {
-              "content": "=Transcrição do áudio (gravado em {{ $('3. Prepare Metadata').item.json.recorded_at }}, source={{ $('3. Prepare Metadata').item.json.source }}, tipo={{ $('3. Prepare Metadata').item.json.meeting_type }}):\n\n{{ $('6. Use Pretranscribed').item.json.text }}"
+              "content": "=Transcrição do áudio (gravado em {{ $('3. Prepare Metadata').first().json.recorded_at }}, source={{ $('3. Prepare Metadata').first().json.source }}, tipo={{ $('3. Prepare Metadata').first().json.meeting_type }}):\n\n{{ $('6. Use Pretranscribed').item.json.text }}"
             }
           ]
         },
@@ -186,7 +186,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Parseia o JSON retornado pelo GPT e prepara items para INSERT em tarefas.\nconst meetingId = $('3. Prepare Metadata').item.json.meeting_id;\nconst raw = $input.first().json;\n\n// O nó openAi v1.7 retorna o JSON em diferentes shapes — normaliza.\nlet parsed;\nif (raw.message && raw.message.content) {\n  parsed = typeof raw.message.content === 'string' ? JSON.parse(raw.message.content) : raw.message.content;\n} else if (raw.content) {\n  parsed = typeof raw.content === 'string' ? JSON.parse(raw.content) : raw.content;\n} else if (raw.text) {\n  parsed = typeof raw.text === 'string' ? JSON.parse(raw.text) : raw.text;\n} else if (raw.summary && Array.isArray(raw.actions)) {\n  parsed = raw;\n} else {\n  throw new Error('Não foi possível parsear resposta do GPT: ' + JSON.stringify(raw).slice(0, 500));\n}\n\nconst { summary = '', actions = [] } = parsed;\nconst rawJson = JSON.stringify(parsed);\n\nif (!actions.length) {\n  return [{\n    json: {\n      meeting_id: meetingId,\n      summary,\n      raw_ai_response: rawJson,\n      no_actions: true\n    }\n  }];\n}\n\nreturn actions.map((a, i) => ({\n  json: {\n    meeting_id: meetingId,\n    summary,\n    raw_ai_response: rawJson,\n    titulo: a.titulo || '(sem título)',\n    descricao: a.descricao || '',\n    owner: a.owner || 'vitor',\n    prazo: a.prazo_iso || null,\n    prazo_text: a.prazo_text || null,\n    prioridade: ['baixa','media','alta','urgente'].includes(a.prioridade) ? a.prioridade : 'media',\n    evidencia: a.evidencia || '',\n    pessoas_raw: JSON.stringify(Array.isArray(a.pessoas_envolvidas) ? a.pessoas_envolvidas : []),\n    area_raw: a.area || null,\n    acao: ['executar','cobrar','aguardar'].includes(a.acao) ? a.acao : (a.owner === 'vitor' ? 'executar' : 'cobrar'),\n    idx: i,\n    total: actions.length\n  }\n}));"
+        "jsCode": "// Parseia o JSON retornado pelo GPT e prepara items para INSERT em tarefas.\nconst meetingId = $('3. Prepare Metadata').first().json.meeting_id;\nconst raw = $input.first().json;\n\n// O nó openAi v1.7 retorna o JSON em diferentes shapes — normaliza.\nlet parsed;\nif (raw.message && raw.message.content) {\n  parsed = typeof raw.message.content === 'string' ? JSON.parse(raw.message.content) : raw.message.content;\n} else if (raw.content) {\n  parsed = typeof raw.content === 'string' ? JSON.parse(raw.content) : raw.content;\n} else if (raw.text) {\n  parsed = typeof raw.text === 'string' ? JSON.parse(raw.text) : raw.text;\n} else if (raw.summary && Array.isArray(raw.actions)) {\n  parsed = raw;\n} else {\n  throw new Error('Não foi possível parsear resposta do GPT: ' + JSON.stringify(raw).slice(0, 500));\n}\n\nconst { summary = '', actions = [] } = parsed;\nconst rawJson = JSON.stringify(parsed);\n\nif (!actions.length) {\n  return [{\n    json: {\n      meeting_id: meetingId,\n      summary,\n      raw_ai_response: rawJson,\n      no_actions: true\n    }\n  }];\n}\n\nreturn actions.map((a, i) => ({\n  json: {\n    meeting_id: meetingId,\n    summary,\n    raw_ai_response: rawJson,\n    titulo: a.titulo || '(sem título)',\n    descricao: a.descricao || '',\n    owner: a.owner || 'vitor',\n    prazo: a.prazo_iso || null,\n    prazo_text: a.prazo_text || null,\n    prioridade: ['baixa','media','alta','urgente'].includes(a.prioridade) ? a.prioridade : 'media',\n    evidencia: a.evidencia || '',\n    pessoas_raw: JSON.stringify(Array.isArray(a.pessoas_envolvidas) ? a.pessoas_envolvidas : []),\n    area_raw: a.area || null,\n    acao: ['executar','cobrar','aguardar'].includes(a.acao) ? a.acao : (a.owner === 'vitor' ? 'executar' : 'cobrar'),\n    idx: i,\n    total: actions.length\n  }\n}));"
       },
       "id": "aeae4aab-fdc9-4813-b5f3-d375ea67a915",
       "name": "9. Parse Actions",
@@ -254,7 +254,7 @@
             "prazo_text": "={{ $json.prazo_text }}",
             "prioridade": "={{ $json.prioridade }}",
             "evidencia": "={{ $json.evidencia }}",
-            "user_id": "={{ $('3. Prepare Metadata').item.json.user_id }}",
+            "user_id": "={{ $('3. Prepare Metadata').first().json.user_id }}",
             "acao": "={{ $json.acao }}",
             "pessoas_raw": "={{ $json.pessoas_raw }}",
             "area_raw": "={{ $json.area_raw }}"
@@ -295,12 +295,12 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
+            "id": "={{ $('3. Prepare Metadata').first().json.meeting_id }}",
             "status": "done",
             "summary": "={{ $('9. Parse Actions').first().json.summary }}",
             "raw_ai_response": "={{ $('9. Parse Actions').first().json.raw_ai_response }}",
             "done_at": "={{ $now.toISO() }}",
-            "user_id": "={{ $('3. Prepare Metadata').item.json.user_id }}"
+            "user_id": "={{ $('3. Prepare Metadata').first().json.user_id }}"
           },
           "matchingColumns": [
             "id",
@@ -331,7 +331,7 @@
         "url": "http://voice-svc:8000/identify",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"meeting_id\": {{ JSON.stringify($('3. Prepare Metadata').item.json.meeting_id) }},\n  \"user_id\": \"={{ $('3. Prepare Metadata').item.json.user_id }}\"\n}",
+        "jsonBody": "={\n  \"meeting_id\": {{ JSON.stringify($('3. Prepare Metadata').first().json.meeting_id) }},\n  \"user_id\": \"={{ $('3. Prepare Metadata').first().json.user_id }}\"\n}",
         "options": {
           "timeout": 120000,
           "response": {

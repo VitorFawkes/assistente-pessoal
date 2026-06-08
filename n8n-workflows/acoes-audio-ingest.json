@@ -76,11 +76,11 @@
           "parameters": [
             {
               "name": "meeting_id",
-              "value": "={{ $('3. Prepare Metadata').item.json.meeting_id }}"
+              "value": "={{ $('3. Prepare Metadata').first().json.meeting_id }}"
             },
             {
               "name": "ext",
-              "value": "={{ $('3. Prepare Metadata').item.json.ext }}"
+              "value": "={{ $('3. Prepare Metadata').first().json.ext }}"
             },
             {
               "parameterType": "formBinaryData",
@@ -97,7 +97,7 @@
           "parameters": [
             {
               "name": "X-User-Id",
-              "value": "={{ $('3. Prepare Metadata').item.json.user_id }}"
+              "value": "={{ $('3. Prepare Metadata').first().json.user_id }}"
             }
           ]
         }
@@ -139,15 +139,15 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
-            "source": "={{ $('3. Prepare Metadata').item.json.source }}",
-            "meeting_type": "={{ $('3. Prepare Metadata').item.json.meeting_type }}",
-            "original_filename": "={{ $('3. Prepare Metadata').item.json.original_filename }}",
-            "audio_path": "={{ $('3. Prepare Metadata').item.json.audio_path }}",
-            "audio_size_bytes": "={{ $('3. Prepare Metadata').item.json.audio_size_bytes }}",
-            "recorded_at": "={{ $('3. Prepare Metadata').item.json.recorded_at }}",
+            "id": "={{ $('3. Prepare Metadata').first().json.meeting_id }}",
+            "source": "={{ $('3. Prepare Metadata').first().json.source }}",
+            "meeting_type": "={{ $('3. Prepare Metadata').first().json.meeting_type }}",
+            "original_filename": "={{ $('3. Prepare Metadata').first().json.original_filename }}",
+            "audio_path": "={{ $('3. Prepare Metadata').first().json.audio_path }}",
+            "audio_size_bytes": "={{ $('3. Prepare Metadata').first().json.audio_size_bytes }}",
+            "recorded_at": "={{ $('3. Prepare Metadata').first().json.recorded_at }}",
             "status": "received",
-            "user_id": "={{ $('3. Prepare Metadata').item.json.user_id }}"
+            "user_id": "={{ $('3. Prepare Metadata').first().json.user_id }}"
           },
           "matchingColumns": [],
           "schema": []
@@ -211,12 +211,12 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
+            "id": "={{ $('3. Prepare Metadata').first().json.meeting_id }}",
             "status": "analyzing",
             "transcription": "={{ $json.text }}",
             "duration_seconds": "={{ Math.round($json.duration || 0) }}",
             "segments": "={{ JSON.stringify($json.segments || []) }}",
-            "user_id": "={{ $('3. Prepare Metadata').item.json.user_id }}"
+            "user_id": "={{ $('3. Prepare Metadata').first().json.user_id }}"
           },
           "matchingColumns": [
             "id",
@@ -372,7 +372,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Parseia o JSON retornado pelo GPT e prepara items para INSERT em tarefas.\nconst meetingId = $('3. Prepare Metadata').item.json.meeting_id;\nconst raw = $input.first().json;\n\n// O nó openAi v1.7 retorna o JSON em diferentes shapes — normaliza.\nlet parsed;\nif (raw.message && raw.message.content) {\n  parsed = typeof raw.message.content === 'string' ? JSON.parse(raw.message.content) : raw.message.content;\n} else if (raw.content) {\n  parsed = typeof raw.content === 'string' ? JSON.parse(raw.content) : raw.content;\n} else if (raw.text) {\n  parsed = typeof raw.text === 'string' ? JSON.parse(raw.text) : raw.text;\n} else if (raw.summary && Array.isArray(raw.actions)) {\n  parsed = raw;\n} else {\n  throw new Error('Não foi possível parsear resposta do GPT: ' + JSON.stringify(raw).slice(0, 500));\n}\n\nconst { summary = '', actions = [] } = parsed;\nconst rawJson = JSON.stringify(parsed);\n\nif (!actions.length) {\n  return [{\n    json: {\n      meeting_id: meetingId,\n      summary,\n      raw_ai_response: rawJson,\n      no_actions: true\n    }\n  }];\n}\n\nreturn actions.map((a, i) => ({\n  json: {\n    meeting_id: meetingId,\n    summary,\n    raw_ai_response: rawJson,\n    titulo: a.titulo || '(sem título)',\n    descricao: a.descricao || '',\n    owner: a.owner || 'vitor',\n    prazo: a.prazo_iso || null,\n    prazo_text: a.prazo_text || null,\n    prioridade: ['baixa','media','alta','urgente'].includes(a.prioridade) ? a.prioridade : 'media',\n    evidencia: a.evidencia || '',\n    pessoas_raw: JSON.stringify(Array.isArray(a.pessoas_envolvidas) ? a.pessoas_envolvidas : []),\n    area_raw: a.area || null,\n    acao: ['executar','cobrar','aguardar'].includes(a.acao) ? a.acao : (a.owner === 'vitor' ? 'executar' : 'cobrar'),\n    idx: i,\n    total: actions.length\n  }\n}));"
+        "jsCode": "// Parseia o JSON retornado pelo GPT e prepara items para INSERT em tarefas.\nconst meetingId = $('3. Prepare Metadata').first().json.meeting_id;\nconst raw = $input.first().json;\n\n// O nó openAi v1.7 retorna o JSON em diferentes shapes — normaliza.\nlet parsed;\nif (raw.message && raw.message.content) {\n  parsed = typeof raw.message.content === 'string' ? JSON.parse(raw.message.content) : raw.message.content;\n} else if (raw.content) {\n  parsed = typeof raw.content === 'string' ? JSON.parse(raw.content) : raw.content;\n} else if (raw.text) {\n  parsed = typeof raw.text === 'string' ? JSON.parse(raw.text) : raw.text;\n} else if (raw.summary && Array.isArray(raw.actions)) {\n  parsed = raw;\n} else {\n  throw new Error('Não foi possível parsear resposta do GPT: ' + JSON.stringify(raw).slice(0, 500));\n}\n\nconst { summary = '', actions = [] } = parsed;\nconst rawJson = JSON.stringify(parsed);\n\nif (!actions.length) {\n  return [{\n    json: {\n      meeting_id: meetingId,\n      summary,\n      raw_ai_response: rawJson,\n      no_actions: true\n    }\n  }];\n}\n\nreturn actions.map((a, i) => ({\n  json: {\n    meeting_id: meetingId,\n    summary,\n    raw_ai_response: rawJson,\n    titulo: a.titulo || '(sem título)',\n    descricao: a.descricao || '',\n    owner: a.owner || 'vitor',\n    prazo: a.prazo_iso || null,\n    prazo_text: a.prazo_text || null,\n    prioridade: ['baixa','media','alta','urgente'].includes(a.prioridade) ? a.prioridade : 'media',\n    evidencia: a.evidencia || '',\n    pessoas_raw: JSON.stringify(Array.isArray(a.pessoas_envolvidas) ? a.pessoas_envolvidas : []),\n    area_raw: a.area || null,\n    acao: ['executar','cobrar','aguardar'].includes(a.acao) ? a.acao : (a.owner === 'vitor' ? 'executar' : 'cobrar'),\n    idx: i,\n    total: actions.length\n  }\n}));"
       },
       "id": "00000000-0000-0000-0000-000000000010",
       "name": "9. Parse Actions",
@@ -440,7 +440,7 @@
             "prazo_text": "={{ $json.prazo_text }}",
             "prioridade": "={{ $json.prioridade }}",
             "evidencia": "={{ $json.evidencia }}",
-            "user_id": "={{ $('3. Prepare Metadata').item.json.user_id }}",
+            "user_id": "={{ $('3. Prepare Metadata').first().json.user_id }}",
             "acao": "={{ $json.acao }}",
             "pessoas_raw": "={{ $json.pessoas_raw }}",
             "area_raw": "={{ $json.area_raw }}"
@@ -481,12 +481,12 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
+            "id": "={{ $('3. Prepare Metadata').first().json.meeting_id }}",
             "status": "done",
             "summary": "={{ $('9. Parse Actions').first().json.summary }}",
             "raw_ai_response": "={{ $('9. Parse Actions').first().json.raw_ai_response }}",
             "done_at": "={{ $now.toISO() }}",
-            "user_id": "={{ $('3. Prepare Metadata').item.json.user_id }}"
+            "user_id": "={{ $('3. Prepare Metadata').first().json.user_id }}"
           },
           "matchingColumns": [
             "id",
@@ -513,7 +513,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Monta a mensagem do WhatsApp\nconst meetingId = $('3. Prepare Metadata').item.json.meeting_id;\nconst summary = $('9. Parse Actions').first().json.summary;\nconst items = $('9. Parse Actions').all().map(i => i.json).filter(j => !j.no_actions);\n\nconst minhas = items.filter(i => i.owner === 'vitor');\nconst delegadas = items.filter(i => i.owner !== 'vitor');\nconst formatPrazo = (p) => {\n  if (!p) return '';\n  try {\n    const d = new Date(p);\n    return ' _(até ' + d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ')_';\n  } catch { return ''; }\n};\nconst emojiPrio = { urgente: '🔴', alta: '🟠', media: '🟡', baixa: '⚪' };\n\nlet msg = '🎙️ *Reunião processada*\\n\\n';\nmsg += '_' + summary + '_\\n\\n';\n\nif (minhas.length) {\n  msg += '✅ *Minhas ações* (' + minhas.length + ')\\n';\n  minhas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '🟡') + ' ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (delegadas.length) {\n  msg += '👥 *Combinei com outros* (' + delegadas.length + ')\\n';\n  delegadas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '🟡') + ' *' + t.owner + ':* ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (!minhas.length && !delegadas.length) {\n  msg += '_(nenhuma ação concreta extraída desta reunião)_\\n';\n}\n\nconst frontendUrl = 'https://acoes.vitorgambetti.com.br';\nmsg += '🔗 ' + frontendUrl + '/reunioes/' + meetingId;\n\n\n// Aviso de áudio longo aguardando segmentação\nconst needsSeg = $('12c. Mark Needs Segmentation').first().json.needs_segmentation;\nconst dur = $('12c. Mark Needs Segmentation').first().json.duration_seconds;\nif (needsSeg) {\n  msg += '\\n\\n🎙️ Áudio longo (' + (dur/3600).toFixed(1) + 'h) — revisar segmentação:\\n';\n  msg += frontendUrl + '/reunioes/' + meetingId + '/segmentar';\n}\nreturn [{ json: { text: msg, meeting_id: meetingId, n_tarefas: items.length } }];"
+        "jsCode": "// Monta a mensagem do WhatsApp\nconst meetingId = $('3. Prepare Metadata').first().json.meeting_id;\nconst summary = $('9. Parse Actions').first().json.summary;\nconst items = $('9. Parse Actions').all().map(i => i.json).filter(j => !j.no_actions);\n\nconst minhas = items.filter(i => i.owner === 'vitor');\nconst delegadas = items.filter(i => i.owner !== 'vitor');\nconst formatPrazo = (p) => {\n  if (!p) return '';\n  try {\n    const d = new Date(p);\n    return ' _(até ' + d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ')_';\n  } catch { return ''; }\n};\nconst emojiPrio = { urgente: '🔴', alta: '🟠', media: '🟡', baixa: '⚪' };\n\nlet msg = '🎙️ *Reunião processada*\\n\\n';\nmsg += '_' + summary + '_\\n\\n';\n\nif (minhas.length) {\n  msg += '✅ *Minhas ações* (' + minhas.length + ')\\n';\n  minhas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '🟡') + ' ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (delegadas.length) {\n  msg += '👥 *Combinei com outros* (' + delegadas.length + ')\\n';\n  delegadas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '🟡') + ' *' + t.owner + ':* ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (!minhas.length && !delegadas.length) {\n  msg += '_(nenhuma ação concreta extraída desta reunião)_\\n';\n}\n\nconst frontendUrl = 'https://acoes.vitorgambetti.com.br';\nmsg += '🔗 ' + frontendUrl + '/reunioes/' + meetingId;\n\n\n// Aviso de áudio longo aguardando segmentação\nconst needsSeg = $('12c. Mark Needs Segmentation').first().json.needs_segmentation;\nconst dur = $('12c. Mark Needs Segmentation').first().json.duration_seconds;\nif (needsSeg) {\n  msg += '\\n\\n🎙️ Áudio longo (' + (dur/3600).toFixed(1) + 'h) — revisar segmentação:\\n';\n  msg += frontendUrl + '/reunioes/' + meetingId + '/segmentar';\n}\nreturn [{ json: { text: msg, meeting_id: meetingId, n_tarefas: items.length } }];"
       },
       "id": "00000000-0000-0000-0000-000000000014",
       "name": "13. Build WhatsApp Message",
@@ -573,10 +573,10 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
+            "id": "={{ $('3. Prepare Metadata').first().json.meeting_id }}",
             "status": "error",
             "status_error": "={{ $json.error?.message || JSON.stringify($json.error || $json) }}",
-            "user_id": "={{ $('3. Prepare Metadata').item.json.user_id }}"
+            "user_id": "={{ $('3. Prepare Metadata').first().json.user_id }}"
           },
           "matchingColumns": [
             "id",
@@ -618,7 +618,7 @@
         "url": "http://voice-svc:8000/identify",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"meeting_id\": \"{{ $('3. Prepare Metadata').item.json.meeting_id }}\",\n  \"user_id\": \"{{ $('3. Prepare Metadata').item.json.user_id }}\"\n}",
+        "jsonBody": "={\n  \"meeting_id\": \"{{ $('3. Prepare Metadata').first().json.meeting_id }}\",\n  \"user_id\": \"{{ $('3. Prepare Metadata').first().json.user_id }}\"\n}",
         "options": {
           "timeout": 120000,
           "response": {
@@ -684,7 +684,7 @@
           "value": {
             "id": "={{ $json.meeting_id }}",
             "needs_segmentation": "={{ $json.needs_segmentation }}",
-            "user_id": "={{ $('3. Prepare Metadata').item.json.user_id }}"
+            "user_id": "={{ $('3. Prepare Metadata').first().json.user_id }}"
           },
           "matchingColumns": [
             "id",
