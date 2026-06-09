@@ -20,6 +20,12 @@ export function registerCommands(ctx: vscode.ExtensionContext, d: Deps) {
     ctx.subscriptions.push(vscode.commands.registerCommand(id, fn));
 
   reg("vidro.mic", () => d.voice.captureAndSend());
+  reg("vidro.micStop", () => d.voice.stop(false));
+  reg("vidro.micCancel", () => d.voice.stop(true));
+  reg("vidro.micReset", () => {
+    d.voice.forceReset();
+    vscode.window.setStatusBarMessage("$(mic) Vidro: microfone resetado", 3000);
+  });
 
   reg("vidro.talk", async () => {
     const text = await vscode.window.showInputBox({ prompt: "Falar com o maestro", placeHolder: "ex.: abre um agente no WelcomeCRM e arruma o login" });

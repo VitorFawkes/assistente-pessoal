@@ -2,7 +2,7 @@
   "name": "vidro",
   "displayName": "Vidro — Maestro de voz",
   "description": "Maestro de voz + vários Claude Code reais nos seus projetos, à mostra no editor. Front-end nativo do Mission Control.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "vitorgambetti",
   "engines": { "vscode": "^1.95.0" },
   "license": "MIT",
@@ -28,7 +28,10 @@
       }
     ],
     "commands": [
-      { "command": "vidro.mic", "title": "Vidro: Falar (microfone)", "icon": "$(mic)" },
+      { "command": "vidro.mic", "title": "Vidro: Falar / parar (microfone)", "icon": "$(mic)" },
+      { "command": "vidro.micStop", "title": "Vidro: Parar de ouvir e enviar" },
+      { "command": "vidro.micCancel", "title": "Vidro: Cancelar escuta (descartar)" },
+      { "command": "vidro.micReset", "title": "Vidro: Resetar microfone (destravar)" },
       { "command": "vidro.talk", "title": "Vidro: Falar com o maestro (texto)", "icon": "$(comment)" },
       { "command": "vidro.newAgent", "title": "Vidro: Novo agente", "icon": "$(add)" },
       { "command": "vidro.newAgentInProject", "title": "Novo agente neste projeto", "icon": "$(add)" },

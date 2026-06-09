@@ -26,23 +26,39 @@ export async function activate(ctx: vscode.ExtensionContext) {
   const tree = new AgentsTree(store);
   ctx.subscriptions.push(vscode.window.registerTreeDataProvider("vidro.agents", tree));
 
-  // Voz + rail do maestro (referências cruzadas resolvidas por closures)
-  let maestro: MaestroView;
-  const voice = new Voice(backend, out, (on) => maestro?.flashListening(on));
-  maestro = new MaestroView(ctx, store, backend, () => voice.captureAndSend());
-  ctx.subscriptions.push(vscode.window.registerWebviewViewProvider(MaestroView.viewType, maestro));
-
-  // Status bar
+  // Status bar (criado antes da voz pra refletir 'ouvindo'); clique = toggle do mic
   const sb = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   sb.command = "vidro.mic";
-  sb.tooltip = "Vidro: clique para falar com o maestro";
   ctx.subscriptions.push(sb);
-  const setSb = (connected: boolean) => {
-    sb.text = connected ? "$(unmute) Vidro" : "$(circle-slash) Vidro offline";
-    sb.color = connected ? undefined : new vscode.ThemeColor("charts.red");
+  let connectedState = false;
+  let listeningState = false;
+  const renderSb = () => {
+    if (listeningState) {
+      sb.text = "$(record) ouvindo — clique p/ parar";
+      sb.color = new vscode.ThemeColor("charts.red");
+      sb.tooltip = "Clique pra parar de ouvir e enviar";
+    } else {
+      sb.text = connectedState ? "$(unmute) Vidro" : "$(circle-slash) Vidro offline";
+      sb.color = connectedState ? undefined : new vscode.ThemeColor("charts.red");
+      sb.tooltip = "Vidro: clique para falar com o maestro";
+    }
     sb.show();
   };
+  const setSb = (connected: boolean) => {
+    connectedState = connected;
+    renderSb();
+  };
   setSb(false);
+
+  // Voz + rail do maestro (referências cruzadas resolvidas por closures)
+  let maestro: MaestroView;
+  const voice = new Voice(backend, out, (on) => {
+    listeningState = on;
+    renderSb();
+    maestro?.flashListening(on);
+  });
+  maestro = new MaestroView(ctx, store, backend, () => voice.captureAndSend());
+  ctx.subscriptions.push(vscode.window.registerWebviewViewProvider(MaestroView.viewType, maestro));
 
   // Comandos
   registerCommands(ctx, {

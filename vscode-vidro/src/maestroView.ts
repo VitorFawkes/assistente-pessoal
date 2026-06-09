@@ -6,6 +6,7 @@ import { Backend } from "./backend";
 export class MaestroView implements vscode.WebviewViewProvider {
   public static readonly viewType = "vidro.maestro";
   private view?: vscode.WebviewView;
+  private listening = false;
 
   constructor(
     private readonly ctx: vscode.ExtensionContext,
@@ -25,6 +26,7 @@ export class MaestroView implements vscode.WebviewViewProvider {
         switch (m?.cmd) {
           case "ready":
             this.push();
+            this.view?.webview.postMessage({ type: "listening", on: this.listening });
             break;
           case "send":
             if ((m.text || "").trim()) await this.backend.command(String(m.text).trim());
@@ -65,6 +67,7 @@ export class MaestroView implements vscode.WebviewViewProvider {
   }
 
   flashListening(on: boolean) {
+    this.listening = on;
     this.view?.webview.postMessage({ type: "listening", on });
   }
 
