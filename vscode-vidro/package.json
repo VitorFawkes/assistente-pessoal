@@ -1,0 +1,102 @@
+{
+  "name": "vidro",
+  "displayName": "Vidro — Maestro de voz",
+  "description": "Maestro de voz + vários Claude Code reais nos seus projetos, à mostra no editor. Front-end nativo do Mission Control.",
+  "version": "0.1.0",
+  "publisher": "vitorgambetti",
+  "engines": { "vscode": "^1.95.0" },
+  "license": "MIT",
+  "categories": ["AI", "Other"],
+  "main": "./dist/extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "vidro", "title": "Vidro", "icon": "media/vidro.svg" }
+      ]
+    },
+    "views": {
+      "vidro": [
+        { "id": "vidro.agents", "name": "Agentes", "type": "tree", "icon": "media/vidro.svg" },
+        { "id": "vidro.maestro", "name": "Maestro", "type": "webview" }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "vidro.agents",
+        "contents": "Conectando ao motor (Mission Control)…\n[Iniciar motor](command:vidro.startBackend)\n[Recarregar](command:vidro.refresh)"
+      }
+    ],
+    "commands": [
+      { "command": "vidro.mic", "title": "Vidro: Falar (microfone)", "icon": "$(mic)" },
+      { "command": "vidro.talk", "title": "Vidro: Falar com o maestro (texto)", "icon": "$(comment)" },
+      { "command": "vidro.newAgent", "title": "Vidro: Novo agente", "icon": "$(add)" },
+      { "command": "vidro.refresh", "title": "Vidro: Recarregar", "icon": "$(refresh)" },
+      { "command": "vidro.startBackend", "title": "Vidro: Iniciar motor" },
+      { "command": "vidro.stopBackend", "title": "Vidro: Parar motor" },
+      { "command": "vidro.toggleAudio", "title": "Vidro: Ligar/desligar voz", "icon": "$(unmute)" },
+      { "command": "vidro.hush", "title": "Vidro: Calar tudo (pânico)", "icon": "$(mute)" },
+      { "command": "vidro.sendToAgent", "title": "Falar direto com este agente", "icon": "$(comment-discussion)" },
+      { "command": "vidro.openInTerminal", "title": "Abrir no terminal (claude --resume)", "icon": "$(terminal)" },
+      { "command": "vidro.takeover", "title": "Assumir agente (handoff)", "icon": "$(debug-disconnect)" },
+      { "command": "vidro.handBack", "title": "Devolver ao maestro", "icon": "$(debug-continue)" },
+      { "command": "vidro.undo", "title": "Desfazer mudanças do agente", "icon": "$(discard)" },
+      { "command": "vidro.openChanges", "title": "Ver mudanças (diff)", "icon": "$(git-compare)" },
+      { "command": "vidro.setMode", "title": "Trocar modo de permissão", "icon": "$(shield)" },
+      { "command": "vidro.pauseAgent", "title": "Pausar agente", "icon": "$(debug-pause)" },
+      { "command": "vidro.resumeAgent", "title": "Retomar agente", "icon": "$(debug-start)" },
+      { "command": "vidro.closeAgent", "title": "Encerrar agente (retomável)", "icon": "$(close)" }
+    ],
+    "keybindings": [
+      { "command": "vidro.mic", "key": "cmd+shift+m", "mac": "cmd+shift+m" },
+      { "command": "vidro.talk", "key": "cmd+alt+v", "mac": "cmd+alt+v" }
+    ],
+    "menus": {
+      "view/title": [
+        { "command": "vidro.newAgent", "when": "view == vidro.agents", "group": "navigation@1" },
+        { "command": "vidro.mic", "when": "view == vidro.agents", "group": "navigation@2" },
+        { "command": "vidro.toggleAudio", "when": "view == vidro.agents", "group": "navigation@3" },
+        { "command": "vidro.refresh", "when": "view == vidro.agents", "group": "navigation@4" }
+      ],
+      "view/item/context": [
+        { "command": "vidro.sendToAgent", "when": "view == vidro.agents && viewItem == agent", "group": "inline@1" },
+        { "command": "vidro.openInTerminal", "when": "view == vidro.agents && viewItem == agent", "group": "inline@2" },
+        { "command": "vidro.openChanges", "when": "view == vidro.agents && viewItem == agent", "group": "1_act@1" },
+        { "command": "vidro.undo", "when": "view == vidro.agents && viewItem == agent", "group": "1_act@2" },
+        { "command": "vidro.takeover", "when": "view == vidro.agents && viewItem == agent", "group": "2_handoff@1" },
+        { "command": "vidro.handBack", "when": "view == vidro.agents && viewItem == agent", "group": "2_handoff@2" },
+        { "command": "vidro.setMode", "when": "view == vidro.agents && viewItem == agent", "group": "3_cfg@1" },
+        { "command": "vidro.pauseAgent", "when": "view == vidro.agents && viewItem == agent", "group": "3_cfg@2" },
+        { "command": "vidro.resumeAgent", "when": "view == vidro.agents && viewItem == agent", "group": "3_cfg@3" },
+        { "command": "vidro.closeAgent", "when": "view == vidro.agents && viewItem == agent", "group": "9_danger@1" }
+      ]
+    },
+    "configuration": {
+      "title": "Vidro",
+      "properties": {
+        "vidro.port": { "type": "number", "default": 8781, "description": "Porta do motor PRÓPRIO do Vidro (independente do Mission Control, que usa 8770)." },
+        "vidro.commandCenterPath": { "type": "string", "default": "", "description": "Vazio = usa o motor EMBUTIDO na extensão (engine/), totalmente separado do Mission Control. Preencha só para apontar a outra pasta." },
+        "vidro.autoStartBackend": { "type": "boolean", "default": true, "description": "Iniciar o motor próprio automaticamente se não estiver no ar." },
+        "vidro.recorder": { "type": "string", "enum": ["rec", "sox"], "default": "rec", "description": "Binário de gravação (sox)." },
+        "vidro.micSilenceStop": { "type": "string", "default": "0.9", "description": "Segundos de silêncio para parar a gravação por voz." }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "typecheck": "tsc --noEmit",
+    "vscode:prepublish": "node esbuild.js --production",
+    "package": "vsce package --no-dependencies --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.95.0",
+    "@types/ws": "^8.5.10",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

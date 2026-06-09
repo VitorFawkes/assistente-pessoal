@@ -1,0 +1,12 @@
+.vscode/**
+src/**
+node_modules/**
+esbuild.js
+tsconfig.json
+**/*.map
+**/*.ts
+.gitignore
+engine/__pycache__/**
+engine/uploads/**
+engine/state.json
+engine/static/**

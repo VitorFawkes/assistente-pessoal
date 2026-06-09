@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.vsix
+*.map
+.DS_Store
+engine/__pycache__/
+engine/uploads/
+engine/state.json
