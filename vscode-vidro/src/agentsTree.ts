@@ -8,9 +8,11 @@ type Node = ProjectNode | AgentNode | TaskNode | EmptyNode;
 export class ProjectNode extends vscode.TreeItem {
   constructor(public readonly project: string, count: number) {
     super(project, count > 0 ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed);
-    this.description = count === 0 ? "sem agente" : count === 1 ? "1 agente" : `${count} agentes`;
+    this.description = count === 0 ? "sem agente · clique p/ abrir" : count === 1 ? "1 agente · clique p/ +" : `${count} agentes · clique p/ +`;
     this.contextValue = "project";
     this.iconPath = new vscode.ThemeIcon(count > 0 ? "folder-active" : "folder");
+    this.tooltip = `Clique para abrir um novo agente em ${project} (use a setinha para expandir)`;
+    this.command = { command: "vidro.newAgentInProject", title: "Novo agente", arguments: [project] };
   }
 }
 
@@ -32,6 +34,7 @@ export class AgentNode extends vscode.TreeItem {
     this.contextValue = dormant ? "agentDormant" : "agent";
     this.id = "agent:" + agent.id;
     this.iconPath = dormant ? new vscode.ThemeIcon("debug-disconnect") : statusIcon(st);
+    this.command = { command: "vidro.focusAgent", title: "Focar agente", arguments: [agent] };
     this.tooltip = new vscode.MarkdownString(
       `**${agent.label || agent.project}** — ${agent.project}\n\n` +
         `status: ${st}${dormant ? " (clique em ↻ Reabrir pra continuar)" : ""}\n\n` +

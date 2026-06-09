@@ -2,7 +2,7 @@
   "name": "vidro",
   "displayName": "Vidro — Maestro de voz",
   "description": "Maestro de voz + vários Claude Code reais nos seus projetos, à mostra no editor. Front-end nativo do Mission Control.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "vitorgambetti",
   "engines": { "vscode": "^1.95.0" },
   "license": "MIT",

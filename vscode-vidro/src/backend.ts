@@ -119,6 +119,9 @@ export class Backend {
   say(text: string) {
     return postJson(this.port, "/say", { text });
   }
+  focus(project: string, agent_id?: string, label?: string) {
+    return postJson(this.port, "/maestro/focus", { project, agent_id, label });
+  }
   setAudio(on: boolean) {
     return postJson(this.port, "/command", { audio: on });
   }

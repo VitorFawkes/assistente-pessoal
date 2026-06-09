@@ -63,7 +63,8 @@ AGENT_AUTO_TOOLS = ["Read", "Grep", "Glob", "WebSearch", "WebFetch", "Write", "E
                     "NotebookEdit", "Task", "Skill", "TodoWrite"]
 # Maestro só CONDUZ: nada de ler/editar/rodar — apenas as ferramentas de orquestração.
 MAESTRO_TOOLS = ["mcp__maestro__spawn_agent", "mcp__maestro__instruct_agent",
-                 "mcp__maestro__control", "mcp__maestro__fleet_status"]
+                 "mcp__maestro__control", "mcp__maestro__fleet_status",
+                 "mcp__maestro__agent_detail"]
 DESTRUCTIVE = ("rm -rf", "rm -fr", "sudo ", "dd if=", "mkfs", ":(){", "> /dev/",
                "git push --force", "git push -f", "reset --hard", "shutdown", "reboot")
 READONLY = {"ls", "cat", "head", "tail", "grep", "rg", "find", "pwd", "echo", "wc", "which",
@@ -1457,8 +1458,92 @@ async def fleet_status_tool(args):
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
+def _agent_transcript_path(ag):
+    """Caminho do .jsonl da sessão DESTE agente (pelo session_id), com fallback pro mais
+    recente do cwd. None se não achar."""
+    sid = getattr(ag, "session_id", None)
+    cwd = getattr(ag, "cwd", "") or ""
+    if sid and cwd:
+        for enc in (re.sub(r"[/.]", "-", cwd), cwd.replace("/", "-")):
+            p = Path.home() / ".claude/projects" / enc / f"{sid}.jsonl"
+            if p.exists():
+                return str(p)
+    return latest_transcript_for(cwd) if cwd else None
+
+
+def agent_work_detail(ag, char_budget=2600, max_blocks=8):
+    """Lê a CAUDA do transcript do agente e junta os últimos blocos de texto do assistant —
+    o detalhe real do que ele fez/achou, sem ruído de ferramenta. É o que dá ao Maestro o que
+    responder quando o Vitor pede 'mais detalhe', sem precisar reabrir/reinstruir agente."""
+    path = _agent_transcript_path(ag)
+    if not path:
+        return ""
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as f:
+            if size > 200000:
+                f.seek(size - 200000)
+            tail = f.read().decode("utf-8", "ignore")
+    except Exception:
+        return ""
+    blocks = []
+    for line in tail.splitlines():
+        try:
+            o = json.loads(line)
+        except Exception:
+            continue
+        if o.get("type") != "assistant":
+            continue
+        tx = _text((o.get("message") or {}).get("content")).strip()
+        if tx:
+            blocks.append(tx)
+    if not blocks:
+        return ""
+    joined = "\n\n".join(blocks[-max_blocks:]).strip()
+    if len(joined) > char_budget:
+        joined = joined[-char_budget:]
+        m = re.search(r"[.!?…\n]\s+", joined)
+        if m:
+            joined = joined[m.end():].strip()
+    return joined
+
+
+@tool("agent_detail",
+      "O DETALHE COMPLETO do que um agente JÁ fez — o resultado inteiro dele e a cauda do "
+      "raciocínio, não só a frase curta que você ouviu. Use isto quando o Vitor pedir 'mais "
+      "detalhe', 'explica melhor', 'o que ele achou', 'o que mudou' sobre algo que um agente já "
+      "entregou: você lê AQUI e responde DIRETO, SEM reabrir (spawn_agent) nem reinstruir "
+      "(instruct_agent) o agente. 'target' = id, rótulo ou projeto do agente; se houver só um "
+      "agente aberto, pode deixar vazio.",
+      {"target": str})
+async def agent_detail_tool(args):
+    target = (args.get("target") or "").strip()
+    ag, ask = resolve_one(target)
+    if not ag and not ask and not target and len(AGENTS) == 1:
+        ag = next(iter(AGENTS.values()))      # sem alvo e só um agente aberto -> é esse
+    if ask:
+        return {"content": [{"type": "text", "text": ask}]}
+    if not ag:
+        return {"content": [{"type": "text", "text":
+                "Não há agente aberto pra esse alvo — o detalhe só existe enquanto o agente está "
+                "aberto. Se já fechou, abra um pra checar de novo."}]}
+    parts = [f"Detalhe do agente {_ag_tag(ag)} — o que ele já fez:"]
+    done = [t for t in ag.tasks if (t.last_text or "").strip()]
+    for tk in done[-3:]:
+        parts.append(f"\nTarefa “{tk.title[:80]}” [{tk.status}] — resultado entregue:\n"
+                     f"{(tk.last_text or '').strip()}")
+    extra = await asyncio.to_thread(agent_work_detail, ag)
+    if extra:
+        parts.append(f"\nCauda do trabalho do agente (mais contexto do que ele fez):\n{extra}")
+    if len(parts) == 1:
+        return {"content": [{"type": "text", "text":
+                f"O agente {_ag_tag(ag)} ainda não entregou nada que eu consiga detalhar."}]}
+    return {"content": [{"type": "text", "text": "\n".join(parts).strip()}]}
+
+
 maestro_server = create_sdk_mcp_server(
-    name="maestro", tools=[spawn_agent_tool, instruct_agent_tool, control_tool, fleet_status_tool])
+    name="maestro", tools=[spawn_agent_tool, instruct_agent_tool, control_tool, fleet_status_tool,
+                           agent_detail_tool])
 maestro_inbox = asyncio.Queue()
 _maestro_resume = asyncio.Event()   # set = rodando; clear = pausado (segura a fila)
 _maestro_resume.set()
@@ -1487,7 +1572,9 @@ def maestro_sysprompt():
         "3. CONTROLAR por voz (control): pausar/retomar/cancelar/reexecutar; APROVAR ou NEGAR um "
         "comando/plano pendente ('aprova o do CRM'); DESFAZER mudanças de um agente ('desfaz o do "
         "wedme'); trocar o MODO do agente ('põe o pricing em modo plan' / 'auto' / 'acceptEdits').\n"
-        "4. VER o que os agentes fizeram (fleet_status) e reportar pro Vitor.\n\n"
+        "4. VER o que os agentes fizeram: fleet_status pra VISÃO GERAL (o que cada um fez/está "
+        "fazendo) e agent_detail pro DETALHE COMPLETO de um agente — o resultado inteiro dele — "
+        "quando o Vitor pedir 'mais detalhe', 'explica melhor', 'o que ele achou'. Reporte pro Vitor.\n\n"
         "MODOS DE PERMISSÃO (ao abrir/trocar um agente): 'default' pede aprovação pra comando que muta; "
         "'acceptEdits' edita livre; 'plan' faz um plano e ESPERA o Vitor aprovar antes de executar; "
         "'auto' roda sozinho com classificador de segurança. Quando algo espera aprovação ou um plano "
@@ -1499,7 +1586,10 @@ def maestro_sysprompt():
         "A. Você NUNCA lê arquivo, roda git, edita ou roda comando — quem mexe no código é SEMPRE o "
         "agente. MAS perguntas de status/visão geral ('o que tá rolando?', 'terminou?', 'tem algo "
         "esperando?', 'quantos agentes abertos?') você RESPONDE NA HORA a partir do [ESTADO AGORA], "
-        "SEM abrir agente. Só abra um agente (spawn_agent) quando precisar investigar o código/git/"
+        "SEM abrir agente. E quando ele quiser MAIS DETALHE do que um agente JÁ entregou ('explica "
+        "melhor', 'o que ele achou', 'o que mudou', 'me dá mais info'), use agent_detail pra LER o "
+        "resultado inteiro e responda DIRETO — NUNCA reabra (spawn_agent) nem reinstrua (instruct_agent) "
+        "o agente só pra repetir o que ele já fez. Só abra um agente (spawn_agent) quando precisar investigar o código/git/"
         "arquivos de verdade — algo que NÃO está no [ESTADO AGORA] (ex.: 'tem bug no checkout?', 'os "
         "testes passaram?'). E use o [ESTADO AGORA] pra aterrar referências do Vitor: 'aprova o do "
         "CRM', 'continua', 'desfaz o do wedme', 'pausa o pricing'.\n"

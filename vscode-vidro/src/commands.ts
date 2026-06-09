@@ -28,7 +28,7 @@ export function registerCommands(ctx: vscode.ExtensionContext, d: Deps) {
   });
 
   reg("vidro.talk", async () => {
-    const text = await vscode.window.showInputBox({ prompt: "Falar com o maestro", placeHolder: "ex.: abre um agente no WelcomeCRM e arruma o login" });
+    const text = await vscode.window.showInputBox({ title: "Falar com o maestro", prompt: "Enter envia · Esc cancela", placeHolder: "ex.: abre um agente no WelcomeCRM e arruma o login", ignoreFocusOut: true });
     if (text?.trim()) await safe(d, () => d.backend.command(text.trim()));
   });
 
@@ -46,14 +46,15 @@ export function registerCommands(ctx: vscode.ExtensionContext, d: Deps) {
         : await vscode.window.showInputBox({ prompt: "Nome/caminho do projeto" });
     }
     if (!project) return;
-    const task = await vscode.window.showInputBox({ prompt: `Primeira tarefa do agente em ${project}` });
+    const task = await vscode.window.showInputBox({
+      title: `Novo agente em ${project}`,
+      prompt: "O que o agente deve fazer? (Enter cria · Esc cancela)",
+      placeHolder: "ex.: arruma o erro de login e roda os testes",
+      ignoreFocusOut: true,
+    });
     if (!task?.trim()) return;
-    const mode = await vscode.window.showQuickPick(
-      ["default", "acceptEdits", "plan", "dontAsk"],
-      { placeHolder: "Modo de permissão (default = confirma mutações)" }
-    );
     await safe(d, async () => {
-      const r = await d.backend.spawn(project!, task.trim(), { mode: mode || "default" });
+      const r = await d.backend.spawn(project!, task.trim(), { mode: "default" });
       if (r?.ok) vscode.window.setStatusBarMessage(`$(rocket) Agente criado em ${project}`, 4000);
       else vscode.window.showErrorMessage(`Vidro: ${r?.error || "falha ao criar agente"}`);
     });
@@ -66,10 +67,19 @@ export function registerCommands(ctx: vscode.ExtensionContext, d: Deps) {
     if (!ag) return;
     await safe(d, () => d.backend.resumeAgent(ag.id));
     const next = await vscode.window.showInputBox({
-      prompt: `Reabrir "${ag.label || ag.project}" — próxima tarefa? (deixe vazio só pra reativar)`,
+      title: `Reabrir "${ag.label || ag.project}"`,
+      prompt: "Próxima tarefa? (deixe vazio só pra reativar)",
+      ignoreFocusOut: true,
     });
     if (next?.trim()) await safe(d, () => d.backend.addTask(ag.id, next.trim()));
     vscode.window.setStatusBarMessage(`$(debug-start) Reaberto: ${ag.label || ag.project}`, 4000);
+  });
+
+  reg("vidro.focusAgent", async (arg?: any) => {
+    const ag = (arg && arg.agent ? arg.agent : arg) as AgentPublic | undefined;
+    if (!ag?.id) return;
+    await safe(d, () => d.backend.focus(ag.project, ag.id, ag.label));
+    vscode.window.setStatusBarMessage(`$(target) Foco: ${ag.label || ag.project} — fale e vai pra ele`, 4000);
   });
 
   reg("vidro.refresh", async () => {
@@ -84,7 +94,7 @@ export function registerCommands(ctx: vscode.ExtensionContext, d: Deps) {
   reg("vidro.sendToAgent", async (node?: AgentNode) => {
     const ag = await resolveAgent(d.store, node);
     if (!ag) return;
-    const text = await vscode.window.showInputBox({ prompt: `Falar direto com ${ag.label || ag.project}` });
+    const text = await vscode.window.showInputBox({ title: `Falar direto com ${ag.label || ag.project}`, prompt: "Nova tarefa pra este agente", ignoreFocusOut: true });
     if (text?.trim()) await safe(d, () => d.backend.addTask(ag.id, text.trim()));
   });
 
