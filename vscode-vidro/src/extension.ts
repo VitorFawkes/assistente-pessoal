@@ -86,6 +86,12 @@ async function connect(
   ws.onStatus((connected) => {
     store.setConnected(connected);
     setSb(connected);
+    if (connected) {
+      backend
+        .projects()
+        .then((p) => store.setProjects(p.projects || []))
+        .catch(() => { /* ignore */ });
+    }
   });
   ws.start();
 }

@@ -26,14 +26,19 @@ export function registerCommands(ctx: vscode.ExtensionContext, d: Deps) {
     if (text?.trim()) await safe(d, () => d.backend.command(text.trim()));
   });
 
-  reg("vidro.newAgent", async () => {
-    let projects: string[] = [];
-    try {
-      projects = (await d.backend.projects()).projects || [];
-    } catch { /* ignore */ }
-    const project = projects.length
-      ? await vscode.window.showQuickPick(projects, { placeHolder: "Projeto do novo agente" })
-      : await vscode.window.showInputBox({ prompt: "Nome/caminho do projeto" });
+  async function spawnFlow(preProject?: string) {
+    let project = preProject;
+    if (!project) {
+      let projects: string[] = d.store.allProjects;
+      if (!projects.length) {
+        try {
+          projects = (await d.backend.projects()).projects || [];
+        } catch { /* ignore */ }
+      }
+      project = projects.length
+        ? await vscode.window.showQuickPick(projects, { placeHolder: "Projeto do novo agente" })
+        : await vscode.window.showInputBox({ prompt: "Nome/caminho do projeto" });
+    }
     if (!project) return;
     const task = await vscode.window.showInputBox({ prompt: `Primeira tarefa do agente em ${project}` });
     if (!task?.trim()) return;
@@ -42,10 +47,23 @@ export function registerCommands(ctx: vscode.ExtensionContext, d: Deps) {
       { placeHolder: "Modo de permissão (default = confirma mutações)" }
     );
     await safe(d, async () => {
-      const r = await d.backend.spawn(project, task.trim(), { mode: mode || "default" });
+      const r = await d.backend.spawn(project!, task.trim(), { mode: mode || "default" });
       if (r?.ok) vscode.window.setStatusBarMessage(`$(rocket) Agente criado em ${project}`, 4000);
       else vscode.window.showErrorMessage(`Vidro: ${r?.error || "falha ao criar agente"}`);
     });
+  }
+  reg("vidro.newAgent", () => spawnFlow());
+  reg("vidro.newAgentInProject", (arg?: any) => spawnFlow(typeof arg === "string" ? arg : arg?.project));
+
+  reg("vidro.reopenAgent", async (node?: AgentNode) => {
+    const ag = await resolveAgent(d.store, node);
+    if (!ag) return;
+    await safe(d, () => d.backend.resumeAgent(ag.id));
+    const next = await vscode.window.showInputBox({
+      prompt: `Reabrir "${ag.label || ag.project}" — próxima tarefa? (deixe vazio só pra reativar)`,
+    });
+    if (next?.trim()) await safe(d, () => d.backend.addTask(ag.id, next.trim()));
+    vscode.window.setStatusBarMessage(`$(debug-start) Reaberto: ${ag.label || ag.project}`, 4000);
   });
 
   reg("vidro.refresh", async () => {

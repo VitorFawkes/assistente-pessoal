@@ -31,6 +31,8 @@
       { "command": "vidro.mic", "title": "Vidro: Falar (microfone)", "icon": "$(mic)" },
       { "command": "vidro.talk", "title": "Vidro: Falar com o maestro (texto)", "icon": "$(comment)" },
       { "command": "vidro.newAgent", "title": "Vidro: Novo agente", "icon": "$(add)" },
+      { "command": "vidro.newAgentInProject", "title": "Novo agente neste projeto", "icon": "$(add)" },
+      { "command": "vidro.reopenAgent", "title": "Reabrir e continuar (agente dormente)", "icon": "$(debug-start)" },
       { "command": "vidro.refresh", "title": "Vidro: Recarregar", "icon": "$(refresh)" },
       { "command": "vidro.startBackend", "title": "Vidro: Iniciar motor" },
       { "command": "vidro.stopBackend", "title": "Vidro: Parar motor" },
@@ -59,16 +61,20 @@
         { "command": "vidro.refresh", "when": "view == vidro.agents", "group": "navigation@4" }
       ],
       "view/item/context": [
+        { "command": "vidro.newAgentInProject", "when": "view == vidro.agents && viewItem == project", "group": "inline@1" },
+        { "command": "vidro.reopenAgent", "when": "view == vidro.agents && viewItem == agentDormant", "group": "inline@1" },
+        { "command": "vidro.openInTerminal", "when": "view == vidro.agents && viewItem == agentDormant", "group": "inline@2" },
         { "command": "vidro.sendToAgent", "when": "view == vidro.agents && viewItem == agent", "group": "inline@1" },
         { "command": "vidro.openInTerminal", "when": "view == vidro.agents && viewItem == agent", "group": "inline@2" },
-        { "command": "vidro.openChanges", "when": "view == vidro.agents && viewItem == agent", "group": "1_act@1" },
+        { "command": "vidro.openChanges", "when": "view == vidro.agents && viewItem =~ /^agent/", "group": "1_act@1" },
         { "command": "vidro.undo", "when": "view == vidro.agents && viewItem == agent", "group": "1_act@2" },
         { "command": "vidro.takeover", "when": "view == vidro.agents && viewItem == agent", "group": "2_handoff@1" },
         { "command": "vidro.handBack", "when": "view == vidro.agents && viewItem == agent", "group": "2_handoff@2" },
+        { "command": "vidro.reopenAgent", "when": "view == vidro.agents && viewItem == agentDormant", "group": "2_handoff@1" },
         { "command": "vidro.setMode", "when": "view == vidro.agents && viewItem == agent", "group": "3_cfg@1" },
         { "command": "vidro.pauseAgent", "when": "view == vidro.agents && viewItem == agent", "group": "3_cfg@2" },
         { "command": "vidro.resumeAgent", "when": "view == vidro.agents && viewItem == agent", "group": "3_cfg@3" },
-        { "command": "vidro.closeAgent", "when": "view == vidro.agents && viewItem == agent", "group": "9_danger@1" }
+        { "command": "vidro.closeAgent", "when": "view == vidro.agents && viewItem =~ /^agent/", "group": "9_danger@1" }
       ]
     },
     "configuration": {

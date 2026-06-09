@@ -1,30 +1,41 @@
-// Sidebar nativa: projetos → agentes → tarefas, com status ao vivo.
+// Sidebar nativa: TODOS os projetos → agentes (vivos e dormentes) → tarefas, com status ao vivo.
 import * as vscode from "vscode";
 import { Store } from "./store";
 import { AgentPublic, TaskPublic } from "./types";
 
-type Node = ProjectNode | AgentNode | TaskNode;
+type Node = ProjectNode | AgentNode | TaskNode | EmptyNode;
 
 export class ProjectNode extends vscode.TreeItem {
   constructor(public readonly project: string, count: number) {
-    super(project, vscode.TreeItemCollapsibleState.Expanded);
-    this.description = count === 1 ? "1 agente" : `${count} agentes`;
+    super(project, count > 0 ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed);
+    this.description = count === 0 ? "sem agente" : count === 1 ? "1 agente" : `${count} agentes`;
     this.contextValue = "project";
-    this.iconPath = new vscode.ThemeIcon("folder");
+    this.iconPath = new vscode.ThemeIcon(count > 0 ? "folder-active" : "folder");
+  }
+}
+
+export class EmptyNode extends vscode.TreeItem {
+  constructor(public readonly project: string) {
+    super("Abrir agente aqui…", vscode.TreeItemCollapsibleState.None);
+    this.iconPath = new vscode.ThemeIcon("add");
+    this.contextValue = "empty";
+    this.command = { command: "vidro.newAgentInProject", title: "Novo agente", arguments: [project] };
   }
 }
 
 export class AgentNode extends vscode.TreeItem {
   constructor(public readonly agent: AgentPublic, waiting: boolean) {
     super(agent.label || agent.project, vscode.TreeItemCollapsibleState.Expanded);
-    const st = waiting ? "waiting" : agent.status;
-    this.description = `${st} · ${shortModel(agent.model)} · ${agent.permission_mode}${agent.live ? "" : " · dormente"}`;
-    this.contextValue = "agent";
+    const dormant = agent.live === false;
+    const st = dormant ? "dormente" : waiting ? "waiting" : agent.status;
+    this.description = `${st} · ${shortModel(agent.model)} · ${agent.permission_mode}`;
+    this.contextValue = dormant ? "agentDormant" : "agent";
     this.id = "agent:" + agent.id;
-    this.iconPath = statusIcon(st);
+    this.iconPath = dormant ? new vscode.ThemeIcon("debug-disconnect") : statusIcon(st);
     this.tooltip = new vscode.MarkdownString(
       `**${agent.label || agent.project}** — ${agent.project}\n\n` +
-        `status: ${st}\n\nmodel: ${agent.model} · effort: ${agent.effort} · modo: ${agent.permission_mode}\n\n` +
+        `status: ${st}${dormant ? " (clique em ↻ Reabrir pra continuar)" : ""}\n\n` +
+        `model: ${agent.model} · effort: ${agent.effort} · modo: ${agent.permission_mode}\n\n` +
         `sessão: ${agent.session_id || "—"}\n\ncwd: ${agent.cwd || "—"}`
     );
   }
@@ -58,15 +69,17 @@ export class AgentsTree implements vscode.TreeDataProvider<Node> {
 
   getChildren(el?: Node): Node[] {
     if (!el) {
-      const m = this.store.projectsMap();
-      return [...m.entries()]
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([proj, agents]) => new ProjectNode(proj, agents.length));
+      const byProj = this.store.projectsMap();
+      const names = new Set<string>([...this.store.allProjects, ...byProj.keys()]);
+      return [...names]
+        .sort((a, b) => a.localeCompare(b))
+        .map((proj) => new ProjectNode(proj, (byProj.get(proj) || []).length));
     }
     if (el instanceof ProjectNode) {
       const agents = (this.store.projectsMap().get(el.project) || []).sort((a, b) =>
         (a.label || "").localeCompare(b.label || "")
       );
+      if (!agents.length) return [new EmptyNode(el.project)];
       return agents.map((a) => new AgentNode(a, this.agentWaiting(a.id)));
     }
     if (el instanceof AgentNode) {

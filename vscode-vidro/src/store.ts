@@ -4,11 +4,17 @@ import { AgentPublic, Approval, ConvoTurn, FeedItem, Snapshot, WsMessage } from 
 
 export class Store {
   agents = new Map<string, AgentPublic>();
+  allProjects: string[] = []; // lista completa de projetos do motor (mesmo sem agente)
   feed: FeedItem[] = [];
   approvals = new Map<string, Approval>();
   convo: ConvoTurn[] = [];
   audio = true;
   connected = false;
+
+  setProjects(list: string[]) {
+    this.allProjects = (list || []).slice().sort((a, b) => a.localeCompare(b));
+    this._onAgents.fire();
+  }
 
   private readonly _onAgents = new vscode.EventEmitter<void>();
   private readonly _onMaestro = new vscode.EventEmitter<void>(); // convo/feed/approvals/audio/connected
