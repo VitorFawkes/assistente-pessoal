@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   ChevronDown,
   Inbox,
-  Plus,
+  ListChecks,
   UserRound,
   Crosshair,
   Circle,
@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TaskEditModal } from "./task-edit-modal";
-import { PlanoAddModal } from "./plano-add-modal";
+import { PlanoManageModal } from "./plano-manage-modal";
 import type { Tarefa } from "./task-row";
 import {
   axisTicks,
@@ -200,11 +200,6 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
   );
   const dated = useMemo(() => visible.filter((t) => geomOf(t) !== null), [visible]);
   const undated = useMemo(() => visible.filter((t) => geomOf(t) === null), [visible]);
-  // candidatas a entrar no plano (abertas e ainda fora) — pro picker "Adicionar"
-  const candidatos = useMemo(
-    () => tarefas.filter((t) => !t.no_plano && isOpen(t)),
-    [tarefas],
-  );
 
   const domain = useMemo<Domain>(() => {
     const idxs: number[] = [];
@@ -1011,8 +1006,8 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
           onClick={() => setAdding(true)}
           className="ml-auto inline-flex items-center gap-1.5 text-[12px] font-medium px-3 py-1 rounded-full bg-[color:var(--foreground)] text-[color:var(--background)] hover:opacity-90 transition cursor-pointer"
         >
-          <Plus size={14} strokeWidth={2.5} />
-          Adicionar tarefas
+          <ListChecks size={14} strokeWidth={2.5} />
+          Gerenciar tarefas
         </button>
 
         <label className="inline-flex items-center gap-1.5 text-[12px] text-[color:var(--muted-strong)] cursor-pointer select-none">
@@ -1308,7 +1303,7 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
       {renderPopover()}
       {editing && <TaskEditModal tarefa={editing} onClose={() => setEditing(null)} />}
       {adding && (
-        <PlanoAddModal candidatos={candidatos} onClose={() => setAdding(false)} />
+        <PlanoManageModal tarefas={tarefas} onClose={() => setAdding(false)} />
       )}
     </div>
   );
