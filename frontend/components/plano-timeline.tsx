@@ -10,7 +10,7 @@ import {
   Crosshair,
   Circle,
   CircleDot,
-  CheckCircle2,
+  Check,
   Tag,
   Pencil,
   GripVertical,
@@ -796,14 +796,14 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
               height: BAR_H,
               borderRadius: 999,
               background: done
-                ? `color-mix(in oklab, ${color} 26%, var(--card))`
+                ? `repeating-linear-gradient(135deg, var(--calm-bg) 0 6px, color-mix(in oklab, var(--calm) 18%, var(--calm-bg)) 6px 12px)`
                 : `linear-gradient(180deg, color-mix(in oklab, ${color} 86%, #fff 14%), ${color})`,
+              border: done ? "1px solid color-mix(in oklab, var(--calm) 55%, transparent)" : undefined,
               boxShadow: done
                 ? "none"
                 : `0 1px 2px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.28)`,
               outline: overdue ? "2px solid var(--urgent)" : "none",
               outlineOffset: overdue ? "1px" : undefined,
-              opacity: done ? 0.78 : 1,
             }}
           >
             {/* alça esquerda */}
@@ -813,10 +813,18 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
               style={{ background: "rgba(255,255,255,0.35)" }}
               aria-hidden
             />
+            {done && (g.endIdx - g.startIdx + 1) * pxDay >= 24 && (
+              <Check
+                size={12}
+                strokeWidth={3.5}
+                className="shrink-0 mr-1 text-[color:var(--calm)]"
+                aria-hidden
+              />
+            )}
             <span
               className={cn(
                 "truncate text-[11px] font-medium",
-                done ? "text-[color:var(--foreground)]/70 line-through" : "text-white/95",
+                done ? "text-[color:var(--calm)] line-through" : "text-white/95",
               )}
             >
               {(g.endIdx - g.startIdx + 1) * pxDay >= 44
@@ -859,17 +867,28 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
                 width: DIAMOND,
                 height: DIAMOND,
                 background: done
-                  ? `color-mix(in oklab, ${color} 35%, var(--card))`
+                  ? "var(--calm-bg)"
                   : `linear-gradient(135deg, color-mix(in oklab, ${color} 82%, #fff 18%), ${color})`,
-                border: andamento && !done ? "2px solid var(--warm)" : "1px solid rgba(0,0,0,0.06)",
+                border: done
+                  ? "1.5px solid var(--calm)"
+                  : andamento
+                  ? "2px solid var(--warm)"
+                  : "1px solid rgba(0,0,0,0.06)",
                 boxShadow: overdue
                   ? "0 0 0 4px var(--urgent-bg)"
                   : done
                   ? "none"
                   : "0 1px 3px rgba(0,0,0,0.18)",
-                opacity: done ? 0.6 : 1,
               }}
             />
+            {done && (
+              <Check
+                size={11}
+                strokeWidth={3.5}
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-[color:var(--calm)] pointer-events-none"
+                aria-hidden
+              />
+            )}
             {isHover && (
               <span className="absolute top-[110%] whitespace-nowrap text-[9px] text-[color:var(--muted)] leading-none">
                 {labelIdx(g.idx, "dd/MM")}
@@ -886,12 +905,9 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
     const done = isDone(t);
     const resp = responsavelOf(t);
     const area = frenteOf(t);
-    const StatusIcon = done ? CheckCircle2 : t.status === "em_andamento" ? CircleDot : Circle;
-    const statusColor = done
-      ? "text-[color:var(--calm)]"
-      : t.status === "em_andamento"
-      ? "text-[color:var(--warm)]"
-      : "text-[color:var(--muted)]";
+    const StatusIcon = t.status === "em_andamento" ? CircleDot : Circle;
+    const statusColor =
+      t.status === "em_andamento" ? "text-[color:var(--warm)]" : "text-[color:var(--muted)]";
     const statusTitle = done
       ? "Concluída — clique pra reabrir"
       : t.status === "em_andamento"
@@ -921,9 +937,21 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
           type="button"
           onClick={() => cycleStatus(t)}
           title={statusTitle}
-          className={cn("shrink-0 plano-focus transition hover:scale-110", statusColor)}
+          className={cn(
+            "shrink-0 plano-focus transition hover:scale-110",
+            done ? "text-white" : statusColor,
+          )}
         >
-          <StatusIcon size={18} strokeWidth={2} />
+          {done ? (
+            <span
+              className="flex items-center justify-center rounded-full"
+              style={{ width: 18, height: 18, background: "var(--calm)" }}
+            >
+              <Check size={12} strokeWidth={3.5} />
+            </span>
+          ) : (
+            <StatusIcon size={18} strokeWidth={2} />
+          )}
         </button>
 
         <div className="min-w-0 flex-1 flex flex-col justify-center gap-0.5 py-1">
