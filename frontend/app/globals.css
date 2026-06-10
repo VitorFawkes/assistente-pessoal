@@ -113,3 +113,66 @@ body {
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }
+
+/* ── /plano: linha do tempo ───────────────────────────────────────── */
+
+/* entrada escalonada das linhas */
+@keyframes plano-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.plano-rise {
+  animation: plano-rise 360ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+/* listras animadas = tarefa em andamento */
+@keyframes plano-stripe {
+  from { background-position: 0 0; }
+  to { background-position: 22px 0; }
+}
+.plano-progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.22) 0,
+    rgba(255, 255, 255, 0.22) 5px,
+    transparent 5px,
+    transparent 11px
+  );
+  background-size: 22px 22px;
+  animation: plano-stripe 900ms linear infinite;
+  pointer-events: none;
+}
+/* no dark mode as barras já são escuras — listras precisam de mais opacidade */
+@media (prefers-color-scheme: dark) {
+  .plano-progress::after {
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.34) 0,
+      rgba(255, 255, 255, 0.34) 5px,
+      transparent 5px,
+      transparent 11px
+    );
+  }
+}
+
+/* pulso suave no marcador HOJE */
+@keyframes plano-today-glow {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.9; }
+}
+
+/* foco acessível nos alvos da timeline */
+.plano-focus:focus-visible {
+  outline: 2px solid var(--foreground);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plano-rise,
+  .plano-progress::after { animation: none; }
+}

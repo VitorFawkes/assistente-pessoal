@@ -35,6 +35,7 @@ export type Tarefa = {
   is_mine: boolean;
   acao: Acao;
   prazo: string | null;
+  inicio: string | null;
   prazo_text: string | null;
   prioridade: Prioridade;
   status: "aberta" | "em_andamento" | "concluida" | "cancelada";
@@ -44,6 +45,8 @@ export type Tarefa = {
   pessoas: { id: string; nome: string; principal: boolean }[];
   created_at: string;
   precisa_revisao: boolean;
+  ordem: number | null;
+  no_plano: boolean;
   meeting_recorded_at?: string | null;
   meeting_summary?: string | null;
 };

@@ -12,11 +12,14 @@ type PatchBody = Partial<{
   owner: string;
   acao: (typeof VALID_ACAO)[number];
   prazo: string | null;
+  inicio: string | null;
   prazo_text: string | null;
   prioridade: (typeof VALID_PRIORIDADE)[number];
   status: (typeof VALID_STATUS)[number];
   frente_id: string | null;
   area_raw: string | null;
+  no_plano: boolean;
+  ordem: number | null;
   pessoas: { nome: string; principal?: boolean }[];
 }>;
 
@@ -49,6 +52,7 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
     push("acao", body.acao);
   }
   if (body.prazo !== undefined) push("prazo", body.prazo);
+  if (body.inicio !== undefined) push("inicio", body.inicio);
   if (body.prazo_text !== undefined) push("prazo_text", body.prazo_text);
   if (body.prioridade !== undefined) {
     if (!VALID_PRIORIDADE.includes(body.prioridade)) {
@@ -76,6 +80,12 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
   if (body.area_raw !== undefined) {
     push("area_raw", body.area_raw);
   }
+
+  if (body.ordem !== undefined) {
+    push("ordem", body.ordem);
+  }
+
+  if (body.no_plano !== undefined) push("no_plano", body.no_plano);
 
   const hasPessoas = Array.isArray(body.pessoas);
   if (!sets.length && !hasPessoas) {

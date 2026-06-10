@@ -50,6 +50,7 @@ export type Tarefa = {
   is_mine: boolean;
   acao: Acao;
   prazo: string | null;
+  inicio: string | null;
   prazo_text: string | null;
   prioridade: "baixa" | "media" | "alta" | "urgente";
   status: "aberta" | "em_andamento" | "concluida" | "cancelada";
@@ -62,6 +63,8 @@ export type Tarefa = {
   concluida_em: string | null;
   cancelada_em: string | null;
   precisa_revisao: boolean;
+  ordem: number | null;
+  no_plano: boolean;
 };
 
 export type TarefaDraft = {

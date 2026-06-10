@@ -39,6 +39,14 @@ function dateInputToIso(value: string): string | null {
   return date.toISOString();
 }
 
+function dateInputToIsoStart(value: string): string | null {
+  if (!value) return null;
+  // Início = começo do dia (a barra do /plano vai de inicio 00:00 até prazo 23:59)
+  const [y, m, d] = value.split("-").map((s) => parseInt(s, 10));
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d, 0, 0, 0, 0).toISOString();
+}
+
 function nextWeekday(targetDay: number): Date {
   // targetDay: 0=sun..6=sat
   const d = new Date();
@@ -59,6 +67,8 @@ export function TaskEditModal({ tarefa, onClose }: Props) {
   const [owner, setOwner] = useState(tarefa.owner);
   const [acao, setAcao] = useState<Acao>(tarefa.acao);
   const [prazo, setPrazo] = useState(toDateInput(tarefa.prazo));
+  const [inicio, setInicio] = useState(toDateInput(tarefa.inicio));
+  const [noPlano, setNoPlano] = useState<boolean>(!!tarefa.no_plano);
   const [prazoText, setPrazoText] = useState(tarefa.prazo_text ?? "");
   const [prioridade, setPrioridade] = useState<Prioridade>(tarefa.prioridade);
   const [status, setStatus] = useState<Tarefa["status"]>(tarefa.status);
@@ -123,6 +133,8 @@ export function TaskEditModal({ tarefa, onClose }: Props) {
           owner: owner.trim() || "vitor",
           acao,
           prazo: dateInputToIso(prazo),
+          inicio: dateInputToIsoStart(inicio),
+          no_plano: noPlano,
           prazo_text: prazoText.trim() || null,
           prioridade,
           status,
@@ -272,6 +284,23 @@ export function TaskEditModal({ tarefa, onClose }: Props) {
           <div>
             <label className="text-xs font-medium text-[color:var(--muted)] block mb-1">
               <Calendar size={12} className="inline mr-1 -mt-0.5" />
+              Início{" "}
+              <span className="font-normal text-[color:var(--muted)]">
+                — opcional, desenha a barra no Plano
+              </span>
+            </label>
+            <input
+              type="date"
+              value={inicio}
+              onChange={(e) => setInicio(e.target.value)}
+              max={prazo || undefined}
+              className="w-full px-3 py-2 rounded-md border border-[color:var(--border)] bg-transparent text-sm focus:outline-none focus:border-zinc-400 dark:focus:border-zinc-600"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-[color:var(--muted)] block mb-1">
+              <Calendar size={12} className="inline mr-1 -mt-0.5" />
               Prazo
             </label>
             <input
@@ -310,6 +339,21 @@ export function TaskEditModal({ tarefa, onClose }: Props) {
               </p>
             )}
           </div>
+
+          <label className="flex items-start gap-2.5 text-sm cursor-pointer select-none rounded-lg border border-[color:var(--border)] px-3 py-2.5">
+            <input
+              type="checkbox"
+              checked={noPlano}
+              onChange={(e) => setNoPlano(e.target.checked)}
+              className="mt-0.5 accent-[color:var(--calm)]"
+            />
+            <span>
+              <span className="font-medium">No plano de ação</span>
+              <span className="block text-[11px] text-[color:var(--muted)]">
+                mostra esta tarefa na linha do tempo (/plano)
+              </span>
+            </span>
+          </label>
 
           <div>
             <label className="text-xs font-medium text-[color:var(--muted)] block mb-1">

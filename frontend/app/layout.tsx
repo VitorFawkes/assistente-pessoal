@@ -75,6 +75,12 @@ export default async function RootLayout({
                     Pendências
                   </Link>
                   <Link
+                    href="/plano"
+                    className="px-3 py-1.5 rounded-full hover:bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition"
+                  >
+                    Plano
+                  </Link>
+                  <Link
                     href="/reunioes"
                     className="px-3 py-1.5 rounded-full hover:bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition"
                   >
