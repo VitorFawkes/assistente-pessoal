@@ -418,8 +418,10 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
     const move = (ev: PointerEvent) => {
       const d = dragRef.current;
       if (!d || !d.base) return;
-      const deltaDays = Math.round((ev.clientX - d.startX) / d.pxDay);
-      if (deltaDays !== 0) movedRef.current = true;
+      const dxPx = ev.clientX - d.startX;
+      // qualquer arrasto real (>3px) cancela o clique → nunca abre o modal sem querer
+      if (Math.abs(dxPx) > 3) movedRef.current = true;
+      const deltaDays = Math.round(dxPx / d.pxDay);
       let next: TaskGeom;
       if (d.base.kind === "bar") {
         let s = d.base.startIdx;
@@ -466,7 +468,12 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
     dragRef.current = null;
     if (d) window.removeEventListener("pointermove", d.move);
     const wasMoved = movedRef.current;
-    movedRef.current = false; // reseta sempre — senão um drag interrompido engole o próximo clique
+    // reseta só DEPOIS do click que segue o pointerup — reset síncrono chegava
+    // cedo demais e o modal abria mesmo após arrastar; o timeout ainda garante
+    // que um drag interrompido não engole o próximo clique
+    setTimeout(() => {
+      movedRef.current = false;
+    }, 0);
     if (!d || !wasMoved || !d.last) return;
     const t = byId.get(d.id);
     if (!t) return;
@@ -714,8 +721,8 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
               if (e.key === "Enter") setEditing(t);
             }}
             onMouseEnter={() => setHoverId(t.id)}
-            className="plano-focus absolute top-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing touch-none flex flex-col items-center"
-            style={{ left: (g.idx - domain.startIdx + 0.5) * pxDay - DIAMOND / 2 }}
+            className="plano-focus absolute top-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing touch-none flex flex-col items-center justify-center"
+            style={{ left: (g.idx - domain.startIdx + 0.5) * pxDay - 17, width: 34, height: 28 }}
           >
             <span
               className="block rotate-45 rounded-[3px]"
@@ -825,7 +832,7 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
                 const r = e.currentTarget.getBoundingClientRect();
                 setPopover({ id: t.id, field: "pessoa", x: r.left, y: r.bottom + 4 });
               }}
-              className="inline-flex items-center gap-1 text-[10px] text-[color:var(--muted)] hover:text-[color:var(--foreground)] max-w-[110px]"
+              className="inline-flex items-center gap-1 text-[10px] text-[color:var(--muted)] hover:text-[color:var(--foreground)] hover:bg-[color:var(--accent)] rounded px-1 py-0.5 -ml-1 max-w-[120px]"
               title="Trocar responsável"
             >
               <UserRound size={10} strokeWidth={2} className="shrink-0" />
@@ -838,7 +845,7 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
                 const r = e.currentTarget.getBoundingClientRect();
                 setPopover({ id: t.id, field: "area", x: r.left, y: r.bottom + 4 });
               }}
-              className="inline-flex items-center gap-1 text-[10px] text-[color:var(--muted)] hover:text-[color:var(--foreground)] max-w-[110px]"
+              className="inline-flex items-center gap-1 text-[10px] text-[color:var(--muted)] hover:text-[color:var(--foreground)] hover:bg-[color:var(--accent)] rounded px-1 py-0.5 max-w-[120px]"
               title="Trocar área"
             >
               <Tag size={9} strokeWidth={2} className="shrink-0" />
