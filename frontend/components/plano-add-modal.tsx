@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { X, Plus, Search, Check } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatCreatedAt } from "@/lib/utils";
 import type { Tarefa } from "./task-row";
 
 // Picker pra ESCOLHER quais tarefas entram no plano de ação (opt-in).
@@ -18,6 +18,7 @@ export function PlanoAddModal({
   const router = useRouter();
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [q, setQ] = useState("");
+  const [meetingFilter, setMeetingFilter] = useState<string>("all");
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -32,12 +33,31 @@ export function PlanoAddModal({
     };
   }, [onClose]);
 
+  // reuniões distintas entre as candidatas (pra filtrar "de uma reunião específica")
+  const meetings = useMemo(() => {
+    const m = new Map<string, { id: string; label: string; count: number }>();
+    for (const t of candidatos) {
+      const key = t.meeting_id ?? "__none__";
+      const label = t.meeting_id
+        ? t.meeting_summary?.trim()?.slice(0, 50) ||
+          (t.meeting_recorded_at ? `Reunião · ${formatCreatedAt(t.meeting_recorded_at)}` : "Reunião")
+        : "Sem reunião (manuais)";
+      const ex = m.get(key);
+      if (ex) ex.count++;
+      else m.set(key, { id: key, label, count: 1 });
+    }
+    return [...m.values()].sort((a, b) => b.count - a.count);
+  }, [candidatos]);
+
   const list = useMemo(() => {
     const term = q.trim().toLowerCase();
-    return term
-      ? candidatos.filter((t) => t.titulo.toLowerCase().includes(term))
-      : candidatos;
-  }, [candidatos, q]);
+    return candidatos.filter((t) => {
+      if (meetingFilter !== "all" && (t.meeting_id ?? "__none__") !== meetingFilter)
+        return false;
+      if (term && !t.titulo.toLowerCase().includes(term)) return false;
+      return true;
+    });
+  }, [candidatos, q, meetingFilter]);
 
   function toggle(id: string) {
     setSel((s) => {
@@ -89,6 +109,21 @@ export function PlanoAddModal({
           </button>
         </div>
 
+        {meetings.length > 1 && (
+          <select
+            value={meetingFilter}
+            onChange={(e) => setMeetingFilter(e.target.value)}
+            className="w-full mb-2 px-3 py-2 rounded-md border border-[color:var(--border)] bg-transparent text-sm focus:outline-none focus:border-zinc-400 dark:focus:border-zinc-600"
+          >
+            <option value="all">Todas as reuniões ({candidatos.length})</option>
+            {meetings.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label} ({m.count})
+              </option>
+            ))}
+          </select>
+        )}
+
         <div className="relative mb-3">
           <Search
             size={14}
@@ -138,7 +173,9 @@ export function PlanoAddModal({
                   <span className="min-w-0">
                     <span className="block text-[13px] leading-snug">{t.titulo}</span>
                     <span className="block text-[11px] text-[color:var(--muted)] truncate">
-                      {t.frente || t.frente_proposta || "sem área"}
+                      {t.meeting_id
+                        ? t.meeting_summary?.trim()?.slice(0, 38) || "reunião"
+                        : t.frente || t.frente_proposta || "manual"}
                       {t.prazo ? " · com prazo" : " · sem data"}
                     </span>
                   </span>
