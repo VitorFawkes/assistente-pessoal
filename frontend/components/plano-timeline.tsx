@@ -184,6 +184,59 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
     move: (e: PointerEvent) => void;
   }>(null);
 
+  // reordenar seções (arrastar o cabeçalho do grupo) — ordem salva por modo no navegador
+  const [grpOrders, setGrpOrders] = useState<Record<string, string[]>>({});
+  const [grpDragKey, setGrpDragKey] = useState<string | null>(null);
+  const grpMovedRef = useRef(false);
+  const grpDragRef = useRef<null | {
+    key: string;
+    mode: GroupBy;
+    startY: number;
+    baseOrder: string[];
+    heightByKey: Map<string, number>;
+    startIndex: number;
+    last: string[];
+    move: (e: PointerEvent) => void;
+  }>(null);
+
+  // largura da coluna de tarefas (redimensionável pela alça no cabeçalho)
+  const [labelW, setLabelW] = useState(LABEL_W);
+
+  useEffect(() => {
+    try {
+      const out: Record<string, string[]> = {};
+      for (const m of ["frente", "responsavel"]) {
+        const raw = localStorage.getItem(`plano-grupo-ordem:${m}`);
+        if (raw) out[m] = JSON.parse(raw);
+      }
+      setGrpOrders(out);
+      const w = Number(localStorage.getItem("plano-label-w"));
+      if (w >= 180 && w <= 560) setLabelW(w);
+    } catch {
+      // localStorage indisponível/corrompido — segue nos padrões
+    }
+  }, []);
+
+  function startColResize(e: React.PointerEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const base = labelW;
+    const move = (ev: PointerEvent) =>
+      setLabelW(clamp(base + ev.clientX - startX, 180, 560));
+    window.addEventListener("pointermove", move);
+    window.addEventListener(
+      "pointerup",
+      (ev: PointerEvent) => {
+        window.removeEventListener("pointermove", move);
+        try {
+          localStorage.setItem("plano-label-w", String(clamp(base + ev.clientX - startX, 180, 560)));
+        } catch {}
+      },
+      { once: true },
+    );
+  }
+
   const pxDay = PX[zoom];
   const today = todayIndex();
 
@@ -295,11 +348,17 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
       return { key, items, first: Math.min(...items.map(orderKey)) };
     });
     out.sort((a, b) => a.first - b.first || a.key.localeCompare(b.key, "pt-BR"));
+    // ordem manual das seções (arrasto do cabeçalho); grupos novos ficam no fim, na ordem por data
+    const manual = grpOrders[groupBy];
+    if (manual?.length) {
+      const pos = new Map(manual.map((k, i) => [k, i]));
+      out.sort((a, b) => (pos.get(a.key) ?? Infinity) - (pos.get(b.key) ?? Infinity));
+    }
     return out;
-  }, [dated, groupBy, orderKey]);
+  }, [dated, groupBy, orderKey, grpOrders]);
 
   const timelineW = domain.days * pxDay;
-  const todayLeft = LABEL_W + (today - domain.startIdx) * pxDay + pxDay / 2;
+  const todayLeft = labelW + (today - domain.startIdx) * pxDay + pxDay / 2;
 
   const scrollToToday = useCallback(
     (smooth = true) => {
@@ -317,7 +376,7 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
   const scrollByPage = (dir: 1 | -1) => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollBy({ left: dir * Math.max(240, (el.clientWidth - LABEL_W) * 0.8), behavior: "smooth" });
+    el.scrollBy({ left: dir * Math.max(240, (el.clientWidth - labelW) * 0.8), behavior: "smooth" });
   };
 
   // centraliza no "hoje" ao montar e quando o zoom muda
@@ -559,6 +618,76 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
     window.addEventListener("pointerup", endRowDrag, { once: true });
   }
 
+  // ── reordenar seções (arrastar cabeçalho do grupo) ──────────────────
+  const endGroupDrag = useCallback(() => {
+    const d = grpDragRef.current;
+    grpDragRef.current = null;
+    if (d) window.removeEventListener("pointermove", d.move);
+    setGrpDragKey(null);
+    const moved = grpMovedRef.current;
+    // reseta só DEPOIS do click que segue o pointerup (mesmo padrão do endDrag)
+    setTimeout(() => {
+      grpMovedRef.current = false;
+    }, 0);
+    if (!d || !moved) return;
+    try {
+      localStorage.setItem(`plano-grupo-ordem:${d.mode}`, JSON.stringify(d.last));
+    } catch {}
+  }, []);
+
+  function startGroupDrag(e: React.PointerEvent, key: string) {
+    if (groupBy === "tarefa") return;
+    e.preventDefault();
+    if (grpDragRef.current) window.removeEventListener("pointermove", grpDragRef.current.move);
+    grpMovedRef.current = false;
+    const baseOrder = groups.map((g) => g.key);
+    const startIndex = baseOrder.indexOf(key);
+    if (startIndex < 0) return;
+    const heightByKey = new Map(
+      groups.map((g) => [g.key, GROUP_H + (collapsed[g.key] ? 0 : g.items.length * ROW_H)]),
+    );
+    const move = (ev: PointerEvent) => {
+      const d = grpDragRef.current;
+      if (!d) return;
+      const dy = ev.clientY - d.startY;
+      if (Math.abs(dy) > 4) grpMovedRef.current = true;
+      if (!grpMovedRef.current) return;
+      setGrpDragKey(d.key);
+      // centro do grupo arrastado, medido na pilha original
+      let topo = 0;
+      for (let i = 0; i < d.startIndex; i++) topo += d.heightByKey.get(d.baseOrder[i])!;
+      const centro = topo + d.heightByKey.get(d.key)! / 2 + dy;
+      // ponto de inserção entre os demais grupos (pelo meio de cada banda)
+      const others = d.baseOrder.filter((k) => k !== d.key);
+      let acc = 0;
+      let target = others.length;
+      for (let i = 0; i < others.length; i++) {
+        const h = d.heightByKey.get(others[i])!;
+        if (centro < acc + h / 2) {
+          target = i;
+          break;
+        }
+        acc += h;
+      }
+      const next = [...others];
+      next.splice(target, 0, d.key);
+      d.last = next;
+      setGrpOrders((o) => ({ ...o, [d.mode]: next }));
+    };
+    grpDragRef.current = {
+      key,
+      mode: groupBy,
+      startY: e.clientY,
+      baseOrder,
+      heightByKey,
+      startIndex,
+      last: baseOrder,
+      move,
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", endGroupDrag, { once: true });
+  }
+
   function tip(t: Tarefa): string {
     const g = effGeom(t);
     const parts: string[] = [t.titulo, responsavelOf(t)];
@@ -771,7 +900,7 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
 
     return (
       <div
-        style={{ width: LABEL_W }}
+        style={{ width: labelW }}
         className={cn(
           "relative shrink-0 sticky left-0 z-20 border-r border-[color:var(--border)] flex items-center gap-2 pr-2 group-hover/row:bg-[color:var(--accent)]/40 transition",
           rowDragId === t.id ? "bg-[color:var(--accent)]/70" : "bg-[color:var(--background)]",
@@ -1086,19 +1215,27 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
       ) : (
         <div className="rounded-2xl border border-[color:var(--border)] overflow-hidden bg-[color:var(--card)]/40">
           <div ref={scrollRef} className="overflow-auto max-h-[72vh] overscroll-contain">
-            <div style={{ width: LABEL_W + timelineW, minWidth: "100%" }}>
+            <div style={{ width: labelW + timelineW, minWidth: "100%" }}>
               {/* cabeçalho: meses + régua adaptada ao zoom */}
               <div
                 className="flex sticky top-0 z-30 bg-[color:var(--background)] border-b border-[color:var(--border)]"
                 style={{ height: HEAD_H }}
               >
                 <div
-                  style={{ width: LABEL_W }}
-                  className="shrink-0 sticky left-0 z-40 bg-[color:var(--background)] border-r border-[color:var(--border)] flex items-end px-3 pb-2.5"
+                  style={{ width: labelW }}
+                  className="relative shrink-0 sticky left-0 z-40 bg-[color:var(--background)] border-r border-[color:var(--border)] flex items-end px-3 pb-2.5"
                 >
                   <span className="text-[10px] uppercase tracking-[0.12em] text-[color:var(--muted)]">
                     {groupBy === "frente" ? "Áreas" : groupBy === "responsavel" ? "Responsáveis" : "Tarefas"}
                   </span>
+                  {/* alça pra redimensionar a coluna de tarefas */}
+                  <div
+                    onPointerDown={startColResize}
+                    title="Arraste pra ajustar a largura da coluna"
+                    className="absolute -right-1 top-0 h-full w-2.5 cursor-col-resize touch-none z-50 group/rsz flex justify-center"
+                  >
+                    <div className="h-full w-[3px] rounded bg-transparent group-hover/rsz:bg-[color:var(--muted)]/50 transition" />
+                  </div>
                 </div>
                 <div className="relative" style={{ width: timelineW }}>
                   {/* marcador HOJE: caret discreto na base da régua (sticky → sempre visível) */}
@@ -1132,7 +1269,7 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
                       >
                         <span
                           className="sticky font-display italic text-[14px] leading-none text-[color:var(--muted-strong)] capitalize whitespace-nowrap px-2.5"
-                          style={{ left: LABEL_W }}
+                          style={{ left: labelW }}
                         >
                           {seg.label}
                         </span>
@@ -1223,7 +1360,7 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
                 {/* camada de fundo: fim de semana + grade (só na área da timeline) */}
                 <div
                   className="absolute top-0 bottom-0 pointer-events-none"
-                  style={{ left: LABEL_W, width: timelineW }}
+                  style={{ left: labelW, width: timelineW }}
                   aria-hidden
                 >
                   {weekends.map((w, i) => (
@@ -1265,9 +1402,19 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
                       >
                         <button
                           type="button"
-                          onClick={() => setCollapsed((c) => ({ ...c, [grp.key]: !c[grp.key] }))}
-                          style={{ width: LABEL_W }}
-                          className="shrink-0 sticky left-0 z-20 bg-[color:var(--accent)]/70 border-r border-[color:var(--border)] flex items-center gap-1.5 px-2.5 text-left cursor-pointer hover:bg-[color:var(--accent)]/90 transition"
+                          onPointerDown={(e) => startGroupDrag(e, grp.key)}
+                          onClick={() => {
+                            if (grpMovedRef.current) return;
+                            setCollapsed((c) => ({ ...c, [grp.key]: !c[grp.key] }));
+                          }}
+                          title="Clique: recolher/expandir · Arraste: reordenar seções"
+                          style={{ width: labelW }}
+                          className={cn(
+                            "group/hdr shrink-0 sticky left-0 z-20 border-r border-[color:var(--border)] flex items-center gap-1.5 px-2.5 text-left cursor-pointer hover:bg-[color:var(--accent)]/90 transition select-none touch-none",
+                            grpDragKey === grp.key
+                              ? "bg-[color:var(--accent)] shadow-[0_4px_14px_-6px_rgba(0,0,0,0.35)]"
+                              : "bg-[color:var(--accent)]/70",
+                          )}
                         >
                           <ChevronDown
                             size={13}
@@ -1276,7 +1423,12 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
                           <span className="text-[11px] font-semibold uppercase tracking-[0.06em] truncate">
                             {grp.key}
                           </span>
-                          <span className="ml-auto text-[10px] text-[color:var(--muted)] tabular-nums">
+                          <GripVertical
+                            size={12}
+                            strokeWidth={2}
+                            className="ml-auto shrink-0 text-[color:var(--muted)]/60 opacity-0 group-hover/hdr:opacity-100 transition"
+                          />
+                          <span className="text-[10px] text-[color:var(--muted)] tabular-nums">
                             {grp.items.length}
                           </span>
                         </button>
