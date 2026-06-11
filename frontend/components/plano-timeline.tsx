@@ -434,14 +434,9 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
   );
 
   function cycleStatus(t: Tarefa) {
-    // NUNCA conclui pela timeline (evita "sumir" sem querer ao clicar). Só alterna
-    // aberta ↔ em andamento, ou reabre uma já concluída. Concluir é pelo "Mais
-    // opções" (lápis) → modal de edição, onde a ação é deliberada.
-    const next: Tarefa["status"] = isDone(t)
-      ? "aberta"
-      : t.status === "em_andamento"
-      ? "aberta"
-      : "em_andamento";
+    // Bolinha = checkbox: clicou, concluiu (a tarefa fica verde e visível, não
+    // some mais). Clicar numa concluída reabre. "Em andamento" é pelo modal.
+    const next: Tarefa["status"] = isDone(t) ? "aberta" : "concluida";
     patch(t.id, { status: next });
   }
 
@@ -922,8 +917,8 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
     const statusTitle = done
       ? "Concluída — clique pra reabrir"
       : t.status === "em_andamento"
-      ? "Em andamento — clique pra voltar a aberta"
-      : "Aberta — clique pra marcar em andamento";
+      ? "Em andamento — clique pra concluir"
+      : "Clique pra concluir";
 
     return (
       <div
