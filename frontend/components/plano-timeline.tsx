@@ -796,9 +796,9 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
               height: BAR_H,
               borderRadius: 999,
               background: done
-                ? `repeating-linear-gradient(135deg, var(--calm-bg) 0 6px, color-mix(in oklab, var(--calm) 18%, var(--calm-bg)) 6px 12px)`
+                ? `repeating-linear-gradient(135deg, var(--done-bg) 0 6px, color-mix(in oklab, var(--done) 16%, var(--done-bg)) 6px 12px)`
                 : `linear-gradient(180deg, color-mix(in oklab, ${color} 86%, #fff 14%), ${color})`,
-              border: done ? "1px solid color-mix(in oklab, var(--calm) 55%, transparent)" : undefined,
+              border: done ? "1.5px solid var(--done)" : undefined,
               boxShadow: done
                 ? "none"
                 : `0 1px 2px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.28)`,
@@ -817,14 +817,16 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
               <Check
                 size={12}
                 strokeWidth={3.5}
-                className="shrink-0 mr-1 text-[color:var(--calm)]"
+                className="shrink-0 mr-1 text-[color:var(--done)]"
                 aria-hidden
               />
             )}
             <span
               className={cn(
-                "truncate text-[11px] font-medium",
-                done ? "text-[color:var(--calm)] line-through" : "text-white/95",
+                "truncate text-[11px]",
+                done
+                  ? "font-semibold text-[color:var(--done)] line-through"
+                  : "font-medium text-white/95",
               )}
             >
               {(g.endIdx - g.startIdx + 1) * pxDay >= 44
@@ -867,10 +869,10 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
                 width: DIAMOND,
                 height: DIAMOND,
                 background: done
-                  ? "var(--calm-bg)"
+                  ? "var(--done-bg)"
                   : `linear-gradient(135deg, color-mix(in oklab, ${color} 82%, #fff 18%), ${color})`,
                 border: done
-                  ? "1.5px solid var(--calm)"
+                  ? "2px solid var(--done)"
                   : andamento
                   ? "2px solid var(--warm)"
                   : "1px solid rgba(0,0,0,0.06)",
@@ -885,7 +887,7 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
               <Check
                 size={11}
                 strokeWidth={3.5}
-                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-[color:var(--calm)] pointer-events-none"
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-[color:var(--done)] pointer-events-none"
                 aria-hidden
               />
             )}
@@ -916,7 +918,12 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
 
     return (
       <div
-        style={{ width: labelW }}
+        style={{
+          width: labelW,
+          ...(done && rowDragId !== t.id
+            ? { background: "color-mix(in oklab, var(--done-bg) 60%, var(--background))" }
+            : {}),
+        }}
         className={cn(
           "relative shrink-0 sticky left-0 z-20 border-r border-[color:var(--border)] flex items-center gap-2 pr-2 group-hover/row:bg-[color:var(--accent)]/40 transition",
           rowDragId === t.id ? "bg-[color:var(--accent)]/70" : "bg-[color:var(--background)]",
@@ -945,7 +952,7 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
           {done ? (
             <span
               className="flex items-center justify-center rounded-full"
-              style={{ width: 18, height: 18, background: "var(--calm)" }}
+              style={{ width: 18, height: 18, background: "var(--done)" }}
             >
               <Check size={12} strokeWidth={3.5} />
             </span>
