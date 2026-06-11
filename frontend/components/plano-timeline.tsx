@@ -55,6 +55,15 @@ function isDone(t: Tarefa) {
   return t.status === "concluida" || t.status === "cancelada";
 }
 
+// Concluída há menos de 7 dias continua na timeline (em verde) mesmo com o
+// filtro de concluídas desligado — concluir não pode fazer a tarefa "sumir".
+const DONE_VISIVEL_MS = 7 * 24 * 60 * 60 * 1000;
+function doneRecente(t: Tarefa) {
+  if (!isDone(t)) return false;
+  const ts = Date.parse(t.updated_at ?? t.created_at);
+  return Number.isFinite(ts) && Date.now() - ts < DONE_VISIVEL_MS;
+}
+
 function responsavelOf(t: Tarefa): string {
   if (t.acao === "executar") return "Você";
   const o = (t.owner || "").trim();
@@ -248,7 +257,7 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
 
   // só entra na timeline o que está NO PLANO (opt-in). Tarefas de reunião não vazam.
   const visible = useMemo(
-    () => tarefas.filter((t) => t.no_plano && (showDone ? true : isOpen(t))),
+    () => tarefas.filter((t) => t.no_plano && (showDone || isOpen(t) || doneRecente(t))),
     [tarefas, showDone],
   );
   const dated = useMemo(() => visible.filter((t) => geomOf(t) !== null), [visible]);
@@ -1188,9 +1197,9 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
             type="checkbox"
             checked={showDone}
             onChange={(e) => setShowDone(e.target.checked)}
-            className="accent-[color:var(--calm)]"
+            className="accent-[color:var(--done)]"
           />
-          mostrar concluídas
+          mostrar concluídas antigas
         </label>
       </div>
 

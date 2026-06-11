@@ -44,6 +44,7 @@ export type Tarefa = {
   frente_proposta: string | null;
   pessoas: { id: string; nome: string; principal: boolean }[];
   created_at: string;
+  updated_at?: string | null;
   precisa_revisao: boolean;
   ordem: number | null;
   no_plano: boolean;
