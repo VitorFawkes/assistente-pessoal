@@ -57,6 +57,7 @@ export type Tarefa = {
   evidencia: string | null;
   frente: string | null;
   frente_proposta: string | null;
+  frentes: { id: string; nome: string; principal: boolean }[];
   pessoas: TarefaPessoa[];
   created_at: string;
   updated_at: string;

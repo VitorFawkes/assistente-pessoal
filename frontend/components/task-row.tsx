@@ -21,7 +21,7 @@ import {
   Quote,
   ChevronDown,
 } from "lucide-react";
-import { cn, formatPrazo, formatCreatedAt, fmtDate, type Prioridade } from "@/lib/utils";
+import { cn, formatPrazo, formatCreatedAt, fmtDate, normalizeOwner, type Prioridade } from "@/lib/utils";
 import { TaskEditModal } from "./task-edit-modal";
 
 export type Acao = "executar" | "cobrar" | "aguardar";
@@ -156,10 +156,7 @@ function AcaoChip({
       </span>
     );
   }
-  const ownerLabel =
-    !tarefa.owner || tarefa.owner === "?" || tarefa.owner.trim() === ""
-      ? "alguém"
-      : tarefa.owner;
+  const ownerLabel = normalizeOwner(tarefa.owner);
   const isCobrar = tarefa.acao === "cobrar";
   const wrapperClass = isCobrar
     ? "inline-flex items-center gap-1 text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-[color:var(--warm-bg)] text-[color:var(--warm)] font-semibold ring-1 ring-[color:var(--warm)]/30"

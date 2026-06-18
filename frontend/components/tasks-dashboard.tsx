@@ -68,6 +68,42 @@ function groupByPrazo(tarefas: Tarefa[]): Record<GroupKey, Tarefa[]> {
   return out;
 }
 
+const PRAZO_ORDER: GroupKey[] = [
+  "vencidas",
+  "hoje",
+  "esta_semana",
+  "futuro",
+  "sem_prazo",
+];
+
+function frenteOf(t: Tarefa): string {
+  return t.frente || t.frente_proposta || "Sem área";
+}
+
+// Dentro de uma frente, mantém a ordem de prazo (vencidas → … → sem prazo).
+function orderByPrazo(list: Tarefa[]): Tarefa[] {
+  const g = groupByPrazo(list);
+  return PRAZO_ORDER.flatMap((k) => g[k]);
+}
+
+// Agrupa por frente/área, ordena frentes A→Z ("Sem área" por último).
+function groupByFrente(list: Tarefa[]): [string, Tarefa[]][] {
+  const map = new Map<string, Tarefa[]>();
+  for (const t of list) {
+    const key = frenteOf(t);
+    const arr = map.get(key);
+    if (arr) arr.push(t);
+    else map.set(key, [t]);
+  }
+  return [...map.entries()]
+    .map(([k, items]) => [k, orderByPrazo(items)] as [string, Tarefa[]])
+    .sort((a, b) => {
+      if (a[0] === "Sem área") return 1;
+      if (b[0] === "Sem área") return -1;
+      return a[0].localeCompare(b[0], "pt-BR");
+    });
+}
+
 function GroupHeader({ label, count, accent }: {
   label: string;
   count: number;
@@ -92,6 +128,7 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
   const [bucket, setBucket] = useState<DateBucket>("todos");
   const [createdBucket, setCreatedBucket] = useState<CreatedBucket>("todas");
   const [onlyUrgent, setOnlyUrgent] = useState(false);
+  const [groupMode, setGroupMode] = useState<"prazo" | "frente">("prazo");
   const [creating, setCreating] = useState(false);
 
   const counts = useMemo(() => {
@@ -179,6 +216,28 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
       );
     }
 
+    if (groupMode === "frente") {
+      // Agrupa por área/frente (combate a sensação de tarefas espalhadas)
+      return (
+        <div className="space-y-6">
+          {groupByFrente(list).map(([frente, items]) => (
+            <div key={frente}>
+              <GroupHeader
+                label={frente}
+                count={items.length}
+                accent="text-[color:var(--muted-strong)]"
+              />
+              <div className="flex flex-col gap-2">
+                {items.map((t) => (
+                  <TaskRow key={t.id} tarefa={t} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
     // Sem filtro de data — agrupa por prazo
     const groups = groupByPrazo(list);
     const order: GroupKey[] = [
@@ -233,6 +292,30 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
           onChange={setCreatedBucket}
           counts={createdCounts}
         />
+        {bucket === "todos" && (
+          <div className="flex gap-2">
+            {(
+              [
+                ["prazo", "Por prazo"],
+                ["frente", "Por área"],
+              ] as const
+            ).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setGroupMode(mode)}
+                className={cn(
+                  "press-feedback text-[12px] px-3 py-1 rounded-full border transition cursor-pointer",
+                  groupMode === mode
+                    ? "bg-[color:var(--foreground)] text-[color:var(--background)] border-[color:var(--foreground)]"
+                    : "bg-transparent border-[color:var(--border)] text-[color:var(--muted-strong)] hover:border-[color:var(--muted-strong)]",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
         {urgentCount > 0 && (
           <button
             type="button"

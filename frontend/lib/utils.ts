@@ -18,6 +18,17 @@ export function toSP(d: Date | string): Date {
   return toZonedTime(typeof d === "string" ? new Date(d) : d, SP_TZ);
 }
 
+// Normaliza o "dono" de uma tarefa pra exibição consistente:
+//  - vazio / "?"           → "A definir"
+//  - "vitor"/"Vitor" (qq)  → "Você"
+//  - outros                → nome como veio (trim)
+export function normalizeOwner(owner: string | null | undefined): string {
+  const s = (owner ?? "").trim();
+  if (!s || s === "?") return "A definir";
+  if (s.toLowerCase() === "vitor") return "Você";
+  return s;
+}
+
 function dayKeySP(d: Date): string {
   return formatInTimeZone(d, SP_TZ, "yyyy-MM-dd");
 }

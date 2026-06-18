@@ -17,7 +17,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, normalizeOwner } from "@/lib/utils";
 import { TaskEditModal } from "./task-edit-modal";
 import { PlanoManageModal } from "./plano-manage-modal";
 import type { Tarefa } from "./task-row";
@@ -66,10 +66,10 @@ function doneRecente(t: Tarefa) {
 
 function responsavelOf(t: Tarefa): string {
   if (t.acao === "executar") return "Você";
-  const o = (t.owner || "").trim();
-  if (o && o !== "?" && o.toLowerCase() !== "vitor") return o;
+  const owner = normalizeOwner(t.owner);
+  if (owner !== "A definir") return owner;
   const principal = (t.pessoas ?? []).find((p) => p.principal) ?? (t.pessoas ?? [])[0];
-  return principal?.nome ?? "Alguém";
+  return principal?.nome ?? "A definir";
 }
 function frenteOf(t: Tarefa): string {
   return t.frente || t.frente_proposta || "Sem área";
