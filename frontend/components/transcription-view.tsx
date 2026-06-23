@@ -11,9 +11,11 @@ import {
   AudioLines,
   Scissors,
   BookmarkPlus,
+  Split,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { groupTurns } from "@/lib/transcript-format";
+import { CutBar } from "@/components/cut-bar";
 
 // Nome canônico do dono do sistema (corresponde a pessoas.is_vitor=TRUE).
 const SELF_NAME = "Vitor";
@@ -381,6 +383,7 @@ export function TranscriptionView({
   const [sectionList, setSectionList] = useState(
     [...sections].sort((a, b) => a.start_seconds - b.start_seconds),
   );
+  const [pendingCuts, setPendingCuts] = useState<{ at_seconds: number; label: string }[]>([]);
 
   async function saveSections(next: { start_seconds: number; title: string }[]) {
     const sorted = [...next].sort((a, b) => a.start_seconds - b.start_seconds);
@@ -479,6 +482,22 @@ export function TranscriptionView({
     saveSections([...without, { start_seconds: at, title }]);
   }
 
+  function toggleCut(turnStart: number) {
+    const at = Math.round(turnStart);
+    if (at <= 0) return; // não dá pra cortar no começo
+    setPendingCuts((prev) => {
+      const exists = prev.some((c) => Math.abs(c.at_seconds - at) <= 1);
+      if (exists) return prev.filter((c) => Math.abs(c.at_seconds - at) > 1);
+      const label = `Parte a partir de ${fmtTime(turnStart)}`;
+      return [...prev, { at_seconds: at, label }].sort((a, b) => a.at_seconds - b.at_seconds);
+    });
+  }
+
+  function isCutHere(turnStart: number): boolean {
+    const at = Math.round(turnStart);
+    return pendingCuts.some((c) => Math.abs(c.at_seconds - at) <= 1);
+  }
+
   return (
     <div className="space-y-4">
       <datalist id={PESSOAS_DATALIST_ID}>
@@ -551,6 +570,15 @@ export function TranscriptionView({
                 <span className="flex-1 h-px bg-[color:var(--border)]" />
               </div>
             )}
+            {isCutHere(t.start) && (
+              <div className="flex items-center gap-2 my-3">
+                <span className="flex-1 h-px bg-[color:var(--urgent)]/60" />
+                <span className="text-[10px] tracking-[0.16em] uppercase text-[color:var(--urgent)]">
+                  corte — nova reunião
+                </span>
+                <span className="flex-1 h-px bg-[color:var(--urgent)]/60" />
+              </div>
+            )}
             <div className="flex gap-3 relative">
               <div className="shrink-0 w-24 sm:w-28 flex flex-col items-start gap-1">
                 <SpeakerChip
@@ -587,11 +615,34 @@ export function TranscriptionView({
                 >
                   <BookmarkPlus size={12} />
                 </button>
+                <button
+                  type="button"
+                  title={
+                    isCutHere(t.start)
+                      ? "desfazer corte"
+                      : "separar: a partir daqui é outra reunião"
+                  }
+                  onClick={() => toggleCut(t.start)}
+                  className={
+                    isCutHere(t.start)
+                      ? "text-[color:var(--urgent)] shrink-0 mt-0.5"
+                      : "opacity-30 hover:opacity-100 text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition shrink-0 mt-0.5"
+                  }
+                  aria-label="separar a partir daqui"
+                >
+                  <Split size={12} />
+                </button>
               </div>
             </div>
           </div>
         );
       })}
+
+      <CutBar
+        meetingId={meetingId}
+        cuts={pendingCuts}
+        onClear={() => setPendingCuts([])}
+      />
     </div>
   );
 }
