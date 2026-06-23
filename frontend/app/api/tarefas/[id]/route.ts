@@ -93,9 +93,19 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
   }
 
   try {
+    // Campos de CONTEÚDO cuja edição manual é sinal de correção (modelo errou → usuário corrigiu).
+    // Vira evento 'editada' com de→para = dataset de feedback p/ afinar a extração (Fase 4).
+    const CORRECTION_FIELDS = [
+      "titulo", "descricao", "owner", "acao", "prazo", "prazo_text", "prioridade", "area_raw",
+    ] as const;
+
     const updated = await withTenant(user.id, async (c) => {
-      let row: unknown;
+      let row: Record<string, unknown> | undefined;
       if (sets.length) {
+        // pega o estado ANTES p/ registrar a correção (de→para)
+        const before = (
+          await c.query<Record<string, unknown>>("SELECT * FROM tarefas WHERE id = $1", [id])
+        ).rows[0];
         values.push(id);
         const sql = `UPDATE tarefas SET ${sets.join(", ")} WHERE id = $${values.length} RETURNING *`;
         const { rows } = await c.query(sql, values);
@@ -111,6 +121,21 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
             "INSERT INTO tarefa_eventos (tarefa_id, evento, payload) VALUES ($1,$2,$3)",
             [id, evento, JSON.stringify(body)],
           );
+        }
+        // correção de conteúdo: registra de→para por campo alterado
+        if (row && before) {
+          const changed: Record<string, { de: unknown; para: unknown }> = {};
+          for (const f of CORRECTION_FIELDS) {
+            if (body[f as keyof PatchBody] !== undefined && before[f] !== row[f]) {
+              changed[f] = { de: before[f], para: row[f] };
+            }
+          }
+          if (Object.keys(changed).length) {
+            await c.query(
+              "INSERT INTO tarefa_eventos (tarefa_id, evento, payload) VALUES ($1,'editada',$2)",
+              [id, JSON.stringify({ origem: "correcao_manual", changed })],
+            );
+          }
         }
       } else {
         const { rows } = await c.query("SELECT * FROM tarefas WHERE id = $1", [id]);
