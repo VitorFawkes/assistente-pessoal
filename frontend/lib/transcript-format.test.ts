@@ -77,3 +77,28 @@ describe("toPlainText", () => {
     expect(out).toBe("[0:00] Speaker A: oi");
   });
 });
+
+import { toSrt, toVtt } from "./transcript-format";
+
+describe("toSrt", () => {
+  test("um bloco por segmento com timestamp srt e nome", () => {
+    const out = toSrt(
+      [
+        { speaker: "A", start: 0, end: 2.5, text: "Oi" },
+        { speaker: "B", start: 3, end: 4.2, text: "Bora" },
+      ],
+      { A: "Vitor", B: "Marcelo" },
+    );
+    expect(out).toBe(
+      "1\n00:00:00,000 --> 00:00:02,500\nVitor: Oi\n\n" +
+        "2\n00:00:03,000 --> 00:00:04,200\nMarcelo: Bora\n",
+    );
+  });
+});
+
+describe("toVtt", () => {
+  test("cabeçalho WEBVTT + timestamps com ponto", () => {
+    const out = toVtt([{ speaker: "A", start: 0, end: 2.5, text: "Oi" }], { A: "Vitor" });
+    expect(out).toBe("WEBVTT\n\n00:00:00.000 --> 00:00:02.500\nVitor: Oi\n");
+  });
+});

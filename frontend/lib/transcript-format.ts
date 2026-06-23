@@ -69,3 +69,35 @@ export function toPlainText(segments: Segment[], labels: Record<string, string>)
     .map((t) => `[${fmtClock(t.start)}] ${speakerName(t.speaker, labels)}: ${t.text.trim()}`)
     .join("\n");
 }
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function stamp(seconds: number, sep: "," | "."): string {
+  const s = Math.max(0, seconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = Math.floor(s % 60);
+  const ms = Math.round((s - Math.floor(s)) * 1000);
+  return `${pad2(h)}:${pad2(m)}:${pad2(sec)}${sep}${String(ms).padStart(3, "0")}`;
+}
+
+export function toSrt(segments: Segment[], labels: Record<string, string>): string {
+  return segments
+    .map((seg, i) => {
+      const line = `${speakerName(seg.speaker, labels)}: ${seg.text.trim()}`;
+      return `${i + 1}\n${stamp(seg.start, ",")} --> ${stamp(seg.end, ",")}\n${line}\n`;
+    })
+    .join("\n");
+}
+
+export function toVtt(segments: Segment[], labels: Record<string, string>): string {
+  const body = segments
+    .map((seg) => {
+      const line = `${speakerName(seg.speaker, labels)}: ${seg.text.trim()}`;
+      return `${stamp(seg.start, ".")} --> ${stamp(seg.end, ".")}\n${line}\n`;
+    })
+    .join("\n");
+  return `WEBVTT\n\n${body}`;
+}
