@@ -10,6 +10,7 @@ import {
   Sparkles,
   AudioLines,
   Scissors,
+  BookmarkPlus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { groupTurns } from "@/lib/transcript-format";
@@ -377,6 +378,23 @@ export function TranscriptionView({
   const [reprocessing, setReprocessing] = useState(false);
   const [identifying, setIdentifying] = useState(false);
   const [identifyError, setIdentifyError] = useState<string | null>(null);
+  const [sectionList, setSectionList] = useState(
+    [...sections].sort((a, b) => a.start_seconds - b.start_seconds),
+  );
+
+  async function saveSections(next: { start_seconds: number; title: string }[]) {
+    const sorted = [...next].sort((a, b) => a.start_seconds - b.start_seconds);
+    setSectionList(sorted);
+    try {
+      await fetch(`/api/meetings/${meetingId}/sections`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sections: sorted }),
+      });
+    } catch {
+      // mantém otimista; refresh corrige se falhar
+    }
+  }
 
   const handleSave = (speaker: string, newName: string) => {
     const next = { ...labels };
@@ -444,6 +462,23 @@ export function TranscriptionView({
   const unconfirmed = distinctSpeakers.filter((s) => !labels[s]);
   const showIdentifyButton = unconfirmed.length > 0;
 
+  // Seção de assunto que NASCE neste turn (primeiro turn no/após a fronteira).
+  function sectionStartingAt(turnIndex: number): { start_seconds: number; title: string } | null {
+    const t = turns[turnIndex];
+    const prevStart = turnIndex > 0 ? turns[turnIndex - 1].start : -1;
+    return (
+      sectionList.find((s) => s.start_seconds > prevStart && s.start_seconds <= t.start) ?? null
+    );
+  }
+
+  function addSectionAt(turnStart: number) {
+    const title = window.prompt("Título da seção (ex: Financeiro):", "")?.trim();
+    if (!title) return;
+    const at = Math.round(turnStart);
+    const without = sectionList.filter((s) => Math.abs(s.start_seconds - at) > 1);
+    saveSections([...without, { start_seconds: at, title }]);
+  }
+
   return (
     <div className="space-y-4">
       <datalist id={PESSOAS_DATALIST_ID}>
@@ -477,35 +512,86 @@ export function TranscriptionView({
           Reprocessando tarefas com os novos nomes…
         </div>
       )}
-      {turns.map((t, i) => (
-        <div key={i} className="flex gap-3 relative">
-          <div className="shrink-0 w-24 sm:w-28 flex flex-col items-start gap-1">
-            <SpeakerChip
-              speaker={t.speaker}
-              labels={labels}
-              proposed={speakerLabelsProposed[t.speaker] ?? null}
-              onSave={handleSave}
-              saving={isPending}
-            />
-            <span className="text-[10px] text-[color:var(--muted)] font-mono">
-              {fmtTime(t.start)}
-            </span>
+      {turns.map((t, i) => {
+        const sec = sectionStartingAt(i);
+        return (
+          <div key={i}>
+            {sec && (
+              <div className="flex items-center gap-2 my-4 first:mt-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const novo = window.prompt("Renomear seção:", sec.title)?.trim();
+                    if (novo === undefined) return;
+                    const next = sectionList.map((s) =>
+                      s.start_seconds === sec.start_seconds
+                        ? { ...s, title: novo || s.title }
+                        : s,
+                    );
+                    saveSections(next);
+                  }}
+                  className="text-[11px] tracking-[0.16em] uppercase text-[color:var(--muted-strong)] bg-[color:var(--accent)] px-2.5 py-1 rounded-full hover:ring-1 hover:ring-[color:var(--foreground)]/30"
+                  title="renomear seção"
+                >
+                  {sec.title}
+                </button>
+                <button
+                  type="button"
+                  title="remover seção"
+                  onClick={() =>
+                    saveSections(
+                      sectionList.filter((s) => s.start_seconds !== sec.start_seconds),
+                    )
+                  }
+                  className="text-[color:var(--muted)] hover:text-[color:var(--urgent)]"
+                  aria-label="remover seção"
+                >
+                  <X size={12} />
+                </button>
+                <span className="flex-1 h-px bg-[color:var(--border)]" />
+              </div>
+            )}
+            <div className="flex gap-3 relative">
+              <div className="shrink-0 w-24 sm:w-28 flex flex-col items-start gap-1">
+                <SpeakerChip
+                  speaker={t.speaker}
+                  labels={labels}
+                  proposed={speakerLabelsProposed[t.speaker] ?? null}
+                  onSave={handleSave}
+                  saving={isPending}
+                />
+                <span className="text-[10px] text-[color:var(--muted)] font-mono">
+                  {fmtTime(t.start)}
+                </span>
+              </div>
+              <p className="flex-1 text-[14px] leading-relaxed text-[color:var(--foreground)] pt-0.5">
+                {t.text.trim()}
+              </p>
+              <div className="shrink-0 flex items-start gap-1">
+                <div className="relative shrink-0">
+                  <MoveTurnMenu
+                    meetingId={meetingId}
+                    segmentIndices={t.segmentIndices}
+                    sourceLetter={t.speaker}
+                    otherLetters={distinctSpeakers.filter((s) => s !== t.speaker)}
+                    labels={labels}
+                    onDone={() => router.refresh()}
+                  />
+                </div>
+                <button
+                  type="button"
+                  title="marcar nova seção a partir daqui"
+                  onClick={() => addSectionAt(t.start)}
+                  className="opacity-30 hover:opacity-100 text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition shrink-0 mt-0.5"
+                  aria-label="nova seção aqui"
+                >
+                  <BookmarkPlus size={12} />
+                </button>
+              </div>
+            </div>
           </div>
-          <p className="flex-1 text-[14px] leading-relaxed text-[color:var(--foreground)] pt-0.5">
-            {t.text.trim()}
-          </p>
-          <div className="relative shrink-0">
-            <MoveTurnMenu
-              meetingId={meetingId}
-              segmentIndices={t.segmentIndices}
-              sourceLetter={t.speaker}
-              otherLetters={distinctSpeakers.filter((s) => s !== t.speaker)}
-              labels={labels}
-              onDone={() => router.refresh()}
-            />
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
