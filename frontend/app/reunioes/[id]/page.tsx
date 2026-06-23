@@ -16,6 +16,7 @@ import { buildSpeakerCards } from "@/lib/speakers";
 import { ArrowLeft, Mic, Video, FileQuestion, UsersRound } from "lucide-react";
 import { ExecutiveSummary } from "./executive-summary";
 import { DeleteMeetingButton } from "@/components/delete-meeting-button";
+import { TranscriptExportMenu } from "@/components/transcript-export-menu";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,7 @@ type Meeting = {
   segments: Segment[] | null;
   speaker_labels: Record<string, string> | null;
   speaker_labels_proposed: Record<string, ProposedLabel | null> | null;
+  sections: { start_seconds: number; title: string }[] | null;
 };
 
 function MeetingTypeIcon({ type }: { type: string | null }) {
@@ -221,13 +223,21 @@ export default async function ReuniaoDetalhePage({
               Transcrição
             </h2>
             {meeting.segments && meeting.segments.length > 0 && (
-              <Link
-                href={`/reunioes/${meeting.id}/identificar`}
-                className="press-feedback inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-full bg-[color:var(--calm-bg)] text-[color:var(--calm)] hover:ring-1 hover:ring-[color:var(--foreground)]/30"
-                title="Tela dedicada pra ouvir trechos curtos e rotular speakers"
-              >
-                <UsersRound size={13} /> identificar speakers
-              </Link>
+              <div className="flex items-center gap-2">
+                <Link
+                  href={`/reunioes/${meeting.id}/identificar`}
+                  className="press-feedback inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-full bg-[color:var(--calm-bg)] text-[color:var(--calm)] hover:ring-1 hover:ring-[color:var(--foreground)]/30"
+                  title="Tela dedicada pra ouvir trechos curtos e rotular speakers"
+                >
+                  <UsersRound size={13} /> identificar speakers
+                </Link>
+                <TranscriptExportMenu
+                  meetingId={meeting.id}
+                  segments={meeting.segments}
+                  labels={meeting.speaker_labels || {}}
+                  sections={meeting.sections || []}
+                />
+              </div>
             )}
           </div>
           <div className="paper-card rounded-2xl border border-[color:var(--border)] p-5">
