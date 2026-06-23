@@ -292,6 +292,15 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
     setConfirmDelete(false);
   }
 
+  // "não é tarefa": rejeição explícita — guarda exemplo negativo pro loop de feedback e remove.
+  function handleReject(e: React.MouseEvent) {
+    e.stopPropagation();
+    startTransition(async () => {
+      await fetch(`/api/tarefas/${tarefa.id}?motivo=nao_era_tarefa`, { method: "DELETE" });
+      router.refresh();
+    });
+  }
+
   function saveOwner(next: string) {
     setEditingOwner(false);
     if (next === tarefa.owner) return;
@@ -509,6 +518,16 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
                 className="text-[10px] tracking-[0.1em] uppercase font-bold px-2 py-1 rounded-full bg-[color:var(--urgent)] text-white hover:opacity-90 disabled:opacity-50"
               >
                 {isPending ? "..." : "deletar"}
+              </button>
+              <button
+                type="button"
+                onClick={handleReject}
+                disabled={isPending}
+                aria-label="Não é tarefa"
+                title="Não era tarefa — ensina o sistema a não extrair coisas assim"
+                className="text-[10px] tracking-[0.1em] uppercase font-bold px-2 py-1 rounded-full bg-[color:var(--warm-bg)] text-[color:var(--warm)] hover:opacity-90 disabled:opacity-50"
+              >
+                não é tarefa
               </button>
               <button
                 type="button"

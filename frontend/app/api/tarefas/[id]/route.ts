@@ -135,6 +135,11 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
               "INSERT INTO tarefa_eventos (tarefa_id, evento, payload) VALUES ($1,'editada',$2)",
               [id, JSON.stringify({ origem: "correcao_manual", changed })],
             );
+            // dataset persistente p/ o loop de feedback (sobrevive à deleção da tarefa)
+            await c.query(
+              "INSERT INTO extracao_feedback (user_id, meeting_id, tipo, payload) VALUES ($1,$2,'correcao',$3)",
+              [user.id, (before.meeting_id as string) ?? null, JSON.stringify({ changed })],
+            );
           }
         }
       } else {
@@ -182,10 +187,26 @@ export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
   return NextResponse.json(rows[0]);
 });
 
-export const DELETE = withAuth<Ctx>(async (user, _req, ctx) => {
+export const DELETE = withAuth<Ctx>(async (user, req, ctx) => {
   const { id } = await ctx.params;
+  // "não é tarefa": rejeição explícita → guarda exemplo negativo p/ o loop de feedback.
+  const motivo = new URL((req as NextRequest).url).searchParams.get("motivo");
   try {
     const result = await withTenant(user.id, async (c) => {
+      if (motivo === "nao_era_tarefa") {
+        const snap = (
+          await c.query<Record<string, unknown>>(
+            "SELECT meeting_id, titulo, descricao, owner, acao, prazo_text, area_raw FROM tarefas WHERE id = $1",
+            [id],
+          )
+        ).rows[0];
+        if (snap) {
+          await c.query(
+            "INSERT INTO extracao_feedback (user_id, meeting_id, tipo, payload) VALUES ($1,$2,'rejeicao',$3)",
+            [user.id, (snap.meeting_id as string) ?? null, JSON.stringify(snap)],
+          );
+        }
+      }
       await c.query("DELETE FROM tarefa_eventos WHERE tarefa_id = $1", [id]);
       const t = await c.query("DELETE FROM tarefas WHERE id = $1 RETURNING id", [id]);
       return t.rowCount ?? 0;
