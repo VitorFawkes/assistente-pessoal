@@ -102,3 +102,63 @@ describe("toVtt", () => {
     expect(out).toBe("WEBVTT\n\n00:00:00.000 --> 00:00:02.500\nVitor: Oi\n");
   });
 });
+
+import { toMarkdown, filterBySection, participantNames, type Section } from "./transcript-format";
+
+describe("toMarkdown", () => {
+  test("cabeçalho com título, data, participantes + corpo", () => {
+    const out = toMarkdown(
+      [
+        { speaker: "A", start: 0, end: 3, text: "Oi" },
+        { speaker: "B", start: 4, end: 6, text: "Bora" },
+      ],
+      { A: "Vitor", B: "Marcelo" },
+      { title: "Reunião X", dateLabel: "23/06/2026", participants: ["Vitor", "Marcelo"] },
+    );
+    expect(out).toBe(
+      "# Reunião X\n\n" +
+        "**Data:** 23/06/2026  \n" +
+        "**Participantes:** Vitor, Marcelo\n\n" +
+        "---\n\n" +
+        "**[0:00] Vitor:** Oi\n\n" +
+        "**[0:04] Marcelo:** Bora\n",
+    );
+  });
+});
+
+describe("filterBySection", () => {
+  const segs: Segment[] = [
+    { speaker: "A", start: 0, end: 10, text: "intro" },
+    { speaker: "A", start: 60, end: 70, text: "financeiro" },
+    { speaker: "A", start: 130, end: 140, text: "contratação" },
+  ];
+  const sections: Section[] = [
+    { start_seconds: 0, title: "Abertura" },
+    { start_seconds: 60, title: "Financeiro" },
+    { start_seconds: 120, title: "Contratação" },
+  ];
+  test("seção do meio pega só os segmentos do intervalo", () => {
+    const out = filterBySection(segs, sections, 1, 200);
+    expect(out).toHaveLength(1);
+    expect(out[0].text).toBe("financeiro");
+  });
+  test("última seção vai até a duração", () => {
+    const out = filterBySection(segs, sections, 2, 200);
+    expect(out).toHaveLength(1);
+    expect(out[0].text).toBe("contratação");
+  });
+});
+
+describe("participantNames", () => {
+  test("nomes distintos na ordem de aparição", () => {
+    const out = participantNames(
+      [
+        { speaker: "B", start: 0, end: 1, text: "x" },
+        { speaker: "A", start: 2, end: 3, text: "y" },
+        { speaker: "B", start: 4, end: 5, text: "z" },
+      ],
+      { A: "Vitor", B: "Marcelo" },
+    );
+    expect(out).toEqual(["Marcelo", "Vitor"]);
+  });
+});

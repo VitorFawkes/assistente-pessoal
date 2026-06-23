@@ -101,3 +101,49 @@ export function toVtt(segments: Segment[], labels: Record<string, string>): stri
     .join("\n");
   return `WEBVTT\n\n${body}`;
 }
+
+export function toMarkdown(
+  segments: Segment[],
+  labels: Record<string, string>,
+  meta: { title: string; dateLabel: string; participants: string[] },
+): string {
+  const head =
+    `# ${meta.title}\n\n` +
+    `**Data:** ${meta.dateLabel}  \n` +
+    `**Participantes:** ${meta.participants.join(", ")}\n\n` +
+    `---\n\n`;
+  const body = groupTurns(segments)
+    .map((t) => `**[${fmtClock(t.start)}] ${speakerName(t.speaker, labels)}:** ${t.text.trim()}`)
+    .join("\n\n");
+  return `${head}${body}\n`;
+}
+
+/** Segmentos cujo start cai no intervalo da seção `index` (sorted por start_seconds). */
+export function filterBySection(
+  segments: Segment[],
+  sections: Section[],
+  index: number,
+  duration: number,
+): Segment[] {
+  const sorted = [...sections].sort((a, b) => a.start_seconds - b.start_seconds);
+  const start = sorted[index]?.start_seconds ?? 0;
+  const end = sorted[index + 1]?.start_seconds ?? duration;
+  return segments.filter((s) => s.start >= start && s.start < end);
+}
+
+/** Nomes distintos dos speakers (resolvidos), na ordem de aparição. */
+export function participantNames(
+  segments: Segment[],
+  labels: Record<string, string>,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const s of segments) {
+    const name = speakerName(s.speaker, labels);
+    if (!seen.has(name)) {
+      seen.add(name);
+      out.push(name);
+    }
+  }
+  return out;
+}
