@@ -80,7 +80,7 @@
               "role": "system"
             },
             {
-              "content": "=Transcrição rotulada (gravado em {{ $('Build Labeled Text').item.json.recorded_at }}, source={{ $('Build Labeled Text').item.json.source }}, tipo={{ $('Build Labeled Text').item.json.meeting_type }}):\n\n{{ $('Build Labeled Text').item.json.labeled_text }}"
+              "content": "=Transcrição rotulada (gravado em {{ $('Build Labeled Text').first().json.recorded_at }}, source={{ $('Build Labeled Text').first().json.source }}, tipo={{ $('Build Labeled Text').first().json.meeting_type }}):\n\n{{ $('Build Labeled Text').first().json.labeled_text }}"
             }
           ]
         },
@@ -103,19 +103,6 @@
           "name": "OpenAi account"
         }
       }
-    },
-    {
-      "parameters": {
-        "jsCode": "// Parseia o JSON retornado pelo GPT e prepara items para INSERT em tarefas.\nconst meetingId = $('3. Prepare Metadata').item.json.meeting_id;\nconst raw = $input.first().json;\n\n// O nó openAi v1.7 retorna o JSON em diferentes shapes — normaliza.\nlet parsed;\nif (raw.message && raw.message.content) {\n  parsed = typeof raw.message.content === 'string' ? JSON.parse(raw.message.content) : raw.message.content;\n} else if (raw.content) {\n  parsed = typeof raw.content === 'string' ? JSON.parse(raw.content) : raw.content;\n} else if (raw.text) {\n  parsed = typeof raw.text === 'string' ? JSON.parse(raw.text) : raw.text;\n} else if (raw.summary && Array.isArray(raw.actions)) {\n  parsed = raw;\n} else {\n  throw new Error('Não foi possível parsear resposta do GPT: ' + JSON.stringify(raw).slice(0, 500));\n}\n\nlet { summary = '', actions = [] } = parsed;\nif (summary && summary.length > 90) {\n  const cut = summary.slice(0, 87);\n  const lastSpace = cut.lastIndexOf(' ');\n  summary = (lastSpace > 50 ? cut.slice(0, lastSpace) : cut) + '…';\n}\nconst rawJson = JSON.stringify(parsed);\n\nif (!actions.length) {\n  return [{\n    json: {\n      meeting_id: meetingId,\n      summary,\n      raw_ai_response: rawJson,\n      no_actions: true\n    }\n  }];\n}\n\n// ── REGRAS NOVAS: coerência determinística owner↔acao, owner∈pessoas, prazo temporal ──\nfunction __normOwner(o){ const s=(o==null?'':String(o)).trim(); if(!s) return 'vitor'; if(/^vitor$/i.test(s)) return 'vitor'; if(/^speaker\\b/i.test(s)) return '?'; return s; }\nfunction __coerceAcao(owner, acao){ const o=__normOwner(owner); if(o==='vitor') return 'executar'; return ['cobrar','aguardar'].includes(acao)?acao:'cobrar'; }\nfunction __cleanPrazo(t){ if(t==null) return null; const s=String(t).trim(); if(!s) return null; const re=/(hoje|amanh[\\u00e3a]|ontem|segunda|ter[\\u00e7c]a|quarta|quinta|sexta|s[\\u00e1a]bado|domingo|semana|m\\u00eas|meses|que vem|daqui a|fim de semana|feriado|manh[\\u00e3a]|tarde|noite|madrugada|daily|janeiro|fevereiro|mar[\\u00e7c]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|\\d{1,2}\\s*\\/\\s*\\d{1,2}|dia\\s+\\d{1,2}|\\d{1,2}\\s*h\\b|\\d{1,2}:\\d{2})/i; return re.test(s) ? s : null; }\nfunction __ensurePessoas(owner, pessoas){ let arr=(Array.isArray(pessoas)?pessoas:[]).filter(p=>!/^speaker\\b/i.test(String(p==null?'':p).trim())); const o=__normOwner(owner); if(o!=='vitor' && o!=='?' && !arr.some(p=>String(p==null?'':p).trim().toLowerCase()===o.toLowerCase())) arr.unshift(o); return arr; }\n\nreturn actions.map((a, i) => ({\n  json: {\n    meeting_id: meetingId,\n    summary,\n    raw_ai_response: rawJson,\n    titulo: a.titulo || '(sem título)',\n    descricao: a.descricao || '',\n    owner: __normOwner(a.owner),\n    prazo: a.prazo_iso || null,\n    prazo_text: __cleanPrazo(a.prazo_text),\n    prioridade: ['baixa','media','alta','urgente'].includes(a.prioridade) ? a.prioridade : 'media',\n    evidencia: a.evidencia || '',\n    acao: __coerceAcao(a.owner, a.acao),\n    pessoas_raw: JSON.stringify(__ensurePessoas(a.owner, a.pessoas_envolvidas)),\n    area_raw: a.area || null,\n    idx: i,\n    total: actions.length\n  }\n}));"
-      },
-      "id": "00000000-0000-0000-0000-000000000010",
-      "name": "7. Parse Actions",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -200,
-        0
-      ]
     },
     {
       "parameters": {
@@ -174,10 +161,11 @@
             "prazo_text": "={{ $json.prazo_text }}",
             "prioridade": "={{ $json.prioridade }}",
             "evidencia": "={{ $json.evidencia }}",
-            "user_id": "={{ $('3. Prepare Metadata').item.json.user_id }}",
+            "user_id": "={{ $('3. Prepare Metadata').first().json.user_id }}",
             "acao": "={{ $json.acao }}",
             "pessoas_raw": "={{ $json.pessoas_raw }}",
-            "area_raw": "={{ $json.area_raw }}"
+            "area_raw": "={{ $json.area_raw }}",
+            "precisa_revisao": "={{ $json.precisa_revisao }}"
           },
           "matchingColumns": [],
           "schema": []
@@ -215,10 +203,10 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "id": "={{ $('3. Prepare Metadata').item.json.meeting_id }}",
+            "id": "={{ $('3. Prepare Metadata').first().json.meeting_id }}",
             "status": "done",
-            "summary": "={{ $('7. Parse Actions').first().json.summary }}",
-            "raw_ai_response": "={{ $('7. Parse Actions').first().json.raw_ai_response }}",
+            "summary": "={{ $('Aggregate').first().json.summary }}",
+            "raw_ai_response": "={{ $('Aggregate').first().json.raw_ai_response }}",
             "done_at": "={{ $now.toISO() }}"
           },
           "matchingColumns": [
@@ -245,7 +233,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Monta a mensagem do WhatsApp\nconst meetingId = $('3. Prepare Metadata').item.json.meeting_id;\nconst summary = $('7. Parse Actions').first().json.summary;\nconst items = $('7. Parse Actions').all().map(i => i.json).filter(j => !j.no_actions);\n\nconst minhas = items.filter(i => i.owner === 'vitor');\nconst delegadas = items.filter(i => i.owner !== 'vitor');\nconst formatPrazo = (p) => {\n  if (!p) return '';\n  try {\n    const d = new Date(p);\n    return ' _(até ' + d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ')_';\n  } catch { return ''; }\n};\nconst emojiPrio = { urgente: '🔴', alta: '🟠', media: '🟡', baixa: '⚪' };\n\nlet msg = '🎙️ *Reunião processada*\\n\\n';\nmsg += '_' + summary + '_\\n\\n';\n\nif (minhas.length) {\n  msg += '✅ *Minhas ações* (' + minhas.length + ')\\n';\n  minhas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '🟡') + ' ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (delegadas.length) {\n  msg += '👥 *Combinei com outros* (' + delegadas.length + ')\\n';\n  delegadas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '🟡') + ' *' + t.owner + ':* ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (!minhas.length && !delegadas.length) {\n  msg += '_(nenhuma ação concreta extraída desta reunião)_\\n';\n}\n\nconst frontendUrl = 'https://acoes.vitorgambetti.com.br';\nmsg += '🔗 ' + frontendUrl + '/reunioes/' + meetingId;\n\n\nreturn [{ json: { text: msg, meeting_id: meetingId, n_tarefas: items.length } }];\n"
+        "jsCode": "// Monta a mensagem do WhatsApp\nconst meetingId = $('3. Prepare Metadata').first().json.meeting_id;\nconst summary = $('Aggregate').first().json.summary;\nconst items = $('Aggregate').all().map(i => i.json).filter(j => !j.no_actions);\n\nconst minhas = items.filter(i => i.owner === 'vitor');\nconst delegadas = items.filter(i => i.owner !== 'vitor');\nconst formatPrazo = (p) => {\n  if (!p) return '';\n  try {\n    const d = new Date(p);\n    return ' _(até ' + d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ')_';\n  } catch { return ''; }\n};\nconst emojiPrio = { urgente: '🔴', alta: '🟠', media: '🟡', baixa: '⚪' };\n\nlet msg = '🎙️ *Reunião processada*\\n\\n';\nmsg += '_' + summary + '_\\n\\n';\n\nif (minhas.length) {\n  msg += '✅ *Minhas ações* (' + minhas.length + ')\\n';\n  minhas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '🟡') + ' ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (delegadas.length) {\n  msg += '👥 *Combinei com outros* (' + delegadas.length + ')\\n';\n  delegadas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '🟡') + ' *' + t.owner + ':* ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (!minhas.length && !delegadas.length) {\n  msg += '_(nenhuma ação concreta extraída desta reunião)_\\n';\n}\n\nconst frontendUrl = 'https://acoes.vitorgambetti.com.br';\nmsg += '🔗 ' + frontendUrl + '/reunioes/' + meetingId;\n\n\nreturn [{ json: { text: msg, meeting_id: meetingId, n_tarefas: items.length } }];\n"
       },
       "id": "00000000-0000-0000-0000-000000000014",
       "name": "11. Build WhatsApp Message",
@@ -292,7 +280,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://n8n-assistente-frontend.tatetz.easypanel.host/api/admin/reset-meeting/{{ $('3. Prepare Metadata').item.json.meeting_id }}",
+        "url": "=https://n8n-assistente-frontend.tatetz.easypanel.host/api/admin/reset-meeting/{{ $('3. Prepare Metadata').first().json.meeting_id }}",
         "authentication": "none",
         "sendHeaders": true,
         "headerParameters": {
@@ -303,13 +291,13 @@
             },
             {
               "name": "x-admin-token",
-              "value": "={{ $('1. Webhook').item.json.headers['x-auth'] }}"
+              "value": "={{ $('1. Webhook').first().json.headers['x-auth'] }}"
             }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={ \"segments\": {{ $('3. Prepare Metadata').item.json.segments_json }}, \"text\": {{ JSON.stringify($('3. Prepare Metadata').item.json.text) }} }",
+        "jsonBody": "={ \"segments\": {{ $('3. Prepare Metadata').first().json.segments_json }}, \"text\": {{ JSON.stringify($('3. Prepare Metadata').first().json.text) }} }",
         "options": {
           "timeout": 60000
         }
@@ -326,7 +314,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT id, user_id, source, meeting_type, transcription, segments, speaker_labels, duration_seconds, to_char(recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS recorded_at FROM meetings WHERE id = '{{ $('3. Prepare Metadata').item.json.meeting_id }}'::uuid",
+        "query": "SELECT id, user_id, source, meeting_type, transcription, segments, speaker_labels, duration_seconds, to_char(recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS recorded_at FROM meetings WHERE id = '{{ $('3. Prepare Metadata').first().json.meeting_id }}'::uuid",
         "options": {}
       },
       "id": "selmeet-198cce6b",
@@ -355,6 +343,79 @@
       "position": [
         -500,
         180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// self-consistency: emite 3 itens pra rodar a extração 3x (o nó GPT roda 1x por item)\nreturn [{ json: { run: 1 } }, { json: { run: 2 } }, { json: { run: 3 } }];\n"
+      },
+      "id": "sc-fan",
+      "name": "Fanout",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -540,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// coleta as N saídas do GPT, parseia as actions de cada run, monta o prompt do juiz\nconst items = $input.all();\nfunction parse(raw) {\n  let p;\n  if (raw.message && raw.message.content) p = typeof raw.message.content === 'string' ? JSON.parse(raw.message.content) : raw.message.content;\n  else if (raw.content) p = typeof raw.content === 'string' ? JSON.parse(raw.content) : raw.content;\n  else if (raw.text) p = typeof raw.text === 'string' ? JSON.parse(raw.text) : raw.text;\n  else p = raw;\n  return p || {};\n}\nconst parsed = items.map(it => parse(it.json));\nconst runs = parsed.map(p => Array.isArray(p.actions) ? p.actions : []);\nlet summary = '', executive_summary = null;\nfor (const p of parsed) { if (p.summary) { summary = p.summary; executive_summary = p.executive_summary || null; break; } }\nconst lines = [];\nruns.forEach((acts, ri) => {\n  lines.push('EXECUÇÃO ' + (ri + 1) + ':');\n  acts.forEach((a, ii) => lines.push('  [' + (ri + 1) + '.' + ii + '] ' + (a.titulo || '') + ' (owner=' + (a.owner || '') + ')'));\n});\nconst judgePrompt =\n  'Abaixo, tarefas extraídas da MESMA reunião em várias execuções do mesmo modelo. ' +\n  'Diferenças de REDAÇÃO são esperadas — IGNORE. Agrupe os itens que são a MESMA tarefa subjacente ' +\n  '(mesmo entregável/objetivo e mesmo dono). Itens distintos NÃO devem ser juntados só por tema parecido. ' +\n  'Cada item pertence a exatamente um grupo. Para cada grupo dê \"canonical\" (título curto, no infinitivo) ' +\n  'e \"refs\" (lista de \"R.I\" dos membros). Retorne JSON: {\"grupos\":[{\"canonical\":\"...\",\"refs\":[\"1.0\",\"2.3\"]}]}\\n\\n' +\n  lines.join('\\n');\nreturn [{ json: { judgePrompt: judgePrompt, runs: runs, summary: summary, executive_summary: executive_summary, raw_ai_response: JSON.stringify(parsed[0] || {}) } }];\n"
+      },
+      "id": "sc-bj",
+      "name": "Build Judge Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-5.1"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $json.judgePrompt }}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "sc-judge",
+      "name": "Judge",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.7,
+      "position": [
+        -120,
+        0
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "QSdaVgPRKxfvwcXr",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// AGREGA por maioria (self-consistency N=3) + enforcement determinístico\nfunction normOwner(o){const s=(o==null?'':String(o)).trim(); if(!s)return 'vitor'; if(/^vitor$/i.test(s))return 'vitor'; if(/^speaker\\b/i.test(s))return '?'; return s;}\nfunction coerceAcao(owner,acao){const o=normOwner(owner); if(o==='vitor')return 'executar'; return ['cobrar','aguardar'].includes(acao)?acao:'cobrar';}\nfunction cleanPrazo(t){if(t==null)return null; const s=String(t).trim(); if(!s)return null; const re=/(hoje|amanh[ãa]|ontem|segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado|domingo|semana|mês|meses|que vem|daqui a|fim de semana|feriado|manh[ãa]|tarde|noite|madrugada|daily|janeiro|fevereiro|mar[çc]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|\\d{1,2}\\s*\\/\\s*\\d{1,2}|dia\\s+\\d{1,2}|\\d{1,2}\\s*h\\b|\\d{1,2}:\\d{2})/i; return re.test(s)?s:null;}\nfunction mode(vals){const c={}; let best=null,bn=0; for(const v of vals){ if(v==null||v==='')continue; const k=(typeof v==='object')?JSON.stringify(v):String(v); c[k]=(c[k]||0)+1; if(c[k]>bn){bn=c[k]; best=v;} } return best;}\n\nconst ctx = $('Build Judge Prompt').first().json;\nconst runs = ctx.runs || [];\nconst N = runs.length || 3;\nconst maj = Math.floor(N/2)+1;\nconst jr = $input.first().json;\nlet grupos=[];\ntry{ let p = (jr.message && jr.message.content) ? jr.message.content : (jr.content||jr.text||jr); p = (typeof p==='string')?JSON.parse(p):p; grupos = p.grupos||[]; }catch(e){ grupos=[]; }\n\nconst meetingId = $('3. Prepare Metadata').first().json.meeting_id;\nconst rawJson = ctx.raw_ai_response || '{}';\nconst summary = ctx.summary || '';\n\nconst out=[];\nfor(const g of grupos){\n  const refs=[]; const runset=new Set();\n  for(const ref of (g.refs||[])){\n    const m=String(ref).split('.'); const ri=parseInt(m[0],10)-1, ii=parseInt(m[1],10);\n    if(runs[ri] && runs[ri][ii]){ refs.push(runs[ri][ii]); runset.add(ri); }\n  }\n  if(!refs.length) continue;\n  const cov=runset.size;\n  let rep=refs[0]; for(const r of refs){ if(String(r.descricao||'').length>String(rep.descricao||'').length) rep=r; }\n  const owner=normOwner(mode(refs.map(r=>r.owner)));\n  const acao=coerceAcao(owner, mode(refs.map(r=>r.acao)));\n  let pessoas=[]; for(const r of refs){ for(const pp of (r.pessoas_envolvidas||[])){ if(!pessoas.some(x=>String(x).trim().toLowerCase()===String(pp).trim().toLowerCase())) pessoas.push(pp);} }\n  if(owner!=='vitor'&&owner!=='?'&&!pessoas.some(x=>String(x).trim().toLowerCase()===owner.toLowerCase())) pessoas.unshift(owner);\n  pessoas=pessoas.filter(p=>!/^speaker\\b/i.test(String(p).trim()));\n  const prio=mode(refs.map(r=>r.prioridade));\n  out.push({\n    titulo: g.canonical || rep.titulo || '(sem título)',\n    descricao: rep.descricao || '',\n    owner: owner, acao: acao,\n    prazo: mode(refs.map(r=>r.prazo_iso)) || null,\n    prazo_text: cleanPrazo(mode(refs.map(r=>r.prazo_text))),\n    prioridade: ['baixa','media','alta','urgente'].includes(prio)?prio:'media',\n    evidencia: rep.evidencia || '',\n    area_raw: mode(refs.map(r=>r.area)) || null,\n    pessoas_raw: JSON.stringify(pessoas),\n    precisa_revisao: cov < maj\n  });\n}\nif(!out.length){\n  return [{ json:{ meeting_id:meetingId, summary:summary, raw_ai_response:rawJson, no_actions:true } }];\n}\nreturn out.map((a,i)=>({ json: Object.assign({ meeting_id:meetingId, summary:summary, raw_ai_response:rawJson, idx:i, total:out.length }, a) }));\n"
+      },
+      "id": "sc-agg",
+      "name": "Aggregate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        20,
+        0
       ]
     }
   ],
@@ -385,18 +446,7 @@
       "main": [
         [
           {
-            "node": "7. Parse Actions",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "7. Parse Actions": {
-      "main": [
-        [
-          {
-            "node": "8. Has Actions?",
+            "node": "Build Judge Prompt",
             "type": "main",
             "index": 0
           }
@@ -491,7 +541,51 @@
       "main": [
         [
           {
+            "node": "Fanout",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fanout": {
+      "main": [
+        [
+          {
             "node": "6. GPT Extract Actions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Judge Prompt": {
+      "main": [
+        [
+          {
+            "node": "Judge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Judge": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "8. Has Actions?",
             "type": "main",
             "index": 0
           }
