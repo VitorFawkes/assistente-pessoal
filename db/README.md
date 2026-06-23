@@ -15,6 +15,7 @@ pgweb, `psql` ou endpoint temporário `/api/admin/sql`.
 | 0005 | `0005_voice_samples.sql` | Tabela voice_samples (embeddings ECAPA 192d em REAL[] — sem pgvector) |
 | 0006 | `0006_meeting_segmentation.sql` | Fatiamento de áudio longo em N filhos (`parent_meeting_id`, `needs_segmentation`, status `archived_session`, source `segmented`) |
 | **0007** | **`0007_multitenant.sql`** | **Multi-tenant: tabelas users/invites/sessions/audit_log/usage_events + user_id em meetings/tarefas/pessoas/voice_samples + RLS + índices compostos** |
+| 0017 | `0017_meeting_sections.sql` | Adiciona `meetings.sections JSONB` (seções de assunto não-destrutivas) |
 
 ## Roles Postgres (pré-requisito da 0007)
 
