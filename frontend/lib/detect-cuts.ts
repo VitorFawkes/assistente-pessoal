@@ -24,6 +24,10 @@ export const DETECT_CONSTANTS = {
   MIN_SEGMENT_DURATION: 600,
   CONFIDENCE_FLOOR: 0.7,
   MERGE_DISTANCE: 300,
+  // Piso pra cortes MANUAIS (usuário marca pela transcrição). Bem menor que
+  // o piso automático de 10min — confiamos no julgamento humano, só evitamos
+  // reunião-fantasma de poucos segundos.
+  MIN_MANUAL_SEGMENT_DURATION: 30,
 } as const;
 
 function fmtDur(s: number): string {
@@ -117,4 +121,21 @@ export function detectCuts(segments: Segment[], duration: number): Cut[] {
   }
 
   return keep.filter((c) => c.confidence >= C.CONFIDENCE_FLOOR);
+}
+
+/** Valida cortes manuais: cada corte dentro de (0,duration) e cada trecho >= minDur. */
+export function validateManualCuts(
+  cutSeconds: number[],
+  duration: number,
+  minDur: number,
+): { ok: boolean; tooShort?: number; outOfRange?: number } {
+  for (const c of cutSeconds) {
+    if (c <= 0 || c >= duration) return { ok: false, outOfRange: c };
+  }
+  const positions = [0, ...[...cutSeconds].sort((a, b) => a - b), duration];
+  for (let i = 0; i < positions.length - 1; i++) {
+    const segDur = positions[i + 1] - positions[i];
+    if (segDur < minDur) return { ok: false, tooShort: segDur };
+  }
+  return { ok: true };
 }

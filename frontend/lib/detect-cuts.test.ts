@@ -1,5 +1,5 @@
 import { expect, test, describe } from "bun:test";
-import { detectCuts, type Segment } from "./detect-cuts";
+import { detectCuts, validateManualCuts, DETECT_CONSTANTS, type Segment } from "./detect-cuts";
 
 function makeSeg(speaker: string, start: number, end: number, text = ""): Segment {
   return { speaker, start, end, text };
@@ -86,5 +86,25 @@ describe("detectCuts", () => {
     const cuts = detectCuts(segs, 1700);
     expect(cuts).toHaveLength(1);
     expect(cuts[0].reasons[0]).toMatch(/silêncio.*5min/);
+  });
+});
+
+describe("validateManualCuts", () => {
+  test("aceita cortes que respeitam o piso", () => {
+    const r = validateManualCuts([60], 200, 30);
+    expect(r.ok).toBe(true);
+  });
+  test("rejeita trecho menor que o piso", () => {
+    const r = validateManualCuts([10], 200, 30); // primeiro trecho = 10s
+    expect(r.ok).toBe(false);
+    expect(r.tooShort).toBe(10);
+  });
+  test("rejeita corte fora do intervalo", () => {
+    expect(validateManualCuts([0], 200, 30).ok).toBe(false);
+    expect(validateManualCuts([200], 200, 30).ok).toBe(false);
+  });
+  test("piso automático de 10min ainda bloqueia trecho de 5min", () => {
+    const r = validateManualCuts([300], 1200, DETECT_CONSTANTS.MIN_SEGMENT_DURATION);
+    expect(r.ok).toBe(false);
   });
 });

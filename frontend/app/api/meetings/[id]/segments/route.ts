@@ -6,7 +6,7 @@ import { withAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/db";
 import { clipAudio, type ClipInterval } from "@/lib/audio-clip";
 import { sendWhatsApp } from "@/lib/whatsapp";
-import { DETECT_CONSTANTS } from "@/lib/detect-cuts";
+import { DETECT_CONSTANTS, validateManualCuts } from "@/lib/detect-cuts";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const AUDIO_ROOT = process.env.AUDIO_ROOT || "/audios";
@@ -32,6 +32,7 @@ type Body = {
   archive_only?: boolean;
   mark_single?: boolean;
   restore?: boolean;
+  allow_short?: boolean;
 };
 
 type ChildResult = {
@@ -110,6 +111,7 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
   const archiveOnly = body.archive_only === true;
   const markSingle = body.mark_single === true;
   const restore = body.restore === true;
+  const allowShort = body.allow_short === true;
   const rawCuts = Array.isArray(body.cuts) ? body.cuts : [];
 
   const modeCount = [archiveOnly, markSingle, restore, rawCuts.length > 0]
@@ -196,18 +198,17 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
           };
         }
 
-        for (const cut of cuts) {
-          if (cut.at_seconds <= 0 || cut.at_seconds >= duration) {
-            throw new Error(`CUT_OUT_OF_RANGE:${cut.at_seconds}`);
+        const minDur = allowShort
+          ? DETECT_CONSTANTS.MIN_MANUAL_SEGMENT_DURATION
+          : DETECT_CONSTANTS.MIN_SEGMENT_DURATION;
+        const check = validateManualCuts(cuts.map((c) => c.at_seconds), duration, minDur);
+        if (!check.ok) {
+          if (check.outOfRange !== undefined) {
+            throw new Error(`CUT_OUT_OF_RANGE:${check.outOfRange}`);
           }
+          throw new Error(`SEGMENT_TOO_SHORT:${check.tooShort}`);
         }
         const positions = [0, ...cuts.map((c) => c.at_seconds), duration];
-        for (let i = 0; i < positions.length - 1; i++) {
-          const segDur = positions[i + 1] - positions[i];
-          if (segDur < DETECT_CONSTANTS.MIN_SEGMENT_DURATION) {
-            throw new Error(`SEGMENT_TOO_SHORT:${segDur}`);
-          }
-        }
         const intervals: Array<{ start: number; end: number; title: string | null }> = [];
         for (let i = 0; i < positions.length - 1; i++) {
           intervals.push({
