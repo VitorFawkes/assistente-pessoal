@@ -248,6 +248,7 @@ export default async function ReuniaoDetalhePage({
               speakerLabelsProposed={meeting.speaker_labels_proposed || {}}
               pessoas={pessoas}
               fallbackText={meeting.transcription}
+              sections={meeting.sections || []}
             />
           </div>
         </section>

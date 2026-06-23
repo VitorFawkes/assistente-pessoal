@@ -12,6 +12,7 @@ import {
   Scissors,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { groupTurns } from "@/lib/transcript-format";
 
 // Nome canônico do dono do sistema (corresponde a pessoas.is_vitor=TRUE).
 const SELF_NAME = "Vitor";
@@ -33,37 +34,6 @@ export type ProposedLabel = {
   sample_count: number;
   margin: number;
 };
-
-type Turn = {
-  speaker: string;
-  start: number;
-  end: number;
-  text: string;
-  segmentIndices: number[];
-};
-
-function groupTurns(segments: Segment[]): Turn[] {
-  if (!segments?.length) return [];
-  const turns: Turn[] = [];
-  for (let i = 0; i < segments.length; i++) {
-    const s = segments[i];
-    const last = turns[turns.length - 1];
-    if (last && last.speaker === s.speaker) {
-      last.end = s.end;
-      last.text += s.text;
-      last.segmentIndices.push(i);
-    } else {
-      turns.push({
-        speaker: s.speaker,
-        start: s.start,
-        end: s.end,
-        text: s.text,
-        segmentIndices: [i],
-      });
-    }
-  }
-  return turns;
-}
 
 function speakerStyle(speaker: string): { bg: string; text: string } {
   const palette = [
@@ -391,6 +361,7 @@ export function TranscriptionView({
   speakerLabelsProposed = {},
   pessoas = [],
   fallbackText,
+  sections = [],
 }: {
   meetingId: string;
   segments: Segment[] | null | undefined;
@@ -398,6 +369,7 @@ export function TranscriptionView({
   speakerLabelsProposed?: Record<string, ProposedLabel | null>;
   pessoas?: Array<{ id: string; nome: string }>;
   fallbackText: string | null;
+  sections?: { start_seconds: number; title: string }[];
 }) {
   const router = useRouter();
   const [labels, setLabels] = useState<Record<string, string>>(initialLabels || {});
