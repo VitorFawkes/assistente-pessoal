@@ -195,6 +195,7 @@ export const meetingsFor = (userId: string) => ({
         segments: unknown;
         speaker_labels: Record<string, string> | null;
         speaker_labels_proposed: Record<string, unknown> | null;
+        sections: unknown;
       }>(
         `SELECT
            id, source, meeting_type, original_filename,
@@ -203,9 +204,39 @@ export const meetingsFor = (userId: string) => ({
            status, status_error, transcription, summary,
            raw_ai_response->>'executive_summary' AS executive_summary,
            duration_seconds, segments,
-           speaker_labels, speaker_labels_proposed
+           speaker_labels, speaker_labels_proposed, sections
          FROM meetings WHERE id = $1`,
         [id],
+      );
+      return r.rows[0] ?? null;
+    }),
+
+  /** Dados crus pra export (segments, labels, summary, recorded_at ISO, sections). */
+  forExport: (id: string) =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<{
+        summary: string | null;
+        duration_seconds: number | null;
+        recorded_at: string | null;
+        segments: unknown;
+        speaker_labels: Record<string, string> | null;
+        sections: unknown;
+      }>(
+        `SELECT summary, duration_seconds,
+                to_char(coalesce(recorded_at, created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
+                segments, speaker_labels, sections
+         FROM meetings WHERE id = $1`,
+        [id],
+      );
+      return r.rows[0] ?? null;
+    }),
+
+  /** Salva o array completo de seções (replace). Retorna a linha atualizada ou null. */
+  updateSections: (id: string, sections: { start_seconds: number; title: string }[]) =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<{ id: string }>(
+        `UPDATE meetings SET sections = $2::jsonb WHERE id = $1 RETURNING id`,
+        [id, JSON.stringify(sections)],
       );
       return r.rows[0] ?? null;
     }),
