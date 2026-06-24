@@ -80,6 +80,7 @@ export type TarefaDraft = {
   frente_id?: string | null;
   area_raw?: string | null;
   precisa_revisao?: boolean;
+  meeting_id?: string | null;
 };
 
 export type CriarMeta = {
@@ -321,8 +322,8 @@ export const tarefasFor = (userId: string) => ({
       const ins = await db.query<{ id: string }>(
         `INSERT INTO tarefas
            (user_id, titulo, descricao, owner, acao, prazo, prazo_text, prioridade,
-            frente_id, area_raw, pessoas_raw, precisa_revisao)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            frente_id, area_raw, pessoas_raw, precisa_revisao, meeting_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
          RETURNING id`,
         [
           userId,
@@ -337,6 +338,7 @@ export const tarefasFor = (userId: string) => ({
           draft.area_raw?.trim() || null,
           pessoasRaw,
           draft.precisa_revisao ?? false,
+          draft.meeting_id ?? null,
         ],
       );
       const id = ins.rows[0].id;

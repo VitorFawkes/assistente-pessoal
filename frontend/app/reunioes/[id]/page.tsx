@@ -158,7 +158,7 @@ export default async function ReuniaoDetalhePage({
             Resumo executivo
           </h2>
           <div className="paper-card rounded-2xl border border-[color:var(--border)] p-5 sm:p-6">
-            <ExecutiveSummary md={meeting.executive_summary} />
+            <ExecutiveSummary md={meeting.executive_summary} meetingId={meeting.id} />
           </div>
         </section>
       )}

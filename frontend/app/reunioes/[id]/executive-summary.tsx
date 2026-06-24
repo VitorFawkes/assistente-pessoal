@@ -1,7 +1,14 @@
 import type { ReactNode } from "react";
+import { ProximosPassosList } from "./proximos-passos";
 
 const HEADING_RE = /^\*\*([^*:]+):\*\*\s*(.*)$/;
 const BULLET_RE = /^(\s*)[-*]\s+(.*)$/;
+
+// casa a seção "Próximos passos" (com ou sem acento).
+const isProximosPassos = (title: string) => {
+  const t = title.toLowerCase().trim();
+  return t.startsWith("próximos passos") || t.startsWith("proximos passos");
+};
 
 function renderInline(text: string): ReactNode[] {
   // Split on **bold** spans — captured groups land on odd indices.
@@ -39,7 +46,7 @@ function List({ items, depth }: { items: Item[]; depth: number }) {
   );
 }
 
-export function ExecutiveSummary({ md }: { md: string }) {
+export function ExecutiveSummary({ md, meetingId }: { md: string; meetingId?: string }) {
   const lines = md.split("\n");
   const blocks: ReactNode[] = [];
   let key = 0;
@@ -49,10 +56,16 @@ export function ExecutiveSummary({ md }: { md: string }) {
   // tree — sibling groups within a section are often separated by them.
   let roots: Item[] = [];
   const stack: { level: number; item: Item }[] = [];
+  let currentSection = "";
 
   function flushList() {
     if (roots.length === 0) return;
-    blocks.push(<List key={key++} items={roots} depth={0} />);
+    // Na seção "Próximos passos", cada item ganha botão "+ tarefa" (1 clique).
+    if (meetingId && isProximosPassos(currentSection)) {
+      blocks.push(<ProximosPassosList key={key++} items={roots} meetingId={meetingId} />);
+    } else {
+      blocks.push(<List key={key++} items={roots} depth={0} />);
+    }
     roots = [];
     stack.length = 0;
   }
@@ -65,6 +78,7 @@ export function ExecutiveSummary({ md }: { md: string }) {
     if (headingMatch && !BULLET_RE.test(raw)) {
       flushList();
       const [, title, rest] = headingMatch;
+      currentSection = title;
       blocks.push(
         <h3
           key={key++}

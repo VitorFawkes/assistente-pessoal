@@ -31,6 +31,7 @@ export const POST = withAuth(async (user, req) => {
 
   let texto = "";
   let origem: "captura_texto" | "captura_voz" = "captura_texto";
+  let meetingId: string | null = null;
 
   try {
     if (contentType.includes("multipart/form-data")) {
@@ -42,8 +43,9 @@ export const POST = withAuth(async (user, req) => {
       texto = await transcrever(audio);
       origem = "captura_voz";
     } else {
-      const body = (await r.json()) as { texto?: string };
+      const body = (await r.json()) as { texto?: string; meeting_id?: string };
       texto = (body.texto ?? "").trim();
+      meetingId = body.meeting_id ?? null;
     }
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "entrada inválida" }, { status: 400 });
@@ -87,6 +89,7 @@ export const POST = withAuth(async (user, req) => {
       area_raw: draft.area_raw,
       pessoas: draft.pessoas, // string[] → pessoas_raw → trigger
       precisa_revisao: precisaRevisao(draft),
+      meeting_id: meetingId, // linka à reunião quando vier dos "próximos passos"
     },
     { origem, raw: texto, confidence },
   );
