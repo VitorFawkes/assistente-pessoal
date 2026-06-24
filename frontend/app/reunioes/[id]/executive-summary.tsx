@@ -4,10 +4,16 @@ import { ProximosPassosList } from "./proximos-passos";
 const HEADING_RE = /^\*\*([^*:]+):\*\*\s*(.*)$/;
 const BULLET_RE = /^(\s*)[-*]\s+(.*)$/;
 
-// casa a seção "Próximos passos" (com ou sem acento).
-const isProximosPassos = (title: string) => {
+// seções acionáveis (botão "+ tarefa" por item): "Próximos passos" e
+// "Decisões e alinhamentos" — com ou sem acento.
+const isActionableSection = (title: string) => {
   const t = title.toLowerCase().trim();
-  return t.startsWith("próximos passos") || t.startsWith("proximos passos");
+  return (
+    t.startsWith("próximos passos") ||
+    t.startsWith("proximos passos") ||
+    t.startsWith("decisões e alinhamentos") ||
+    t.startsWith("decisoes e alinhamentos")
+  );
 };
 
 function renderInline(text: string): ReactNode[] {
@@ -60,8 +66,8 @@ export function ExecutiveSummary({ md, meetingId }: { md: string; meetingId?: st
 
   function flushList() {
     if (roots.length === 0) return;
-    // Na seção "Próximos passos", cada item ganha botão "+ tarefa" (1 clique).
-    if (meetingId && isProximosPassos(currentSection)) {
+    // Em "Próximos passos" e "Decisões e alinhamentos", cada item ganha botão "+ tarefa" (1 clique).
+    if (meetingId && isActionableSection(currentSection)) {
       blocks.push(<ProximosPassosList key={key++} items={roots} meetingId={meetingId} />);
     } else {
       blocks.push(<List key={key++} items={roots} depth={0} />);
