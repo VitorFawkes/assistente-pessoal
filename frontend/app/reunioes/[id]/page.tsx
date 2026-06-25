@@ -15,6 +15,7 @@ import { SpeakersStrip } from "@/components/speakers-strip";
 import { buildSpeakerCards } from "@/lib/speakers";
 import { ArrowLeft, Mic, Video, FileQuestion, UsersRound } from "lucide-react";
 import { ExecutiveSummary } from "./executive-summary";
+import { AutoLabelByContent } from "./auto-label-by-content";
 import { DeleteMeetingButton } from "@/components/delete-meeting-button";
 import { TranscriptExportMenu } from "@/components/transcript-export-menu";
 
@@ -75,6 +76,14 @@ export default async function ReuniaoDetalhePage({
     meeting.segments && meeting.segments.length > 0
       ? buildSpeakerCards(meeting.segments, meeting.speaker_labels || {})
       : [];
+
+  // speakers sem nome + resumo pronto → tenta rotular pela conversa (fallback da voz)
+  const labeled = meeting.speaker_labels || {};
+  const hasBlankSpeakers =
+    speakerCards.length > 0 &&
+    [...new Set((meeting.segments || []).map((s) => s.speaker).filter(Boolean))].some(
+      (sp) => !labeled[sp as string],
+    );
 
   return (
     <div className="space-y-7 sm:space-y-9">
@@ -143,12 +152,18 @@ export default async function ReuniaoDetalhePage({
 
       {/* SPEAKERS INLINE — escutar/identificar sem sair da página */}
       {speakerCards.length > 0 && (
-        <SpeakersStrip
-          meetingId={meeting.id}
-          speakers={speakerCards}
-          pessoas={pessoas}
-          speakerLabelsProposed={meeting.speaker_labels_proposed || {}}
-        />
+        <div className="space-y-2">
+          <SpeakersStrip
+            meetingId={meeting.id}
+            speakers={speakerCards}
+            pessoas={pessoas}
+            speakerLabelsProposed={meeting.speaker_labels_proposed || {}}
+          />
+          <AutoLabelByContent
+            meetingId={meeting.id}
+            enabled={hasBlankSpeakers && !!meeting.executive_summary}
+          />
+        </div>
       )}
 
       {/* RESUMO EXECUTIVO */}
