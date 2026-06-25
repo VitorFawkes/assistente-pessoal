@@ -13,11 +13,21 @@ export type TabItem = {
 export function Tabs({
   items,
   defaultKey,
+  activeKey,
+  onChange,
 }: {
   items: TabItem[];
   defaultKey?: string;
+  // Modo controlado opcional: quem chama mantém o estado da aba ativa.
+  activeKey?: string;
+  onChange?: (key: string) => void;
 }) {
-  const [active, setActive] = useState(defaultKey || items[0]?.key);
+  const [internal, setInternal] = useState(defaultKey || items[0]?.key);
+  const active = activeKey ?? internal;
+  const setActive = (key: string) => {
+    if (onChange) onChange(key);
+    if (activeKey === undefined) setInternal(key);
+  };
   const current = items.find((i) => i.key === active) ?? items[0];
 
   return (

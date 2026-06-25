@@ -20,6 +20,7 @@ import {
   Users,
   Quote,
   ChevronDown,
+  Check,
 } from "lucide-react";
 import { cn, formatPrazo, formatCreatedAt, fmtDate, normalizeOwner, type Prioridade } from "@/lib/utils";
 import { TaskEditModal } from "./task-edit-modal";
@@ -236,7 +237,16 @@ function AcaoToggle({
   );
 }
 
-export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
+export function TaskRow({
+  tarefa,
+  selected = false,
+  onToggleSelect,
+}: {
+  tarefa: Tarefa;
+  selected?: boolean;
+  // Quando passado, mostra a checkbox de seleção em massa (sempre visível).
+  onToggleSelect?: (id: string, e: React.MouseEvent) => void;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
@@ -333,6 +343,9 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
           // Vencida grita: borda terracota grossa + ring + bg sutil
           isOverdue && !isDone &&
             "border-[color:var(--urgent)]/60 ring-1 ring-[color:var(--urgent)]/30 shadow-[0_1px_8px_-2px_rgb(199_100_77_/_0.15)]",
+          // Selecionada pra ação em massa
+          selected &&
+            "border-[color:var(--foreground)] ring-2 ring-[color:var(--foreground)]/25 bg-[color:var(--accent)]/40 opacity-100",
         )}
       >
         {/* faixa de prioridade na lateral */}
@@ -340,6 +353,31 @@ export function TaskRow({ tarefa }: { tarefa: Tarefa }) {
           className={cn("w-1.5 shrink-0", priorityStripe(tarefa.prioridade))}
           aria-hidden
         />
+
+        {/* checkbox de seleção em massa (quadrada, distinta do círculo de concluir) */}
+        {onToggleSelect && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleSelect(tarefa.id, e);
+            }}
+            aria-label={selected ? "Desmarcar tarefa" : "Selecionar tarefa"}
+            aria-pressed={selected}
+            className="shrink-0 flex items-center justify-center w-10 sm:w-11 touch-manipulation"
+          >
+            <span
+              className={cn(
+                "w-5 h-5 rounded-md border flex items-center justify-center transition",
+                selected
+                  ? "bg-[color:var(--foreground)] border-[color:var(--foreground)] text-[color:var(--background)]"
+                  : "border-[color:var(--muted)]/60 text-transparent hover:border-[color:var(--muted-strong)]",
+              )}
+            >
+              <Check size={13} strokeWidth={3} />
+            </span>
+          </button>
+        )}
 
         {/* botão de status (toggle done) — área de toque grande */}
         <button
