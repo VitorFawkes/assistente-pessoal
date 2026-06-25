@@ -127,7 +127,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "DELETE FROM tarefas WHERE meeting_id = '{{ $('Webhook').first().json.body.meeting_id }}'::uuid\n  AND status NOT IN ('concluida','cancelada')",
+        "query": "DELETE FROM tarefas WHERE meeting_id = '{{ $('Webhook').first().json.body.meeting_id }}'::uuid\n  AND status NOT IN ('concluida','cancelada')\n  AND NOT EXISTS (SELECT 1 FROM tarefa_eventos te WHERE te.tarefa_id = tarefas.id AND te.evento = 'criada')",
         "options": {}
       },
       "id": "pg-del",

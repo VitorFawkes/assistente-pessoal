@@ -133,15 +133,6 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
       return upd.rows[0];
     });
 
-    // Dispara reprocessamento das tarefas (fire-and-forget — não bloqueia resposta)
-    fetch(REPROCESS_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ meeting_id: id, user_id: user.id }),
-    }).catch(() => {
-      // erro silencioso — usuário pode tentar de novo se notar que tarefas não atualizaram
-    });
-
     // Enroll de voz no voice-svc (fire-and-forget). voice-svc é idempotente por
     // (meeting, letter, pessoa) — manda o mapping completo sem se preocupar com duplicação.
     // Se o user curou turnos específicos, propaga em turns_by_letter pra pular outlier rejection.
@@ -166,8 +157,26 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
       });
     }
 
+    // Reprocessa as tarefas com os novos labels e AGUARDA terminar (webhook é
+    // síncrono — só responde no fim). Assim a UI só atualiza quando as tarefas já
+    // estão com as pessoas certas. Timeout generoso (pipeline 2 estágios ~30-90s).
+    let reprocessed = true;
+    try {
+      const rp = await fetch(REPROCESS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ meeting_id: id, user_id: user.id }),
+        signal: AbortSignal.timeout(150_000),
+      });
+      reprocessed = rp.ok;
+    } catch {
+      // timeout/erro: o reprocesso pode terminar em background; UI segue, user dá refresh.
+      reprocessed = false;
+    }
+
     return NextResponse.json({
       ok: true,
+      reprocessed,
       labels: result.speaker_labels,
       pessoas: result.speaker_pessoas,
     });

@@ -416,11 +416,10 @@ export function TranscriptionView({
         if (!res.ok) {
           throw new Error(await res.text());
         }
-        // Espera ~3s pro reprocess do n8n terminar antes de refresh da página
-        setTimeout(() => {
-          router.refresh();
-          setReprocessing(false);
-        }, 3000);
+        // A rota /speakers agora AGUARDA o reprocesso terminar antes de responder,
+        // então quando chega aqui as tarefas já estão com as pessoas certas.
+        router.refresh();
+        setReprocessing(false);
       } catch (e) {
         console.error("falha ao salvar labels", e);
         setReprocessing(false);
