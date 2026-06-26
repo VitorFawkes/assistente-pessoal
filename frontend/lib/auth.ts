@@ -1,10 +1,19 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { timingSafeEqual } from "node:crypto";
 import { query } from "./db";
 
 const COOKIE_NAME = "session";
 const SESSION_TTL_DAYS = 30;
 const SESSION_MAX_AGE = SESSION_TTL_DAYS * 24 * 60 * 60;
+
+// Agentes server-to-server (Hermes no VPS) autenticam por X-API-Key fixa,
+// mapeada a um único user. O chat-bridge (no Mac) usa Bearer de sessão.
+const AGENT_API_KEY = process.env.AGENT_API_KEY || "";
+const AGENT_API_USER_ID = process.env.AGENT_API_USER_ID || "";
+
+const USER_COLS =
+  "id, nome, email, whatsapp, is_admin, consent_terms_at, deleted_at";
 
 export type User = {
   id: string;
@@ -46,6 +55,15 @@ export async function getUserBySessionId(sessionId: string): Promise<User | null
     [sessionId, cutoff],
   );
   return rows[0]?.user ?? null;
+}
+
+/** Carrega um User por id (sem tocar em sessão). Usado pela auth de agente via API key. */
+export async function getUserById(userId: string): Promise<User | null> {
+  const rows = await query<User>(
+    `SELECT ${USER_COLS} FROM users WHERE id = $1 AND deleted_at IS NULL`,
+    [userId],
+  );
+  return rows[0] ?? null;
 }
 
 /**
@@ -217,6 +235,57 @@ export function withBearerAuth<TCtx = unknown>(
     try {
       const user = await requireUserFromBearer(req);
       return await fn(user, req, ctx);
+    } catch (e) {
+      if (e instanceof AuthError) {
+        return new Response(null, { status: e.status });
+      }
+      throw e;
+    }
+  };
+}
+
+// ─── Auth de AGENTE (chat-bridge + Hermes) ─────────────────────────────
+// Duas credenciais resolvem o MESMO user (RLS escopa tudo a ele):
+//   - X-API-Key: <AGENT_API_KEY>  → Hermes (VPS); user = AGENT_API_USER_ID
+//   - Authorization: Bearer <id>  → chat-bridge (Mac); user = dono da sessão
+// `origem` distingue quem agiu na auditoria (tarefa_eventos).
+
+export type AgentOrigem = "agente" | "hermes";
+export type AgentActor = { user: User; origem: AgentOrigem };
+
+/** Comparação de tokens em tempo constante (evita timing attack na API key). */
+function safeEqual(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ba.length !== bb.length) return false;
+  return timingSafeEqual(ba, bb);
+}
+
+export async function requireAgent(req: Request): Promise<AgentActor> {
+  const apiKey = req.headers.get("x-api-key");
+  // Se o cliente MANDOU X-API-Key, ela tem que ser válida — não cai silenciosamente
+  // pro Bearer (evita confundir auditoria e mascarar key errada do Hermes).
+  if (apiKey !== null) {
+    if (!AGENT_API_KEY || !AGENT_API_USER_ID || !safeEqual(apiKey, AGENT_API_KEY)) {
+      throw new AuthError(401);
+    }
+    const user = await getUserById(AGENT_API_USER_ID);
+    if (!user) throw new AuthError(401);
+    return { user, origem: "hermes" };
+  }
+  // Sem X-API-Key → Bearer de sessão (chat-bridge).
+  const user = await requireUserFromBearer(req);
+  return { user, origem: "agente" };
+}
+
+/** Wrapper pra rotas /api/agent/*: injeta o ator (user + origem) ou 401. */
+export function withAgentAuth<TCtx = unknown>(
+  fn: (actor: AgentActor, req: Request, ctx: TCtx) => Promise<Response>,
+): (req: Request, ctx: TCtx) => Promise<Response> {
+  return async (req, ctx) => {
+    try {
+      const actor = await requireAgent(req);
+      return await fn(actor, req, ctx);
     } catch (e) {
       if (e instanceof AuthError) {
         return new Response(null, { status: e.status });

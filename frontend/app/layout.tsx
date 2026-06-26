@@ -92,6 +92,12 @@ export default async function RootLayout({
                   >
                     Pessoas
                   </Link>
+                  <Link
+                    href="/assistente"
+                    className="px-3 py-1.5 rounded-full hover:bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition"
+                  >
+                    Assistente
+                  </Link>
                 </nav>
               )}
               {user && <UserMenu nome={user.nome} isAdmin={user.is_admin} />}
