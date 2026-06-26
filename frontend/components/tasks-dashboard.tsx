@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Sparkles, Flame, Plus, Check } from "lucide-react";
+import { Sparkles, Flame, Check } from "lucide-react";
 import { TaskRow, type Tarefa } from "./task-row";
 import { TaskCreateModal } from "./task-create-modal";
 import { CaptureComposer } from "./capture-composer";
@@ -386,18 +386,8 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
 
   return (
     <div className={cn("space-y-5", selected.size > 0 && "pb-44")}>
-      <div className="sticky top-14 z-30 -mx-5 sm:-mx-6 px-5 sm:px-6 py-3 bg-[color:var(--background)]/95 backdrop-blur-md border-b border-[color:var(--border)] space-y-3">
+      <div className="sticky top-14 z-30 -mx-5 sm:-mx-6 px-5 sm:px-6 py-2.5 bg-[color:var(--background)]/95 backdrop-blur-md border-b border-[color:var(--border)] space-y-2">
         <CaptureComposer onOpenFull={() => setCreating(true)} />
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => setCreating(true)}
-            className="press-feedback inline-flex items-center gap-1.5 text-[13px] font-medium px-3 py-1.5 rounded-full bg-[color:var(--foreground)] text-[color:var(--background)] hover:opacity-90 transition cursor-pointer"
-          >
-            <Plus size={15} strokeWidth={2.5} />
-            Nova tarefa
-          </button>
-        </div>
         <DateFilter value={bucket} onChange={setBucket} counts={counts} />
         {/* Linha enxuta: foco rápido (urgentes) + menu "Ver" com o resto */}
         <div className="flex items-center justify-between gap-2">

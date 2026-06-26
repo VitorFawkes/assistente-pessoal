@@ -8,21 +8,18 @@ import {
   Circle,
   ChevronRight,
   CalendarClock,
-  CalendarPlus,
   Mic,
-  AlertCircle,
   UserRound,
   Send,
   Bell,
   Flame,
   Trash2,
-  Tag,
-  Users,
   Quote,
   ChevronDown,
   Check,
+  Dot,
 } from "lucide-react";
-import { cn, formatPrazo, formatCreatedAt, fmtDate, normalizeOwner, type Prioridade } from "@/lib/utils";
+import { cn, formatPrazo, normalizeOwner, type Prioridade } from "@/lib/utils";
 import { TaskEditModal } from "./task-edit-modal";
 
 export type Acao = "executar" | "cobrar" | "aguardar";
@@ -96,17 +93,14 @@ function OwnerInput({
   onCancel: () => void;
   className?: string;
 }) {
-  const [value, setValue] = useState(
-    initial === "?" || !initial ? "" : initial,
-  );
+  const [value, setValue] = useState(initial === "?" || !initial ? "" : initial);
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => {
     ref.current?.focus();
     ref.current?.select();
   }, []);
   function commit() {
-    const trimmed = value.trim();
-    onSave(trimmed || "?");
+    onSave(value.trim() || "?");
   }
   return (
     <input
@@ -128,14 +122,14 @@ function OwnerInput({
       onBlur={commit}
       placeholder="nome"
       className={cn(
-        "text-[11px] tracking-wide px-1.5 py-0 rounded bg-transparent outline-none ring-1 ring-[color:var(--foreground)]/40 focus:ring-[color:var(--foreground)] min-w-[80px] max-w-[140px]",
+        "text-[11px] tracking-wide px-1 py-0 rounded bg-transparent outline-none ring-1 ring-[color:var(--foreground)]/40 focus:ring-[color:var(--foreground)] min-w-[60px] sm:min-w-[80px] max-w-[100px] sm:max-w-[120px]",
         className,
       )}
     />
   );
 }
 
-// Chip mostrando ação + owner. Owner clicável → editável inline (exceto executar).
+// Chip compacto da ação + owner. Owner clicável → editável inline (exceto executar).
 function AcaoChip({
   tarefa,
   editingOwner,
@@ -151,26 +145,30 @@ function AcaoChip({
 }) {
   if (tarefa.acao === "executar") {
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-[color:var(--calm-bg)] text-[color:var(--calm)] font-medium">
-        <UserRound size={11} strokeWidth={2} />
+      <span className="inline-flex items-center gap-0.5 text-[10px] tracking-wide px-1.5 py-0.5 rounded-full bg-[color:var(--calm-bg)] text-[color:var(--calm)] font-medium whitespace-nowrap">
+        <UserRound size={10} strokeWidth={2} />
         minha
       </span>
     );
   }
   const ownerLabel = normalizeOwner(tarefa.owner);
   const isCobrar = tarefa.acao === "cobrar";
-  const wrapperClass = isCobrar
-    ? "inline-flex items-center gap-1 text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-[color:var(--warm-bg)] text-[color:var(--warm)] font-semibold ring-1 ring-[color:var(--warm)]/30"
-    : "inline-flex items-center gap-1 text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-[color:var(--warm-bg)]/60 text-[color:var(--warm)] font-medium";
-  const verb = isCobrar ? "cobrar" : "aguardando";
   return (
-    <span className={wrapperClass}>
-      {isCobrar ? (
-        <Bell size={11} strokeWidth={2} />
-      ) : (
-        <Send size={11} strokeWidth={2} />
+    <span
+      onClick={(e) => e.stopPropagation()}
+      className={cn(
+        "inline-flex items-center gap-0.5 text-[10px] tracking-wide px-1.5 py-0.5 rounded-full whitespace-nowrap",
+        isCobrar
+          ? "bg-[color:var(--warm-bg)] text-[color:var(--warm)] font-semibold ring-1 ring-[color:var(--warm)]/30"
+          : "bg-[color:var(--warm-bg)]/60 text-[color:var(--warm)] font-medium",
       )}
-      <span>{verb}</span>
+    >
+      {isCobrar ? (
+        <Bell size={10} strokeWidth={2} />
+      ) : (
+        <Send size={10} strokeWidth={2} />
+      )}
+      <span>{isCobrar ? "cobrar" : "aguard."}</span>
       {editingOwner ? (
         <OwnerInput
           initial={tarefa.owner}
@@ -184,55 +182,12 @@ function AcaoChip({
             e.stopPropagation();
             onStartEdit();
           }}
-          className="underline decoration-dotted underline-offset-2 hover:decoration-solid"
-          title="Clique pra editar o nome"
+          className="underline decoration-dotted underline-offset-2 hover:decoration-solid max-w-[80px] sm:max-w-[110px] truncate"
+          title={`Cobrar de ${ownerLabel} — clique pra editar`}
         >
           {ownerLabel}
         </button>
       )}
-    </span>
-  );
-}
-
-// Toggle inline pra mudar acao em 1 clique.
-function AcaoToggle({
-  tarefa,
-  onChange,
-  disabled,
-}: {
-  tarefa: Tarefa;
-  onChange: (next: Acao) => void;
-  disabled: boolean;
-}) {
-  const opts: { value: Acao; label: string }[] = [
-    { value: "executar", label: "executar" },
-    { value: "cobrar", label: "cobrar" },
-    { value: "aguardar", label: "aguardar" },
-  ];
-  return (
-    <span
-      className="inline-flex items-center gap-0.5 rounded-full bg-[color:var(--accent)]/40 p-0.5"
-      onClick={(e) => e.stopPropagation()}
-    >
-      {opts.map((o) => {
-        const active = tarefa.acao === o.value;
-        return (
-          <button
-            key={o.value}
-            type="button"
-            disabled={disabled || active}
-            onClick={() => onChange(o.value)}
-            className={cn(
-              "text-[10px] tracking-wide px-1.5 py-0.5 rounded-full transition",
-              active
-                ? "bg-[color:var(--foreground)] text-[color:var(--background)] font-semibold"
-                : "text-[color:var(--muted)] hover:text-[color:var(--foreground)]",
-            )}
-          >
-            {o.label}
-          </button>
-        );
-      })}
     </span>
   );
 }
@@ -260,6 +215,8 @@ export function TaskRow({
   const isOverdue = prazo.status === "vencida";
   const isUrgent = tarefa.prioridade === "urgente";
 
+  const secondaryPeople = (tarefa.pessoas ?? []).filter((p) => !p.principal);
+
   function toggleDone(e: React.MouseEvent) {
     e.stopPropagation();
     startTransition(async () => {
@@ -268,18 +225,6 @@ export function TaskRow({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: next }),
-      });
-      router.refresh();
-    });
-  }
-
-  function changeAcao(next: Acao) {
-    if (next === tarefa.acao) return;
-    startTransition(async () => {
-      await fetch(`/api/tarefas/${tarefa.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ acao: next }),
       });
       router.refresh();
     });
@@ -306,7 +251,9 @@ export function TaskRow({
   function handleReject(e: React.MouseEvent) {
     e.stopPropagation();
     startTransition(async () => {
-      await fetch(`/api/tarefas/${tarefa.id}?motivo=nao_era_tarefa`, { method: "DELETE" });
+      await fetch(`/api/tarefas/${tarefa.id}?motivo=nao_era_tarefa`, {
+        method: "DELETE",
+      });
       router.refresh();
     });
   }
@@ -337,12 +284,12 @@ export function TaskRow({
           }
         }}
         className={cn(
-          "press-feedback group relative flex items-stretch gap-0 paper-card rounded-2xl border overflow-hidden cursor-pointer",
+          "press-feedback group relative flex items-stretch gap-0 paper-card rounded-xl border overflow-hidden cursor-pointer",
           "border-[color:var(--border)] hover:border-[color:var(--muted)]",
           (isDone || isCancelled) && "opacity-55",
-          // Vencida grita: borda terracota grossa + ring + bg sutil
+          // Vencida grita: borda terracota + ring sutil
           isOverdue && !isDone &&
-            "border-[color:var(--urgent)]/60 ring-1 ring-[color:var(--urgent)]/30 shadow-[0_1px_8px_-2px_rgb(199_100_77_/_0.15)]",
+            "border-[color:var(--urgent)]/60 ring-1 ring-[color:var(--urgent)]/30",
           // Selecionada pra ação em massa
           selected &&
             "border-[color:var(--foreground)] ring-2 ring-[color:var(--foreground)]/25 bg-[color:var(--accent)]/40 opacity-100",
@@ -364,188 +311,170 @@ export function TaskRow({
             }}
             aria-label={selected ? "Desmarcar tarefa" : "Selecionar tarefa"}
             aria-pressed={selected}
-            className="shrink-0 flex items-center justify-center w-10 sm:w-11 touch-manipulation"
+            className="shrink-0 flex items-center justify-center w-8 touch-manipulation"
           >
             <span
               className={cn(
-                "w-5 h-5 rounded-md border flex items-center justify-center transition",
+                "w-4 h-4 rounded-md border flex items-center justify-center transition",
                 selected
                   ? "bg-[color:var(--foreground)] border-[color:var(--foreground)] text-[color:var(--background)]"
                   : "border-[color:var(--muted)]/60 text-transparent hover:border-[color:var(--muted-strong)]",
               )}
             >
-              <Check size={13} strokeWidth={3} />
+              <Check size={11} strokeWidth={3} />
             </span>
           </button>
         )}
 
-        {/* botão de status (toggle done) — área de toque grande */}
+        {/* botão de status (toggle done) */}
         <button
           type="button"
           onClick={toggleDone}
           disabled={isPending}
           aria-label={isDone ? "Reabrir tarefa" : "Marcar como concluída"}
           className={cn(
-            "shrink-0 flex items-center justify-center w-14 -ml-px touch-manipulation",
+            "shrink-0 flex items-center justify-center w-9 touch-manipulation",
             "text-[color:var(--muted)] hover:text-[color:var(--calm)] active:text-[color:var(--calm)]",
             isDone && "text-[color:var(--calm)]",
           )}
         >
           {isDone ? (
-            <CheckCircle2 size={22} strokeWidth={2} />
+            <CheckCircle2 size={18} strokeWidth={2} />
           ) : (
-            <Circle size={22} strokeWidth={1.75} />
+            <Circle size={18} strokeWidth={1.75} />
           )}
         </button>
 
         {/* conteúdo da tarefa */}
-        <div className="flex-1 min-w-0 py-3.5 pr-3 sm:pr-4">
-          {/* Linha de chips no topo: status (vencida/urgente) + ação */}
-          <div className="flex items-center flex-wrap gap-1.5 mb-1.5">
-            {isOverdue && !isDone && (
-              <span className="inline-flex items-center gap-1 text-[10px] tracking-[0.1em] uppercase font-bold px-2 py-0.5 rounded-full bg-[color:var(--urgent)] text-white">
-                <AlertCircle size={10} strokeWidth={2.5} />
-                vencida
-              </span>
-            )}
-            {isUrgent && !isOverdue && !isDone && (
-              <span className="inline-flex items-center gap-1 text-[10px] tracking-[0.1em] uppercase font-bold px-2 py-0.5 rounded-full bg-[color:var(--urgent)]/15 text-[color:var(--urgent)]">
-                <Flame size={10} strokeWidth={2.5} />
-                urgente
-              </span>
-            )}
-            {tarefa.precisa_revisao && (
-              <span title="IA com baixa confiança — confira prazo / pessoa / área"
-                className="inline-flex items-center gap-1 text-[10px] tracking-[0.1em] uppercase font-bold px-2 py-0.5 rounded-full bg-[color:var(--warm-bg)] text-[color:var(--warm)] border border-[color:var(--warm)]/40">
-                revisar
-              </span>
-            )}
-            <AcaoChip
-              tarefa={tarefa}
-              editingOwner={editingOwner}
-              onStartEdit={() => setEditingOwner(true)}
-              onSaveOwner={saveOwner}
-              onCancelEdit={() => setEditingOwner(false)}
-            />
-            {!isDone && !isCancelled && (
-              <AcaoToggle
-                tarefa={tarefa}
-                onChange={changeAcao}
-                disabled={isPending}
-              />
-            )}
-            {tarefa.frente && (
-              <span className="inline-flex items-center gap-1 text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-[color:var(--accent)] text-[color:var(--muted-strong)]">
-                <Tag size={11} strokeWidth={2} />
-                {tarefa.frente}
-              </span>
-            )}
-            {!tarefa.frente && tarefa.frente_proposta && (
-              <span
-                className="inline-flex items-center gap-1 text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-[color:var(--warm-bg)] text-[color:var(--warm)] border border-dashed border-[color:var(--warm)]/40"
-                title="Área sugerida pela IA — aprovar na edição (em breve)"
-              >
-                <Tag size={11} strokeWidth={2} />
-                {tarefa.frente_proposta}?
-              </span>
-            )}
-            {(tarefa.pessoas ?? [])
-              .filter((p) => !p.principal)
-              .map((p) => (
-                <span
-                  key={p.id}
-                  className="inline-flex items-center gap-1 text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-[color:var(--accent)]/60 text-[color:var(--muted-strong)]"
-                >
-                  <Users size={11} strokeWidth={2} />
-                  {p.nome}
-                </span>
-              ))}
-          </div>
-
-          <p
-            className={cn(
-              "text-[15px] leading-snug text-[color:var(--foreground)]",
-              isDone && "line-through",
-            )}
-          >
-            {tarefa.titulo}
-          </p>
-
-          {tarefa.descricao && (
-            <p className="mt-1 text-[13px] leading-snug text-[color:var(--muted-strong)] line-clamp-2">
-              {tarefa.descricao}
+        <div className="flex-1 min-w-0 py-2 pr-2 sm:pr-3">
+          {/* Linha 1: título + prazo */}
+          <div className="flex items-center gap-2 min-w-0">
+            <p
+              className={cn(
+                "flex-1 min-w-0 truncate text-[14px] leading-snug text-[color:var(--foreground)] font-medium",
+                isDone && "line-through",
+              )}
+            >
+              {tarefa.titulo}
             </p>
-          )}
-
-          {/* Linha de metadata: prazo + link reunião */}
-          <div className="mt-2 flex items-center flex-wrap gap-x-2 gap-y-1">
             <span
               className={cn(
-                "inline-flex items-center gap-1 text-[12px] px-2 py-0.5 rounded-full",
+                "inline-flex items-center gap-0.5 text-[11px] px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap",
                 prazoChipColor(prazo.status),
               )}
             >
-              <CalendarClock size={11} />
+              <CalendarClock size={10} />
               {prazo.text}
             </span>
-            {tarefa.prazo_text && tarefa.prazo_text !== prazo.text && (
-              <span className="text-[11px] text-[color:var(--muted)] italic">
-                &ldquo;{tarefa.prazo_text}&rdquo;
-              </span>
-            )}
-            {tarefa.meeting_id && (
-              <Link
-                href={`/reunioes/${tarefa.meeting_id}`}
-                onClick={(e) => e.stopPropagation()}
-                title={tarefa.meeting_summary ?? undefined}
-                className="press-feedback inline-flex items-center gap-1 text-[12px] px-2 py-0.5 rounded-full bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:bg-[color:var(--foreground)] hover:text-[color:var(--background)] transition max-w-[280px]"
-              >
-                <Mic size={11} className="shrink-0" />
-                <span className="truncate">
-                  {tarefa.meeting_summary || "ver reunião"}
-                </span>
-              </Link>
-            )}
-            {(tarefa.meeting_recorded_at || tarefa.created_at) && (
-              <span
-                className="inline-flex items-center gap-1 text-[12px] text-[color:var(--muted)]"
-                title={
-                  tarefa.meeting_recorded_at
-                    ? `Reunião em ${fmtDate(tarefa.meeting_recorded_at)}`
-                    : `Tarefa criada em ${fmtDate(tarefa.created_at)}`
-                }
-              >
-                <CalendarPlus size={11} />
-                {formatCreatedAt(tarefa.meeting_recorded_at ?? tarefa.created_at)}
-              </span>
-            )}
-            {tarefa.evidencia && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowEvidencia((v) => !v);
-                }}
-                className="inline-flex items-center gap-1 text-[11px] text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
-              >
-                <Quote size={11} />
-                trecho
-                <ChevronDown
-                  size={11}
-                  className={cn("transition", showEvidencia && "rotate-180")}
-                />
-              </button>
-            )}
           </div>
 
+          {/* Linha 2: descrição (1 linha) + ação + indicadores (quebram se faltar espaço) */}
+          <div className="mt-1 flex items-start gap-1.5 min-w-0">
+            {tarefa.descricao ? (
+              <p className="flex-1 min-w-0 text-[12px] leading-snug text-[color:var(--muted-strong)] line-clamp-1">
+                {tarefa.descricao}
+              </p>
+            ) : (
+              <span className="flex-1 min-w-0" />
+            )}
+            <div
+              className="flex items-center flex-wrap justify-end gap-x-1 gap-y-1 min-w-0"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {isUrgent && !isOverdue && !isDone && (
+                <Flame
+                  size={12}
+                  className="text-[color:var(--urgent)]"
+                  strokeWidth={2.5}
+                />
+              )}
+              {tarefa.precisa_revisao && (
+                <span
+                  title="IA com baixa confiança — confira prazo / pessoa / área"
+                  className="inline-flex text-[color:var(--warm)]"
+                >
+                  <Dot size={14} strokeWidth={4} />
+                </span>
+              )}
+              {secondaryPeople.length > 0 && (
+                <span
+                  className="text-[11px] text-[color:var(--muted-strong)] whitespace-nowrap"
+                  title={secondaryPeople.map((p) => p.nome).join(", ")}
+                >
+                  +{secondaryPeople.length}
+                </span>
+              )}
+              {tarefa.frente && (
+                <span
+                  title={tarefa.frente}
+                  className="text-[11px] px-1.5 py-0.5 rounded bg-[color:var(--accent)] text-[color:var(--muted-strong)] whitespace-nowrap max-w-[100px] sm:max-w-[160px] truncate"
+                >
+                  {tarefa.frente}
+                </span>
+              )}
+              {!tarefa.frente && tarefa.frente_proposta && (
+                <span
+                  title={tarefa.frente_proposta ?? undefined}
+                  className="text-[11px] px-1.5 py-0.5 rounded border border-dashed border-[color:var(--warm)]/40 text-[color:var(--warm)] whitespace-nowrap max-w-[100px] sm:max-w-[160px] truncate"
+                >
+                  {tarefa.frente_proposta}?
+                </span>
+              )}
+              <AcaoChip
+                tarefa={tarefa}
+                editingOwner={editingOwner}
+                onStartEdit={() => setEditingOwner(true)}
+                onSaveOwner={saveOwner}
+                onCancelEdit={() => setEditingOwner(false)}
+              />
+            </div>
+          </div>
+
+          {/* Linha 3 (só se existir): reunião + trecho */}
+          {(tarefa.meeting_id || tarefa.evidencia) && (
+            <div className="mt-1 flex items-center gap-2 text-[11px] min-w-0">
+              {tarefa.meeting_id && (
+                <Link
+                  href={`/reunioes/${tarefa.meeting_id}`}
+                  onClick={(e) => e.stopPropagation()}
+                  title={tarefa.meeting_summary ?? undefined}
+                  className="press-feedback inline-flex items-center gap-0.5 px-1.5 py-0 rounded bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:bg-[color:var(--foreground)] hover:text-[color:var(--background)] transition min-w-0"
+                >
+                  <Mic size={10} className="shrink-0" />
+                  <span className="truncate max-w-[150px] sm:max-w-[240px]">
+                    {tarefa.meeting_summary || "reunião"}
+                  </span>
+                </Link>
+              )}
+              {tarefa.evidencia && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowEvidencia((v) => !v);
+                  }}
+                  className="shrink-0 inline-flex items-center gap-0.5 text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
+                >
+                  <Quote size={10} />
+                  trecho
+                  <ChevronDown
+                    size={10}
+                    className={cn("transition", showEvidencia && "rotate-180")}
+                  />
+                </button>
+              )}
+            </div>
+          )}
+
           {showEvidencia && tarefa.evidencia && (
-            <p className="mt-2 text-[12px] italic text-[color:var(--muted)] border-l-2 border-[color:var(--border)] pl-3">
+            <p className="mt-1 text-[12px] italic text-[color:var(--muted)] border-l-2 border-[color:var(--border)] pl-3">
               &ldquo;{tarefa.evidencia}&rdquo;
             </p>
           )}
         </div>
 
-        <div className="shrink-0 flex items-center gap-1 pr-2 sm:pr-3 text-[color:var(--muted)]">
+        {/* ações à direita (delete) — discretas, aparecem no hover */}
+        <div className="shrink-0 flex items-center gap-0.5 pr-1.5 sm:pr-2 text-[color:var(--muted)]">
           {confirmDelete ? (
             <>
               <button
@@ -565,14 +494,14 @@ export function TaskRow({
                 title="Não era tarefa — ensina o sistema a não extrair coisas assim"
                 className="text-[10px] tracking-[0.1em] uppercase font-bold px-2 py-1 rounded-full bg-[color:var(--warm-bg)] text-[color:var(--warm)] hover:opacity-90 disabled:opacity-50"
               >
-                não é tarefa
+                não é
               </button>
               <button
                 type="button"
                 onClick={cancelDelete}
                 disabled={isPending}
                 aria-label="Cancelar"
-                className="text-[11px] px-1.5 py-1 text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
+                className="text-[11px] px-1 py-1 text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
               >
                 ✕
               </button>
@@ -584,12 +513,12 @@ export function TaskRow({
                 onClick={handleDelete}
                 disabled={isPending}
                 aria-label="Deletar tarefa"
-                className="p-1.5 rounded-full text-[color:var(--muted)] hover:bg-[color:var(--urgent)]/10 hover:text-[color:var(--urgent)] transition"
+                className="p-1 rounded-full text-[color:var(--muted)] opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-[color:var(--urgent)]/10 hover:text-[color:var(--urgent)] transition"
               >
-                <Trash2 size={15} strokeWidth={1.75} />
+                <Trash2 size={13} strokeWidth={1.75} />
               </button>
               <ChevronRight
-                size={18}
+                size={16}
                 strokeWidth={1.75}
                 className="group-hover:text-[color:var(--foreground)] transition"
               />

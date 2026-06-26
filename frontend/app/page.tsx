@@ -36,21 +36,16 @@ export default async function HomePage() {
   }
 
   return (
-    <div className="space-y-7 sm:space-y-9">
-      <header className="space-y-2">
-        <p className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
-          Pendências
-        </p>
-        <h1 className="font-display text-4xl sm:text-5xl leading-[1.05]">
+    <div className="space-y-4">
+      <header className="flex items-baseline gap-3">
+        <h1 className="font-display text-2xl sm:text-3xl leading-tight">
           O que está{" "}
           <span className="italic font-[450] text-[color:var(--muted-strong)]">
             combinado.
           </span>
         </h1>
-        <p className="text-[14px] text-[color:var(--muted-strong)] max-w-md">
-          Tudo que apareceu nas suas reuniões e voice notes — mais o que você
-          adicionar na mão — capturado e organizado num lugar só pra você não
-          perder nada.
+        <p className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
+          Pendências
         </p>
       </header>
 
