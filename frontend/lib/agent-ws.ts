@@ -11,7 +11,11 @@ export type AgentEvent =
   | { type: "tool_call"; tool: string; input?: Record<string, unknown> }
   | { type: "message_end"; text?: string; session_id?: string }
   | { type: "error"; text: string }
-  | { type: "cleared" };
+  | { type: "cleared" }
+  | {
+      type: "history";
+      messages: Array<{ role: "user" | "assistant"; text: string; tools?: string[]; ts?: number }>;
+    };
 
 type Handlers = {
   onEvent: (e: AgentEvent) => void;
