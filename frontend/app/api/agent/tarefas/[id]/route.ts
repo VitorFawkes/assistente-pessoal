@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { withAgentAuth } from "@/lib/auth";
-import { tarefasFor } from "@/lib/queries";
+import { tarefasFor, frentesFor } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +20,7 @@ type PatchBody = Partial<{
   prioridade: (typeof VALID_PRIORIDADE)[number];
   status: (typeof VALID_STATUS)[number];
   frente_id: string | null;
+  frente: string; // nome da frente (get-or-create) — alternativa a frente_id
   pessoas: { nome: string; principal?: boolean }[];
 }>;
 
@@ -51,6 +52,10 @@ export const PATCH = withAgentAuth<Ctx>(async ({ user, origem }, req, ctx) => {
   }
 
   try {
+    // frente por nome (get-or-create) → frente_id
+    if (typeof body.frente === "string" && body.frente.trim()) {
+      body.frente_id = (await frentesFor(user.id).create(body.frente.trim())).id;
+    }
     const updated = await tarefasFor(user.id).atualizar(id, body, origem);
     if (!updated) {
       return NextResponse.json({ error: "tarefa não encontrada" }, { status: 404 });

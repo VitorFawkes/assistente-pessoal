@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { withAgentAuth } from "@/lib/auth";
-import { tarefasFor } from "@/lib/queries";
+import { tarefasFor, frentesFor } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +16,7 @@ type PostBody = Partial<{
   prazo_text: string | null;
   prioridade: (typeof VALID_PRIORIDADE)[number];
   frente_id: string | null;
+  frente: string; // nome da frente (get-or-create) — alternativa a frente_id
   pessoas: { nome: string; principal?: boolean }[] | string[];
 }>;
 
@@ -70,6 +71,12 @@ export const POST = withAgentAuth(async ({ user, origem }, req) => {
   const owner = (body.owner ?? "").trim() || "vitor";
 
   try {
+    // frente por nome (get-or-create) tem precedência sobre frente_id explícito
+    let frente_id = body.frente_id ?? null;
+    if (typeof body.frente === "string" && body.frente.trim()) {
+      frente_id = (await frentesFor(user.id).create(body.frente.trim())).id;
+    }
+
     const created = await tarefasFor(user.id).criar(
       {
         titulo,
@@ -79,7 +86,7 @@ export const POST = withAgentAuth(async ({ user, origem }, req) => {
         prazo: body.prazo ?? null,
         prazo_text: body.prazo_text ?? null,
         prioridade,
-        frente_id: body.frente_id ?? null,
+        frente_id,
         pessoas: Array.isArray(body.pessoas) ? body.pessoas : undefined,
       },
       { origem },
