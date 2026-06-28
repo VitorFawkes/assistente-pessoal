@@ -6,6 +6,50 @@ import { nowSP, toSP } from "@/lib/utils";
 
 export type MeetingDateBucket = "qualquer" | "hoje" | "semana" | "mes" | "antigas";
 
+export type SortKey =
+  | "prazo"
+  | "criacao_desc"
+  | "criacao_asc"
+  | "reuniao_desc"
+  | "prioridade";
+
+const PRIO_RANK: Record<string, number> = {
+  urgente: 0,
+  alta: 1,
+  media: 2,
+  baixa: 3,
+};
+
+// Timestamp do prazo (sem prazo → Infinity, vai pro fim). Ordena por deadline asc.
+export function prazoMs(t: Tarefa): number {
+  if (!t.prazo) return Infinity;
+  const ms = new Date(t.prazo).getTime();
+  return Number.isNaN(ms) ? Infinity : ms;
+}
+
+// Ordena a lista conforme a chave escolhida (não muta o original).
+export function sortTarefas(list: Tarefa[], key: SortKey): Tarefa[] {
+  const arr = [...list];
+  switch (key) {
+    case "criacao_desc":
+      return arr.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+    case "criacao_asc":
+      return arr.sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
+    case "reuniao_desc":
+      return arr.sort((a, b) =>
+        (b.meeting_recorded_at || "").localeCompare(a.meeting_recorded_at || ""),
+      );
+    case "prioridade":
+      return arr.sort(
+        (a, b) =>
+          (PRIO_RANK[a.prioridade] ?? 9) - (PRIO_RANK[b.prioridade] ?? 9) ||
+          prazoMs(a) - prazoMs(b),
+      );
+    default: // prazo: vencidas/mais cedo primeiro, sem prazo por último
+      return arr.sort((a, b) => prazoMs(a) - prazoMs(b));
+  }
+}
+
 export type Facets = {
   pessoas: Set<string>;
   areas: Set<string>;

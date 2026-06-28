@@ -4,10 +4,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { SlidersHorizontal, Check, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CreatedBucket } from "./created-filter";
-import type { MeetingDateBucket } from "@/lib/task-filters";
+import type { MeetingDateBucket, SortKey } from "@/lib/task-filters";
 
-export type GroupMode = "prazo" | "frente" | "pessoa" | "reuniao";
+export type GroupMode = "prazo" | "frente" | "pessoa" | "reuniao" | "nenhum";
 export type Option = { value: string; count: number; label?: string };
+
+const SORTS: { k: SortKey; label: string }[] = [
+  { k: "prazo", label: "Prazo" },
+  { k: "criacao_desc", label: "Criação ↓" },
+  { k: "criacao_asc", label: "Criação ↑" },
+  { k: "reuniao_desc", label: "Reunião ↓" },
+  { k: "prioridade", label: "Prioridade" },
+];
 
 const MEETING_DATE: { k: MeetingDateBucket; label: string }[] = [
   { k: "qualquer", label: "Qualquer data" },
@@ -29,6 +37,7 @@ const GROUPS: { k: GroupMode; label: string }[] = [
   { k: "frente", label: "Área" },
   { k: "pessoa", label: "Pessoa" },
   { k: "reuniao", label: "Reunião" },
+  { k: "nenhum", label: "Nenhum" },
 ];
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -206,6 +215,8 @@ function DateRange({
 export function FiltersPanel({
   groupMode,
   onGroupMode,
+  sortKey,
+  onSortKey,
   meetingDate,
   onMeetingDate,
   meetingDateCounts,
@@ -235,6 +246,8 @@ export function FiltersPanel({
 }: {
   groupMode: GroupMode;
   onGroupMode: (m: GroupMode) => void;
+  sortKey: SortKey;
+  onSortKey: (s: SortKey) => void;
   meetingDate: MeetingDateBucket;
   onMeetingDate: (b: MeetingDateBucket) => void;
   meetingDateCounts: Record<MeetingDateBucket, number>;
@@ -356,6 +369,20 @@ export function FiltersPanel({
                 {g.label}
               </Pill>
             ))}
+          </div>
+
+          <div>
+            <SectionLabel>Ordenar por</SectionLabel>
+            <div className="flex flex-wrap gap-1.5">
+              {SORTS.map((s) => (
+                <Pill key={s.k} active={sortKey === s.k} onClick={() => onSortKey(s.k)}>
+                  {s.label}
+                </Pill>
+              ))}
+            </div>
+            <p className="text-[10px] text-[color:var(--muted)] mt-1">
+              ↓ mais recente primeiro · ↑ mais antiga primeiro
+            </p>
           </div>
 
           <div>

@@ -7,6 +7,7 @@ import {
   personNamesOf,
   inMeetingDate,
   dateInRange,
+  sortTarefas,
   applyFacets,
   countBy,
   activeFacetCount,
@@ -184,6 +185,35 @@ describe("applyFacets (AND entre facetas, exclude p/ contagem)", () => {
   test("prioridade", () => {
     const f = emptyFacets({ prioridades: new Set(["urgente", "alta"]) });
     expect(applyFacets(list, f, undefined, NOW).length).toBe(2);
+  });
+});
+
+describe("sortTarefas", () => {
+  const a = mk({ titulo: "A", created_at: "2026-06-01T10:00:00Z", prazo: "2026-06-20T00:00:00Z", prioridade: "baixa", meeting_recorded_at: "2026-05-01T10:00:00Z" });
+  const b = mk({ titulo: "B", created_at: "2026-06-10T10:00:00Z", prazo: "2026-06-05T00:00:00Z", prioridade: "urgente", meeting_recorded_at: "2026-06-09T10:00:00Z" });
+  const c = mk({ titulo: "C", created_at: "2026-06-05T10:00:00Z", prazo: null, prioridade: "media", meeting_recorded_at: null });
+  const list = [a, b, c];
+  const titles = (l: ReturnType<typeof sortTarefas>) => l.map((t) => t.titulo);
+
+  test("criacao_desc: mais nova primeiro", () => {
+    expect(titles(sortTarefas(list, "criacao_desc"))).toEqual(["B", "C", "A"]);
+  });
+  test("criacao_asc: mais antiga primeiro", () => {
+    expect(titles(sortTarefas(list, "criacao_asc"))).toEqual(["A", "C", "B"]);
+  });
+  test("prazo: deadline mais cedo primeiro, sem prazo por último", () => {
+    expect(titles(sortTarefas(list, "prazo"))).toEqual(["B", "A", "C"]);
+  });
+  test("prioridade: urgente primeiro", () => {
+    expect(titles(sortTarefas(list, "prioridade"))[0]).toBe("B");
+  });
+  test("reuniao_desc: reunião mais nova primeiro, sem reunião por último", () => {
+    expect(titles(sortTarefas(list, "reuniao_desc"))).toEqual(["B", "A", "C"]);
+  });
+  test("não muta o original", () => {
+    const orig = [...list];
+    sortTarefas(list, "criacao_desc");
+    expect(list).toEqual(orig);
   });
 });
 

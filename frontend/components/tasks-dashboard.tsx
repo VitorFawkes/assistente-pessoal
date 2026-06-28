@@ -22,8 +22,10 @@ import {
   areaOf,
   tipoOf,
   principalPersonOf,
+  sortTarefas,
   type Facets,
   type MeetingDateBucket,
+  type SortKey,
 } from "@/lib/task-filters";
 import { cn, nowSP, toSP } from "@/lib/utils";
 
@@ -72,6 +74,15 @@ const GROUPMODE_LABEL: Record<GroupMode, string> = {
   frente: "Área",
   pessoa: "Pessoa",
   reuniao: "Reunião",
+  nenhum: "Nenhum",
+};
+
+const SORT_LABEL: Record<SortKey, string> = {
+  prazo: "Prazo",
+  criacao_desc: "Criação ↓",
+  criacao_asc: "Criação ↑",
+  reuniao_desc: "Reunião ↓",
+  prioridade: "Prioridade",
 };
 
 type DateRangeState = { from: string; to: string };
@@ -132,12 +143,6 @@ const PRAZO_ORDER: GroupKey[] = [
   "sem_prazo",
 ];
 
-// Dentro de um grupo, mantém a ordem de prazo (vencidas → … → sem prazo).
-function orderByPrazo(list: Tarefa[]): Tarefa[] {
-  const g = groupByPrazo(list);
-  return PRAZO_ORDER.flatMap((k) => g[k]);
-}
-
 // Agrupa por área, ordena A→Z ("Sem área" por último).
 function groupByFrente(list: Tarefa[]): [string, Tarefa[]][] {
   const map = new Map<string, Tarefa[]>();
@@ -146,7 +151,7 @@ function groupByFrente(list: Tarefa[]): [string, Tarefa[]][] {
     (map.get(key) ?? map.set(key, []).get(key)!).push(t);
   }
   return [...map.entries()]
-    .map(([k, items]) => [k, orderByPrazo(items)] as [string, Tarefa[]])
+    .map(([k, items]) => [k, items] as [string, Tarefa[]])
     .sort((a, b) => {
       if (a[0] === "Sem área") return 1;
       if (b[0] === "Sem área") return -1;
@@ -162,7 +167,7 @@ function groupByPessoa(list: Tarefa[]): [string, Tarefa[]][] {
     (map.get(key) ?? map.set(key, []).get(key)!).push(t);
   }
   return [...map.entries()]
-    .map(([k, items]) => [k, orderByPrazo(items)] as [string, Tarefa[]])
+    .map(([k, items]) => [k, items] as [string, Tarefa[]])
     .sort((a, b) => {
       if (a[0] === "Você") return -1;
       if (b[0] === "Você") return 1;
@@ -192,7 +197,7 @@ function groupByReuniao(list: Tarefa[]): [string, Tarefa[]][] {
       if (b.label === "Sem reunião") return -1;
       return b.date.localeCompare(a.date);
     })
-    .map((g) => [g.label, orderByPrazo(g.items)] as [string, Tarefa[]]);
+    .map((g) => [g.label, g.items] as [string, Tarefa[]]);
 }
 
 // Checkbox que seleciona/desmarca um grupo inteiro de uma vez.
@@ -267,6 +272,7 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
   const [onlyUrgent, setOnlyUrgent] = useState(false);
   const [search, setSearch] = useState("");
   const [groupMode, setGroupMode] = useState<GroupMode>("prazo");
+  const [sortKey, setSortKey] = useState<SortKey>("prazo");
   const [creating, setCreating] = useState(false);
   const [activeTab, setActiveTab] = useState("todas");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -431,6 +437,7 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
     setCreatedBucket("todas");
     setCreatedRange(EMPTY_RANGE);
     setGroupMode("prazo");
+    setSortKey("prazo");
     setSearch("");
   }
 
@@ -458,8 +465,10 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
       out.push({ id: "cb", label: `Criada: ${CREATED_LABEL[createdBucket]}`, onRemove: () => setCreatedBucket("todas") });
     if (groupMode !== "prazo")
       out.push({ id: "gm", label: `Agrupar: ${GROUPMODE_LABEL[groupMode]}`, onRemove: () => setGroupMode("prazo") });
+    if (sortKey !== "prazo")
+      out.push({ id: "sort", label: `Ordenar: ${SORT_LABEL[sortKey]}`, onRemove: () => setSortKey("prazo") });
     return out;
-  }, [selPessoas, selAreas, meetingDate, meetingRange, selPrioridades, selTipos, createdBucket, createdRange, groupMode]);
+  }, [selPessoas, selAreas, meetingDate, meetingRange, selPrioridades, selTipos, createdBucket, createdRange, groupMode, sortKey]);
 
   // ─── Seleção em massa ───────────────────────────────────────────────
   const byId = useMemo(() => {
@@ -521,7 +530,7 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
 
   // ─── Render ─────────────────────────────────────────────────────────
   const rows = (items: Tarefa[]) =>
-    items.map((t) => (
+    sortTarefas(items, sortKey).map((t) => (
       <TaskRow
         key={t.id}
         tarefa={t}
@@ -561,6 +570,8 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
       );
     }
 
+    if (groupMode === "nenhum")
+      return <div className="flex flex-col gap-2">{rows(list)}</div>;
     if (groupMode === "frente") return groupedView(groupByFrente(list));
     if (groupMode === "pessoa") return groupedView(groupByPessoa(list));
     if (groupMode === "reuniao") return groupedView(groupByReuniao(list));
@@ -642,6 +653,8 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
           <FiltersPanel
             groupMode={groupMode}
             onGroupMode={setGroupMode}
+            sortKey={sortKey}
+            onSortKey={setSortKey}
             meetingDate={meetingDate}
             onMeetingDate={onMeetingBucket}
             meetingDateCounts={meetingDateCounts}
