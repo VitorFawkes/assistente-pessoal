@@ -6,6 +6,7 @@ import {
   principalPersonOf,
   personNamesOf,
   inMeetingDate,
+  dateInRange,
   applyFacets,
   countBy,
   activeFacetCount,
@@ -122,6 +123,46 @@ describe("inMeetingDate (cumulativo)", () => {
   });
   test("sem reunião nunca casa bucket específico", () => {
     expect(inMeetingDate(mk({ meeting_recorded_at: null }), "hoje", NOW)).toBe(false);
+  });
+});
+
+describe("dateInRange", () => {
+  const iso = "2026-06-15T09:00:00Z"; // 15/06 (SP)
+  test("sem from/to casa tudo", () => expect(dateInRange(iso)).toBe(true));
+  test("dentro do intervalo", () => {
+    expect(dateInRange(iso, "2026-06-01", "2026-06-30")).toBe(true);
+  });
+  test("antes do from", () => {
+    expect(dateInRange(iso, "2026-06-20", undefined)).toBe(false);
+  });
+  test("depois do to", () => {
+    expect(dateInRange(iso, undefined, "2026-06-10")).toBe(false);
+  });
+  test("limites inclusivos", () => {
+    expect(dateInRange(iso, "2026-06-15", "2026-06-15")).toBe(true);
+  });
+  test("sem data nunca casa intervalo", () => {
+    expect(dateInRange(null, "2026-06-01", undefined)).toBe(false);
+  });
+});
+
+describe("applyFacets — intervalo de data da reunião tem precedência sobre bucket", () => {
+  const list = [
+    mk({ meeting_recorded_at: "2026-06-15T09:00:00Z" }),
+    mk({ meeting_recorded_at: "2026-05-01T09:00:00Z" }),
+    mk({ meeting_recorded_at: null }),
+  ];
+  test("range filtra por data", () => {
+    const f: Facets = {
+      pessoas: new Set(),
+      areas: new Set(),
+      meetingDate: "qualquer",
+      meetingFrom: "2026-06-01",
+      meetingTo: "2026-06-30",
+      prioridades: new Set(),
+      tipos: new Set(),
+    };
+    expect(applyFacets(list, f, undefined, NOW).length).toBe(1);
   });
 });
 

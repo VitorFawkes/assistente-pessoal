@@ -158,12 +158,60 @@ function MultiFacet({
   );
 }
 
+// Intervalo de datas (de/até). Tem precedência sobre os atalhos rápidos.
+function DateRange({
+  from,
+  to,
+  onChange,
+}: {
+  from: string;
+  to: string;
+  onChange: (from: string, to: string) => void;
+}) {
+  const inputCls =
+    "flex-1 min-w-0 px-1.5 py-0.5 rounded border border-[color:var(--border)] bg-transparent text-[12px] outline-none focus:border-[color:var(--muted)]";
+  return (
+    <div className="flex items-center gap-1 mt-1.5">
+      <input
+        type="date"
+        value={from}
+        max={to || undefined}
+        onChange={(e) => onChange(e.target.value, to)}
+        aria-label="De"
+        className={inputCls}
+      />
+      <span className="text-[11px] text-[color:var(--muted)] shrink-0">até</span>
+      <input
+        type="date"
+        value={to}
+        min={from || undefined}
+        onChange={(e) => onChange(from, e.target.value)}
+        aria-label="Até"
+        className={inputCls}
+      />
+      {(from || to) && (
+        <button
+          type="button"
+          onClick={() => onChange("", "")}
+          aria-label="Limpar intervalo"
+          className="shrink-0 p-0.5 text-[color:var(--muted)] hover:text-[color:var(--urgent)]"
+        >
+          <X size={12} />
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function FiltersPanel({
   groupMode,
   onGroupMode,
   meetingDate,
   onMeetingDate,
   meetingDateCounts,
+  meetingFrom,
+  meetingTo,
+  onMeetingRange,
   pessoaOptions,
   selPessoas,
   onTogglePessoa,
@@ -179,6 +227,9 @@ export function FiltersPanel({
   createdBucket,
   onCreatedBucket,
   createdCounts,
+  createdFrom,
+  createdTo,
+  onCreatedRange,
   activeCount,
   onClearAll,
 }: {
@@ -187,6 +238,9 @@ export function FiltersPanel({
   meetingDate: MeetingDateBucket;
   onMeetingDate: (b: MeetingDateBucket) => void;
   meetingDateCounts: Record<MeetingDateBucket, number>;
+  meetingFrom: string;
+  meetingTo: string;
+  onMeetingRange: (from: string, to: string) => void;
   pessoaOptions: Option[];
   selPessoas: Set<string>;
   onTogglePessoa: (v: string) => void;
@@ -202,11 +256,30 @@ export function FiltersPanel({
   createdBucket: CreatedBucket;
   onCreatedBucket: (b: CreatedBucket) => void;
   createdCounts: Record<CreatedBucket, number>;
+  createdFrom: string;
+  createdTo: string;
+  onCreatedRange: (from: string, to: string) => void;
   activeCount: number;
   onClearAll: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [maxH, setMaxH] = useState<number>();
+
+  // Altura máxima dinâmica: cabe da posição do painel até o fim da viewport
+  // (o painel abre lá embaixo na barra fixa, então 70vh estourava a tela).
+  useEffect(() => {
+    if (!open) return;
+    const measure = () => {
+      const el = panelRef.current;
+      if (!el) return;
+      setMaxH(Math.max(220, window.innerHeight - el.getBoundingClientRect().top - 12));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -224,7 +297,12 @@ export function FiltersPanel({
     };
   }, [open]);
 
-  const hasActive = activeCount > 0 || groupMode !== "prazo" || createdBucket !== "todas";
+  const hasActive =
+    activeCount > 0 ||
+    groupMode !== "prazo" ||
+    createdBucket !== "todas" ||
+    !!createdFrom ||
+    !!createdTo;
 
   return (
     <div className="relative shrink-0" ref={ref}>
@@ -255,7 +333,11 @@ export function FiltersPanel({
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-72 max-w-[calc(100vw-1.5rem)] z-40 rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] shadow-xl p-3 max-h-[70vh] overflow-y-auto space-y-3">
+        <div
+          ref={panelRef}
+          style={{ maxHeight: maxH }}
+          className="absolute right-0 mt-2 w-72 max-w-[calc(100vw-1.5rem)] z-40 rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] shadow-xl p-3 overflow-y-auto space-y-3"
+        >
           <div className="flex items-center justify-between">
             <SectionLabel>Agrupar por</SectionLabel>
             {hasActive && (
@@ -295,7 +377,11 @@ export function FiltersPanel({
             <SectionLabel>Data da reunião</SectionLabel>
             <div className="flex flex-wrap gap-1.5">
               {MEETING_DATE.map((m) => (
-                <Pill key={m.k} active={meetingDate === m.k} onClick={() => onMeetingDate(m.k)}>
+                <Pill
+                  key={m.k}
+                  active={meetingDate === m.k && !meetingFrom && !meetingTo}
+                  onClick={() => onMeetingDate(m.k)}
+                >
                   {m.label}
                   {m.k !== "qualquer" && meetingDateCounts[m.k] > 0 && (
                     <span className="ml-1 opacity-60">{meetingDateCounts[m.k]}</span>
@@ -303,6 +389,7 @@ export function FiltersPanel({
                 </Pill>
               ))}
             </div>
+            <DateRange from={meetingFrom} to={meetingTo} onChange={onMeetingRange} />
           </div>
 
           <div>
@@ -322,12 +409,12 @@ export function FiltersPanel({
           )}
 
           <div>
-            <SectionLabel>Quando foi criada</SectionLabel>
+            <SectionLabel>Data da tarefa (criação)</SectionLabel>
             <div className="flex flex-wrap gap-1.5">
               {CREATED.map((c) => (
                 <Pill
                   key={c.k}
-                  active={createdBucket === c.k}
+                  active={createdBucket === c.k && !createdFrom && !createdTo}
                   onClick={() => onCreatedBucket(c.k)}
                 >
                   {c.label}
@@ -337,6 +424,7 @@ export function FiltersPanel({
                 </Pill>
               ))}
             </div>
+            <DateRange from={createdFrom} to={createdTo} onChange={onCreatedRange} />
           </div>
         </div>
       )}

@@ -10,6 +10,9 @@ export type Facets = {
   pessoas: Set<string>;
   areas: Set<string>;
   meetingDate: MeetingDateBucket;
+  // Intervalo de datas da reunião (YYYY-MM-DD); tem precedência sobre o bucket.
+  meetingFrom?: string;
+  meetingTo?: string;
   prioridades: Set<string>;
   tipos: Set<string>;
 };
@@ -97,6 +100,24 @@ export function inMeetingDate(
   }
 }
 
+// A data (ISO) cai no intervalo [from, to] (YYYY-MM-DD, comparação lexicográfica)?
+export function dateInRange(
+  iso: string | null | undefined,
+  from?: string,
+  to?: string,
+): boolean {
+  if (!from && !to) return true;
+  if (!iso) return false;
+  const d = toSP(iso);
+  if (Number.isNaN(d.getTime())) return false;
+  const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate(),
+  ).padStart(2, "0")}`;
+  if (from && key < from) return false;
+  if (to && key > to) return false;
+  return true;
+}
+
 // Aplica as facetas (AND entre facetas, OR dentro de cada uma). `exclude`
 // pula uma faceta — usado pra calcular contagem "ao vivo" daquela faceta.
 export function applyFacets(
@@ -114,12 +135,14 @@ export function applyFacets(
       return false;
     if (exclude !== "areas" && f.areas.size && !f.areas.has(areaOf(t)))
       return false;
-    if (
-      exclude !== "meetingDate" &&
-      f.meetingDate !== "qualquer" &&
-      !inMeetingDate(t, f.meetingDate, now)
-    )
-      return false;
+    if (exclude !== "meetingDate") {
+      if (f.meetingFrom || f.meetingTo) {
+        if (!dateInRange(t.meeting_recorded_at, f.meetingFrom, f.meetingTo))
+          return false;
+      } else if (f.meetingDate !== "qualquer" && !inMeetingDate(t, f.meetingDate, now)) {
+        return false;
+      }
+    }
     if (
       exclude !== "prioridades" &&
       f.prioridades.size &&
@@ -151,6 +174,6 @@ export function activeFacetCount(f: Facets): number {
     f.areas.size +
     f.prioridades.size +
     f.tipos.size +
-    (f.meetingDate !== "qualquer" ? 1 : 0)
+    (f.meetingDate !== "qualquer" || f.meetingFrom || f.meetingTo ? 1 : 0)
   );
 }

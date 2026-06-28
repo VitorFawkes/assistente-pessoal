@@ -17,6 +17,7 @@ import {
   activeFacetCount,
   matchesSearch,
   inMeetingDate,
+  dateInRange,
   personNamesOf,
   areaOf,
   tipoOf,
@@ -71,6 +72,20 @@ const GROUPMODE_LABEL: Record<GroupMode, string> = {
   frente: "Área",
   pessoa: "Pessoa",
   reuniao: "Reunião",
+};
+
+type DateRangeState = { from: string; to: string };
+const EMPTY_RANGE: DateRangeState = { from: "", to: "" };
+
+// "2026-06-15" → "15/06"
+const shortDate = (d: string) => {
+  const [, m, day] = d.split("-");
+  return day && m ? `${day}/${m}` : d;
+};
+const rangeLabel = (r: DateRangeState) => {
+  if (r.from && r.to) return `${shortDate(r.from)}–${shortDate(r.to)}`;
+  if (r.from) return `desde ${shortDate(r.from)}`;
+  return `até ${shortDate(r.to)}`;
 };
 
 function groupByPrazo(tarefas: Tarefa[]): Record<GroupKey, Tarefa[]> {
@@ -263,6 +278,8 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
   const [meetingDate, setMeetingDate] = useState<MeetingDateBucket>("qualquer");
   const [selPrioridades, setSelPrioridades] = useState<Set<string>>(new Set());
   const [selTipos, setSelTipos] = useState<Set<string>>(new Set());
+  const [meetingRange, setMeetingRange] = useState<DateRangeState>(EMPTY_RANGE);
+  const [createdRange, setCreatedRange] = useState<DateRangeState>(EMPTY_RANGE);
 
   // Áreas pro popover de "Área" da barra de ações em massa.
   useEffect(() => {
@@ -291,21 +308,25 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
   // Pré-filtros "globais" (prazo + criação + urgentes + busca) aplicados antes das facetas.
   const globalList = useMemo(() => {
     let l = filterByDate(tarefas, bucket);
-    l = filterByCreated(l, createdBucket);
+    if (createdRange.from || createdRange.to)
+      l = l.filter((t) => dateInRange(t.created_at, createdRange.from, createdRange.to));
+    else l = filterByCreated(l, createdBucket);
     if (onlyUrgent) l = l.filter(isUrgentish);
     if (search.trim()) l = l.filter((t) => matchesSearch(t, search));
     return l;
-  }, [tarefas, bucket, createdBucket, onlyUrgent, search]);
+  }, [tarefas, bucket, createdBucket, createdRange, onlyUrgent, search]);
 
   const facets: Facets = useMemo(
     () => ({
       pessoas: selPessoas,
       areas: selAreas,
       meetingDate,
+      meetingFrom: meetingRange.from,
+      meetingTo: meetingRange.to,
       prioridades: selPrioridades,
       tipos: selTipos,
     }),
-    [selPessoas, selAreas, meetingDate, selPrioridades, selTipos],
+    [selPessoas, selAreas, meetingDate, meetingRange, selPrioridades, selTipos],
   );
 
   const filtered = useMemo(
@@ -382,19 +403,40 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
   const filterByArea = (area: string) =>
     setSelAreas((prev) => new Set(prev).add(area));
 
+  // Bucket e intervalo são mutuamente exclusivos por faceta de data.
+  const onMeetingBucket = (b: MeetingDateBucket) => {
+    setMeetingRange(EMPTY_RANGE);
+    setMeetingDate(b);
+  };
+  const onMeetingRange = (from: string, to: string) => {
+    setMeetingDate("qualquer");
+    setMeetingRange({ from, to });
+  };
+  const onCreatedBucketSel = (b: CreatedBucket) => {
+    setCreatedRange(EMPTY_RANGE);
+    setCreatedBucket(b);
+  };
+  const onCreatedRange = (from: string, to: string) => {
+    setCreatedBucket("todas");
+    setCreatedRange({ from, to });
+  };
+
   function clearAllFilters() {
     setSelPessoas(new Set());
     setSelAreas(new Set());
     setMeetingDate("qualquer");
+    setMeetingRange(EMPTY_RANGE);
     setSelPrioridades(new Set());
     setSelTipos(new Set());
     setCreatedBucket("todas");
+    setCreatedRange(EMPTY_RANGE);
     setGroupMode("prazo");
     setSearch("");
   }
 
   const panelActiveCount =
-    activeFacetCount(facets) + (createdBucket !== "todas" ? 1 : 0);
+    activeFacetCount(facets) +
+    (createdBucket !== "todas" || createdRange.from || createdRange.to ? 1 : 0);
 
   const chips: ActiveChip[] = useMemo(() => {
     const out: ActiveChip[] = [];
@@ -404,6 +446,10 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
       out.push({ id: `a-${a}`, label: `Área: ${a}`, onRemove: () => toggleIn(setSelAreas, a) });
     if (meetingDate !== "qualquer")
       out.push({ id: "md", label: `Reunião: ${MEETING_DATE_LABEL[meetingDate]}`, onRemove: () => setMeetingDate("qualquer") });
+    if (meetingRange.from || meetingRange.to)
+      out.push({ id: "mr", label: `Reunião: ${rangeLabel(meetingRange)}`, onRemove: () => setMeetingRange(EMPTY_RANGE) });
+    if (createdRange.from || createdRange.to)
+      out.push({ id: "cr", label: `Tarefa: ${rangeLabel(createdRange)}`, onRemove: () => setCreatedRange(EMPTY_RANGE) });
     for (const pr of selPrioridades)
       out.push({ id: `pr-${pr}`, label: `Prioridade: ${PRIORIDADE_LABEL[pr] ?? pr}`, onRemove: () => toggleIn(setSelPrioridades, pr) });
     for (const tp of selTipos)
@@ -413,7 +459,7 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
     if (groupMode !== "prazo")
       out.push({ id: "gm", label: `Agrupar: ${GROUPMODE_LABEL[groupMode]}`, onRemove: () => setGroupMode("prazo") });
     return out;
-  }, [selPessoas, selAreas, meetingDate, selPrioridades, selTipos, createdBucket, groupMode]);
+  }, [selPessoas, selAreas, meetingDate, meetingRange, selPrioridades, selTipos, createdBucket, createdRange, groupMode]);
 
   // ─── Seleção em massa ───────────────────────────────────────────────
   const byId = useMemo(() => {
@@ -597,8 +643,11 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
             groupMode={groupMode}
             onGroupMode={setGroupMode}
             meetingDate={meetingDate}
-            onMeetingDate={setMeetingDate}
+            onMeetingDate={onMeetingBucket}
             meetingDateCounts={meetingDateCounts}
+            meetingFrom={meetingRange.from}
+            meetingTo={meetingRange.to}
+            onMeetingRange={onMeetingRange}
             pessoaOptions={pessoaOptions}
             selPessoas={selPessoas}
             onTogglePessoa={(v) => toggleIn(setSelPessoas, v)}
@@ -612,8 +661,11 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
             selTipos={selTipos}
             onToggleTipo={(v) => toggleIn(setSelTipos, v)}
             createdBucket={createdBucket}
-            onCreatedBucket={setCreatedBucket}
+            onCreatedBucket={onCreatedBucketSel}
             createdCounts={createdCounts}
+            createdFrom={createdRange.from}
+            createdTo={createdRange.to}
+            onCreatedRange={onCreatedRange}
             activeCount={panelActiveCount}
             onClearAll={clearAllFilters}
           />
