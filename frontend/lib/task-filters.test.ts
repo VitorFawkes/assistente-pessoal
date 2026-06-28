@@ -215,6 +215,12 @@ describe("sortTarefas", () => {
     sortTarefas(list, "criacao_desc");
     expect(list).toEqual(orig);
   });
+  test("tolera created_at/prazo como Date (vem do pg via RSC), não só string", () => {
+    const x = mk({ titulo: "X", created_at: new Date("2026-06-30T10:00:00Z") as unknown as string });
+    const y = mk({ titulo: "Y", created_at: new Date("2026-06-01T10:00:00Z") as unknown as string });
+    expect(titles(sortTarefas([y, x], "criacao_desc"))).toEqual(["X", "Y"]);
+    expect(titles(sortTarefas([x, y], "criacao_asc"))).toEqual(["Y", "X"]);
+  });
 });
 
 describe("countBy + activeFacetCount", () => {

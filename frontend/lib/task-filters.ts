@@ -20,11 +20,16 @@ const PRIO_RANK: Record<string, number> = {
   baixa: 3,
 };
 
+// Timestamp robusto: aceita Date (vem do pg via RSC) OU string ISO. Vazio → fallback.
+function toMs(v: string | Date | null | undefined, fallback: number): number {
+  if (!v) return fallback;
+  const ms = new Date(v).getTime();
+  return Number.isNaN(ms) ? fallback : ms;
+}
+
 // Timestamp do prazo (sem prazo → Infinity, vai pro fim). Ordena por deadline asc.
 export function prazoMs(t: Tarefa): number {
-  if (!t.prazo) return Infinity;
-  const ms = new Date(t.prazo).getTime();
-  return Number.isNaN(ms) ? Infinity : ms;
+  return toMs(t.prazo, Infinity);
 }
 
 // Ordena a lista conforme a chave escolhida (não muta o original).
@@ -32,13 +37,12 @@ export function sortTarefas(list: Tarefa[], key: SortKey): Tarefa[] {
   const arr = [...list];
   switch (key) {
     case "criacao_desc":
-      return arr.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+      return arr.sort((a, b) => toMs(b.created_at, 0) - toMs(a.created_at, 0));
     case "criacao_asc":
-      return arr.sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
+      return arr.sort((a, b) => toMs(a.created_at, 0) - toMs(b.created_at, 0));
     case "reuniao_desc":
-      return arr.sort((a, b) =>
-        (b.meeting_recorded_at || "").localeCompare(a.meeting_recorded_at || ""),
-      );
+      // sem reunião (fallback 0) vai pro fim na ordem decrescente
+      return arr.sort((a, b) => toMs(b.meeting_recorded_at, 0) - toMs(a.meeting_recorded_at, 0));
     case "prioridade":
       return arr.sort(
         (a, b) =>
