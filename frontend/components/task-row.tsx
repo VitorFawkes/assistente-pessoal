@@ -48,6 +48,7 @@ export type Tarefa = {
   no_plano: boolean;
   meeting_recorded_at?: string | null;
   meeting_summary?: string | null;
+  meeting_type?: string | null;
 };
 
 // Faixa colorida na lateral esquerda — prioridade.
@@ -196,11 +197,14 @@ export function TaskRow({
   tarefa,
   selected = false,
   onToggleSelect,
+  onFilterArea,
 }: {
   tarefa: Tarefa;
   selected?: boolean;
   // Quando passado, mostra a checkbox de seleção em massa (sempre visível).
   onToggleSelect?: (id: string, e: React.MouseEvent) => void;
+  // Quando passado, clicar no chip de área filtra por ela (click-through).
+  onFilterArea?: (area: string) => void;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -405,12 +409,20 @@ export function TaskRow({
                 </span>
               )}
               {tarefa.frente && (
-                <span
-                  title={tarefa.frente}
-                  className="text-[11px] px-1.5 py-0.5 rounded bg-[color:var(--accent)] text-[color:var(--muted-strong)] whitespace-nowrap max-w-[100px] sm:max-w-[160px] truncate"
+                <button
+                  type="button"
+                  title={onFilterArea ? `Filtrar por ${tarefa.frente}` : tarefa.frente}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onFilterArea?.(tarefa.frente!);
+                  }}
+                  className={cn(
+                    "text-[11px] px-1.5 py-0.5 rounded bg-[color:var(--accent)] text-[color:var(--muted-strong)] whitespace-nowrap max-w-[100px] sm:max-w-[160px] truncate",
+                    onFilterArea && "hover:bg-[color:var(--foreground)] hover:text-[color:var(--background)] transition cursor-pointer",
+                  )}
                 >
                   {tarefa.frente}
-                </span>
+                </button>
               )}
               {!tarefa.frente && tarefa.frente_proposta && (
                 <span

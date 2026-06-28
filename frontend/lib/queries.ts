@@ -121,6 +121,7 @@ const TAREFA_SELECT = `
   SELECT t.*,
          to_char(m.recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS meeting_recorded_at,
          m.summary AS meeting_summary,
+         m.meeting_type AS meeting_type,
          f.nome AS frente,
          COALESCE((
            SELECT jsonb_agg(jsonb_build_object('id', p.id, 'nome', p.nome, 'principal', tp.principal)

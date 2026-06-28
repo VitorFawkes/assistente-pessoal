@@ -1,18 +1,29 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Sparkles, Flame, Check } from "lucide-react";
+import { Sparkles, Flame, Check, Search, X } from "lucide-react";
 import { TaskRow, type Tarefa } from "./task-row";
 import { TaskCreateModal } from "./task-create-modal";
 import { CaptureComposer } from "./capture-composer";
 import { Tabs } from "./tabs";
-import { ViewMenu } from "./view-menu";
+import { FiltersPanel, type GroupMode, type Option } from "./filters-panel";
+import { ActiveFilters, type ActiveChip } from "./active-filters";
 import { BulkActionBar } from "./bulk-action-bar";
 import { DateFilter, filterByDate, type DateBucket } from "./date-filter";
+import { filterByCreated, type CreatedBucket } from "./created-filter";
 import {
-  filterByCreated,
-  type CreatedBucket,
-} from "./created-filter";
+  applyFacets,
+  countBy,
+  activeFacetCount,
+  matchesSearch,
+  inMeetingDate,
+  personNamesOf,
+  areaOf,
+  tipoOf,
+  principalPersonOf,
+  type Facets,
+  type MeetingDateBucket,
+} from "@/lib/task-filters";
 import { cn, nowSP, toSP } from "@/lib/utils";
 
 type GroupKey = "vencidas" | "hoje" | "esta_semana" | "futuro" | "sem_prazo";
@@ -31,6 +42,35 @@ const GROUP_ACCENT: Record<GroupKey, string> = {
   esta_semana: "text-[color:var(--muted-strong)]",
   futuro: "text-[color:var(--muted)]",
   sem_prazo: "text-[color:var(--muted)]",
+};
+
+const PRIORIDADE_LABEL: Record<string, string> = {
+  urgente: "Urgente",
+  alta: "Alta",
+  media: "Média",
+  baixa: "Baixa",
+};
+
+const MEETING_DATE_LABEL: Record<MeetingDateBucket, string> = {
+  qualquer: "Qualquer",
+  hoje: "Hoje",
+  semana: "Esta semana",
+  mes: "Este mês",
+  antigas: "Mais antigas",
+};
+
+const CREATED_LABEL: Record<CreatedBucket, string> = {
+  todas: "Qualquer",
+  hoje: "Hoje",
+  semana: "Esta semana",
+  mes: "Este mês",
+};
+
+const GROUPMODE_LABEL: Record<GroupMode, string> = {
+  prazo: "Prazo",
+  frente: "Área",
+  pessoa: "Pessoa",
+  reuniao: "Reunião",
 };
 
 function groupByPrazo(tarefas: Tarefa[]): Record<GroupKey, Tarefa[]> {
@@ -77,24 +117,18 @@ const PRAZO_ORDER: GroupKey[] = [
   "sem_prazo",
 ];
 
-function frenteOf(t: Tarefa): string {
-  return t.frente || t.frente_proposta || "Sem área";
-}
-
-// Dentro de uma frente, mantém a ordem de prazo (vencidas → … → sem prazo).
+// Dentro de um grupo, mantém a ordem de prazo (vencidas → … → sem prazo).
 function orderByPrazo(list: Tarefa[]): Tarefa[] {
   const g = groupByPrazo(list);
   return PRAZO_ORDER.flatMap((k) => g[k]);
 }
 
-// Agrupa por frente/área, ordena frentes A→Z ("Sem área" por último).
+// Agrupa por área, ordena A→Z ("Sem área" por último).
 function groupByFrente(list: Tarefa[]): [string, Tarefa[]][] {
   const map = new Map<string, Tarefa[]>();
   for (const t of list) {
-    const key = frenteOf(t);
-    const arr = map.get(key);
-    if (arr) arr.push(t);
-    else map.set(key, [t]);
+    const key = areaOf(t);
+    (map.get(key) ?? map.set(key, []).get(key)!).push(t);
   }
   return [...map.entries()]
     .map(([k, items]) => [k, orderByPrazo(items)] as [string, Tarefa[]])
@@ -103,6 +137,47 @@ function groupByFrente(list: Tarefa[]): [string, Tarefa[]][] {
       if (b[0] === "Sem área") return -1;
       return a[0].localeCompare(b[0], "pt-BR");
     });
+}
+
+// Agrupa por pessoa (principal). "Você" primeiro, depois por volume.
+function groupByPessoa(list: Tarefa[]): [string, Tarefa[]][] {
+  const map = new Map<string, Tarefa[]>();
+  for (const t of list) {
+    const key = principalPersonOf(t);
+    (map.get(key) ?? map.set(key, []).get(key)!).push(t);
+  }
+  return [...map.entries()]
+    .map(([k, items]) => [k, orderByPrazo(items)] as [string, Tarefa[]])
+    .sort((a, b) => {
+      if (a[0] === "Você") return -1;
+      if (b[0] === "Você") return 1;
+      return b[1].length - a[1].length || a[0].localeCompare(b[0], "pt-BR");
+    });
+}
+
+// Agrupa por reunião de origem (chave = meeting_id, p/ reuniões distintas sem
+// resumo não se fundirem), mais recentes primeiro ("Sem reunião" por último).
+function groupByReuniao(list: Tarefa[]): [string, Tarefa[]][] {
+  const map = new Map<string, { label: string; date: string; items: Tarefa[] }>();
+  for (const t of list) {
+    const key = t.meeting_id ?? "sem";
+    let g = map.get(key);
+    if (!g) {
+      const label = t.meeting_id
+        ? t.meeting_summary?.trim() || "Reunião sem resumo"
+        : "Sem reunião";
+      g = { label, date: t.meeting_recorded_at ?? "", items: [] };
+      map.set(key, g);
+    }
+    g.items.push(t);
+  }
+  return [...map.values()]
+    .sort((a, b) => {
+      if (a.label === "Sem reunião") return 1;
+      if (b.label === "Sem reunião") return -1;
+      return b.date.localeCompare(a.date);
+    })
+    .map((g) => [g.label, orderByPrazo(g.items)] as [string, Tarefa[]]);
 }
 
 // Checkbox que seleciona/desmarca um grupo inteiro de uma vez.
@@ -159,10 +234,7 @@ function GroupHeader({
     <div className="flex items-center gap-2 mb-2">
       <GroupSelectBox ids={ids} selected={selected} onToggle={onToggleGroup} />
       <h3
-        className={cn(
-          "text-[11px] tracking-[0.2em] uppercase font-semibold",
-          accent,
-        )}
+        className={cn("text-[11px] tracking-[0.2em] uppercase font-semibold truncate", accent)}
       >
         {label}
       </h3>
@@ -171,15 +243,26 @@ function GroupHeader({
   );
 }
 
+const isUrgentish = (t: Tarefa) =>
+  t.prioridade === "urgente" || t.prioridade === "alta";
+
 export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
   const [bucket, setBucket] = useState<DateBucket>("todos");
   const [createdBucket, setCreatedBucket] = useState<CreatedBucket>("todas");
   const [onlyUrgent, setOnlyUrgent] = useState(false);
-  const [groupMode, setGroupMode] = useState<"prazo" | "frente">("prazo");
+  const [search, setSearch] = useState("");
+  const [groupMode, setGroupMode] = useState<GroupMode>("prazo");
   const [creating, setCreating] = useState(false);
   const [activeTab, setActiveTab] = useState("todas");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [frentes, setFrentes] = useState<{ id: string; nome: string }[]>([]);
+
+  // Facetas
+  const [selPessoas, setSelPessoas] = useState<Set<string>>(new Set());
+  const [selAreas, setSelAreas] = useState<Set<string>>(new Set());
+  const [meetingDate, setMeetingDate] = useState<MeetingDateBucket>("qualquer");
+  const [selPrioridades, setSelPrioridades] = useState<Set<string>>(new Set());
+  const [selTipos, setSelTipos] = useState<Set<string>>(new Set());
 
   // Áreas pro popover de "Área" da barra de ações em massa.
   useEffect(() => {
@@ -192,14 +275,7 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
   }, []);
 
   const counts = useMemo(() => {
-    const bs: DateBucket[] = [
-      "todos",
-      "vencidas",
-      "hoje",
-      "semana",
-      "mes",
-      "sem_prazo",
-    ];
+    const bs: DateBucket[] = ["todos", "vencidas", "hoje", "semana", "mes", "sem_prazo"];
     return Object.fromEntries(
       bs.map((b) => [b, filterByDate(tarefas, b).length]),
     ) as Record<DateBucket, number>;
@@ -212,25 +288,71 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
     ) as Record<CreatedBucket, number>;
   }, [tarefas]);
 
-  const filteredByDate = useMemo(
-    () => filterByDate(tarefas, bucket),
-    [tarefas, bucket],
-  );
+  // Pré-filtros "globais" (prazo + criação + urgentes + busca) aplicados antes das facetas.
+  const globalList = useMemo(() => {
+    let l = filterByDate(tarefas, bucket);
+    l = filterByCreated(l, createdBucket);
+    if (onlyUrgent) l = l.filter(isUrgentish);
+    if (search.trim()) l = l.filter((t) => matchesSearch(t, search));
+    return l;
+  }, [tarefas, bucket, createdBucket, onlyUrgent, search]);
 
-  const filteredByCreated = useMemo(
-    () => filterByCreated(filteredByDate, createdBucket),
-    [filteredByDate, createdBucket],
+  const facets: Facets = useMemo(
+    () => ({
+      pessoas: selPessoas,
+      areas: selAreas,
+      meetingDate,
+      prioridades: selPrioridades,
+      tipos: selTipos,
+    }),
+    [selPessoas, selAreas, meetingDate, selPrioridades, selTipos],
   );
 
   const filtered = useMemo(
-    () =>
-      onlyUrgent
-        ? filteredByCreated.filter(
-            (t) => t.prioridade === "urgente" || t.prioridade === "alta",
-          )
-        : filteredByCreated,
-    [filteredByCreated, onlyUrgent],
+    () => applyFacets(globalList, facets),
+    [globalList, facets],
   );
+
+  // ─── Opções de faceta com contagem ao vivo (excluindo a própria faceta) ──
+  const pessoaOptions: Option[] = useMemo(() => {
+    const c = countBy(applyFacets(globalList, facets, "pessoas"), personNamesOf);
+    return [...c.entries()]
+      .map(([value, count]) => ({ value, count }))
+      .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value, "pt-BR"));
+  }, [globalList, facets]);
+
+  const areaOptions: Option[] = useMemo(() => {
+    const c = countBy(applyFacets(globalList, facets, "areas"), (t) => [areaOf(t)]);
+    return [...c.entries()]
+      .map(([value, count]) => ({ value, count }))
+      .sort((a, b) => {
+        if (a.value === "Sem área") return 1;
+        if (b.value === "Sem área") return -1;
+        return b.count - a.count || a.value.localeCompare(b.value, "pt-BR");
+      });
+  }, [globalList, facets]);
+
+  const prioridadeOptions: Option[] = useMemo(() => {
+    const c = countBy(applyFacets(globalList, facets, "prioridades"), (t) => [t.prioridade]);
+    return (["urgente", "alta", "media", "baixa"] as const)
+      .map((v) => ({ value: v, count: c.get(v) ?? 0, label: PRIORIDADE_LABEL[v] }))
+      .filter((o) => o.count > 0);
+  }, [globalList, facets]);
+
+  const tipoOptions: Option[] = useMemo(() => {
+    const c = countBy(applyFacets(globalList, facets, "tipos"), (t) => [tipoOf(t)]);
+    return [...c.entries()]
+      .map(([value, count]) => ({ value, count }))
+      .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value, "pt-BR"));
+  }, [globalList, facets]);
+
+  const meetingDateCounts = useMemo(() => {
+    const base = applyFacets(globalList, facets, "meetingDate");
+    const bs: MeetingDateBucket[] = ["qualquer", "hoje", "semana", "mes", "antigas"];
+    return Object.fromEntries(
+      bs.map((b) => [b, b === "qualquer" ? base.length : base.filter((t) => inMeetingDate(t, b)).length]),
+    ) as Record<MeetingDateBucket, number>;
+  }, [globalList, facets]);
 
   const aberta = (t: Tarefa) =>
     t.status !== "concluida" && t.status !== "cancelada";
@@ -241,12 +363,57 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
   const abertas = filtered.filter(aberta);
 
   const urgentCount = useMemo(
-    () =>
-      tarefas.filter(
-        (t) => t.prioridade === "urgente" || t.prioridade === "alta",
-      ).length,
+    () => tarefas.filter(isUrgentish).length,
     [tarefas],
   );
+
+  // ─── Filtros: toggles + chips + limpar ──────────────────────────────
+  const toggleIn = (
+    setter: React.Dispatch<React.SetStateAction<Set<string>>>,
+    v: string,
+  ) =>
+    setter((prev) => {
+      const next = new Set(prev);
+      if (next.has(v)) next.delete(v);
+      else next.add(v);
+      return next;
+    });
+
+  const filterByArea = (area: string) =>
+    setSelAreas((prev) => new Set(prev).add(area));
+
+  function clearAllFilters() {
+    setSelPessoas(new Set());
+    setSelAreas(new Set());
+    setMeetingDate("qualquer");
+    setSelPrioridades(new Set());
+    setSelTipos(new Set());
+    setCreatedBucket("todas");
+    setGroupMode("prazo");
+    setSearch("");
+  }
+
+  const panelActiveCount =
+    activeFacetCount(facets) + (createdBucket !== "todas" ? 1 : 0);
+
+  const chips: ActiveChip[] = useMemo(() => {
+    const out: ActiveChip[] = [];
+    for (const p of selPessoas)
+      out.push({ id: `p-${p}`, label: `Pessoa: ${p}`, onRemove: () => toggleIn(setSelPessoas, p) });
+    for (const a of selAreas)
+      out.push({ id: `a-${a}`, label: `Área: ${a}`, onRemove: () => toggleIn(setSelAreas, a) });
+    if (meetingDate !== "qualquer")
+      out.push({ id: "md", label: `Reunião: ${MEETING_DATE_LABEL[meetingDate]}`, onRemove: () => setMeetingDate("qualquer") });
+    for (const pr of selPrioridades)
+      out.push({ id: `pr-${pr}`, label: `Prioridade: ${PRIORIDADE_LABEL[pr] ?? pr}`, onRemove: () => toggleIn(setSelPrioridades, pr) });
+    for (const tp of selTipos)
+      out.push({ id: `t-${tp}`, label: `Tipo: ${tp}`, onRemove: () => toggleIn(setSelTipos, tp) });
+    if (createdBucket !== "todas")
+      out.push({ id: "cb", label: `Criada: ${CREATED_LABEL[createdBucket]}`, onRemove: () => setCreatedBucket("todas") });
+    if (groupMode !== "prazo")
+      out.push({ id: "gm", label: `Agrupar: ${GROUPMODE_LABEL[groupMode]}`, onRemove: () => setGroupMode("prazo") });
+    return out;
+  }, [selPessoas, selAreas, meetingDate, selPrioridades, selTipos, createdBucket, groupMode]);
 
   // ─── Seleção em massa ───────────────────────────────────────────────
   const byId = useMemo(() => {
@@ -270,7 +437,6 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
     });
   }
 
-  // Marca todos de uma lista; se já estão todos marcados, desmarca-os.
   function toggleMany(ids: string[]) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -285,7 +451,6 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
 
   const clearSelection = () => setSelected(new Set());
 
-  // Lista visível na aba ativa (base pro "selecionar tudo").
   const activeList = useMemo(() => {
     switch (activeTab) {
       case "executar":
@@ -308,59 +473,57 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
       return next;
     });
 
-  // Renderiza lista — se filter de data = "todos", agrupa por prazo/área automaticamente
+  // ─── Render ─────────────────────────────────────────────────────────
+  const rows = (items: Tarefa[]) =>
+    items.map((t) => (
+      <TaskRow
+        key={t.id}
+        tarefa={t}
+        selected={selected.has(t.id)}
+        onToggleSelect={toggleSelect}
+        onFilterArea={filterByArea}
+      />
+    ));
+
+  const groupedView = (groups: [string, Tarefa[]][], accent = "text-[color:var(--muted-strong)]") => (
+    <div className="space-y-6">
+      {groups.map(([label, items], gi) =>
+        items.length === 0 ? null : (
+          <div key={`${label}-${gi}`}>
+            <GroupHeader
+              label={label}
+              count={items.length}
+              accent={accent}
+              ids={items.map((t) => t.id)}
+              selected={selected}
+              onToggleGroup={toggleMany}
+            />
+            <div className="flex flex-col gap-2">{rows(items)}</div>
+          </div>
+        ),
+      )}
+    </div>
+  );
+
   const renderList = (list: Tarefa[], empty: string) => {
     if (!list.length) {
       return (
         <div className="rounded-2xl border border-dashed border-[color:var(--border)] py-12 px-6 text-center">
-          <Sparkles
-            size={20}
-            strokeWidth={1.5}
-            className="mx-auto mb-3 text-[color:var(--muted)]"
-          />
+          <Sparkles size={20} strokeWidth={1.5} className="mx-auto mb-3 text-[color:var(--muted)]" />
           <p className="text-[14px] text-[color:var(--muted-strong)]">{empty}</p>
         </div>
       );
     }
 
-    const rows = (items: Tarefa[]) =>
-      items.map((t) => (
-        <TaskRow
-          key={t.id}
-          tarefa={t}
-          selected={selected.has(t.id)}
-          onToggleSelect={toggleSelect}
-        />
-      ));
+    if (groupMode === "frente") return groupedView(groupByFrente(list));
+    if (groupMode === "pessoa") return groupedView(groupByPessoa(list));
+    if (groupMode === "reuniao") return groupedView(groupByReuniao(list));
 
+    // groupMode === "prazo": agrupa por prazo só quando não há bucket de data ativo.
     if (bucket !== "todos") {
-      // Filtro de data ativo — lista plana
       return <div className="flex flex-col gap-2">{rows(list)}</div>;
     }
-
-    if (groupMode === "frente") {
-      return (
-        <div className="space-y-6">
-          {groupByFrente(list).map(([frente, items]) => (
-            <div key={frente}>
-              <GroupHeader
-                label={frente}
-                count={items.length}
-                accent="text-[color:var(--muted-strong)]"
-                ids={items.map((t) => t.id)}
-                selected={selected}
-                onToggleGroup={toggleMany}
-              />
-              <div className="flex flex-col gap-2">{rows(items)}</div>
-            </div>
-          ))}
-        </div>
-      );
-    }
-
-    // Sem filtro de data — agrupa por prazo
     const groups = groupByPrazo(list);
-
     return (
       <div className="space-y-6">
         {PRAZO_ORDER.map((key) => {
@@ -389,37 +552,74 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
       <div className="sticky top-14 z-30 -mx-5 sm:-mx-6 px-5 sm:px-6 py-2.5 bg-[color:var(--background)]/95 backdrop-blur-md border-b border-[color:var(--border)] space-y-2">
         <CaptureComposer onOpenFull={() => setCreating(true)} />
         <DateFilter value={bucket} onChange={setBucket} counts={counts} />
-        {/* Linha enxuta: foco rápido (urgentes) + menu "Ver" com o resto */}
-        <div className="flex items-center justify-between gap-2">
-          {urgentCount > 0 ? (
+
+        {/* Busca + foco rápido + Filtros */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex-1 min-w-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border border-[color:var(--border)] bg-[color:var(--card)]">
+            <Search size={13} className="text-[color:var(--muted)] shrink-0" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar tarefa, pessoa, área…"
+              className="flex-1 min-w-0 bg-transparent text-[13px] outline-none"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                aria-label="Limpar busca"
+                className="shrink-0 text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+          {urgentCount > 0 && (
             <button
               type="button"
               onClick={() => setOnlyUrgent((v) => !v)}
+              title="Só urgentes / alta"
               className={cn(
-                "press-feedback inline-flex items-center gap-1.5 text-[12px] px-2.5 py-1 rounded-full border transition cursor-pointer",
+                "press-feedback shrink-0 inline-flex items-center gap-1 text-[12px] px-2.5 py-1.5 rounded-full border transition cursor-pointer",
                 onlyUrgent
                   ? "bg-[color:var(--urgent)] text-white border-[color:var(--urgent)]"
                   : "bg-transparent border-[color:var(--urgent)]/30 text-[color:var(--urgent)] hover:border-[color:var(--urgent)]",
               )}
             >
-              <Flame size={11} strokeWidth={2.5} />
-              só urgentes / alta
+              <Flame size={12} strokeWidth={2.5} />
+              <span className="hidden sm:inline">urgentes</span>
               <span className={cn("text-[10px]", onlyUrgent ? "opacity-80" : "opacity-60")}>
                 {urgentCount}
               </span>
             </button>
-          ) : (
-            <span />
           )}
-          <ViewMenu
+          <FiltersPanel
             groupMode={groupMode}
             onGroupMode={setGroupMode}
-            showGroup={bucket === "todos"}
+            meetingDate={meetingDate}
+            onMeetingDate={setMeetingDate}
+            meetingDateCounts={meetingDateCounts}
+            pessoaOptions={pessoaOptions}
+            selPessoas={selPessoas}
+            onTogglePessoa={(v) => toggleIn(setSelPessoas, v)}
+            areaOptions={areaOptions}
+            selAreas={selAreas}
+            onToggleArea={(v) => toggleIn(setSelAreas, v)}
+            prioridadeOptions={prioridadeOptions}
+            selPrioridades={selPrioridades}
+            onTogglePrioridade={(v) => toggleIn(setSelPrioridades, v)}
+            tipoOptions={tipoOptions}
+            selTipos={selTipos}
+            onToggleTipo={(v) => toggleIn(setSelTipos, v)}
             createdBucket={createdBucket}
             onCreatedBucket={setCreatedBucket}
             createdCounts={createdCounts}
+            activeCount={panelActiveCount}
+            onClearAll={clearAllFilters}
           />
         </div>
+
+        <ActiveFilters chips={chips} onClearAll={clearAllFilters} />
       </div>
 
       <Tabs
@@ -433,7 +633,7 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
             content: renderList(
               abertas,
               tarefas.length === 0
-                ? "Nada por aqui ainda. Grave um áudio ou toque em “Nova tarefa”."
+                ? "Nada por aqui ainda. Grave um áudio ou capture uma tarefa."
                 : "Nenhuma pendência nesse filtro.",
             ),
           },
@@ -453,10 +653,7 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
             key: "aguardando",
             label: "Aguardando",
             count: aguardando.length,
-            content: renderList(
-              aguardando,
-              "Nada esperando entrega de outros nesse filtro.",
-            ),
+            content: renderList(aguardando, "Nada esperando entrega de outros nesse filtro."),
           },
           {
             key: "concluidas",
