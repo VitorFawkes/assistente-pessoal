@@ -38,13 +38,14 @@ export function CopyLinkButton({
     return (
       <button
         onClick={handleCopy}
-        className="p-1 rounded hover:bg-[color:var(--accent)] transition-colors"
+        className="p-2 rounded-lg hover:bg-[color:var(--accent)] transition-all duration-200"
         title={copied ? "Copiado!" : label}
+        aria-label={label}
       >
         {copied ? (
-          <Check className="w-4 h-4 text-[color:var(--calm)]" />
+          <Check className="w-5 h-5 text-[color:var(--calm)]" strokeWidth={2} />
         ) : (
-          <Copy className="w-4 h-4 text-[color:var(--muted)]" />
+          <Copy className="w-5 h-5 text-[color:var(--muted)]" strokeWidth={1.5} />
         )}
       </button>
     );
@@ -53,20 +54,20 @@ export function CopyLinkButton({
   return (
     <button
       onClick={handleCopy}
-      className={`px-3 py-1 rounded text-sm font-medium transition-all flex items-center gap-2 ${
+      className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 border ${
         copied
-          ? "bg-[color:var(--calm)] text-white"
-          : "bg-[color:var(--border)] text-[color:var(--foreground)] hover:opacity-80"
+          ? "bg-[color:var(--calm)] text-white border-[color:var(--calm)]"
+          : "bg-transparent border-[color:var(--border)] text-[color:var(--foreground)] hover:border-[color:var(--calm)] hover:text-[color:var(--calm)]"
       }`}
     >
       {copied ? (
         <>
-          <Check className="w-4 h-4" />
+          <Check className="w-4 h-4" strokeWidth={2} />
           Copiado!
         </>
       ) : (
         <>
-          <Copy className="w-4 h-4" />
+          <Copy className="w-4 h-4" strokeWidth={1.5} />
           {label}
         </>
       )}
