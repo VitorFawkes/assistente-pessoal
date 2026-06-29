@@ -181,6 +181,7 @@ export function TaskRow({
 
   return (
     <div
+      data-scope={mut.scope}
       className={cn(
         "paper-card rounded-xl border overflow-hidden transition",
         "border-[color:var(--border)] hover:border-[color:var(--muted)]",
