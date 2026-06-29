@@ -121,7 +121,7 @@ export type VoiceSample = {
 
 // SELECT canônico de uma tarefa serializada (frente + pessoas agregadas).
 // Use com um WHERE depois. Mantém o shape idêntico em recentes/criar.
-const TAREFA_SELECT = `
+export const TAREFA_SELECT = `
   SELECT t.*,
          to_char(m.recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS meeting_recorded_at,
          m.summary AS meeting_summary,

@@ -1,6 +1,6 @@
 import { withTenant, query } from "./db";
 import { PoolClient } from "pg";
-import type { Tarefa, TarefaPessoa } from "./queries";
+import { TAREFA_SELECT, type Tarefa, type TarefaPessoa } from "./queries";
 import { randomBytes } from "node:crypto";
 
 // ─── Tipos de Domínio ──────────────────────────────────────────────────
@@ -163,17 +163,41 @@ export function quadrosFor(userId: string) {
     },
 
     /**
-     * Lista tarefas do quadro, joinadas com a tabela tarefas.
+     * Lista tarefas do quadro, serializadas (área + pessoas) via TAREFA_SELECT
+     * pra renderizar nos cards (TaskRow).
      */
     tarefas: async (quadroId: string): Promise<Tarefa[]> => {
       return withTenant(userId, async (c) => {
         const r = await c.query<Tarefa>(
-          `SELECT t.*
-           FROM tarefas t
+          `${TAREFA_SELECT}
            JOIN quadro_tarefas qt ON qt.tarefa_id = t.id
            WHERE qt.quadro_id = $1
-           ORDER BY qt.ordem, t.created_at DESC`,
+           ORDER BY qt.ordem NULLS LAST, t.created_at DESC`,
           [quadroId],
+        );
+        return r.rows;
+      });
+    },
+
+    /**
+     * Tarefas candidatas a entrar no quadro: abertas/em andamento do dono que
+     * ainda NÃO estão neste quadro. Pra o picker "adicionar existentes".
+     * `q` filtra por título/descrição/owner (opcional).
+     */
+    candidatas: async (quadroId: string, q?: string): Promise<Tarefa[]> => {
+      return withTenant(userId, async (c) => {
+        const like = q && q.trim() ? `%${q.trim()}%` : null;
+        const r = await c.query<Tarefa>(
+          `${TAREFA_SELECT}
+           WHERE t.status IN ('aberta','em_andamento')
+             AND NOT EXISTS (
+               SELECT 1 FROM quadro_tarefas qt
+               WHERE qt.quadro_id = $1 AND qt.tarefa_id = t.id
+             )
+             AND ($2::text IS NULL OR t.titulo ILIKE $2 OR t.descricao ILIKE $2 OR t.owner ILIKE $2)
+           ORDER BY t.created_at DESC
+           LIMIT 100`,
+          [quadroId, like],
         );
         return r.rows;
       });
