@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { GuestError } from "./quadro-guest";
+import { rateLimit } from "./rate-limit";
 
 describe("GuestError", () => {
   it("should create error with rate_limit code", () => {
@@ -25,6 +26,47 @@ describe("GuestError", () => {
 
     expect(rateLimitErr.code === "rate_limit").toBe(true);
     expect(invalidTokenErr.code === "invalid_token").toBe(true);
+  });
+});
+
+describe("Guest Rate Limiting", () => {
+  it("should allow 30 requests per minute for a single token:ip", () => {
+    const key = `guest_${Date.now()}_ratetest`;
+    const maxRequests = 30;
+    const windowMs = 60_000;
+
+    // Fazer 30 requisições
+    for (let i = 0; i < maxRequests; i++) {
+      const allowed = rateLimit(key, maxRequests, windowMs);
+      expect(allowed).toBe(true);
+    }
+
+    // 31ª deve ser rejeitada
+    const rejected = rateLimit(key, maxRequests, windowMs);
+    expect(rejected).toBe(false);
+  });
+
+  it("should handle different token:ip combinations independently", () => {
+    const key1 = `guest_${Date.now()}_token1_ip1`;
+    const key2 = `guest_${Date.now()}_token1_ip2`;
+    const maxRequests = 3;
+    const windowMs = 60_000;
+
+    // token1:ip1 — 3 requisições OK
+    expect(rateLimit(key1, maxRequests, windowMs)).toBe(true);
+    expect(rateLimit(key1, maxRequests, windowMs)).toBe(true);
+    expect(rateLimit(key1, maxRequests, windowMs)).toBe(true);
+
+    // token1:ip2 (diferente IP, mesmo token) — 3 requisições OK também
+    expect(rateLimit(key2, maxRequests, windowMs)).toBe(true);
+    expect(rateLimit(key2, maxRequests, windowMs)).toBe(true);
+    expect(rateLimit(key2, maxRequests, windowMs)).toBe(true);
+
+    // key1 5ª requisição — bloqueado
+    expect(rateLimit(key1, maxRequests, windowMs)).toBe(false);
+
+    // key2 4ª requisição — bloqueado também
+    expect(rateLimit(key2, maxRequests, windowMs)).toBe(false);
   });
 });
 
