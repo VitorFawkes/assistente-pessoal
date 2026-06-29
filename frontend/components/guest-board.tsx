@@ -11,16 +11,20 @@ interface GuestBoardProps {
   acesso: AcessoConvidado;
 }
 
-function GuestBoardContent() {
+interface GuestBoardContentProps {
+  acesso: AcessoConvidado;
+}
+
+function GuestBoardContent({ acesso }: GuestBoardContentProps) {
   const { tarefas, loading } = useGuestTasks();
 
   return (
     <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
       {/* Cabeçalho */}
       <div className="mb-8 pb-6 border-b-2 border-[color:var(--border)]">
-        <h1 className="font-display text-3xl sm:text-4xl mb-2">{tarefas[0] ? "Quadro" : "Quadro"}</h1>
+        <h1 className="font-display text-3xl sm:text-4xl mb-2">{acesso.quadroNome}</h1>
         <p className="text-sm text-[color:var(--muted-strong)]">
-          Você está como convidado
+          Você está como {acesso.convidadoNome}
         </p>
       </div>
 
@@ -56,7 +60,7 @@ function GuestBoardContent() {
 export function GuestBoard({ token, acesso }: GuestBoardProps) {
   return (
     <GuestTaskProvider token={token}>
-      <GuestBoardContent />
+      <GuestBoardContent acesso={acesso} />
     </GuestTaskProvider>
   );
 }
