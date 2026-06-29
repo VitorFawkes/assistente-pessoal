@@ -75,8 +75,10 @@ export function QuadroManager({
       setNewConvidadoName("");
       toast.success(`Convidado criado: ${result.nome}`);
 
-      // Copy link to clipboard
-      await navigator.clipboard.writeText(result.link);
+      // Copy link to clipboard — monta com a origin atual (não depende de
+      // NEXT_PUBLIC_BASE_URL, que pode não estar setada em prod).
+      const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+      await navigator.clipboard.writeText(`${baseUrl}/q/${result.token}`);
       toast.success("Link copiado!");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro desconhecido");
