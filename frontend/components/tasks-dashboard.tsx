@@ -406,9 +406,6 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
       return next;
     });
 
-  const filterByArea = (area: string) =>
-    setSelAreas((prev) => new Set(prev).add(area));
-
   // Bucket e intervalo são mutuamente exclusivos por faceta de data.
   const onMeetingBucket = (b: MeetingDateBucket) => {
     setMeetingRange(EMPTY_RANGE);
@@ -536,7 +533,6 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
         tarefa={t}
         selected={selected.has(t.id)}
         onToggleSelect={toggleSelect}
-        onFilterArea={filterByArea}
       />
     ));
 

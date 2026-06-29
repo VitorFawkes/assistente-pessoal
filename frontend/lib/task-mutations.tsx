@@ -7,7 +7,8 @@ import type { Tarefa, Acao, TarefaPessoa } from "@/lib/queries";
 
 // Tipos publicamente consumidos
 export type TaskMutations = {
-  // Editar tarefa existente (patch parcial)
+  // Editar tarefa existente (patch parcial). opts.silent suprime o toast de
+  // sucesso (pra edição inline rápida não floodar de toasts).
   patch: (
     id: string,
     body: Partial<{
@@ -24,6 +25,7 @@ export type TaskMutations = {
       inicio?: string | null;
       pessoas?: TarefaPessoa[];
     }>,
+    opts?: { silent?: boolean },
   ) => Promise<Tarefa | null>;
 
   // Deletar tarefa
@@ -78,7 +80,7 @@ export function OwnerTaskProvider({ children }: OwnerTaskProviderProps) {
   const [isLoading, setIsLoading] = useState(false);
 
   const value: TaskMutations = {
-    patch: async (id, body) => {
+    patch: async (id, body, opts) => {
       setIsLoading(true);
       try {
         const res = await fetch(`/api/tarefas/${id}`, {
@@ -88,7 +90,7 @@ export function OwnerTaskProvider({ children }: OwnerTaskProviderProps) {
         });
         if (!res.ok) throw new Error(`PATCH failed: ${res.status}`);
         const data = await res.json();
-        toast.success("Tarefa atualizada");
+        if (!opts?.silent) toast.success("Tarefa atualizada");
         router.refresh();
         return data;
       } catch (err) {
@@ -104,13 +106,12 @@ export function OwnerTaskProvider({ children }: OwnerTaskProviderProps) {
     remove: async (id, opts) => {
       setIsLoading(true);
       try {
-        const res = await fetch(`/api/tarefas/${id}`, {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            motivo: opts?.motivo || "deletada pelo usuário",
-          }),
-        });
+        // motivo vai na QUERY (a rota lê de searchParams; "nao_era_tarefa" alimenta o feedback).
+        const motivo = opts?.motivo || "deletada pelo usuário";
+        const res = await fetch(
+          `/api/tarefas/${id}?motivo=${encodeURIComponent(motivo)}`,
+          { method: "DELETE" },
+        );
         if (!res.ok) throw new Error(`DELETE failed: ${res.status}`);
         toast.success("Tarefa removida");
         router.refresh();
@@ -216,7 +217,7 @@ export function GuestTaskProvider({ token, children }: GuestTaskProviderProps) {
   }, [token]);
 
   const value: TaskMutations = {
-    patch: async (id, body) => {
+    patch: async (id, body, opts) => {
       const old = tarefas.find((t) => t.id === id);
       setTarefas((t) => t.map((x) => (x.id === id ? { ...x, ...body } as Tarefa : x)));
       try {
@@ -228,7 +229,7 @@ export function GuestTaskProvider({ token, children }: GuestTaskProviderProps) {
         if (!res.ok) throw new Error(`PATCH failed: ${res.status}`);
         const data = await res.json();
         setTarefas((t) => t.map((x) => (x.id === id ? data : x)));
-        toast.success("Tarefa atualizada");
+        if (!opts?.silent) toast.success("Tarefa atualizada");
         return data;
       } catch (err) {
         if (old) setTarefas((t) => t.map((x) => (x.id === id ? old : x)));
