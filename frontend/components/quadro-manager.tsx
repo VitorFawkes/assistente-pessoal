@@ -8,6 +8,8 @@ import type {
   AtividadeItem,
 } from "@/lib/quadros";
 import type { Tarefa } from "@/lib/queries";
+import { ActivityFeed } from "./activity-feed";
+import { CopyLinkButton } from "./copy-link-button";
 
 interface QuadroManagerProps {
   quadro: Quadro;
@@ -20,6 +22,7 @@ export function QuadroManager({
   quadro: initialQuadro,
   tarefas: initialTarefas,
   convidados: initialConvidados,
+  atividade,
 }: QuadroManagerProps) {
   const [quadro, setQuadro] = useState(initialQuadro);
   const [convidados, setConvidados] = useState(initialConvidados);
@@ -143,51 +146,78 @@ export function QuadroManager({
         )}
       </section>
 
-      {/* Convidados */}
-      <section className="space-y-4">
-        <h3 className="font-display text-lg font-semibold">Convidados</h3>
-        <div className="space-y-2">
-          {convidados.map((c) => (
-            <div
-              key={c.id}
-              className="flex items-center justify-between rounded-lg border border-[color:var(--border)] bg-[color:var(--card)] p-3"
-            >
-              <div>
-                <p className="text-sm font-medium">{c.nome}</p>
-                <p className="text-xs text-[color:var(--muted)]">
-                  Criado {new Date(c.created_at).toLocaleDateString("pt-BR")}
-                </p>
-              </div>
-              <button
-                onClick={() => handleRevokeConvidado(c.id)}
-                className="px-3 py-1 rounded text-sm bg-[color:var(--urgent)] text-white hover:opacity-80"
-              >
-                Revogar
-              </button>
-            </div>
-          ))}
+      {/* Convidados e Atividade - Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Coluna esquerda: Tarefas (2 cols em lg) */}
+        <div className="lg:col-span-2">
+          {/* Tarefas seção será renderizada pelo parent */}
         </div>
 
-        <div className="flex gap-2">
-          <input
-            type="text"
-            placeholder="Nome do novo convidado..."
-            value={newConvidadoName}
-            onChange={(e) => setNewConvidadoName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleCreateConvidado();
-            }}
-            className="flex-1 rounded border border-[color:var(--border)] px-3 py-2 text-sm"
-          />
-          <button
-            onClick={handleCreateConvidado}
-            disabled={creatingConvidado || !newConvidadoName.trim()}
-            className="px-4 py-2 rounded bg-[color:var(--calm)] text-white text-sm hover:opacity-80 disabled:opacity-50"
-          >
-            {creatingConvidado ? "Criando..." : "Criar"}
-          </button>
+        {/* Coluna direita: Convidados + Atividade (1 col em lg) */}
+        <div className="lg:col-span-1 space-y-8">
+          {/* Convidados */}
+          <section className="space-y-4">
+            <h3 className="font-display text-lg font-semibold">Convidados</h3>
+            <div className="space-y-3">
+              {convidados.map((c) => {
+                const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+                const link = `${baseUrl}/q/${c.token}`;
+                return (
+                  <div
+                    key={c.id}
+                    className="rounded-lg border border-[color:var(--border)] bg-[color:var(--card)] p-3 space-y-2"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-medium">{c.nome}</p>
+                        <p className="text-xs text-[color:var(--muted)]">
+                          Criado {new Date(c.created_at).toLocaleDateString("pt-BR")}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleRevokeConvidado(c.id)}
+                        className="px-2 py-1 rounded text-xs bg-[color:var(--urgent)] text-white hover:opacity-80 whitespace-nowrap"
+                      >
+                        Revogar
+                      </button>
+                    </div>
+                    {/* Copiar link */}
+                    <div className="pt-2 border-t border-[color:var(--border)]">
+                      <CopyLinkButton link={link} label="Copiar link" variant="button" />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Nome do novo convidado..."
+                value={newConvidadoName}
+                onChange={(e) => setNewConvidadoName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreateConvidado();
+                }}
+                className="flex-1 rounded border border-[color:var(--border)] px-3 py-2 text-sm"
+              />
+              <button
+                onClick={handleCreateConvidado}
+                disabled={creatingConvidado || !newConvidadoName.trim()}
+                className="px-4 py-2 rounded bg-[color:var(--calm)] text-white text-sm hover:opacity-80 disabled:opacity-50"
+              >
+                {creatingConvidado ? "Criando..." : "Criar"}
+              </button>
+            </div>
+          </section>
+
+          {/* Atividade */}
+          <section className="space-y-4 border-t border-[color:var(--border)] pt-6">
+            <h3 className="font-display text-lg font-semibold">Atividade</h3>
+            <ActivityFeed items={atividade} />
+          </section>
         </div>
-      </section>
+      </div>
     </div>
   );
 }
