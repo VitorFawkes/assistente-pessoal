@@ -195,7 +195,11 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ error: "nothing_to_update" }, { status: 400 });
     }
 
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error("[guest-api] erro inesperado:", msg);
+    return NextResponse.json(
+      { error: "server_error", message: "Erro ao processar a requisição." },
+      { status: 500 },
+    );
   }
 }
 
@@ -221,7 +225,9 @@ export async function DELETE(req: NextRequest, ctx: Ctx) {
         throw new Error("tarefa_not_in_board");
       }
 
-      // Hard delete: remover eventos e tarefa
+      // Hard delete: remove os eventos (FK) e a tarefa. Espelha o DELETE do
+      // dono. Não registramos evento de deleção em tarefa_eventos porque ele
+      // referenciaria a tarefa já apagada (viola FK) e cascatearia junto.
       await c.query("DELETE FROM tarefa_eventos WHERE tarefa_id = $1", [id]);
 
       const deleteResult = await c.query(
@@ -232,20 +238,6 @@ export async function DELETE(req: NextRequest, ctx: Ctx) {
       if (deleteResult.rowCount === 0) {
         throw new Error("tarefa_not_found");
       }
-
-      // Log do evento de deleção (antes do DELETE, dentro da mesma transação)
-      await c.query(
-        `
-        INSERT INTO tarefa_eventos (tarefa_id, evento, payload, quadro_convidado_id)
-        VALUES ($1, $2, $3::jsonb, $4)
-        `,
-        [
-          id,
-          "cancelada",
-          JSON.stringify({ origem: "convidado", acao: "deletada" }),
-          acesso.convidadoId,
-        ]
-      );
     });
 
     return new NextResponse(null, { status: 204 });
@@ -279,6 +271,10 @@ export async function DELETE(req: NextRequest, ctx: Ctx) {
       );
     }
 
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error("[guest-api] erro inesperado:", msg);
+    return NextResponse.json(
+      { error: "server_error", message: "Erro ao processar a requisição." },
+      { status: 500 },
+    );
   }
 }

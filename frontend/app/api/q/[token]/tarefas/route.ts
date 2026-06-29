@@ -54,7 +54,11 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       );
     }
     const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error("[guest-api] erro inesperado:", msg);
+    return NextResponse.json(
+      { error: "server_error", message: "Erro ao processar a requisição." },
+      { status: 500 },
+    );
   }
 }
 
@@ -179,6 +183,10 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       );
     }
     const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error("[guest-api] erro inesperado:", msg);
+    return NextResponse.json(
+      { error: "server_error", message: "Erro ao processar a requisição." },
+      { status: 500 },
+    );
   }
 }
