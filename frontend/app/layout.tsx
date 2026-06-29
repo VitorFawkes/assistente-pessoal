@@ -94,6 +94,12 @@ export default async function RootLayout({
                     Pessoas
                   </Link>
                   <Link
+                    href="/quadros"
+                    className="px-3 py-1.5 rounded-full hover:bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition"
+                  >
+                    Quadros
+                  </Link>
+                  <Link
                     href="/assistente"
                     className="px-3 py-1.5 rounded-full hover:bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition"
                   >
