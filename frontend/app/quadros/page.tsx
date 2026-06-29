@@ -1,5 +1,6 @@
 import { requireUserOrRedirect } from "@/lib/auth";
 import { quadrosFor, type QuadroComContagem } from "@/lib/quadros";
+import { NovoQuadro } from "@/components/novo-quadro";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -45,16 +46,19 @@ export default async function QuadrosPage() {
           Cura tarefas manualmente e compartilhe com convidados via link seguro
           e passwordless.
         </p>
+        <div className="pt-1">
+          <NovoQuadro />
+        </div>
       </header>
 
       {quadros.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-[color:var(--border)] p-8 text-center">
+        <div className="rounded-2xl border border-dashed border-[color:var(--border)] p-8 text-center space-y-4">
           <p className="text-sm text-[color:var(--muted-strong)]">
-            Nenhum quadro ainda.{" "}
-            <Link href="/quadros" className="underline">
-              Crie um novo.
-            </Link>
+            Nenhum quadro ainda. Crie o primeiro:
           </p>
+          <div className="flex justify-center">
+            <NovoQuadro autoOpen />
+          </div>
         </div>
       ) : (
         <div className="grid gap-4 sm:gap-6 md:grid-cols-2 lg:grid-cols-3">
