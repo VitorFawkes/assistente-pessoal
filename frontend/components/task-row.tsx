@@ -83,111 +83,169 @@ function prazoChipColor(
 }
 
 // Input inline pra editar o nome do owner sem abrir modal.
-function OwnerInput({
-  initial,
-  onSave,
-  onCancel,
-  className,
-}: {
-  initial: string;
-  onSave: (value: string) => void;
-  onCancel: () => void;
-  className?: string;
-}) {
-  const [value, setValue] = useState(initial === "?" || !initial ? "" : initial);
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    ref.current?.focus();
-    ref.current?.select();
-  }, []);
-  function commit() {
-    onSave(value.trim() || "?");
-  }
-  return (
-    <input
-      ref={ref}
-      type="text"
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
-      onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => {
-        e.stopPropagation();
-        if (e.key === "Enter") {
-          e.preventDefault();
-          commit();
-        } else if (e.key === "Escape") {
-          e.preventDefault();
-          onCancel();
-        }
-      }}
-      onBlur={commit}
-      placeholder="nome"
-      className={cn(
-        "text-[11px] tracking-wide px-1 py-0 rounded bg-transparent outline-none ring-1 ring-[color:var(--foreground)]/40 focus:ring-[color:var(--foreground)] min-w-[60px] sm:min-w-[80px] max-w-[100px] sm:max-w-[120px]",
-        className,
-      )}
-    />
+// Chip de ação EDITÁVEL: clique abre popover (Eu faço / Eu cobro / Aguardar +
+// responsável). Popover é `fixed` porque o card tem overflow-hidden (clipa absolute).
+// Ao aplicar, PATCH {acao, owner} → o backend recalcula o `principal` (agrupamento).
+function AcaoEditor({ tarefa }: { tarefa: Tarefa }) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [draftAcao, setDraftAcao] = useState<Acao>(
+    tarefa.acao === "executar" ? "cobrar" : tarefa.acao,
   );
-}
+  const ownerInicial =
+    tarefa.owner && tarefa.owner !== "?" && tarefa.owner.toLowerCase() !== "vitor"
+      ? tarefa.owner
+      : "";
+  const [owner, setOwner] = useState(ownerInicial);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
 
-// Chip compacto da ação + owner. Owner clicável → editável inline (exceto executar).
-function AcaoChip({
-  tarefa,
-  editingOwner,
-  onStartEdit,
-  onSaveOwner,
-  onCancelEdit,
-}: {
-  tarefa: Tarefa;
-  editingOwner: boolean;
-  onStartEdit: () => void;
-  onSaveOwner: (value: string) => void;
-  onCancelEdit: () => void;
-}) {
-  if (tarefa.acao === "executar") {
-    return (
-      <span className="inline-flex items-center gap-0.5 text-[10px] tracking-wide px-1.5 py-0.5 rounded-full bg-[color:var(--calm-bg)] text-[color:var(--calm)] font-medium whitespace-nowrap">
-        <UserRound size={10} strokeWidth={2} />
-        minha
-      </span>
-    );
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (
+        popRef.current?.contains(e.target as Node) ||
+        btnRef.current?.contains(e.target as Node)
+      )
+        return;
+      setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  function toggle(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!open) {
+      const r = btnRef.current?.getBoundingClientRect();
+      const W = 232;
+      if (r)
+        setPos({
+          top: r.bottom + 6,
+          left: Math.max(8, Math.min(r.left, window.innerWidth - W - 8)),
+        });
+      setDraftAcao(tarefa.acao === "executar" ? "cobrar" : tarefa.acao);
+      setOwner(ownerInicial);
+    }
+    setOpen((v) => !v);
   }
-  const ownerLabel = normalizeOwner(tarefa.owner);
+
+  function apply(acao: Acao, ownerValue: string) {
+    startTransition(async () => {
+      await fetch(`/api/tarefas/${tarefa.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          acao,
+          owner: acao === "executar" ? "vitor" : ownerValue.trim() || "?",
+        }),
+      });
+      setOpen(false);
+      router.refresh();
+    });
+  }
+
+  const isExec = tarefa.acao === "executar";
   const isCobrar = tarefa.acao === "cobrar";
+  const ownerLabel = normalizeOwner(tarefa.owner);
+
   return (
-    <span
-      onClick={(e) => e.stopPropagation()}
-      className={cn(
-        "inline-flex items-center gap-0.5 text-[10px] tracking-wide px-1.5 py-0.5 rounded-full whitespace-nowrap",
-        isCobrar
-          ? "bg-[color:var(--warm-bg)] text-[color:var(--warm)] font-semibold ring-1 ring-[color:var(--warm)]/30"
-          : "bg-[color:var(--warm-bg)]/60 text-[color:var(--warm)] font-medium",
-      )}
-    >
-      {isCobrar ? (
-        <Bell size={10} strokeWidth={2} />
-      ) : (
-        <Send size={10} strokeWidth={2} />
-      )}
-      <span>{isCobrar ? "cobrar" : "aguard."}</span>
-      {editingOwner ? (
-        <OwnerInput
-          initial={tarefa.owner}
-          onSave={onSaveOwner}
-          onCancel={onCancelEdit}
-        />
-      ) : (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onStartEdit();
-          }}
-          className="underline decoration-dotted underline-offset-2 hover:decoration-solid max-w-[80px] sm:max-w-[110px] truncate"
-          title={`Cobrar de ${ownerLabel} — clique pra editar`}
+    <span className="relative inline-flex" onClick={(e) => e.stopPropagation()}>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={toggle}
+        title="Trocar ação / responsável"
+        className={cn(
+          "inline-flex items-center gap-0.5 text-[10px] tracking-wide px-1.5 py-0.5 rounded-full whitespace-nowrap cursor-pointer transition",
+          isExec
+            ? "bg-[color:var(--calm-bg)] text-[color:var(--calm)] font-medium hover:ring-1 hover:ring-[color:var(--calm)]/40"
+            : isCobrar
+            ? "bg-[color:var(--warm-bg)] text-[color:var(--warm)] font-semibold ring-1 ring-[color:var(--warm)]/30"
+            : "bg-[color:var(--warm-bg)]/60 text-[color:var(--warm)] font-medium",
+        )}
+      >
+        {isExec ? (
+          <UserRound size={10} strokeWidth={2} />
+        ) : isCobrar ? (
+          <Bell size={10} strokeWidth={2} />
+        ) : (
+          <Send size={10} strokeWidth={2} />
+        )}
+        <span className="max-w-[110px] truncate">
+          {isExec ? "minha" : `${isCobrar ? "cobrar" : "aguard."} ${ownerLabel}`}
+        </span>
+      </button>
+
+      {open && pos && (
+        <div
+          ref={popRef}
+          style={{ top: pos.top, left: pos.left, width: 232 }}
+          className="fixed z-50 rounded-xl border border-[color:var(--border)] bg-[color:var(--card)] shadow-xl p-2.5 space-y-2"
         >
-          {ownerLabel}
-        </button>
+          <div className="flex flex-wrap gap-1">
+            {(
+              [
+                { v: "executar", label: "Eu faço" },
+                { v: "cobrar", label: "Eu cobro" },
+                { v: "aguardar", label: "Aguardar" },
+              ] as const
+            ).map((o) => {
+              const active =
+                o.v === "executar" ? isExec : draftAcao === o.v && !isExec;
+              return (
+                <button
+                  key={o.v}
+                  type="button"
+                  disabled={isPending}
+                  onClick={() =>
+                    o.v === "executar" ? apply("executar", "") : setDraftAcao(o.v)
+                  }
+                  className={cn(
+                    "text-[12px] px-2 py-1 rounded-full border transition",
+                    active
+                      ? "bg-[color:var(--foreground)] text-[color:var(--background)] border-[color:var(--foreground)] font-medium"
+                      : "border-[color:var(--border)] text-[color:var(--muted-strong)] hover:bg-[color:var(--accent)]",
+                  )}
+                >
+                  {o.label}
+                </button>
+              );
+            })}
+          </div>
+          {draftAcao !== "executar" && (
+            <div className="flex items-center gap-1.5">
+              <input
+                type="text"
+                value={owner}
+                onChange={(e) => setOwner(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && owner.trim()) apply(draftAcao, owner);
+                }}
+                placeholder="responsável"
+                autoFocus
+                className="flex-1 min-w-0 px-2 py-1 rounded border border-[color:var(--border)] bg-transparent text-[12px] outline-none focus:border-[color:var(--muted)]"
+              />
+              <button
+                type="button"
+                disabled={isPending || !owner.trim()}
+                onClick={() => apply(draftAcao, owner)}
+                className="shrink-0 text-[12px] px-2.5 py-1 rounded bg-[color:var(--foreground)] text-[color:var(--background)] disabled:opacity-40"
+              >
+                ok
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </span>
   );
@@ -209,7 +267,6 @@ export function TaskRow({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
-  const [editingOwner, setEditingOwner] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showEvidencia, setShowEvidencia] = useState(false);
 
@@ -257,19 +314,6 @@ export function TaskRow({
     startTransition(async () => {
       await fetch(`/api/tarefas/${tarefa.id}?motivo=nao_era_tarefa`, {
         method: "DELETE",
-      });
-      router.refresh();
-    });
-  }
-
-  function saveOwner(next: string) {
-    setEditingOwner(false);
-    if (next === tarefa.owner) return;
-    startTransition(async () => {
-      await fetch(`/api/tarefas/${tarefa.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ owner: next }),
       });
       router.refresh();
     });
@@ -432,13 +476,7 @@ export function TaskRow({
                   {tarefa.frente_proposta}?
                 </span>
               )}
-              <AcaoChip
-                tarefa={tarefa}
-                editingOwner={editingOwner}
-                onStartEdit={() => setEditingOwner(true)}
-                onSaveOwner={saveOwner}
-                onCancelEdit={() => setEditingOwner(false)}
-              />
+              <AcaoEditor tarefa={tarefa} />
             </div>
           </div>
 

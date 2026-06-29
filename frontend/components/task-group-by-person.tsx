@@ -1,10 +1,16 @@
 import { UserRound } from "lucide-react";
 import { TaskRow, type Tarefa } from "./task-row";
 
-// Agrupa por pessoa principal (a marcada principal=true); sem principal → "Você".
+// Agrupa por pessoa principal (principal=true). Sem principal mas cobrar/aguardar
+// com responsável real → agrupa pelo owner (senão cairia errado em "Você").
 function groupKey(t: Tarefa): { id: string; nome: string; ehVoce: boolean } {
   const principal = (t.pessoas ?? []).find((p) => p.principal);
   if (principal) return { id: principal.id, nome: principal.nome, ehVoce: false };
+  if (t.acao !== "executar") {
+    const owner = (t.owner ?? "").trim();
+    if (owner && owner !== "?" && owner.toLowerCase() !== "vitor")
+      return { id: `owner:${owner.toLowerCase()}`, nome: owner, ehVoce: false };
+  }
   return { id: "__voce__", nome: "Você", ehVoce: true };
 }
 
