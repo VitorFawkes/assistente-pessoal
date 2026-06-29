@@ -4,6 +4,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { query } from "@/lib/db";
 import { UserMenu } from "@/components/user-menu";
+import { Toaster } from "sonner";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -110,6 +111,7 @@ export default async function RootLayout({
         <footer className="border-t border-[color:var(--border)] py-5 text-center text-[11px] tracking-wider uppercase text-[color:var(--muted)]">
           Assistente Pessoal · {new Date().getFullYear()}
         </footer>
+        <Toaster />
       </body>
     </html>
   );
