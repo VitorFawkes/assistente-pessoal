@@ -91,9 +91,7 @@ function AcaoEditor({ tarefa }: { tarefa: Tarefa }) {
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
-  const [draftAcao, setDraftAcao] = useState<Acao>(
-    tarefa.acao === "executar" ? "cobrar" : tarefa.acao,
-  );
+  const [draftAcao, setDraftAcao] = useState<Acao>(tarefa.acao);
   const ownerInicial =
     tarefa.owner && tarefa.owner !== "?" && tarefa.owner.toLowerCase() !== "vitor"
       ? tarefa.owner
@@ -133,7 +131,7 @@ function AcaoEditor({ tarefa }: { tarefa: Tarefa }) {
           top: r.bottom + 6,
           left: Math.max(8, Math.min(r.left, window.innerWidth - W - 8)),
         });
-      setDraftAcao(tarefa.acao === "executar" ? "cobrar" : tarefa.acao);
+      setDraftAcao(tarefa.acao);
       setOwner(ownerInicial);
     }
     setOpen((v) => !v);
@@ -200,8 +198,7 @@ function AcaoEditor({ tarefa }: { tarefa: Tarefa }) {
                 { v: "aguardar", label: "Aguardar" },
               ] as const
             ).map((o) => {
-              const active =
-                o.v === "executar" ? isExec : draftAcao === o.v && !isExec;
+              const active = draftAcao === o.v;
               return (
                 <button
                   key={o.v}
