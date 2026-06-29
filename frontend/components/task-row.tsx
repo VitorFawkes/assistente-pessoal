@@ -18,38 +18,13 @@ import {
   ChevronDown,
   Check,
   Dot,
+  X,
 } from "lucide-react";
 import { cn, formatPrazo, normalizeOwner, type Prioridade } from "@/lib/utils";
-import { TaskEditModal } from "./task-edit-modal";
+import { TaskEditFields } from "./task-edit-fields";
+import type { Tarefa, Acao } from "@/lib/queries";
 
-export type Acao = "executar" | "cobrar" | "aguardar";
-
-export type Tarefa = {
-  id: string;
-  meeting_id: string | null;
-  titulo: string;
-  descricao: string | null;
-  owner: string;
-  is_mine: boolean;
-  acao: Acao;
-  prazo: string | null;
-  inicio: string | null;
-  prazo_text: string | null;
-  prioridade: Prioridade;
-  status: "aberta" | "em_andamento" | "concluida" | "cancelada";
-  evidencia: string | null;
-  frente: string | null;
-  frente_proposta: string | null;
-  pessoas: { id: string; nome: string; principal: boolean }[];
-  created_at: string;
-  updated_at?: string | null;
-  precisa_revisao: boolean;
-  ordem: number | null;
-  no_plano: boolean;
-  meeting_recorded_at?: string | null;
-  meeting_summary?: string | null;
-  meeting_type?: string | null;
-};
+export type { Tarefa, Acao };
 
 // Faixa colorida na lateral esquerda — prioridade.
 function priorityStripe(p: Prioridade): string {
@@ -263,7 +238,7 @@ export function TaskRow({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [editing, setEditing] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showEvidencia, setShowEvidencia] = useState(false);
 
@@ -274,6 +249,18 @@ export function TaskRow({
   const isUrgent = tarefa.prioridade === "urgente";
 
   const secondaryPeople = (tarefa.pessoas ?? []).filter((p) => !p.principal);
+
+  // Fechar ao pressionar Escape
+  useEffect(() => {
+    if (!expanded) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setExpanded(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [expanded]);
 
   function toggleDone(e: React.MouseEvent) {
     e.stopPropagation();
@@ -321,11 +308,21 @@ export function TaskRow({
       <div
         role="button"
         tabIndex={0}
-        onClick={() => setEditing(true)}
+        onClick={() => setExpanded(true)}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            setEditing(true);
+            setExpanded(true);
+          }
+        }}
+        onBlur={() => {
+          // Fechar se clicou fora do card
+          if (expanded) {
+            setTimeout(() => {
+              if (document.activeElement?.tagName === "BODY") {
+                setExpanded(false);
+              }
+            }, 0);
           }
         }}
         className={cn(
@@ -574,8 +571,29 @@ export function TaskRow({
         </div>
       </div>
 
-      {editing && (
-        <TaskEditModal tarefa={tarefa} onClose={() => setEditing(false)} />
+      {expanded && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={() => setExpanded(false)}
+        >
+          <div
+            className="w-full sm:max-w-lg bg-[color:var(--card)] border border-[color:var(--border)] rounded-t-2xl sm:rounded-2xl shadow-2xl p-5 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">Editar tarefa</h2>
+              <button
+                type="button"
+                onClick={() => setExpanded(false)}
+                className="text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
+                aria-label="Fechar"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <TaskEditFields tarefa={tarefa} />
+          </div>
+        </div>
       )}
     </>
   );

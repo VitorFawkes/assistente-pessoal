@@ -66,6 +66,10 @@ export type Tarefa = {
   precisa_revisao: boolean;
   ordem: number | null;
   no_plano: boolean;
+  // Campos opcionais que podem vir do JOIN com meetings
+  meeting_summary?: string | null;
+  meeting_recorded_at?: string | null;
+  meeting_type?: string | null;
 };
 
 export type TarefaDraft = {

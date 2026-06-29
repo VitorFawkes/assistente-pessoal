@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { X, Check, Search } from "lucide-react";
 import { cn, formatCreatedAt } from "@/lib/utils";
-import type { Tarefa } from "./task-row";
+import type { Tarefa } from "@/lib/queries";
 
 function isOpen(t: Tarefa) {
   return t.status !== "concluida" && t.status !== "cancelada";
