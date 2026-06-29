@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { cn, formatPrazo, normalizeOwner, type Prioridade } from "@/lib/utils";
 import { TaskEditFields } from "./task-edit-fields";
+import { useTaskMutations } from "@/lib/task-mutations";
 import type { Tarefa, Acao } from "@/lib/queries";
 
 export type { Tarefa, Acao };
@@ -62,8 +63,8 @@ function prazoChipColor(
 // responsável). Popover é `fixed` porque o card tem overflow-hidden (clipa absolute).
 // Ao aplicar, PATCH {acao, owner} → o backend recalcula o `principal` (agrupamento).
 function AcaoEditor({ tarefa }: { tarefa: Tarefa }) {
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const mut = useTaskMutations();
+  const [isPending, setIsPending] = useState(false);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [draftAcao, setDraftAcao] = useState<Acao>(tarefa.acao);
@@ -112,19 +113,17 @@ function AcaoEditor({ tarefa }: { tarefa: Tarefa }) {
     setOpen((v) => !v);
   }
 
-  function apply(acao: Acao, ownerValue: string) {
-    startTransition(async () => {
-      await fetch(`/api/tarefas/${tarefa.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          acao,
-          owner: acao === "executar" ? "vitor" : ownerValue.trim() || "?",
-        }),
+  async function apply(acao: Acao, ownerValue: string) {
+    setIsPending(true);
+    try {
+      await mut.patch(tarefa.id, {
+        acao,
+        owner: acao === "executar" ? "vitor" : ownerValue.trim() || "?",
       });
       setOpen(false);
-      router.refresh();
-    });
+    } finally {
+      setIsPending(false);
+    }
   }
 
   const isExec = tarefa.acao === "executar";
