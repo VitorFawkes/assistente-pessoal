@@ -17,6 +17,8 @@ const PUBLIC_PREFIXES = [
   "/api/mobile/",         // app iOS: rotas autenticadas via Authorization: Bearer (auth própria na rota)
   "/api/agent/",          // chat-bridge (Bearer) + Hermes (X-API-Key) — auth própria na rota (withAgentAuth)
   "/api/internal/",       // service-to-service (ingest-svc valida session com INTERNAL_SVC_TOKEN)
+  "/q/",                  // página pública do quadro por token (guest)
+  "/api/q/",              // APIs públicas do quadro por token (guest, rate-limit + token validation)
   // atalho de login só em dev (rota é NODE_ENV-gated; em prod nem entra aqui)
   ...(process.env.NODE_ENV !== "production" ? ["/api/dev-login"] : []),
 ];
