@@ -119,8 +119,8 @@ export function quadrosFor(userId: string) {
      */
     atualizar: async (
       id: string,
-      nome?: string,
-      descricao?: string,
+      nome?: string | null,
+      descricao?: string | null,
     ): Promise<Quadro | null> => {
       return withTenant(userId, async (c) => {
         const updates: string[] = [];
