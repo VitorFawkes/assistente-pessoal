@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { withAgentAuth } from "@/lib/auth";
 import { tarefasFor, frentesFor } from "@/lib/queries";
+import { quadrosFor } from "@/lib/quadros";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,7 @@ type PostBody = Partial<{
   frente_id: string | null;
   frente: string; // nome da frente (get-or-create) — alternativa a frente_id
   pessoas: { nome: string; principal?: boolean }[] | string[];
+  quadro_id: string; // se passado, já vincula a tarefa criada a este quadro
 }>;
 
 // GET /api/agent/tarefas?status=&owner=&prioridade=&acao=&no_plano=&q=
@@ -91,6 +93,10 @@ export const POST = withAgentAuth(async ({ user, origem }, req) => {
       },
       { origem },
     );
+    // se o agente pediu, já vincula a tarefa recém-criada a um quadro
+    if (typeof body.quadro_id === "string" && body.quadro_id.trim() && created?.id) {
+      await quadrosFor(user.id).adicionarTarefas(body.quadro_id.trim(), [created.id]);
+    }
     return NextResponse.json(created, { status: 201 });
   } catch (e) {
     return NextResponse.json(
