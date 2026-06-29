@@ -1,0 +1,164 @@
+{
+  "when": "pre-0013",
+  "columns": [
+    "id",
+    "meeting_id",
+    "titulo",
+    "descricao",
+    "owner",
+    "is_mine",
+    "prazo",
+    "prazo_text",
+    "prioridade",
+    "status",
+    "evidencia",
+    "created_at",
+    "updated_at",
+    "concluida_em",
+    "cancelada_em",
+    "user_id",
+    "acao",
+    "frente_id",
+    "frente_proposta",
+    "pessoas_raw",
+    "area_raw",
+    "precisa_revisao",
+    "inicio"
+  ],
+  "count": 19,
+  "rows": [
+    {
+      "id": "80851da7-bb37-4124-95c6-06ab095f2db4",
+      "prazo": null,
+      "inicio": null,
+      "status": "concluida",
+      "prioridade": "media"
+    },
+    {
+      "id": "f36b8a03-e246-4eb4-98d1-314835d7b61d",
+      "prazo": null,
+      "inicio": null,
+      "status": "concluida",
+      "prioridade": "media"
+    },
+    {
+      "id": "a61871d0-9393-4598-8754-fe2e18cb6bc3",
+      "prazo": null,
+      "inicio": null,
+      "status": "concluida",
+      "prioridade": "alta"
+    },
+    {
+      "id": "3d10f530-ee2a-4fcf-b794-e5a5752388ca",
+      "prazo": null,
+      "inicio": null,
+      "status": "concluida",
+      "prioridade": "alta"
+    },
+    {
+      "id": "bcd0e3a7-d1f6-470e-92d2-d0109e9a20dc",
+      "prazo": "2026-06-14",
+      "inicio": "2026-06-10",
+      "status": "aberta",
+      "prioridade": "alta"
+    },
+    {
+      "id": "4228326f-d7f8-438f-9cca-c457210bdccb",
+      "prazo": "2026-06-10",
+      "inicio": null,
+      "status": "aberta",
+      "prioridade": "alta"
+    },
+    {
+      "id": "6940e351-787e-4cbe-acf6-0b91233080e3",
+      "prazo": "2026-06-11",
+      "inicio": null,
+      "status": "aberta",
+      "prioridade": "alta"
+    },
+    {
+      "id": "99113603-6c2a-4f8e-ace5-f94ec4b7ac6f",
+      "prazo": "2026-06-10",
+      "inicio": null,
+      "status": "aberta",
+      "prioridade": "alta"
+    },
+    {
+      "id": "2c367406-51a2-473b-954e-1c6f586a713b",
+      "prazo": null,
+      "inicio": null,
+      "status": "concluida",
+      "prioridade": "alta"
+    },
+    {
+      "id": "aad298f1-08cd-4193-89e2-90c0e3c48a4d",
+      "prazo": "2026-06-13",
+      "inicio": null,
+      "status": "aberta",
+      "prioridade": "media"
+    },
+    {
+      "id": "6f39aec6-d7fb-476a-a074-e5393703152e",
+      "prazo": "2026-06-13",
+      "inicio": null,
+      "status": "aberta",
+      "prioridade": "media"
+    },
+    {
+      "id": "0fbce5e8-0381-4f89-ae20-134a081c52c4",
+      "prazo": "2026-06-11",
+      "inicio": null,
+      "status": "aberta",
+      "prioridade": "alta"
+    },
+    {
+      "id": "a6928880-9858-4364-8016-3929124470eb",
+      "prazo": "2026-06-10",
+      "inicio": null,
+      "status": "aberta",
+      "prioridade": "media"
+    },
+    {
+      "id": "f6d17b31-da34-43e7-8df4-74894ea0195a",
+      "prazo": "2026-06-13",
+      "inicio": "2026-06-11",
+      "status": "aberta",
+      "prioridade": "media"
+    },
+    {
+      "id": "a684b0b5-6ba9-42bf-9c35-448cd9d0b7b8",
+      "prazo": "2026-06-16",
+      "inicio": "2026-06-11",
+      "status": "aberta",
+      "prioridade": "alta"
+    },
+    {
+      "id": "ad71480a-cd54-463d-aad7-97cfeac3faba",
+      "prazo": "2026-06-16",
+      "inicio": "2026-06-14",
+      "status": "aberta",
+      "prioridade": "alta"
+    },
+    {
+      "id": "ab7dcf56-cadb-415a-bfb7-76aa17c9a804",
+      "prazo": "2026-06-10",
+      "inicio": null,
+      "status": "aberta",
+      "prioridade": "media"
+    },
+    {
+      "id": "bb5157c5-7498-458d-8438-4e1d14f108a8",
+      "prazo": "2026-06-17",
+      "inicio": "2026-06-12",
+      "status": "aberta",
+      "prioridade": "media"
+    },
+    {
+      "id": "b37790d5-e786-449a-b062-363ae931c21a",
+      "prazo": "2026-06-17",
+      "inicio": null,
+      "status": "aberta",
+      "prioridade": "media"
+    }
+  ]
+}

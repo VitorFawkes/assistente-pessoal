@@ -1,0 +1,4 @@
+claude-agent-sdk>=0.2.89
+faster-whisper>=1.2.1
+anyio>=4.0
+edge-tts
