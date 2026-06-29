@@ -1,7 +1,8 @@
 import { requireUserOrRedirect } from "@/lib/auth";
 import { tarefasFor } from "@/lib/queries";
-import { type Tarefa } from "@/components/task-row";
+import { type Tarefa } from "@/lib/queries";
 import { TasksDashboard } from "@/components/tasks-dashboard";
+import { OwnerTaskProvider } from "@/lib/task-mutations";
 
 export const dynamic = "force-dynamic";
 
@@ -36,20 +37,22 @@ export default async function HomePage() {
   }
 
   return (
-    <div className="space-y-4">
-      <header className="flex items-baseline gap-3">
-        <h1 className="font-display text-2xl sm:text-3xl leading-tight">
-          O que está{" "}
-          <span className="italic font-[450] text-[color:var(--muted-strong)]">
-            combinado.
-          </span>
-        </h1>
-        <p className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
-          Pendências
-        </p>
-      </header>
+    <OwnerTaskProvider>
+      <div className="space-y-4">
+        <header className="flex items-baseline gap-3">
+          <h1 className="font-display text-2xl sm:text-3xl leading-tight">
+            O que está{" "}
+            <span className="italic font-[450] text-[color:var(--muted-strong)]">
+              combinado.
+            </span>
+          </h1>
+          <p className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
+            Pendências
+          </p>
+        </header>
 
-      <TasksDashboard tarefas={tarefas} />
-    </div>
+        <TasksDashboard tarefas={tarefas} />
+      </div>
+    </OwnerTaskProvider>
   );
 }

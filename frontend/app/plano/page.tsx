@@ -1,7 +1,8 @@
 import { requireUserOrRedirect } from "@/lib/auth";
 import { tarefasFor } from "@/lib/queries";
-import { type Tarefa } from "@/components/task-row";
+import { type Tarefa } from "@/lib/queries";
 import { PlanoTimeline } from "@/components/plano-timeline";
+import { OwnerTaskProvider } from "@/lib/task-mutations";
 
 export const dynamic = "force-dynamic";
 
@@ -30,29 +31,31 @@ export default async function PlanoPage() {
   }
 
   return (
-    <div className="space-y-7 sm:space-y-9">
-      <header className="space-y-2">
-        <p className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
-          Plano de ação
-        </p>
-        <h1 className="font-display text-4xl sm:text-5xl leading-[1.05]">
-          A linha do{" "}
-          <span className="italic font-[450] text-[color:var(--muted-strong)]">
-            tempo.
-          </span>
-        </h1>
-        <p className="text-[14px] text-[color:var(--muted-strong)] max-w-md">
-          Quem faz o quê e quando. Arraste as barras pra reagendar, marque o
-          andamento e mostre o avanço na hora — tudo editável direto aqui.
-        </p>
-      </header>
+    <OwnerTaskProvider>
+      <div className="space-y-7 sm:space-y-9">
+        <header className="space-y-2">
+          <p className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
+            Plano de ação
+          </p>
+          <h1 className="font-display text-4xl sm:text-5xl leading-[1.05]">
+            A linha do{" "}
+            <span className="italic font-[450] text-[color:var(--muted-strong)]">
+              tempo.
+            </span>
+          </h1>
+          <p className="text-[14px] text-[color:var(--muted-strong)] max-w-md">
+            Quem faz o quê e quando. Arraste as barras pra reagendar, marque o
+            andamento e mostre o avanço na hora — tudo editável direto aqui.
+          </p>
+        </header>
 
-      {/* full-bleed: a timeline escapa da coluna estreita e usa a tela toda */}
-      <div className="mx-[calc(50%-50vw)] px-5 sm:px-8 overflow-x-clip">
-        <div className="mx-auto max-w-[1500px]">
-          <PlanoTimeline tarefas={tarefas} />
+        {/* full-bleed: a timeline escapa da coluna estreita e usa a tela toda */}
+        <div className="mx-[calc(50%-50vw)] px-5 sm:px-8 overflow-x-clip">
+          <div className="mx-auto max-w-[1500px]">
+            <PlanoTimeline tarefas={tarefas} />
+          </div>
         </div>
       </div>
-    </div>
+    </OwnerTaskProvider>
   );
 }
