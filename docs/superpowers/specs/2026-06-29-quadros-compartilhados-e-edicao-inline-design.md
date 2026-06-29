@@ -18,7 +18,10 @@ Duas peças que se reforçam:
 | Escopo | **Um spec só, executado em fases.** Inline + compartilhamento no mesmo plano. |
 | Acesso do convidado | **Link por pessoa, passwordless.** Cada convidado tem token próprio; ações ficam atribuídas a ele; revogável individualmente. Espelha o modelo de convite/sessão atual. |
 | Conteúdo do quadro | **Lista curada manual.** O Vitor escolhe quais tarefas entram no quadro. Tarefas criadas pelo convidado entram automaticamente. |
-| Permissões do convidado | **Edição total** — cria, edita qualquer campo, conclui, reagenda, apaga. "Como se fosse dono", limitado às tarefas daquele quadro. |
+| Permissões do convidado | **Edição total** — cria, edita qualquer campo, conclui, reagenda, **apaga de verdade** (hard delete). "Como se fosse dono", limitado às tarefas daquele quadro. |
+| Multiplicidade | **Vários quadros independentes**, cada um compartilhado com pessoas diferentes. **A mesma pessoa pode estar em vários quadros** — cada quadro emite seu próprio link por pessoa (N convidados por quadro; o mesmo humano = uma entrada/link por quadro). Sem identidade global de convidado. |
+| Toast/feedback | **`sonner`** (lib leve e bonita) pro feedback do salvamento otimista. Prioridade explícita do Vitor: a UI deve ser **a mais visual, bonita e clara possível**. |
+| Nome | Entidade interna = `quadros` (tabelas/rotas/código). Rótulo de UI task-centric, finalizado na build (decoupled do código — troca trivial). |
 
 ### Supersede explícito
 
@@ -298,8 +301,9 @@ APIs do convidado (em `PUBLIC_PREFIXES`; auth própria por token; rate-limit por
 - Drag-and-drop de ordenação no quadro do convidado.
 - App iOS / Hermes / agente cientes de quadros.
 
-## Decisões em aberto (confirmar na revisão)
+## Decisões resolvidas (revisão 2026-06-29)
 
-1. **Nome na UI:** "Quadros" (entidade) descrito como "centro de controle". OK ou prefere "Painéis"/"Centros"?
-2. **Apagar do convidado:** mantém DELETE real (escolha "edição total") ou já entra como "remover do quadro"? Recomendo manter DELETE real conforme decidido, com atividade auditada.
-3. **`sonner`** como lib de toast (leve, já previsto no spec antigo) — ok adicionar dependência?
+1. **Apagar do convidado:** **DELETE real (hard delete)** confirmado — convidado apaga de verdade, com atividade auditada por `quadro_convidado_id`.
+2. **`sonner`** confirmado como lib de toast. Mais amplo: **investir em polish visual** — o quadro do convidado e os cards inline devem ser bonitos e claros (prioridade explícita).
+3. **Nome:** interno `quadros`; rótulo de UI finalizado na build (decoupled, troca trivial).
+4. **Multiplicidade:** vários quadros independentes; a mesma pessoa pode ser convidada em vários quadros (uma entrada `quadro_convidados` + um link por quadro). Já coberto pelo schema — `quadro_convidados` é por-quadro, sem unicidade global de pessoa.
