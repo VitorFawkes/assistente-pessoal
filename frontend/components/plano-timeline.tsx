@@ -18,9 +18,10 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { cn, normalizeOwner } from "@/lib/utils";
-import { TaskEditModal } from "./task-edit-modal";
+import { TaskEditFields } from "./task-edit-fields";
 import { PlanoManageModal } from "./plano-manage-modal";
-import type { Tarefa } from "./task-row";
+import type { Tarefa } from "@/lib/queries";
+import { X } from "lucide-react";
 import {
   axisTicks,
   buildDomain,
@@ -1501,7 +1502,30 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
       )}
 
       {renderPopover()}
-      {editing && <TaskEditModal tarefa={editing} onClose={() => setEditing(null)} />}
+      {editing && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={() => setEditing(null)}
+        >
+          <div
+            className="w-full sm:max-w-lg bg-[color:var(--card)] border border-[color:var(--border)] rounded-t-2xl sm:rounded-2xl shadow-2xl p-5 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">Editar tarefa</h2>
+              <button
+                type="button"
+                onClick={() => setEditing(null)}
+                className="text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
+                aria-label="Fechar"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <TaskEditFields tarefa={editing} />
+          </div>
+        </div>
+      )}
       {adding && (
         <PlanoManageModal tarefas={tarefas} onClose={() => setAdding(false)} />
       )}
