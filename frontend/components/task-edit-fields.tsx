@@ -91,51 +91,67 @@ export function TaskEditFields({ tarefa }: Props) {
 
   const handleTituloBlur = async () => {
     if (titulo.trim() && titulo !== tarefa.titulo) {
-      await mut.patch(tarefa.id, { titulo: titulo.trim() });
+      const old = titulo;
+      const ok = await mut.patch(tarefa.id, { titulo: titulo.trim() });
+      if (!ok) setTitulo(old);
     }
   };
 
   const handleDescricaoBlur = async () => {
     if (descricao !== tarefa.descricao) {
-      await mut.patch(tarefa.id, {
+      const old = descricao;
+      const ok = await mut.patch(tarefa.id, {
         descricao: descricao.trim() || null,
       });
+      if (!ok) setDescricao(old);
     }
   };
 
   const handleAcaoChange = async (newAcao: Acao) => {
+    const old = acao;
     setAcao(newAcao);
-    await mut.patch(tarefa.id, { acao: newAcao });
+    const ok = await mut.patch(tarefa.id, { acao: newAcao });
+    if (!ok) setAcao(old);
   };
 
   const handleOwnerChange = async (newOwner: string) => {
+    const old = owner;
     setOwner(newOwner);
     if (newOwner !== tarefa.owner) {
-      await mut.patch(tarefa.id, { owner: newOwner.trim() || "vitor" });
+      const ok = await mut.patch(tarefa.id, { owner: newOwner.trim() || "vitor" });
+      if (!ok) setOwner(old);
     }
   };
 
   const handlePriorityChange = async (newPriority: Prioridade) => {
+    const old = prioridade;
     setPrioridade(newPriority);
-    await mut.patch(tarefa.id, { prioridade: newPriority });
+    const ok = await mut.patch(tarefa.id, { prioridade: newPriority });
+    if (!ok) setPrioridade(old);
   };
 
   const handleStatusChange = async (newStatus: Tarefa["status"]) => {
+    const old = status;
     setStatus(newStatus);
-    await mut.patch(tarefa.id, { status: newStatus });
+    const ok = await mut.patch(tarefa.id, { status: newStatus });
+    if (!ok) setStatus(old);
   };
 
   const handlePrazoChange = async (newPrazo: string) => {
+    const old = prazo;
     setPrazo(newPrazo);
     if (newPrazo !== toDateInput(tarefa.prazo)) {
-      await mut.patch(tarefa.id, { prazo: dateInputToIso(newPrazo) });
+      const ok = await mut.patch(tarefa.id, { prazo: dateInputToIso(newPrazo) });
+      if (!ok) setPrazo(old);
     }
   };
 
   const handleInicioChange = async (newInicio: string) => {
+    const old = inicio;
     setInicio(newInicio);
     if (newInicio !== toDateInput(tarefa.inicio)) {
-      await mut.patch(tarefa.id, { inicio: dateInputToIsoStart(newInicio) });
+      const ok = await mut.patch(tarefa.id, { inicio: dateInputToIsoStart(newInicio) });
+      if (!ok) setInicio(old);
     }
   };
 
@@ -154,18 +170,24 @@ export function TaskEditFields({ tarefa }: Props) {
       date = nextWeekday(1);
     }
     const newPrazo = toDateInput(date.toISOString());
+    const old = prazo;
     setPrazo(newPrazo);
-    await mut.patch(tarefa.id, { prazo: dateInputToIso(newPrazo) });
+    const ok = await mut.patch(tarefa.id, { prazo: dateInputToIso(newPrazo) });
+    if (!ok) setPrazo(old);
   };
 
   const handleNoPlanoChange = async (checked: boolean) => {
+    const old = noPlano;
     setNoPlano(checked);
-    await mut.patch(tarefa.id, { no_plano: checked });
+    const ok = await mut.patch(tarefa.id, { no_plano: checked });
+    if (!ok) setNoPlano(old);
   };
 
   const handleFrente = async (newFrenteId: string | null) => {
+    const old = frenteId;
     setFrenteId(newFrenteId);
-    await mut.patch(tarefa.id, { frente_id: newFrenteId });
+    const ok = await mut.patch(tarefa.id, { frente_id: newFrenteId });
+    if (!ok) setFrenteId(old);
   };
 
   const handleAddPessoa = async (nome: string) => {
@@ -177,16 +199,20 @@ export function TaskEditFields({ tarefa }: Props) {
         ...pessoas,
         { nome, principal: pessoas.length === 0, id: "" },
       ];
+      const old = pessoas;
       setPessoas(newPessoas);
-      await mut.patch(tarefa.id, { pessoas: newPessoas });
-      setNovaPessoa("");
+      const ok = await mut.patch(tarefa.id, { pessoas: newPessoas });
+      if (!ok) setPessoas(old);
+      else setNovaPessoa("");
     }
   };
 
   const handleRemovePessoa = async (index: number) => {
     const newPessoas = pessoas.filter((_, i) => i !== index);
+    const old = pessoas;
     setPessoas(newPessoas);
-    await mut.patch(tarefa.id, { pessoas: newPessoas });
+    const ok = await mut.patch(tarefa.id, { pessoas: newPessoas });
+    if (!ok) setPessoas(old);
   };
 
   const handlePrincipalPessoa = async (index: number) => {
@@ -194,8 +220,10 @@ export function TaskEditFields({ tarefa }: Props) {
       ...p,
       principal: i === index,
     }));
+    const old = pessoas;
     setPessoas(newPessoas);
-    await mut.patch(tarefa.id, { pessoas: newPessoas });
+    const ok = await mut.patch(tarefa.id, { pessoas: newPessoas });
+    if (!ok) setPessoas(old);
   };
 
   const handleDelete = async () => {
@@ -397,7 +425,7 @@ export function TaskEditFields({ tarefa }: Props) {
         <div className="flex flex-wrap gap-1.5 mb-2">
           {pessoas.map((p, i) => (
             <span
-              key={`${p.nome}-${i}`}
+              key={p.id || `${p.nome}-${i}`}
               className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full border border-[color:var(--border)]"
             >
               <button

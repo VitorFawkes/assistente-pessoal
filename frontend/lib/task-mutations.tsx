@@ -183,6 +183,8 @@ export function GuestTaskProvider({ token, children }: GuestTaskProviderProps) {
 
   const value: TaskMutations = {
     patch: async (id, body) => {
+      const old = tarefas.find((t) => t.id === id);
+      setTarefas((t) => t.map((x) => (x.id === id ? { ...x, ...body } as Tarefa : x)));
       try {
         const res = await fetch(`/api/q/${token}/tarefas/${id}`, {
           method: "PATCH",
@@ -195,6 +197,7 @@ export function GuestTaskProvider({ token, children }: GuestTaskProviderProps) {
         toast.success("Tarefa atualizada");
         return data;
       } catch (err) {
+        if (old) setTarefas((t) => t.map((x) => (x.id === id ? old : x)));
         toast.error(
           `Erro ao atualizar: ${err instanceof Error ? err.message : "desconhecido"}`,
         );
@@ -203,14 +206,16 @@ export function GuestTaskProvider({ token, children }: GuestTaskProviderProps) {
     },
 
     remove: async (id) => {
+      const old = tarefas.find((t) => t.id === id);
+      setTarefas((t) => t.filter((x) => x.id !== id));
       try {
         const res = await fetch(`/api/q/${token}/tarefas/${id}`, {
           method: "DELETE",
         });
         if (!res.ok) throw new Error(`DELETE failed: ${res.status}`);
-        setTarefas((t) => t.filter((x) => x.id !== id));
         toast.success("Tarefa removida");
       } catch (err) {
+        if (old) setTarefas((t) => [...t, old]);
         toast.error(
           `Erro ao remover: ${err instanceof Error ? err.message : "desconhecido"}`,
         );

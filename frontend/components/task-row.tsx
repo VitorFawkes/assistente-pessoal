@@ -307,6 +307,7 @@ export function TaskRow({
       <div
         role="button"
         tabIndex={0}
+        aria-label="Expandir edição da tarefa"
         onClick={() => setExpanded(true)}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -573,7 +574,9 @@ export function TaskRow({
       {expanded && (
         <div
           className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm"
-          onClick={() => setExpanded(false)}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setExpanded(false);
+          }}
         >
           <div
             className="w-full sm:max-w-lg bg-[color:var(--card)] border border-[color:var(--border)] rounded-t-2xl sm:rounded-2xl shadow-2xl p-5 max-h-[90vh] overflow-y-auto"

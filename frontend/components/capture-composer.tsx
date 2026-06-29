@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useTransition } from "react";
 import { Mic, CornerDownLeft, Plus } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { QuandoChip } from "./task-chips/quando-chip";
 import { PraQuemChip, type PraQuem } from "./task-chips/pra-quem-chip";
@@ -59,7 +60,9 @@ export function CaptureComposer({ onOpenFull }: { onOpenFull: () => void }) {
     if (!criada) return;
     setCriada({ ...criada, ...body } as Tarefa);
     fetch(`/api/tarefas/${criada.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
-      .then(() => mut.refresh()).catch(() => {});
+      .then(() => mut.refresh()).catch((err) => {
+        toast.error(`Erro ao atualizar: ${err instanceof Error ? err.message : "desconhecido"}`);
+      });
   }
 
   async function toggleVoz() {
