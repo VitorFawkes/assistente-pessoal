@@ -32,13 +32,22 @@ export function CaptureComposer({ onOpenFull }: { onOpenFull: () => void }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const isGuest = mut.scope === "guest";
+
   function capturar() {
     const t = texto.trim();
     if (!t) { setErro("escreve algo primeiro"); return; }
     setErro(null);
     startTransition(async () => {
       try {
-        // Parsear via capturar + criar via mut
+        // Convidado: cria direto (o parser /api/capturar é autenticado e não é
+        // público — bater nele daria 405 atrás do proxy). Texto = título.
+        if (isGuest) {
+          const tarefa = await mut.create({ titulo: t });
+          if (tarefa) setTexto("");
+          return;
+        }
+        // Dono: parseia via /api/capturar + cria via mut, e abre os chips.
         const r = await fetch("/api/capturar", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ texto: t }),
@@ -103,21 +112,25 @@ export function CaptureComposer({ onOpenFull }: { onOpenFull: () => void }) {
           placeholder="O que precisa ser feito? (escreve e Enter)"
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); capturar(); } }}
           className="flex-1 px-2 py-1.5 bg-transparent text-sm focus:outline-none" />
-        <button type="button" onClick={toggleVoz} title="Capturar por voz"
-          className={cn("text-[color:var(--muted)] hover:text-[color:var(--foreground)]", gravando && "text-[color:var(--urgent)] animate-pulse")}>
-          <Mic size={18} />
-        </button>
+        {!isGuest && (
+          <button type="button" onClick={toggleVoz} title="Capturar por voz"
+            className={cn("text-[color:var(--muted)] hover:text-[color:var(--foreground)]", gravando && "text-[color:var(--urgent)] animate-pulse")}>
+            <Mic size={18} />
+          </button>
+        )}
         <button type="button" onClick={capturar} disabled={isPending}
           className="inline-flex items-center gap-1 text-[13px] px-2.5 py-1 rounded-full bg-[color:var(--foreground)] text-[color:var(--background)] disabled:opacity-50">
           <CornerDownLeft size={14} /> {isPending ? "…" : "criar"}
         </button>
-        <button type="button" onClick={onOpenFull} title="Abrir formulário completo"
-          className="text-[color:var(--muted)] hover:text-[color:var(--foreground)]"><Plus size={18} /></button>
+        {!isGuest && (
+          <button type="button" onClick={onOpenFull} title="Abrir formulário completo"
+            className="text-[color:var(--muted)] hover:text-[color:var(--foreground)]"><Plus size={18} /></button>
+        )}
       </div>
 
       {erro && <p className="text-xs text-[color:var(--urgent)] px-2">{erro}</p>}
 
-      {criada && (
+      {!isGuest && criada && (
         <div className="flex flex-wrap items-center gap-1.5 px-1 pt-1 border-t border-[color:var(--border)]">
           <span className="text-[12px] text-[color:var(--muted)]">criada:</span>
           <span className="text-[13px] font-medium">{criada.titulo}</span>

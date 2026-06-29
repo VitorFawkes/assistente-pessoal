@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { withGuest, GuestError } from "@/lib/quadro-guest";
 import { clientIp } from "@/lib/rate-limit";
+import { TAREFA_SELECT } from "@/lib/queries";
 
 type Ctx = { params: Promise<{ token: string }> };
 
@@ -17,12 +18,10 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     const result = await withGuest(token, ip, async ({ acesso, c }) => {
       // Query tarefas no MESMO client tenant (RLS escopado ao dono)
       const tarefasResult = await c.query(
-        `
-        SELECT t.* FROM tarefas t
-        JOIN quadro_tarefas qt ON qt.tarefa_id = t.id
-        WHERE qt.quadro_id = $1 AND t.user_id = $2
-        ORDER BY qt.ordem, t.created_at DESC
-        `,
+        `${TAREFA_SELECT}
+         JOIN quadro_tarefas qt ON qt.tarefa_id = t.id
+         WHERE qt.quadro_id = $1 AND t.user_id = $2
+         ORDER BY qt.ordem NULLS LAST, t.created_at DESC`,
         [acesso.quadroId, acesso.ownerId]
       );
 
