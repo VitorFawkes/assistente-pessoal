@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCheck,
@@ -11,13 +11,16 @@ import {
   Tag,
   Trash2,
   X,
+  LayoutGrid,
 } from "lucide-react";
 import { cn, type Prioridade } from "@/lib/utils";
 import { concluirAction, quickDeadlineISO, type QuickWhen } from "@/lib/bulk";
 import type { Tarefa, Acao } from "./task-row";
+import { toast } from "sonner";
 
 type Frente = { id: string; nome: string };
-type Popover = "prazo" | "prioridade" | "acao" | "area" | "delete" | null;
+type Quadro = { id: string; nome: string };
+type Popover = "prazo" | "prioridade" | "acao" | "area" | "quadro" | "delete" | null;
 
 type BatchPatch = Partial<{
   status: "aberta" | "concluida";
@@ -72,12 +75,26 @@ export function BulkActionBar({
   const [dateValue, setDateValue] = useState("");
   const [acaoSel, setAcaoSel] = useState<Acao>("cobrar");
   const [ownerValue, setOwnerValue] = useState("");
+  const [quadros, setQuadros] = useState<Quadro[]>([]);
+  const [quadroLoading, setQuadroLoading] = useState(false);
 
   const n = selectedIds.length;
   if (n === 0) return null;
 
   const concluir = concluirAction(selectedTarefas);
   const allSelected = n >= allVisibleCount && allVisibleCount > 0;
+
+  // Carregar quadros ao abrir popover
+  useEffect(() => {
+    if (popover === "quadro" && quadros.length === 0) {
+      setQuadroLoading(true);
+      fetch("/api/quadros")
+        .then((r) => r.json())
+        .then((data) => setQuadros(data.quadros || []))
+        .catch(() => toast.error("Erro ao carregar quadros"))
+        .finally(() => setQuadroLoading(false));
+    }
+  }, [popover, quadros.length]);
 
   function run(method: "PATCH" | "DELETE", payload: Record<string, unknown>) {
     setError(null);
@@ -276,6 +293,55 @@ export function BulkActionBar({
               </div>
             )}
 
+            {popover === "quadro" && (
+              <div className="space-y-2">
+                <p className="text-[11px] uppercase tracking-wider text-[color:var(--muted)]">
+                  Adicionar a um quadro
+                </p>
+                {quadroLoading ? (
+                  <p className="text-[13px] text-[color:var(--muted)]">Carregando...</p>
+                ) : quadros.length === 0 ? (
+                  <p className="text-[13px] text-[color:var(--muted)]">
+                    Nenhum quadro. <a href="/quadros" className="underline">Criar um.</a>
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+                    {quadros.map((q) => (
+                      <button
+                        key={q.id}
+                        type="button"
+                        disabled={isPending}
+                        onClick={() => {
+                          startTransition(async () => {
+                            try {
+                              const res = await fetch(`/api/quadros/${q.id}/tarefas`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ tarefaIds: selectedIds }),
+                              });
+                              if (!res.ok) throw new Error("Erro ao adicionar");
+                              const result = await res.json();
+                              toast.success(
+                                `${result.adicionadas} tarefa${result.adicionadas !== 1 ? "s" : ""} adicionada${result.adicionadas !== 1 ? "s" : ""}`,
+                              );
+                              setPopover(null);
+                              router.refresh();
+                              onClear();
+                            } catch (e) {
+                              toast.error(e instanceof Error ? e.message : "Erro desconhecido");
+                            }
+                          });
+                        }}
+                        className="inline-flex items-center gap-1 text-[13px] px-3 py-1.5 rounded-full border border-[color:var(--border)] hover:bg-[color:var(--accent)] transition disabled:opacity-50"
+                      >
+                        <LayoutGrid size={12} /> {q.nome}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {popover === "delete" && (
               <div className="flex items-center justify-between gap-3">
                 <p className="text-[13px] text-[color:var(--muted-strong)]">
@@ -364,6 +430,13 @@ export function BulkActionBar({
               active={popover === "area"}
               disabled={isPending}
               onClick={() => togglePopover("area")}
+            />
+            <BarButton
+              icon={<LayoutGrid size={15} />}
+              label="Quadro"
+              active={popover === "quadro"}
+              disabled={isPending}
+              onClick={() => togglePopover("quadro")}
             />
             <BarButton
               icon={<Trash2 size={15} />}
