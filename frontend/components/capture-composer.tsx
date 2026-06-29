@@ -1,17 +1,17 @@
 "use client";
 import { useState, useEffect, useRef, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { Mic, CornerDownLeft, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { QuandoChip } from "./task-chips/quando-chip";
 import { PraQuemChip, type PraQuem } from "./task-chips/pra-quem-chip";
 import { PrioridadeChip } from "./task-chips/prioridade-chip";
 import { AreaChip } from "./task-chips/area-chip";
-import type { Tarefa } from "./task-row";
+import { useTaskMutations } from "@/lib/task-mutations";
+import type { Tarefa } from "@/lib/queries";
 import type { Prioridade } from "@/lib/utils";
 
 export function CaptureComposer({ onOpenFull }: { onOpenFull: () => void }) {
-  const router = useRouter();
+  const mut = useTaskMutations();
   const [isPending, startTransition] = useTransition();
   const [texto, setTexto] = useState("");
   const [criada, setCriada] = useState<Tarefa | null>(null);
@@ -37,15 +37,19 @@ export function CaptureComposer({ onOpenFull }: { onOpenFull: () => void }) {
     setErro(null);
     startTransition(async () => {
       try {
+        // Parsear via capturar + criar via mut
         const r = await fetch("/api/capturar", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ texto: t }),
         });
         if (!r.ok) { setErro((await r.json().catch(() => ({}))).error ?? `erro ${r.status}`); return; }
-        const tarefa = (await r.json()) as Tarefa;
-        setCriada(tarefa);
-        setTexto("");
-        router.refresh();
+        const parsed = (await r.json()) as Record<string, unknown>;
+        // Chamar create com os dados parseados
+        const tarefa = await mut.create(parsed as Parameters<typeof mut.create>[0]);
+        if (tarefa) {
+          setCriada(tarefa);
+          setTexto("");
+        }
       } catch (e) { setErro(e instanceof Error ? e.message : String(e)); }
     });
   }
@@ -55,7 +59,7 @@ export function CaptureComposer({ onOpenFull }: { onOpenFull: () => void }) {
     if (!criada) return;
     setCriada({ ...criada, ...body } as Tarefa);
     fetch(`/api/tarefas/${criada.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
-      .then(() => router.refresh()).catch(() => {});
+      .then(() => mut.refresh()).catch(() => {});
   }
 
   async function toggleVoz() {
@@ -82,7 +86,9 @@ export function CaptureComposer({ onOpenFull }: { onOpenFull: () => void }) {
         form.append("audio", blob, "captura.webm");
         const r = await fetch("/api/capturar", { method: "POST", body: form });
         if (!r.ok) { setErro((await r.json().catch(() => ({}))).error ?? `erro ${r.status}`); return; }
-        setCriada((await r.json()) as Tarefa); router.refresh();
+        const parsed = (await r.json()) as Record<string, unknown>;
+        const tarefa = await mut.create(parsed as Parameters<typeof mut.create>[0]);
+        if (tarefa) setCriada(tarefa);
       } catch (e) { setErro(e instanceof Error ? e.message : String(e)); }
     });
   }
