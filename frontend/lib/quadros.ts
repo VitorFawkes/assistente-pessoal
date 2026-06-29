@@ -196,7 +196,7 @@ export function quadrosFor(userId: string) {
              )
              AND ($2::text IS NULL OR t.titulo ILIKE $2 OR t.descricao ILIKE $2 OR t.owner ILIKE $2)
            ORDER BY t.created_at DESC
-           LIMIT 100`,
+           LIMIT 500`,
           [quadroId, like],
         );
         return r.rows;

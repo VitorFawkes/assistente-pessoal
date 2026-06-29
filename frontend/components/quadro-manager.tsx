@@ -3,14 +3,14 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Search, X } from "lucide-react";
+import { Plus } from "lucide-react";
 import type { Quadro, QuadroConvidado, AtividadeItem } from "@/lib/quadros";
 import type { Tarefa } from "@/lib/queries";
 import { OwnerTaskProvider } from "@/lib/task-mutations";
 import { TaskRow } from "./task-row";
 import { ActivityFeed } from "./activity-feed";
 import { CopyLinkButton } from "./copy-link-button";
-import { formatPrazo } from "@/lib/utils";
+import { TaskPickerModal } from "./task-picker-modal";
 
 interface QuadroManagerProps {
   quadro: Quadro;
@@ -37,10 +37,6 @@ export function QuadroManager({
   const [novaTarefa, setNovaTarefa] = useState("");
   const [criandoTarefa, setCriandoTarefa] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [busca, setBusca] = useState("");
-  const [candidatas, setCandidatas] = useState<Tarefa[]>([]);
-  const [loadingCand, setLoadingCand] = useState(false);
-  const [selCand, setSelCand] = useState<Set<string>>(new Set());
 
   const handleUpdateQuadro = async (updates: Partial<Quadro>) => {
     try {
@@ -105,48 +101,6 @@ export function QuadroManager({
     }
   };
 
-  const abrirPicker = async (q = "") => {
-    setPickerOpen(true);
-    setLoadingCand(true);
-    setSelCand(new Set());
-    try {
-      const res = await fetch(
-        `/api/quadros/${quadro.id}/tarefas?q=${encodeURIComponent(q)}`,
-      );
-      const data = (await res.json()) as { candidatas?: Tarefa[] };
-      setCandidatas(data.candidatas ?? []);
-    } catch {
-      toast.error("Erro ao buscar tarefas");
-    } finally {
-      setLoadingCand(false);
-    }
-  };
-
-  const toggleCand = (id: string) =>
-    setSelCand((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-
-  const adicionarSelecionadas = async () => {
-    const ids = [...selCand];
-    if (ids.length === 0) return;
-    try {
-      const res = await fetch(`/api/quadros/${quadro.id}/tarefas`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tarefaIds: ids }),
-      });
-      if (!res.ok) throw new Error("Erro ao adicionar");
-      toast.success(`${ids.length} tarefa${ids.length > 1 ? "s" : ""} adicionada${ids.length > 1 ? "s" : ""}`);
-      setPickerOpen(false);
-      router.refresh();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erro desconhecido");
-    }
-  };
 
   const handleCreateConvidado = async () => {
     if (!newConvidadoName.trim()) return;
@@ -255,10 +209,10 @@ export function QuadroManager({
               </h3>
               <button
                 type="button"
-                onClick={() => (pickerOpen ? setPickerOpen(false) : abrirPicker(""))}
+                onClick={() => setPickerOpen(true)}
                 className="text-sm text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] underline underline-offset-2"
               >
-                {pickerOpen ? "Fechar" : "Adicionar existentes"}
+                Adicionar existentes
               </button>
             </div>
 
@@ -283,78 +237,6 @@ export function QuadroManager({
                 {criandoTarefa ? "Criando…" : "Criar"}
               </button>
             </div>
-
-            {/* Picker de tarefas existentes */}
-            {pickerOpen && (
-              <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--card)] p-4 space-y-3">
-                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border border-[color:var(--border)]">
-                  <Search size={13} className="text-[color:var(--muted)] shrink-0" />
-                  <input
-                    value={busca}
-                    onChange={(e) => setBusca(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") abrirPicker(busca);
-                    }}
-                    placeholder="Buscar tarefas existentes…"
-                    className="flex-1 bg-transparent text-[13px] outline-none"
-                  />
-                </div>
-                <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1">
-                  {loadingCand ? (
-                    <p className="text-sm text-[color:var(--muted)] py-4 text-center">Carregando…</p>
-                  ) : candidatas.length === 0 ? (
-                    <p className="text-sm text-[color:var(--muted)] py-4 text-center">
-                      Nenhuma tarefa aberta fora deste quadro.
-                    </p>
-                  ) : (
-                    candidatas.map((t) => {
-                      const prazo = formatPrazo(t.prazo);
-                      return (
-                        <button
-                          key={t.id}
-                          type="button"
-                          onClick={() => toggleCand(t.id)}
-                          className="w-full flex items-center gap-2.5 text-left px-3 py-2 rounded-lg border border-[color:var(--border)] hover:bg-[color:var(--accent)]/40 transition"
-                        >
-                          <span
-                            className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
-                              selCand.has(t.id)
-                                ? "bg-[color:var(--foreground)] border-[color:var(--foreground)] text-[color:var(--background)]"
-                                : "border-[color:var(--muted)]/60"
-                            }`}
-                          >
-                            {selCand.has(t.id) && <span className="text-[10px]">✓</span>}
-                          </span>
-                          <span className="flex-1 min-w-0 truncate text-sm">{t.titulo}</span>
-                          {t.prazo && (
-                            <span className="text-[11px] text-[color:var(--muted)] shrink-0">
-                              {prazo.text}
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-                <div className="flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setPickerOpen(false)}
-                    className="text-sm text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={adicionarSelecionadas}
-                    disabled={selCand.size === 0}
-                    className="rounded-full bg-[color:var(--calm)] text-white px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50"
-                  >
-                    Adicionar {selCand.size > 0 ? `(${selCand.size})` : ""}
-                  </button>
-                </div>
-              </div>
-            )}
 
             {/* Lista de tarefas do quadro (cards editáveis inline) */}
             {tarefas.length === 0 ? (
@@ -462,6 +344,14 @@ export function QuadroManager({
           </div>
         </div>
       </div>
+
+      {pickerOpen && (
+        <TaskPickerModal
+          quadroId={quadro.id}
+          onClose={() => setPickerOpen(false)}
+          onAdded={() => router.refresh()}
+        />
+      )}
     </OwnerTaskProvider>
   );
 }
