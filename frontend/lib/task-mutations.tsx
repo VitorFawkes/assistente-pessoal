@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, type ReactNode, useState } from "react";
+import { createContext, useContext, type ReactNode, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import type { Tarefa, Acao, TarefaPessoa } from "@/lib/queries";
@@ -172,6 +172,18 @@ export function OwnerTaskProvider({ children }: OwnerTaskProviderProps) {
   );
 }
 
+// Context para expor a lista de tarefas do convidado
+export const GuestTasksStateContext = createContext<{
+  tarefas: Tarefa[];
+  loading: boolean;
+} | null>(null);
+
+export function useGuestTasks() {
+  const ctx = useContext(GuestTasksStateContext);
+  if (!ctx) throw new Error("useGuestTasks deve estar dentro de GuestTaskProvider");
+  return ctx;
+}
+
 // GuestTaskProvider — para convidados (PATCH/DELETE/POST `/api/q/[token]/*`)
 export type GuestTaskProviderProps = {
   token: string;
@@ -180,6 +192,28 @@ export type GuestTaskProviderProps = {
 
 export function GuestTaskProvider({ token, children }: GuestTaskProviderProps) {
   const [tarefas, setTarefas] = useState<Tarefa[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Buscar tarefas ao montar
+  useEffect(() => {
+    setLoading(true);
+    fetch(`/api/q/${token}/tarefas`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`GET failed: ${r.status}`);
+        return r.json();
+      })
+      .then((data) => {
+        setTarefas(data.tarefas || []);
+      })
+      .catch((err) => {
+        toast.error(
+          `Erro ao carregar tarefas: ${err instanceof Error ? err.message : "desconhecido"}`,
+        );
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, [token]);
 
   const value: TaskMutations = {
     patch: async (id, body) => {
@@ -257,7 +291,10 @@ export function GuestTaskProvider({ token, children }: GuestTaskProviderProps) {
     refresh: () => {
       // Re-fetch local das tarefas (sem router.refresh)
       fetch(`/api/q/${token}/tarefas`)
-        .then((r) => r.json())
+        .then((r) => {
+          if (!r.ok) throw new Error(`GET failed: ${r.status}`);
+          return r.json();
+        })
         .then((data) => setTarefas(data.tarefas || []))
         .catch(() =>
           toast.error("Erro ao recarregar tarefas"),
@@ -269,7 +306,9 @@ export function GuestTaskProvider({ token, children }: GuestTaskProviderProps) {
 
   return (
     <TaskMutationContext.Provider value={value}>
-      {children}
+      <GuestTasksStateContext.Provider value={{ tarefas, loading }}>
+        {children}
+      </GuestTasksStateContext.Provider>
     </TaskMutationContext.Provider>
   );
 }
