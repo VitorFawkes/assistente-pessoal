@@ -54,7 +54,8 @@ export type AtividadeItem = {
   id: string;
   criado_em: string;
   evento: string;
-  tarefa_titulo: string;
+  payload: Record<string, unknown> | null;
+  tarefa_titulo: string | null;
   tarefa_id: string;
   convidado_nome: string | null;
   convidado_id: string | null;
@@ -319,8 +320,9 @@ export function quadrosFor(userId: string) {
              te.id,
              to_char(te.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS criado_em,
              te.evento,
+             te.payload,
              t.titulo AS tarefa_titulo,
-             t.id AS tarefa_id,
+             te.tarefa_id AS tarefa_id,
              qc.nome AS convidado_nome,
              qc.id AS convidado_id
            FROM tarefa_eventos te

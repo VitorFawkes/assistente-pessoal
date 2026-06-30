@@ -80,7 +80,7 @@ export function TaskBoardView({
   onRemoveFromBoard: (id: string) => void;
 }) {
   const [search, setSearch] = useState("");
-  const [statusView, setStatusView] = useState<StatusView>("abertas");
+  const [statusView, setStatusView] = useState<StatusView>("todas");
   const [selPessoas, setSelPessoas] = useState<Set<string>>(new Set());
   const [selAreas, setSelAreas] = useState<Set<string>>(new Set());
   const [selPrioridades, setSelPrioridades] = useState<Set<string>>(new Set());
@@ -117,10 +117,13 @@ export function TaskBoardView({
     [selPessoas, selAreas, selPrioridades],
   );
 
-  const filtered = useMemo(
-    () => sortTarefas(applyFacets(base, facets), sortKey),
-    [base, facets, sortKey],
-  );
+  const filtered = useMemo(() => {
+    const sorted = sortTarefas(applyFacets(base, facets), sortKey);
+    // Concluídas/canceladas vão pro fim (não somem ao marcar feito), preservando
+    // a ordenação escolhida dentro de cada grupo (sort estável).
+    const isClosed = (t: Tarefa) => t.status === "concluida" || t.status === "cancelada";
+    return [...sorted].sort((a, b) => Number(isClosed(a)) - Number(isClosed(b)));
+  }, [base, facets, sortKey]);
 
   const pessoaOpts: Opt[] = useMemo(() => {
     const c = countBy(base, peopleForFilter);
