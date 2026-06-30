@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   CalendarClock,
   Flame,
@@ -99,23 +100,25 @@ function InlinePopover({
       >
         {trigger}
       </button>
-      {open && pos && (
-        <div
-          ref={popRef}
-          role="dialog"
-          aria-label={ariaLabel}
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            top: pos.top,
-            bottom: pos.bottom,
-            left: pos.left,
-            width: pos.width,
-          }}
-          className="fixed z-50 max-h-[60vh] overflow-y-auto rounded-xl border border-[color:var(--border)] bg-[color:var(--card)] shadow-xl p-1.5"
-        >
-          {children(() => setOpen(false))}
-        </div>
-      )}
+      {open && pos && typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={popRef}
+            role="dialog"
+            aria-label={ariaLabel}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              top: pos.top,
+              bottom: pos.bottom,
+              left: pos.left,
+              width: pos.width,
+            }}
+            className="fixed z-[80] max-h-[60vh] overflow-y-auto rounded-xl border border-[color:var(--border)] bg-[color:var(--card)] shadow-xl p-1.5"
+          >
+            {children(() => setOpen(false))}
+          </div>,
+          document.body,
+        )}
     </span>
   );
 }
