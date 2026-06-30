@@ -11,7 +11,7 @@ import {
   matchesSearch,
   countBy,
   sortTarefas,
-  personNamesOf,
+  peopleForFilter,
   areaOf,
   reuniaoOf,
   principalPersonOf,
@@ -123,7 +123,7 @@ export function TaskBoardView({
   );
 
   const pessoaOpts: Opt[] = useMemo(() => {
-    const c = countBy(base, personNamesOf);
+    const c = countBy(base, peopleForFilter);
     return [...c.entries()]
       .map(([value, count]) => ({ value, label: value, count }))
       .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "pt-BR"));

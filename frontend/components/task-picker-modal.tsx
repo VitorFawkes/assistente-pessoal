@@ -11,7 +11,7 @@ import {
   matchesSearch,
   countBy,
   sortTarefas,
-  personNamesOf,
+  peopleForFilter,
   areaOf,
   reuniaoOf,
   principalPersonOf,
@@ -90,7 +90,7 @@ export function TaskPickerModal({ quadroId, onClose, onAdded }: Props) {
   const meetingKey = (t: Tarefa) => t.meeting_id ?? "sem";
 
   const pessoaOpts: Opt[] = useMemo(() => {
-    const c = countBy(base, personNamesOf);
+    const c = countBy(base, peopleForFilter);
     return [...c.entries()]
       .map(([value, count]) => ({ value, label: value, count }))
       .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "pt-BR"));

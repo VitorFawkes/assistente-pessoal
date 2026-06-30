@@ -18,7 +18,7 @@ import {
   matchesSearch,
   inMeetingDate,
   dateInRange,
-  personNamesOf,
+  peopleForFilter,
   areaOf,
   tipoOf,
   principalPersonOf,
@@ -342,7 +342,7 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
 
   // ─── Opções de faceta com contagem ao vivo (excluindo a própria faceta) ──
   const pessoaOptions: Option[] = useMemo(() => {
-    const c = countBy(applyFacets(globalList, facets, "pessoas"), personNamesOf);
+    const c = countBy(applyFacets(globalList, facets, "pessoas"), peopleForFilter);
     return [...c.entries()]
       .map(([value, count]) => ({ value, count }))
       .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value, "pt-BR"));

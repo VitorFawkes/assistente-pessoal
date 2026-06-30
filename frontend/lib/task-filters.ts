@@ -74,6 +74,16 @@ export function personNamesOf(t: Tarefa): string[] {
   return (t.pessoas ?? []).map((p) => p.nome).filter(Boolean);
 }
 
+// Pessoas pelas quais FILTRAR: as vinculadas + o responsável (owner) quando é
+// uma pessoa real (não "vitor"/"você"/"?"). Garante filtrar pelo nome que o
+// usuário pôs na tarefa mesmo quando ele não virou um vínculo formal.
+export function peopleForFilter(t: Tarefa): string[] {
+  const names = new Set<string>(personNamesOf(t));
+  const owner = (t.owner ?? "").trim();
+  if (owner && owner !== "?" && owner.toLowerCase() !== "vitor") names.add(owner);
+  return [...names];
+}
+
 // Área da tarefa (frente aprovada > proposta da IA > "Sem área").
 export function areaOf(t: Tarefa): string {
   return t.frente || t.frente_proposta || SEM_AREA;
@@ -178,7 +188,7 @@ export function applyFacets(
     if (
       exclude !== "pessoas" &&
       f.pessoas.size &&
-      !personNamesOf(t).some((n) => f.pessoas.has(n))
+      !peopleForFilter(t).some((n) => f.pessoas.has(n))
     )
       return false;
     if (exclude !== "areas" && f.areas.size && !f.areas.has(areaOf(t)))
