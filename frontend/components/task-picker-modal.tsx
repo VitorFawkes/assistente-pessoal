@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Search, X, Check, ChevronDown, CalendarClock, Mic, UserRound } from "lucide-react";
+import { Search, X, Check, CalendarClock, Mic, UserRound } from "lucide-react";
 import { cn, formatPrazo } from "@/lib/utils";
 import type { Tarefa } from "@/lib/queries";
+import { FacetDropdown, type Opt } from "./facet-dropdown";
 import {
   applyFacets,
   matchesSearch,
@@ -45,84 +46,6 @@ const SORTS: { k: SortKey; label: string }[] = [
   { k: "reuniao_desc", label: "Reunião ↓" },
   { k: "prioridade", label: "Prioridade" },
 ];
-
-type Opt = { value: string; label: string; count: number };
-
-// Dropdown multiselect compacto com contagem.
-function FacetDropdown({
-  label,
-  options,
-  selected,
-  onToggle,
-}: {
-  label: string;
-  options: Opt[];
-  selected: Set<string>;
-  onToggle: (v: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    function onDown(e: MouseEvent) {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
-
-  const n = selected.size;
-  return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "inline-flex items-center gap-1 text-[12px] px-2.5 py-1.5 rounded-full border transition whitespace-nowrap",
-          n > 0
-            ? "bg-[color:var(--foreground)] text-[color:var(--background)] border-[color:var(--foreground)]"
-            : "border-[color:var(--border)] text-[color:var(--muted-strong)] hover:bg-[color:var(--accent)]",
-        )}
-      >
-        {label}
-        {n > 0 && <span className="opacity-80">· {n}</span>}
-        <ChevronDown size={12} className={cn("transition", open && "rotate-180")} />
-      </button>
-      {open && (
-        <div className="absolute z-10 mt-1 w-56 max-h-72 overflow-y-auto rounded-xl border border-[color:var(--border)] bg-[color:var(--card)] shadow-xl p-1.5">
-          {options.length === 0 ? (
-            <p className="text-[12px] text-[color:var(--muted)] px-2 py-2">nada aqui</p>
-          ) : (
-            options.map((o) => {
-              const on = selected.has(o.value);
-              return (
-                <button
-                  key={o.value}
-                  type="button"
-                  onClick={() => onToggle(o.value)}
-                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left text-[13px] hover:bg-[color:var(--accent)]/50"
-                >
-                  <span
-                    className={cn(
-                      "w-4 h-4 rounded border flex items-center justify-center shrink-0",
-                      on
-                        ? "bg-[color:var(--foreground)] border-[color:var(--foreground)] text-[color:var(--background)]"
-                        : "border-[color:var(--muted)]/60",
-                    )}
-                  >
-                    {on && <Check size={11} strokeWidth={3} />}
-                  </span>
-                  <span className="flex-1 min-w-0 truncate">{o.label}</span>
-                  <span className="text-[11px] text-[color:var(--muted)]">{o.count}</span>
-                </button>
-              );
-            })
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export function TaskPickerModal({ quadroId, onClose, onAdded }: Props) {
   const [candidatas, setCandidatas] = useState<Tarefa[]>([]);

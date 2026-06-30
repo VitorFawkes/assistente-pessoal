@@ -7,7 +7,7 @@ import { Plus } from "lucide-react";
 import type { Quadro, QuadroConvidado, AtividadeItem } from "@/lib/quadros";
 import type { Tarefa } from "@/lib/queries";
 import { OwnerTaskProvider } from "@/lib/task-mutations";
-import { TaskRow } from "./task-row";
+import { TaskBoardView } from "./task-board-view";
 import { ActivityFeed } from "./activity-feed";
 import { CopyLinkButton } from "./copy-link-button";
 import { TaskPickerModal } from "./task-picker-modal";
@@ -238,33 +238,8 @@ export function QuadroManager({
               </button>
             </div>
 
-            {/* Lista de tarefas do quadro (cards editáveis inline) */}
-            {tarefas.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-[color:var(--border)] py-10 px-6 text-center">
-                <p className="text-sm text-[color:var(--muted-strong)]">
-                  Nenhuma tarefa neste quadro ainda.
-                </p>
-                <p className="text-xs text-[color:var(--muted)] mt-1">
-                  Crie uma acima, ou adicione tarefas que já existem.
-                </p>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2.5">
-                {tarefas.map((t) => (
-                  <div key={t.id} className="group relative">
-                    <TaskRow tarefa={t} />
-                    <button
-                      type="button"
-                      onClick={() => removerDoQuadro(t.id)}
-                      title="Remover do quadro"
-                      className="absolute -top-2 right-2 z-10 text-[10px] tracking-wide px-2 py-0.5 rounded-full border border-[color:var(--border)] bg-[color:var(--card)] text-[color:var(--muted)] opacity-0 group-hover:opacity-100 hover:text-[color:var(--urgent)] hover:border-[color:var(--urgent)]/40 transition"
-                    >
-                      remover do quadro
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
+            {/* Lista de tarefas do quadro: busca + filtros + agrupar + ordenar */}
+            <TaskBoardView tarefas={tarefas} onRemoveFromBoard={removerDoQuadro} />
           </div>
 
           {/* Coluna direita: Convidados + Atividade */}
