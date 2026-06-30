@@ -388,15 +388,17 @@ export function TaskRow({
             </>
           ) : (
             <>
-              <button
-                type="button"
-                onClick={doDelete}
-                disabled={isPending}
-                aria-label="Deletar tarefa"
-                className="p-1 rounded-full text-[color:var(--muted)] opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-[color:var(--urgent)]/10 hover:text-[color:var(--urgent)] transition"
-              >
-                <Trash2 size={13} strokeWidth={1.75} />
-              </button>
+              {isOwner && (
+                <button
+                  type="button"
+                  onClick={doDelete}
+                  disabled={isPending}
+                  aria-label="Deletar tarefa"
+                  className="p-1 rounded-full text-[color:var(--muted)] opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-[color:var(--urgent)]/10 hover:text-[color:var(--urgent)] transition"
+                >
+                  <Trash2 size={13} strokeWidth={1.75} />
+                </button>
+              )}
               <ChevronDown
                 size={16}
                 strokeWidth={1.75}

@@ -107,7 +107,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
           body.prioridade ?? "media",
           body.frente_id ?? null,
           body.inicio ?? null,
-          body.no_plano === true,
+          false, // convidado nunca injeta tarefa no /plano do dono
         ]
       );
 

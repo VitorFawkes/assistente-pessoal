@@ -19,7 +19,6 @@ type PatchBody = Partial<{
   prioridade: (typeof VALID_PRIORIDADE)[number];
   status: (typeof VALID_STATUS)[number];
   frente_id: string | null;
-  no_plano: boolean;
   pessoas: { nome: string; principal?: boolean }[];
 }>;
 
@@ -90,7 +89,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         }
       }
       if (body.frente_id !== undefined) push("frente_id", body.frente_id);
-      if (body.no_plano !== undefined) push("no_plano", body.no_plano);
+      // no_plano NÃO é editável pelo convidado: ele não injeta no /plano do dono.
 
       const hasPessoas = Array.isArray(body.pessoas);
 
@@ -205,42 +204,20 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
 
 /**
  * DELETE /api/q/[token]/tarefas/[id]
- * Hard delete da tarefa do quadro.
- * Validação: membership em quadro_tarefas.
+ * BLOQUEADO para convidados — somente o dono exclui tarefas. Validamos o token
+ * pela mesma porta (rate-limit + 401 se inválido/revogado) e recusamos com 403.
  */
 export async function DELETE(req: NextRequest, ctx: Ctx) {
-  const { token, id } = await ctx.params;
+  const { token } = await ctx.params;
   const ip = clientIp(req.headers);
 
   try {
-    await withGuest(token, ip, async ({ acesso, c }) => {
-      // Validar membership
-      const isMember = await membershipDoQuadro(
-        c,
-        acesso.quadroId,
-        id
-      );
-
-      if (!isMember) {
-        throw new Error("tarefa_not_in_board");
-      }
-
-      // Hard delete: remove os eventos (FK) e a tarefa. Espelha o DELETE do
-      // dono. Não registramos evento de deleção em tarefa_eventos porque ele
-      // referenciaria a tarefa já apagada (viola FK) e cascatearia junto.
-      await c.query("DELETE FROM tarefa_eventos WHERE tarefa_id = $1", [id]);
-
-      const deleteResult = await c.query(
-        "DELETE FROM tarefas WHERE id = $1 RETURNING id",
-        [id]
-      );
-
-      if (deleteResult.rowCount === 0) {
-        throw new Error("tarefa_not_found");
-      }
-    });
-
-    return new NextResponse(null, { status: 204 });
+    return await withGuest(token, ip, async () =>
+      NextResponse.json(
+        { error: "forbidden", message: "Convidado não pode excluir tarefas." },
+        { status: 403 }
+      )
+    );
   } catch (e) {
     if (e instanceof GuestError) {
       if (e.code === "rate_limit") {
@@ -256,21 +233,6 @@ export async function DELETE(req: NextRequest, ctx: Ctx) {
     }
 
     const msg = e instanceof Error ? e.message : String(e);
-
-    if (msg === "tarefa_not_in_board") {
-      return NextResponse.json(
-        { error: "not_found", message: "Tarefa não está neste quadro." },
-        { status: 404 }
-      );
-    }
-
-    if (msg === "tarefa_not_found") {
-      return NextResponse.json(
-        { error: "not_found", message: "Tarefa não encontrada." },
-        { status: 404 }
-      );
-    }
-
     console.error("[guest-api] erro inesperado:", msg);
     return NextResponse.json(
       { error: "server_error", message: "Erro ao processar a requisição." },
