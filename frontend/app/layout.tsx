@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Fraunces } from "next/font/google";
-import Link from "next/link";
 import { cookies } from "next/headers";
 import { query } from "@/lib/db";
-import { UserMenu } from "@/components/user-menu";
+import { SiteHeader } from "@/components/site-header";
 import { Toaster } from "sonner";
 import "./globals.css";
 
@@ -57,60 +56,7 @@ export default async function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col font-sans">
-        <header className="border-b border-[color:var(--border)] bg-[color:var(--background)]/80 backdrop-blur-md sticky top-0 z-40">
-          <div className="mx-auto max-w-3xl px-5 sm:px-6 h-14 flex items-center justify-between">
-            <Link
-              href="/"
-              className="font-display text-2xl leading-none tracking-tight"
-              style={{ fontWeight: 500 }}
-            >
-              ações<span className="text-[color:var(--urgent)]">.</span>
-            </Link>
-            <div className="flex items-center gap-3">
-              {user && (
-                <nav className="hidden sm:flex items-center gap-1 text-sm">
-                  <Link
-                    href="/"
-                    className="px-3 py-1.5 rounded-full hover:bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition"
-                  >
-                    Pendências
-                  </Link>
-                  <Link
-                    href="/plano"
-                    className="px-3 py-1.5 rounded-full hover:bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition"
-                  >
-                    Plano
-                  </Link>
-                  <Link
-                    href="/reunioes"
-                    className="px-3 py-1.5 rounded-full hover:bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition"
-                  >
-                    Reuniões
-                  </Link>
-                  <Link
-                    href="/pessoas"
-                    className="px-3 py-1.5 rounded-full hover:bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition"
-                  >
-                    Pessoas
-                  </Link>
-                  <Link
-                    href="/quadros"
-                    className="px-3 py-1.5 rounded-full hover:bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition"
-                  >
-                    Quadros
-                  </Link>
-                  <Link
-                    href="/assistente"
-                    className="px-3 py-1.5 rounded-full hover:bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition"
-                  >
-                    Assistente
-                  </Link>
-                </nav>
-              )}
-              {user && <UserMenu nome={user.nome} isAdmin={user.is_admin} />}
-            </div>
-          </div>
-        </header>
+        <SiteHeader user={user} />
         <main className="flex-1 mx-auto max-w-3xl w-full px-5 sm:px-6 py-6 sm:py-10">
           {children}
         </main>

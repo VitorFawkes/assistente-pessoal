@@ -20,7 +20,7 @@ import {
 } from "@/lib/task-filters";
 
 type GroupMode = "nenhum" | "pessoa" | "area" | "reuniao" | "prazo";
-type StatusView = "abertas" | "concluidas" | "todas";
+type StatusView = "abertas" | "atrasadas" | "concluidas" | "todas";
 
 const PRIO_LABEL: Record<string, string> = {
   urgente: "Urgente",
@@ -29,8 +29,9 @@ const PRIO_LABEL: Record<string, string> = {
   baixa: "Baixa",
 };
 const STATUS_OPTS: { k: StatusView; label: string }[] = [
-  { k: "abertas", label: "Ver: abertas" },
-  { k: "concluidas", label: "Ver: concluídas" },
+  { k: "abertas", label: "Ver: em aberto" },
+  { k: "atrasadas", label: "Ver: atrasadas" },
+  { k: "concluidas", label: "Ver: feitas" },
   { k: "todas", label: "Ver: todas" },
 ];
 const GROUP_OPTS: { k: GroupMode; label: string }[] = [
@@ -102,6 +103,17 @@ export function TaskBoardView({
       l = l.filter((t) => t.status === "aberta" || t.status === "em_andamento");
     else if (statusView === "concluidas")
       l = l.filter((t) => t.status === "concluida" || t.status === "cancelada");
+    else if (statusView === "atrasadas") {
+      // Atrasadas = ainda em aberto e com prazo anterior ao início de hoje (vencidas).
+      const startToday = nowSP();
+      startToday.setHours(0, 0, 0, 0);
+      l = l.filter((t) => {
+        if (t.status !== "aberta" && t.status !== "em_andamento") return false;
+        if (!t.prazo) return false;
+        const p = toSP(t.prazo);
+        return !Number.isNaN(p.getTime()) && p < startToday;
+      });
+    }
     if (search.trim()) l = l.filter((t) => matchesSearch(t, search));
     return l;
   }, [tarefas, statusView, search]);

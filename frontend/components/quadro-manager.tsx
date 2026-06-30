@@ -32,6 +32,9 @@ export function QuadroManager({
   const [editingDesc, setEditingDesc] = useState(false);
   const [newConvidadoName, setNewConvidadoName] = useState("");
   const [creatingConvidado, setCreatingConvidado] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [creatingBulk, setCreatingBulk] = useState(false);
 
   // ─── Tarefas: criar / adicionar existentes ────────────────────────────
   const [novaTarefa, setNovaTarefa] = useState("");
@@ -134,6 +137,51 @@ export function QuadroManager({
       toast.error(e instanceof Error ? e.message : "Erro desconhecido");
     } finally {
       setCreatingConvidado(false);
+    }
+  };
+
+  // Nomes válidos do lote: uma linha = um nome, sem vazios, sem duplicatas exatas.
+  const bulkNomes = [
+    ...new Set(
+      bulkText
+        .split("\n")
+        .map((n) => n.trim())
+        .filter((n) => n.length > 0),
+    ),
+  ];
+
+  const handleCreateConvidadosBulk = async () => {
+    if (bulkNomes.length === 0) return;
+    setCreatingBulk(true);
+    try {
+      const res = await fetch(`/api/quadros/${quadro.id}/convidados`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nomes: bulkNomes }),
+      });
+      if (!res.ok) throw new Error("Erro ao criar convidados");
+      const { convidados: criados } = await res.json();
+      setConvidados((prev) => [
+        ...prev,
+        ...criados.map((c: { id: string; nome: string; token: string }) => ({
+          id: c.id,
+          quadro_id: quadro.id,
+          nome: c.nome,
+          token: c.token,
+          created_at: new Date().toISOString(),
+          last_seen_at: null,
+          revoked_at: null,
+        })),
+      ]);
+      setBulkText("");
+      setBulkOpen(false);
+      toast.success(
+        `${criados.length} ${criados.length === 1 ? "convidado criado" : "convidados criados"}`,
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro desconhecido");
+    } finally {
+      setCreatingBulk(false);
     }
   };
 
@@ -242,12 +290,29 @@ export function QuadroManager({
             <TaskBoardView tarefas={tarefas} onRemoveFromBoard={removerDoQuadro} />
           </div>
 
-          {/* Coluna direita: Convidados + Atividade */}
-          <div className="space-y-8 lg:sticky lg:top-20">
+          {/* Coluna direita: Convidados + Atividade — um único scroll sticky (sem scrollbar aninhado) */}
+          <div className="space-y-8 lg:sticky lg:top-20 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto lg:pr-1">
             <section className="space-y-6">
-              <h3 className="font-display text-lg sm:text-xl font-light text-[color:var(--foreground)]">
-                Convidados
-              </h3>
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="font-display text-lg sm:text-xl font-light text-[color:var(--foreground)]">
+                  Convidados
+                </h3>
+                {convidados.length >= 2 &&
+                  (() => {
+                    const baseUrl =
+                      typeof window !== "undefined" ? window.location.origin : "";
+                    const bloco = convidados
+                      .map((c) => `${c.nome} — ${baseUrl}/q/${c.token}`)
+                      .join("\n");
+                    return (
+                      <CopyLinkButton
+                        link={bloco}
+                        label="Copiar todos os links"
+                        variant="button"
+                      />
+                    );
+                  })()}
+              </div>
               <div className="space-y-3">
                 {convidados.length === 0 ? (
                   <p className="text-sm text-[color:var(--muted)]">Nenhum convidado ainda.</p>
@@ -311,9 +376,7 @@ export function QuadroManager({
               <h3 className="font-display text-lg sm:text-xl font-light text-[color:var(--foreground)]">
                 Atividade
               </h3>
-              <div className="max-h-[28rem] overflow-y-auto pr-1">
-                <ActivityFeed items={atividade} />
-              </div>
+              <ActivityFeed items={atividade} />
             </section>
           </div>
         </div>

@@ -288,6 +288,42 @@ export function quadrosFor(userId: string) {
     },
 
     /**
+     * Cria múltiplos convidados de uma vez (um token único por nome).
+     * Limpa os nomes (trim), descarta vazios e dedupa duplicatas exatas dentro do lote.
+     * Um único INSERT multi-linha numa transação. Retorna a lista criada com link.
+     */
+    criarConvidados: async (
+      quadroId: string,
+      nomes: string[],
+    ): Promise<{ id: string; nome: string; token: string; link: string }[]> => {
+      const limpos = [
+        ...new Set(nomes.map((n) => n.trim()).filter((n) => n.length > 0)),
+      ];
+      if (limpos.length === 0) return [];
+
+      const tokens = limpos.map(() => randomBytes(16).toString("base64url"));
+
+      return withTenant(userId, async (c) => {
+        const r = await c.query<{ id: string; nome: string; token: string }>(
+          `INSERT INTO quadro_convidados (quadro_id, nome, token)
+           SELECT $1, nome, token
+           FROM unnest($2::text[], $3::text[]) AS t(nome, token)
+           RETURNING id, nome, token`,
+          [quadroId, limpos, tokens],
+        );
+
+        const baseUrl =
+          process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
+        return r.rows.map((row) => ({
+          id: row.id,
+          nome: row.nome,
+          token: row.token,
+          link: `${baseUrl}/q/${row.token}`,
+        }));
+      });
+    },
+
+    /**
      * Revoga um convidado (soft delete via revoked_at).
      * Invalida o token imediatamente.
      */
