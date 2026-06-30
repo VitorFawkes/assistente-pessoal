@@ -19,7 +19,7 @@ export function PraQuemChip({ value, onChange }: { value: PraQuem; onChange: (v:
       trigger={() => (
         <span className={cn("inline-flex items-center gap-1 text-[12px] px-2 py-0.5 rounded-full",
           isMe ? "bg-[color:var(--calm-bg)] text-[color:var(--calm)]" : "bg-[color:var(--warm-bg)] text-[color:var(--warm)]")}>
-          <UserRound size={11} /> {isMe ? "eu" : `${value.acao === "cobrar" ? "cobrar" : "aguardar"} ${label}`}
+          <UserRound size={11} /> {isMe ? "eu" : label}
         </span>
       )}>
       {(close) => (
