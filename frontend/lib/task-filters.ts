@@ -74,14 +74,12 @@ export function personNamesOf(t: Tarefa): string[] {
   return (t.pessoas ?? []).map((p) => p.nome).filter(Boolean);
 }
 
-// Pessoas pelas quais FILTRAR: as vinculadas + o responsável (owner) quando é
-// uma pessoa real (não "vitor"/"você"/"?"). Garante filtrar pelo nome que o
-// usuário pôs na tarefa mesmo quando ele não virou um vínculo formal.
+// Pessoa pela qual FILTRAR = o RESPONSÁVEL da tarefa (mesma lógica do chip e do
+// "agrupar por pessoa": "Você" pra executar, senão a principal / owner).
+// Filtrar por alguém traz só as tarefas DELA — não as que só a mencionam como
+// participante secundário. (Pega também owner sem vínculo formal, via fallback.)
 export function peopleForFilter(t: Tarefa): string[] {
-  const names = new Set<string>(personNamesOf(t));
-  const owner = (t.owner ?? "").trim();
-  if (owner && owner !== "?" && owner.toLowerCase() !== "vitor") names.add(owner);
-  return [...names];
+  return [principalPersonOf(t)];
 }
 
 // Área da tarefa (frente aprovada > proposta da IA > "Sem área").
