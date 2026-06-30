@@ -87,7 +87,7 @@ describe("derivações", () => {
     expect(tipoOf(mk({ meeting_type: null }))).toBe("desconhecido");
   });
   test("principalPersonOf", () => {
-    expect(principalPersonOf(mk({ acao: "executar" }))).toBe("Você");
+    expect(principalPersonOf(mk({ acao: "executar" }))).toBe("Vitor");
     expect(
       principalPersonOf(
         mk({ acao: "cobrar", pessoas: [{ id: "1", nome: "Tiago", principal: true }] }),
@@ -169,9 +169,9 @@ describe("applyFacets — intervalo de data da reunião tem precedência sobre b
 
 describe("applyFacets (AND entre facetas, exclude p/ contagem)", () => {
   const list = [
-    mk({ pessoas: [{ id: "1", nome: "Diana", principal: true }], frente: "Weddings", prioridade: "urgente" }),
-    mk({ pessoas: [{ id: "2", nome: "Tiago", principal: true }], frente: "Weddings", prioridade: "media" }),
-    mk({ pessoas: [{ id: "1", nome: "Diana", principal: true }], frente: "Vendas", prioridade: "alta" }),
+    mk({ acao: "cobrar", pessoas: [{ id: "1", nome: "Diana", principal: true }], frente: "Weddings", prioridade: "urgente" }),
+    mk({ acao: "cobrar", pessoas: [{ id: "2", nome: "Tiago", principal: true }], frente: "Weddings", prioridade: "media" }),
+    mk({ acao: "cobrar", pessoas: [{ id: "1", nome: "Diana", principal: true }], frente: "Vendas", prioridade: "alta" }),
   ];
   test("pessoa + área combinam (AND)", () => {
     const f = emptyFacets({ pessoas: new Set(["Diana"]), areas: new Set(["Weddings"]) });

@@ -426,7 +426,7 @@ export function AcaoInline({ tarefa }: { tarefa: Tarefa }) {
             <Send size={10} strokeWidth={2} />
           )}
           <span className="max-w-[120px] truncate">
-            {isExec ? "minha" : ownerLabel}
+            {isExec ? "Vitor" : ownerLabel}
           </span>
         </>
       }

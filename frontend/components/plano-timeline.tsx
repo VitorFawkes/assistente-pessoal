@@ -66,7 +66,7 @@ function doneRecente(t: Tarefa) {
 }
 
 function responsavelOf(t: Tarefa): string {
-  if (t.acao === "executar") return "Você";
+  if (t.acao === "executar") return "Vitor";
   const owner = normalizeOwner(t.owner);
   if (owner !== "A definir") return owner;
   const principal = (t.pessoas ?? []).find((p) => p.principal) ?? (t.pessoas ?? [])[0];

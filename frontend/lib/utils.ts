@@ -20,12 +20,12 @@ export function toSP(d: Date | string): Date {
 
 // Normaliza o "dono" de uma tarefa pra exibição consistente:
 //  - vazio / "?"           → "A definir"
-//  - "vitor"/"Vitor" (qq)  → "Você"
+//  - "vitor"/"Vitor" (qq)  → "Vitor"
 //  - outros                → nome como veio (trim)
 export function normalizeOwner(owner: string | null | undefined): string {
   const s = (owner ?? "").trim();
   if (!s || s === "?") return "A definir";
-  if (s.toLowerCase() === "vitor") return "Você";
+  if (s.toLowerCase() === "vitor") return "Vitor";
   return s;
 }
 

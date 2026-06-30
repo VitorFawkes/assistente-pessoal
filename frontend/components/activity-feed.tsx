@@ -26,7 +26,7 @@ export function ActivityFeed({ items }: ActivityFeedProps) {
     <div className="space-y-4">
       {items.map((item) => {
         const avatar = item.convidado_nome ? item.convidado_nome.charAt(0).toUpperCase() : "V";
-        const author = item.convidado_nome || "Você";
+        const author = item.convidado_nome || "Vitor";
         const timestamp = new Date(item.criado_em);
         const timeAgo = formatDistanceToNowStrict(timestamp, {
           locale: ptBR,

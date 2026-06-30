@@ -12,14 +12,14 @@ export function PraQuemChip({ value, onChange }: { value: PraQuem; onChange: (v:
   const [txt, setTxt] = useState("");
   useEffect(() => { fetch("/api/owners").then((r) => r.json()).then((d) => setOwners(d.owners ?? [])).catch(() => {}); }, []);
   const isMe = value.owner === "vitor" && value.acao === "executar";
-  const label = isMe ? "eu" : value.owner === "?" ? "alguém" : value.owner;
+  const label = isMe ? "Vitor" : value.owner === "?" ? "alguém" : value.owner;
   const filtered = owners.filter((o) => !o.is_me && o.name.toLowerCase().includes(txt.toLowerCase()));
   return (
     <Popover ariaLabel="Mudar responsável"
       trigger={() => (
         <span className={cn("inline-flex items-center gap-1 text-[12px] px-2 py-0.5 rounded-full",
           isMe ? "bg-[color:var(--calm-bg)] text-[color:var(--calm)]" : "bg-[color:var(--warm-bg)] text-[color:var(--warm)]")}>
-          <UserRound size={11} /> {isMe ? "eu" : label}
+          <UserRound size={11} /> {isMe ? "Vitor" : label}
         </span>
       )}>
       {(close) => (

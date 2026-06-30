@@ -93,14 +93,14 @@ export function tipoOf(t: Tarefa): string {
   return t.meeting_type || "desconhecido";
 }
 
-// Pessoa pela qual agrupar: "Você" pra executar, senão a principal / owner.
+// Pessoa pela qual agrupar: "Vitor" pra executar, senão a principal / owner.
 export function principalPersonOf(t: Tarefa): string {
-  if (t.acao === "executar") return "Você";
+  if (t.acao === "executar") return "Vitor";
   const principal = (t.pessoas ?? []).find((p) => p.principal);
   if (principal) return principal.nome;
   const owner = (t.owner ?? "").trim();
   if (!owner || owner === "?") return "A definir";
-  if (owner.toLowerCase() === "vitor") return "Você";
+  if (owner.toLowerCase() === "vitor") return "Vitor";
   return owner;
 }
 

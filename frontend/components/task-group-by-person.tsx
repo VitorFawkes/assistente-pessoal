@@ -11,7 +11,7 @@ function groupKey(t: Tarefa): { id: string; nome: string; ehVoce: boolean } {
     if (owner && owner !== "?" && owner.toLowerCase() !== "vitor")
       return { id: `owner:${owner.toLowerCase()}`, nome: owner, ehVoce: false };
   }
-  return { id: "__voce__", nome: "Você", ehVoce: true };
+  return { id: "__voce__", nome: "Vitor", ehVoce: true };
 }
 
 export function TaskGroupByPerson({ tarefas }: { tarefas: Tarefa[] }) {

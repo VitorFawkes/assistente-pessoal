@@ -169,8 +169,8 @@ function groupByPessoa(list: Tarefa[]): [string, Tarefa[]][] {
   return [...map.entries()]
     .map(([k, items]) => [k, items] as [string, Tarefa[]])
     .sort((a, b) => {
-      if (a[0] === "Você") return -1;
-      if (b[0] === "Você") return 1;
+      if (a[0] === "Vitor") return -1;
+      if (b[0] === "Vitor") return 1;
       return b[1].length - a[1].length || a[0].localeCompare(b[0], "pt-BR");
     });
 }
