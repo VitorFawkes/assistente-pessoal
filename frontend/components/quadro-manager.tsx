@@ -152,9 +152,9 @@ export function QuadroManager({
 
   return (
     <OwnerTaskProvider>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
+      <div className="w-full space-y-8 pb-16">
         {/* Cabeçalho editável */}
-        <section className="space-y-4 border-b-2 border-[color:var(--border)] pb-8">
+        <section className="space-y-3 border-b border-[color:var(--border)] pb-6">
           {editingName ? (
             <input
               type="text"
@@ -197,9 +197,9 @@ export function QuadroManager({
           )}
         </section>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:gap-12">
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-8 lg:gap-12 items-start">
           {/* Coluna esquerda: Tarefas */}
-          <div className="lg:col-span-2 space-y-5">
+          <div className="min-w-0 space-y-5">
             <div className="flex items-center justify-between gap-3">
               <h3 className="font-display text-lg sm:text-xl font-light text-[color:var(--foreground)]">
                 Tarefas{" "}
@@ -249,19 +249,18 @@ export function QuadroManager({
                 </p>
               </div>
             ) : (
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-2.5">
                 {tarefas.map((t) => (
-                  <div key={t.id} className="space-y-1">
+                  <div key={t.id} className="group relative">
                     <TaskRow tarefa={t} />
-                    <div className="flex justify-end">
-                      <button
-                        type="button"
-                        onClick={() => removerDoQuadro(t.id)}
-                        className="text-[11px] text-[color:var(--muted)] hover:text-[color:var(--urgent)] transition"
-                      >
-                        remover do quadro
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removerDoQuadro(t.id)}
+                      title="Remover do quadro"
+                      className="absolute -top-2 right-2 z-10 text-[10px] tracking-wide px-2 py-0.5 rounded-full border border-[color:var(--border)] bg-[color:var(--card)] text-[color:var(--muted)] opacity-0 group-hover:opacity-100 hover:text-[color:var(--urgent)] hover:border-[color:var(--urgent)]/40 transition"
+                    >
+                      remover do quadro
+                    </button>
                   </div>
                 ))}
               </div>
@@ -269,7 +268,7 @@ export function QuadroManager({
           </div>
 
           {/* Coluna direita: Convidados + Atividade */}
-          <div className="lg:col-span-1 space-y-8">
+          <div className="space-y-8 lg:sticky lg:top-20">
             <section className="space-y-6">
               <h3 className="font-display text-lg sm:text-xl font-light text-[color:var(--foreground)]">
                 Convidados
@@ -333,11 +332,11 @@ export function QuadroManager({
               </div>
             </section>
 
-            <section className="space-y-6 border-t-2 border-[color:var(--border)] lg:border-t-0 lg:border-l-2 lg:pl-8 pt-8 lg:pt-0">
+            <section className="space-y-5 border-t border-[color:var(--border)] pt-6">
               <h3 className="font-display text-lg sm:text-xl font-light text-[color:var(--foreground)]">
                 Atividade
               </h3>
-              <div className="max-h-96 overflow-y-auto pr-2">
+              <div className="max-h-[28rem] overflow-y-auto pr-1">
                 <ActivityFeed items={atividade} />
               </div>
             </section>

@@ -53,20 +53,17 @@ export default async function QuadroDetailPage({
     );
   }
 
+  // full-bleed: escapa do <main max-w-3xl> do layout pra usar a largura da tela
   return (
-    <div className="space-y-7 sm:space-y-9">
-      <header>
-        <p className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
-          Quadro
-        </p>
-      </header>
-
-      <QuadroManager
-        quadro={quadro}
-        tarefas={tarefas}
-        convidados={convidados}
-        atividade={atividade}
-      />
+    <div className="mx-[calc(50%-50vw)] px-5 sm:px-8 overflow-x-clip">
+      <div className="mx-auto max-w-[1400px]">
+        <QuadroManager
+          quadro={quadro}
+          tarefas={tarefas}
+          convidados={convidados}
+          atividade={atividade}
+        />
+      </div>
     </div>
   );
 }
