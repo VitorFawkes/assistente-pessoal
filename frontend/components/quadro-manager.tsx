@@ -370,6 +370,47 @@ export function QuadroManager({
                   {creatingConvidado ? "Criando..." : "Criar"}
                 </button>
               </div>
+
+              {bulkOpen ? (
+                <div className="space-y-2">
+                  <textarea
+                    value={bulkText}
+                    onChange={(e) => setBulkText(e.target.value)}
+                    placeholder={"Um nome por linha…\nAna Souza\nBruno Lima\nCarla Dias"}
+                    rows={5}
+                    autoFocus
+                    className="w-full rounded-lg border border-[color:var(--border)] px-4 py-2 text-sm bg-[color:var(--card)] text-[color:var(--foreground)] focus:border-[color:var(--accent)] outline-none transition-colors resize-y"
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleCreateConvidadosBulk}
+                      disabled={creatingBulk || bulkNomes.length === 0}
+                      className="px-4 py-2 rounded-lg bg-[color:var(--calm)] text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity whitespace-nowrap"
+                    >
+                      {creatingBulk
+                        ? "Criando…"
+                        : `Criar ${bulkNomes.length} ${bulkNomes.length === 1 ? "convidado" : "convidados"}`}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setBulkOpen(false);
+                        setBulkText("");
+                      }}
+                      className="px-3 py-2 rounded-lg text-sm text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setBulkOpen(true)}
+                  className="text-sm text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] underline underline-offset-2"
+                >
+                  Colar vários
+                </button>
+              )}
             </section>
 
             <section className="space-y-5 border-t border-[color:var(--border)] pt-6">
