@@ -78,7 +78,8 @@ export function TaskBoardView({
   onRemoveFromBoard,
 }: {
   tarefas: Tarefa[];
-  onRemoveFromBoard: (id: string) => void;
+  // Opcional: só o dono "remove do quadro" (desvincula). Convidado não recebe.
+  onRemoveFromBoard?: (id: string) => void;
 }) {
   const [search, setSearch] = useState("");
   const [statusView, setStatusView] = useState<StatusView>("todas");
@@ -226,7 +227,11 @@ export function TaskBoardView({
             {tarefas.length === 0 ? "Nenhuma tarefa neste quadro ainda." : "Nenhuma tarefa bate nos filtros."}
           </p>
           {tarefas.length === 0 && (
-            <p className="text-xs text-[color:var(--muted)] mt-1">Crie uma acima, ou adicione tarefas que já existem.</p>
+            <p className="text-xs text-[color:var(--muted)] mt-1">
+              {onRemoveFromBoard
+                ? "Crie uma acima, ou adicione tarefas que já existem."
+                : "Crie a primeira tarefa no campo lá em cima."}
+            </p>
           )}
         </div>
       ) : (
@@ -243,14 +248,16 @@ export function TaskBoardView({
                 {items.map((t) => (
                   <div key={t.id} className="group relative">
                     <TaskRow tarefa={t} />
-                    <button
-                      type="button"
-                      onClick={() => onRemoveFromBoard(t.id)}
-                      title="Remover do quadro"
-                      className="absolute -top-2 right-2 z-10 text-[10px] tracking-wide px-2 py-0.5 rounded-full border border-[color:var(--border)] bg-[color:var(--card)] text-[color:var(--muted)] opacity-0 group-hover:opacity-100 hover:text-[color:var(--urgent)] hover:border-[color:var(--urgent)]/40 transition"
-                    >
-                      remover do quadro
-                    </button>
+                    {onRemoveFromBoard && (
+                      <button
+                        type="button"
+                        onClick={() => onRemoveFromBoard(t.id)}
+                        title="Remover do quadro"
+                        className="absolute -top-2 right-2 z-10 text-[10px] tracking-wide px-2 py-0.5 rounded-full border border-[color:var(--border)] bg-[color:var(--card)] text-[color:var(--muted)] opacity-0 group-hover:opacity-100 hover:text-[color:var(--urgent)] hover:border-[color:var(--urgent)]/40 transition"
+                      >
+                        remover do quadro
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>

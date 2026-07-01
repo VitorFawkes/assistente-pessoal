@@ -1,11 +1,9 @@
 "use client";
 
-import { useState } from "react";
 import { GuestTaskProvider, useGuestTasks } from "@/lib/task-mutations";
 import type { AcessoConvidado } from "@/lib/quadros";
-import { TaskRow } from "./task-row";
+import { TaskBoardView } from "./task-board-view";
 import { CaptureComposer } from "./capture-composer";
-import { GuestBoardError } from "./guest-board-error";
 
 interface GuestBoardProps {
   token: string;
@@ -21,55 +19,50 @@ function GuestBoardContent({ acesso }: GuestBoardContentProps) {
 
   return (
     <div className="min-h-screen bg-[color:var(--background)]">
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 lg:py-16">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
         {/* Cabeçalho */}
-        <header className="mb-12 pb-8 border-b-2 border-[color:var(--border)]">
-          <h1 className="font-display text-3xl sm:text-4xl lg:text-5xl font-light mb-3 text-[color:var(--foreground)]">
+        <header className="mb-8 pb-6 border-b border-[color:var(--border)]">
+          <h1 className="font-display text-3xl sm:text-4xl font-light mb-2 text-[color:var(--foreground)]">
             {acesso.quadroNome}
           </h1>
-          <p className="text-sm sm:text-base text-[color:var(--muted-strong)]">
-            Você está como <span className="font-semibold text-[color:var(--calm)]">{acesso.convidadoNome}</span>
+          <p className="text-sm text-[color:var(--muted-strong)]">
+            Você está como{" "}
+            <span className="font-semibold text-[color:var(--calm)]">
+              {acesso.convidadoNome}
+            </span>
           </p>
         </header>
 
-        {/* Lista de tarefas */}
+        {/* Criar nova tarefa — no topo */}
+        <div className="mb-8">
+          <CaptureComposer onOpenFull={() => {}} />
+        </div>
+
+        {/* Lista de tarefas com busca / filtros / agrupar / ordenar */}
         <main className="mb-12">
           {loading ? (
             <div className="flex justify-center py-16">
-              <p className="text-[color:var(--muted)]">Carregando tarefas...</p>
+              <p className="text-[color:var(--muted)]">Carregando tarefas…</p>
             </div>
-          ) : tarefas.length === 0 ? (
-            <GuestBoardError type="empty_board" />
           ) : (
-            <div className="space-y-3">
-              {tarefas.map((tarefa) => (
-                <TaskRow key={tarefa.id} tarefa={tarefa} />
-              ))}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <h3 className="font-display text-lg sm:text-xl font-light text-[color:var(--foreground)]">
+                  Tarefas
+                </h3>
+                <span className="text-[color:var(--muted)] text-base">
+                  {tarefas.length}
+                </span>
+              </div>
+              <TaskBoardView tarefas={tarefas} />
             </div>
           )}
         </main>
 
-        {/* Separador visual */}
-        <div className="flex items-center gap-4 my-12">
-          <div className="flex-1 h-px bg-[color:var(--border)]" />
-          <span className="text-xs text-[color:var(--muted)]">Criar nova tarefa</span>
-          <div className="flex-1 h-px bg-[color:var(--border)]" />
-        </div>
-
-        {/* Composer */}
-        <section>
-          <h2 className="font-display text-lg sm:text-xl mb-4 text-[color:var(--foreground)]">
-            Contribuir
-          </h2>
-          <div className="bg-[color:var(--card)] rounded-lg border border-[color:var(--border)] p-4 sm:p-6">
-            <CaptureComposer onOpenFull={() => {}} />
-          </div>
-        </section>
-
         {/* Footer */}
         <footer className="mt-16 pt-8 border-t border-[color:var(--border)] text-center">
           <p className="text-xs text-[color:var(--muted)]">
-            Quadro compartilhado — Acesso seguro por link
+            Quadro compartilhado — acesso seguro por link
           </p>
         </footer>
       </div>
