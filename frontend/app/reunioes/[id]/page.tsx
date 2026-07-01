@@ -18,6 +18,7 @@ import { ExecutiveSummary } from "./executive-summary";
 import { AutoLabelByContent } from "./auto-label-by-content";
 import { DeleteMeetingButton } from "@/components/delete-meeting-button";
 import { TranscriptExportMenu } from "@/components/transcript-export-menu";
+import { OwnerTaskProvider } from "@/lib/task-mutations";
 
 export const dynamic = "force-dynamic";
 
@@ -86,6 +87,7 @@ export default async function ReuniaoDetalhePage({
     );
 
   return (
+    <OwnerTaskProvider>
     <div className="space-y-7 sm:space-y-9">
       <div className="flex items-center justify-between gap-3">
         <Link
@@ -269,5 +271,6 @@ export default async function ReuniaoDetalhePage({
         </section>
       )}
     </div>
+    </OwnerTaskProvider>
   );
 }
