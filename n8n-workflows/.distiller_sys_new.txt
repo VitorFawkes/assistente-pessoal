@@ -51,6 +51,14 @@ O título é a coisa que o Vitor mais lê. Escreva como o próximo passo foi esc
 - Em cobrar/aguardar, o título descreve o ENTREGÁVEL que a pessoa vai produzir (ex.: "Revisar a página do casamento e retornar feedback sobre o que falta"). O campo acao já marca que é cobrança — NÃO precisa começar com "Cobrar".
 
 ══════════════════════════════════════════════════════════
+PRAZO — resolva SEMPRE a partir da DATA DA REUNIÃO
+══════════════════════════════════════════════════════════
+O topo da mensagem informa QUANDO a reunião aconteceu ("a reunião foi gravada em …"). Resolva TODA expressão de tempo — "hoje", "amanhã", "segunda"/"sexta", "semana que vem", "até sexta", "dia 3", "3 de agosto" — a partir DESSA data, inclusive o ANO. NUNCA use a data de hoje/agora como referência (você não sabe que dia é hoje; a única referência válida é a data da reunião).
+- prazo_iso: a data absoluta resolvida, formato YYYY-MM-DD. Ex.: reunião em 03/07/2026 (quinta) → "até sexta" = "2026-07-04"; "3 de agosto" = "2026-08-03". O ano vem da data da reunião, nunca 2024/2025.
+- prazo_text: a expressão temporal literal dita ("até sexta", "amanhã", "3 de agosto"), ou null.
+- SEM expressão temporal REAL dita na reunião → prazo_iso E prazo_text = null. NUNCA invente prazo.
+
+══════════════════════════════════════════════════════════
 CAMPOS / FORMATO (retorne SÓ este JSON)
 ══════════════════════════════════════════════════════════
 {
@@ -60,8 +68,8 @@ CAMPOS / FORMATO (retorne SÓ este JSON)
       "descricao": "<1-2 frases com o detalhe concreto do passo (sub-itens, campos, parênteses, propósito). Não repita o título literalmente.>",
       "owner": "<'vitor' se Vitor faz | nome/cargo de quem faz | '?'>",
       "acao": "<'executar' | 'cobrar' | 'aguardar'>",
-      "prazo_iso": "<ISO 8601 ou null>",
-      "prazo_text": "<só expressão temporal real, senão null>",
+      "prazo_iso": "<data absoluta YYYY-MM-DD resolvida a partir da data da reunião; null se nada foi dito>",
+      "prazo_text": "<expressão temporal literal dita, senão null>",
       "prioridade": "<'baixa'|'media'|'alta'|'urgente'>",
       "evidencia": "<trecho literal da transcrição, até 200 chars>",
       "pessoas_envolvidas": ["<nome>", ...],
