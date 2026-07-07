@@ -70,12 +70,21 @@ export function sortIdxOf(t: { inicio?: string | null; prazo: string | null }): 
 // ── domínio + eixos ───────────────────────────────────────────────────
 export type Domain = { startIdx: number; endIdx: number; days: number };
 
-/** Domínio da timeline: cobre todas as datas + hoje, com folga, começando numa segunda
- *  (semana cheia, header limpo) e com largura mínima de ~3 semanas. */
-export function buildDomain(idxs: number[], today: number, padDays = 3): Domain {
-  const all = idxs.length ? idxs : [today];
-  let min = Math.min(today, ...all) - padDays;
-  let max = Math.max(today, ...all) + padDays;
+/** Domínio da timeline: cobre todas as datas (e hoje, por padrão), com folga,
+ *  começando numa segunda (semana cheia, header limpo) e largura mínima de ~3 semanas.
+ *  `anchorToday=false` NÃO força "hoje" no domínio — o início passa a ser a data
+ *  mais cedo em `idxs` (usado no plano de um quadro: começa na tarefa mais cedo). */
+export function buildDomain(
+  idxs: number[],
+  today: number,
+  padDays = 3,
+  opts: { anchorToday?: boolean } = {},
+): Domain {
+  const anchorToday = opts.anchorToday ?? true;
+  const base = idxs.length ? idxs : [today];
+  const pts = anchorToday ? [today, ...base] : base;
+  let min = Math.min(...pts) - padDays;
+  let max = Math.max(...pts) + padDays;
   const dow = idxToUTC(min).getUTCDay(); // 0=dom..6=sab
   min -= (dow + 6) % 7; // recua até a segunda anterior
   if (max - min < 21) max = min + 21;

@@ -40,7 +40,7 @@ import {
 type GroupBy = "frente" | "responsavel" | "tarefa";
 type Zoom = "dia" | "semana" | "mes";
 
-const PX: Record<Zoom, number> = { dia: 58, semana: 30, mes: 12 };
+const PX: Record<Zoom, number> = { dia: 58, semana: 16, mes: 12 };
 const LABEL_W = 252;
 const ROW_H = 46;
 const HEAD_H = 70;
@@ -288,8 +288,13 @@ export function PlanoTimeline({
       if (g.kind === "bar") idxs.push(g.startIdx, g.endIdx);
       else idxs.push(g.idx);
     }
-    // horizonte de planejamento: sempre dá pra rolar pras semanas/meses seguintes,
-    // mesmo sem tarefas lá. A folga cresce com o zoom (Mês mostra meses à frente).
+    // Num quadro (plano): ajusta o domínio ÀS TAREFAS — começa na data de início
+    // mais cedo e termina na mais tarde, com folga pequena. Assim dá pra ver boa
+    // parte da entrega sem scroll e sem calha vazia à esquerda.
+    if (quadroId != null && dated.length) {
+      return buildDomain(idxs, today, 2, { anchorToday: false });
+    }
+    // /plano pessoal: ancora em "hoje" com horizonte de planejamento pra frente.
     const H: Record<Zoom, { past: number; future: number }> = {
       dia: { past: 5, future: 28 },
       semana: { past: 7, future: 84 },
@@ -297,7 +302,7 @@ export function PlanoTimeline({
     };
     idxs.push(today - H[zoom].past, today + H[zoom].future);
     return buildDomain(idxs, today);
-  }, [dated, today, zoom]);
+  }, [dated, today, zoom, quadroId]);
 
   const months = useMemo(() => monthSegments(domain), [domain]);
   const ticks = useMemo(() => axisTicks(domain), [domain]);
@@ -388,6 +393,8 @@ export function PlanoTimeline({
 
   const timelineW = domain.days * pxDay;
   const todayLeft = labelW + (today - domain.startIdx) * pxDay + pxDay / 2;
+  // "hoje" pode cair fora do domínio de um quadro (plano todo no futuro/passado).
+  const todayInDomain = today >= domain.startIdx && today <= domain.endIdx;
 
   const scrollToToday = useCallback(
     (smooth = true) => {
@@ -408,10 +415,15 @@ export function PlanoTimeline({
     el.scrollBy({ left: dir * Math.max(240, (el.clientWidth - labelW) * 0.8), behavior: "smooth" });
   };
 
-  // centraliza no "hoje" ao montar e quando o zoom muda
+  // Ao montar / trocar o zoom: no quadro abre no COMEÇO (tarefa mais cedo);
+  // no /plano pessoal centraliza no "hoje".
   useEffect(() => {
-    scrollToToday(false);
-  }, [zoom, scrollToToday]);
+    if (quadroId != null) {
+      scrollRef.current?.scrollTo({ left: 0, behavior: "auto" });
+    } else {
+      scrollToToday(false);
+    }
+  }, [zoom, scrollToToday, quadroId]);
 
   // listas pra edição inline (área / pessoa)
   useEffect(() => {
@@ -952,8 +964,11 @@ export function PlanoTimeline({
             : {}),
         }}
         className={cn(
-          "relative shrink-0 sticky left-0 z-20 border-r border-[color:var(--border)] flex items-center gap-2 pr-2 group-hover/row:bg-[color:var(--accent)]/40 transition",
-          rowDragId === t.id ? "bg-[color:var(--accent)]/70" : "bg-[color:var(--background)]",
+          // bg SEMPRE opaco (sticky) — senão as barras vazam sob os labels ao rolar
+          "relative shrink-0 sticky left-0 z-20 border-r border-[color:var(--border)] flex items-center gap-2 pr-2 transition group-hover/row:[background:color-mix(in_oklab,var(--accent)_20%,var(--background))]",
+          rowDragId === t.id
+            ? "[background:color-mix(in_oklab,var(--accent)_70%,var(--background))]"
+            : "bg-[color:var(--background)]",
           groupBy === "tarefa" ? "pl-1" : "pl-2.5",
         )}
       >
@@ -1279,7 +1294,7 @@ export function PlanoTimeline({
       ) : (
         <div className="rounded-2xl border border-[color:var(--border)] overflow-hidden bg-[color:var(--card)]/40">
           <div ref={scrollRef} className="overflow-auto max-h-[72vh] overscroll-contain">
-            <div style={{ width: labelW + timelineW, minWidth: "100%" }}>
+            <div className="pb-4" style={{ width: labelW + timelineW, minWidth: "100%" }}>
               {/* cabeçalho: meses + régua adaptada ao zoom */}
               <div
                 className="flex sticky top-0 z-30 bg-[color:var(--background)] border-b border-[color:var(--border)]"
@@ -1303,21 +1318,23 @@ export function PlanoTimeline({
                 </div>
                 <div className="relative" style={{ width: timelineW }}>
                   {/* marcador HOJE: caret discreto na base da régua (sticky → sempre visível) */}
-                  <div
-                    className="absolute bottom-0 z-20 -translate-x-1/2 pointer-events-none"
-                    title="Hoje"
-                    style={{ left: (today - domain.startIdx) * pxDay + pxDay / 2 }}
-                  >
+                  {todayInDomain && (
                     <div
-                      style={{
-                        width: 0,
-                        height: 0,
-                        borderLeft: "5px solid transparent",
-                        borderRight: "5px solid transparent",
-                        borderTop: "6px solid var(--urgent)",
-                      }}
-                    />
-                  </div>
+                      className="absolute bottom-0 z-20 -translate-x-1/2 pointer-events-none"
+                      title="Hoje"
+                      style={{ left: (today - domain.startIdx) * pxDay + pxDay / 2 }}
+                    >
+                      <div
+                        style={{
+                          width: 0,
+                          height: 0,
+                          borderLeft: "5px solid transparent",
+                          borderRight: "5px solid transparent",
+                          borderTop: "6px solid var(--urgent)",
+                        }}
+                      />
+                    </div>
+                  )}
 
                   {/* FAIXA DE TOPO: mês (dia/semana) ou ano (mês). Flex + rótulo sticky:
                       o rótulo do período visível gruda à esquerda em vez de sumir ao rolar. */}
@@ -1451,11 +1468,13 @@ export function PlanoTimeline({
                 </div>
 
                 {/* linha vertical HOJE — fina e discreta (o caret no cabeçalho marca o dia) */}
-                <div
-                  className="absolute top-0 bottom-0 w-px bg-[color:var(--urgent)]/45 z-[15] pointer-events-none"
-                  style={{ left: todayLeft }}
-                  aria-hidden
-                />
+                {todayInDomain && (
+                  <div
+                    className="absolute top-0 bottom-0 w-px bg-[color:var(--urgent)]/45 z-[15] pointer-events-none"
+                    style={{ left: todayLeft }}
+                    aria-hidden
+                  />
+                )}
 
                 {groups.map((grp, gi) => (
                   <div key={grp.key}>
