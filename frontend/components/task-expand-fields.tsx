@@ -153,21 +153,25 @@ export function TaskExpandFields({ tarefa }: { tarefa: Tarefa }) {
             className="w-full px-3 py-2 rounded-lg border border-[color:var(--border)] bg-transparent text-[13px] focus:outline-none focus:border-[color:var(--muted)]"
           />
         </Field>
-        <label className="flex items-center gap-2.5 text-[13px] cursor-pointer select-none rounded-lg border border-[color:var(--border)] px-3 self-end h-[38px]">
-          <input
-            type="checkbox"
-            checked={noPlano}
-            onChange={(e) => {
-              setNoPlano(e.target.checked);
-              mut.patch(tarefa.id, { no_plano: e.target.checked });
-            }}
-            className="accent-[color:var(--calm)]"
-          />
-          <span className="inline-flex items-center gap-1.5">
-            <Calendar size={13} className="text-[color:var(--muted)]" />
-            No plano de ação
-          </span>
-        </label>
+        {/* "No plano de ação" mexe no /plano PRIVADO do dono — o convidado não
+            controla isso (o endpoint do guest rejeita no_plano). Só o dono vê. */}
+        {mut.scope === "owner" && (
+          <label className="flex items-center gap-2.5 text-[13px] cursor-pointer select-none rounded-lg border border-[color:var(--border)] px-3 self-end h-[38px]">
+            <input
+              type="checkbox"
+              checked={noPlano}
+              onChange={(e) => {
+                setNoPlano(e.target.checked);
+                mut.patch(tarefa.id, { no_plano: e.target.checked });
+              }}
+              className="accent-[color:var(--calm)]"
+            />
+            <span className="inline-flex items-center gap-1.5">
+              <Calendar size={13} className="text-[color:var(--muted)]" />
+              No plano de ação
+            </span>
+          </label>
+        )}
       </div>
 
       <Field label="Status">

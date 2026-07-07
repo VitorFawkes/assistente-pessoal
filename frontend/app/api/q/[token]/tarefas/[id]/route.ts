@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { withGuest, GuestError, membershipDoQuadro } from "@/lib/quadro-guest";
 import { clientIp } from "@/lib/rate-limit";
+import { TAREFA_SELECT } from "@/lib/queries";
 
 type Ctx = { params: Promise<{ token: string; id: string }> };
 
@@ -150,8 +151,11 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         }
       }
 
-      // Retornar tarefa atualizada
-      const { rows } = await c.query("SELECT * FROM tarefas WHERE id = $1", [id]);
+      // Retornar tarefa no shape enriquecido (pessoas/frente/meeting_*) — MESMO
+      // shape do GET. Sem isso o cliente (GuestTaskProvider) substitui a tarefa
+      // por uma linha crua sem pessoas/área, e a edição (ex.: mudar a data)
+      // parece quebrar/sumir chips ao re-renderizar.
+      const { rows } = await c.query(`${TAREFA_SELECT} WHERE t.id = $1`, [id]);
       return rows[0];
     });
 

@@ -164,7 +164,11 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         }
       }
 
-      return tarefa;
+      // Re-seleciona no shape enriquecido (pessoas/frente/meeting_*) — MESMO
+      // shape do GET, pra o cliente (GuestTaskProvider) não substituir a tarefa
+      // por uma linha crua sem pessoas/área ao criar.
+      const enriched = await c.query(`${TAREFA_SELECT} WHERE t.id = $1`, [tarefa.id]);
+      return enriched.rows[0] ?? tarefa;
     });
 
     return NextResponse.json(result, { status: 201 });
