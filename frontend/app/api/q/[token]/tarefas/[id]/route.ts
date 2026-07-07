@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { withGuest, GuestError, membershipDoQuadro } from "@/lib/quadro-guest";
+import { withGuest, GuestError, membershipDoQuadro, guestErrorResponse } from "@/lib/quadro-guest";
 import { clientIp } from "@/lib/rate-limit";
 import { TAREFA_SELECT } from "@/lib/queries";
 
@@ -208,39 +208,22 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
 
 /**
  * DELETE /api/q/[token]/tarefas/[id]
- * BLOQUEADO para convidados — somente o dono exclui tarefas. Validamos o token
- * pela mesma porta (rate-limit + 401 se inválido/revogado) e recusamos com 403.
+ * O convidado NÃO exclui a tarefa — só a REMOVE do quadro (desvincula em
+ * quadro_tarefas). A tarefa continua existindo pro dono.
  */
 export async function DELETE(req: NextRequest, ctx: Ctx) {
-  const { token } = await ctx.params;
+  const { token, id } = await ctx.params;
   const ip = clientIp(req.headers);
 
   try {
-    return await withGuest(token, ip, async () =>
-      NextResponse.json(
-        { error: "forbidden", message: "Convidado não pode excluir tarefas." },
-        { status: 403 }
-      )
-    );
-  } catch (e) {
-    if (e instanceof GuestError) {
-      if (e.code === "rate_limit") {
-        return NextResponse.json(
-          { error: "rate_limit_exceeded", message: "Muitas requisições. Aguarde 1 minuto." },
-          { status: 429, headers: { "Retry-After": "60" } }
-        );
-      }
-      return NextResponse.json(
-        { error: "invalid_token", message: "Link inválido ou revogado." },
-        { status: 401 }
+    await withGuest(token, ip, async ({ acesso, c }) => {
+      await c.query(
+        `DELETE FROM quadro_tarefas WHERE quadro_id = $1 AND tarefa_id = $2`,
+        [acesso.quadroId, id],
       );
-    }
-
-    const msg = e instanceof Error ? e.message : String(e);
-    console.error("[guest-api] erro inesperado:", msg);
-    return NextResponse.json(
-      { error: "server_error", message: "Erro ao processar a requisição." },
-      { status: 500 },
-    );
+    });
+    return new NextResponse(null, { status: 204 });
+  } catch (e) {
+    return guestErrorResponse(e);
   }
 }

@@ -1,4 +1,5 @@
 import type { PoolClient } from "pg";
+import { NextResponse } from "next/server";
 import { query, withTenant } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
 import type { AcessoConvidado } from "@/lib/quadros";
@@ -58,6 +59,34 @@ export async function withGuest<T>(
     // Chamar callback com acesso + client tenantizado
     return fn({ acesso, c });
   });
+}
+
+/**
+ * Resposta de erro padrão dos handlers /api/q/[token]/* — mapeia GuestError
+ * (429/401), erros de validação conhecidos (400) e o resto pra 500.
+ */
+export function guestErrorResponse(e: unknown): NextResponse {
+  if (e instanceof GuestError) {
+    if (e.code === "rate_limit") {
+      return NextResponse.json(
+        { error: "rate_limit_exceeded", message: "Muitas requisições. Aguarde 1 minuto." },
+        { status: 429, headers: { "Retry-After": "60" } },
+      );
+    }
+    return NextResponse.json(
+      { error: "invalid_token", message: "Link inválido ou revogado." },
+      { status: 401 },
+    );
+  }
+  const msg = e instanceof Error ? e.message : String(e);
+  if (msg === "nothing_to_update" || msg === "nome_required" || msg === "ids_vazio") {
+    return NextResponse.json({ error: msg }, { status: 400 });
+  }
+  console.error("[guest-api] erro inesperado:", msg);
+  return NextResponse.json(
+    { error: "server_error", message: "Erro ao processar a requisição." },
+    { status: 500 },
+  );
 }
 
 /**

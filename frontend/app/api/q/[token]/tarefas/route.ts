@@ -16,25 +16,43 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 
   try {
     const result = await withGuest(token, ip, async ({ acesso, c }) => {
-      // Query tarefas no MESMO client tenant (RLS escopado ao dono)
+      // Wrap do TAREFA_SELECT pra expor a ordem POR-QUADRO (quadro_ordem) igual
+      // ao owner — a visão timeline do convidado ordena/reordena por ela.
       const tarefasResult = await c.query(
-        `${TAREFA_SELECT}
-         JOIN quadro_tarefas qt ON qt.tarefa_id = t.id
-         WHERE qt.quadro_id = $1 AND t.user_id = $2
-         ORDER BY qt.ordem NULLS LAST, t.created_at DESC`,
+        `SELECT sub.*, qt.ordem AS quadro_ordem
+           FROM (${TAREFA_SELECT}) sub
+           JOIN quadro_tarefas qt ON qt.tarefa_id = sub.id
+          WHERE qt.quadro_id = $1 AND sub.user_id = $2
+          ORDER BY qt.ordem NULLS LAST, sub.created_at DESC`,
         [acesso.quadroId, acesso.ownerId]
+      );
+
+      // dados do quadro (descrição/vista) + convidados, pra o convidado gerenciar
+      const qr = await c.query<{ descricao: string | null; vista_padrao: string }>(
+        `SELECT descricao, vista_padrao FROM quadros WHERE id = $1`,
+        [acesso.quadroId],
+      );
+      const convR = await c.query(
+        `SELECT id, nome, token, created_at, last_seen_at
+           FROM quadro_convidados
+          WHERE quadro_id = $1 AND revoked_at IS NULL
+          ORDER BY created_at DESC`,
+        [acesso.quadroId],
       );
 
       return {
         quadro: {
           id: acesso.quadroId,
           nome: acesso.quadroNome,
+          descricao: qr.rows[0]?.descricao ?? null,
+          vista_padrao: qr.rows[0]?.vista_padrao ?? "lista",
         },
         convidado: {
           id: acesso.convidadoId,
           nome: acesso.convidadoNome,
         },
         tarefas: tarefasResult.rows,
+        convidados: convR.rows,
       };
     });
 

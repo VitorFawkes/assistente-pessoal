@@ -49,6 +49,13 @@ export type TaskMutations = {
   // Listar áreas (frentes) disponíveis
   listFrentes: () => Promise<{ id: string; nome: string }[]>;
 
+  // Listar pessoas (pra popovers de atribuição na timeline)
+  listPessoas: () => Promise<{ id: string; nome: string }[]>;
+
+  // Reordenar tarefas (timeline "por tarefa"). quadroId → grava quadro_tarefas.ordem;
+  // sem quadroId (/plano) → grava tarefas.ordem global. Guest usa a rota do token.
+  reorder: (ids: string[], quadroId?: string) => Promise<void>;
+
   // Criar nova área (dono só)
   createFrente?: (nome: string) => Promise<{ id: string; nome: string } | null>;
 
@@ -159,6 +166,36 @@ export function OwnerTaskProvider({ children }: OwnerTaskProviderProps) {
       }
     },
 
+    listPessoas: async () => {
+      try {
+        const res = await fetch("/api/pessoas");
+        if (!res.ok) throw new Error(`GET pessoas failed: ${res.status}`);
+        const data = await res.json();
+        return Array.isArray(data) ? data : data.pessoas || [];
+      } catch {
+        return [];
+      }
+    },
+
+    reorder: async (ids, quadroId) => {
+      const url = quadroId
+        ? `/api/quadros/${quadroId}/reorder`
+        : "/api/tarefas/reorder";
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids }),
+        });
+        if (!res.ok) throw new Error(`reorder failed: ${res.status}`);
+        router.refresh();
+      } catch (err) {
+        toast.error(
+          `Erro ao reordenar: ${err instanceof Error ? err.message : "desconhecido"}`,
+        );
+      }
+    },
+
     refresh: () => {
       router.refresh();
     },
@@ -173,10 +210,31 @@ export function OwnerTaskProvider({ children }: OwnerTaskProviderProps) {
   );
 }
 
-// Context para expor a lista de tarefas do convidado
+// Dados do quadro e convidados expostos ao GuestBoard (do GET estendido)
+export type GuestQuadro = {
+  id: string;
+  nome: string;
+  descricao: string | null;
+  vista_padrao: "lista" | "timeline";
+};
+export type GuestConvidado = {
+  id: string;
+  nome: string;
+  token: string;
+  created_at: string;
+  last_seen_at: string | null;
+};
+
+// Context para expor a lista de tarefas do convidado + dados do quadro/convidados
 export const GuestTasksStateContext = createContext<{
   tarefas: Tarefa[];
   loading: boolean;
+  quadro: GuestQuadro | null;
+  convidados: GuestConvidado[];
+  setQuadro: (q: GuestQuadro | null | ((p: GuestQuadro | null) => GuestQuadro | null)) => void;
+  setConvidados: (
+    c: GuestConvidado[] | ((p: GuestConvidado[]) => GuestConvidado[]),
+  ) => void;
 } | null>(null);
 
 export function useGuestTasks() {
@@ -194,6 +252,8 @@ export type GuestTaskProviderProps = {
 export function GuestTaskProvider({ token, children }: GuestTaskProviderProps) {
   const [tarefas, setTarefas] = useState<Tarefa[]>([]);
   const [loading, setLoading] = useState(true);
+  const [quadro, setQuadro] = useState<GuestQuadro | null>(null);
+  const [convidados, setConvidados] = useState<GuestConvidado[]>([]);
 
   // Buscar tarefas ao montar
   useEffect(() => {
@@ -205,6 +265,8 @@ export function GuestTaskProvider({ token, children }: GuestTaskProviderProps) {
       })
       .then((data) => {
         setTarefas(data.tarefas || []);
+        if (data.quadro) setQuadro(data.quadro);
+        if (data.convidados) setConvidados(data.convidados);
       })
       .catch((err) => {
         toast.error(
@@ -289,6 +351,38 @@ export function GuestTaskProvider({ token, children }: GuestTaskProviderProps) {
       }
     },
 
+    listPessoas: async () => {
+      try {
+        const res = await fetch(`/api/q/${token}/pessoas`);
+        if (!res.ok) throw new Error(`GET pessoas failed: ${res.status}`);
+        const data = await res.json();
+        return data.pessoas || [];
+      } catch {
+        return [];
+      }
+    },
+
+    reorder: async (ids) => {
+      try {
+        const res = await fetch(`/api/q/${token}/reorder`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids }),
+        });
+        if (!res.ok) throw new Error(`reorder failed: ${res.status}`);
+        // re-fetch pra refletir a nova ordem (tarefas vêm ordenadas por qt.ordem)
+        const r = await fetch(`/api/q/${token}/tarefas`);
+        if (r.ok) {
+          const d = await r.json();
+          setTarefas(d.tarefas || []);
+        }
+      } catch (err) {
+        toast.error(
+          `Erro ao reordenar: ${err instanceof Error ? err.message : "desconhecido"}`,
+        );
+      }
+    },
+
     refresh: () => {
       // Re-fetch local das tarefas (sem router.refresh)
       fetch(`/api/q/${token}/tarefas`)
@@ -307,7 +401,9 @@ export function GuestTaskProvider({ token, children }: GuestTaskProviderProps) {
 
   return (
     <TaskMutationContext.Provider value={value}>
-      <GuestTasksStateContext.Provider value={{ tarefas, loading }}>
+      <GuestTasksStateContext.Provider
+        value={{ tarefas, loading, quadro, convidados, setQuadro, setConvidados }}
+      >
         {children}
       </GuestTasksStateContext.Provider>
     </TaskMutationContext.Provider>

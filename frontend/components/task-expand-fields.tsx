@@ -218,7 +218,11 @@ export function TaskExpandFields({ tarefa }: { tarefa: Tarefa }) {
         )}
       >
         <Trash2 size={14} />
-        {confirmDelete ? "Clique de novo pra confirmar" : "Deletar tarefa"}
+        {confirmDelete
+          ? "Clique de novo pra confirmar"
+          : mut.scope === "guest"
+          ? "Remover do quadro"
+          : "Deletar tarefa"}
       </button>
     </div>
   );

@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   ChevronDown,
   Inbox,
@@ -20,6 +19,7 @@ import {
 import { cn, normalizeOwner } from "@/lib/utils";
 import { TaskEditFields } from "./task-edit-fields";
 import { PlanoManageModal } from "./plano-manage-modal";
+import { useTaskMutations } from "@/lib/task-mutations";
 import type { Tarefa } from "@/lib/queries";
 import { X } from "lucide-react";
 import {
@@ -163,7 +163,7 @@ export function PlanoTimeline({
   quadroId?: string;
   showManageButton?: boolean;
 }) {
-  const router = useRouter();
+  const mut = useTaskMutations();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [groupBy, setGroupBy] = useState<GroupBy>("frente");
   const [zoom, setZoom] = useState<Zoom>("semana");
@@ -425,20 +425,15 @@ export function PlanoTimeline({
     }
   }, [zoom, scrollToToday, quadroId]);
 
-  // listas pra edição inline (área / pessoa)
+  // listas pra edição inline (área / pessoa) — via contexto (owner ou convidado)
   useEffect(() => {
-    const ac = new AbortController();
-    fetch("/api/frentes", { signal: ac.signal })
-      .then((r) => r.json())
-      .then((d: { frentes?: { id: string; nome: string }[] }) => setFrentes(d.frentes ?? []))
-      .catch(() => {});
-    fetch("/api/pessoas", { signal: ac.signal })
-      .then((r) => r.json())
-      .then((d: { id: string; nome: string }[] | { error?: string }) =>
-        Array.isArray(d) ? setPessoas(d) : undefined,
-      )
-      .catch(() => {});
-    return () => ac.abort();
+    let alive = true;
+    mut.listFrentes().then((f) => alive && setFrentes(f)).catch(() => {});
+    mut.listPessoas().then((p) => alive && setPessoas(p)).catch(() => {});
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // fecha popover/edição com Escape
@@ -455,14 +450,10 @@ export function PlanoTimeline({
 
   const patch = useCallback(
     async (id: string, body: Record<string, unknown>) => {
-      await fetch(`/api/tarefas/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      router.refresh();
+      // roteado pelo contexto: dono → /api/tarefas; convidado → /api/q/[token]
+      await mut.patch(id, body as Parameters<typeof mut.patch>[1], { silent: true });
     },
-    [router],
+    [mut],
   );
 
   function cycleStatus(t: Tarefa) {
@@ -622,16 +613,10 @@ export function PlanoTimeline({
     if (!d) return;
     const changed = d.last.some((id, i) => id !== d.baseOrder[i]);
     if (changed) {
-      const url = quadroId
-        ? `/api/quadros/${quadroId}/reorder`
-        : "/api/tarefas/reorder";
-      fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: d.last }),
-      }).then(() => router.refresh());
+      // roteado pelo contexto: dono → /api/quadros|tarefas; convidado → /api/q/[token]
+      mut.reorder(d.last, quadroId);
     }
-  }, [router, quadroId]);
+  }, [mut, quadroId]);
 
   function startRowDrag(e: React.PointerEvent, t: Tarefa) {
     if (groupBy !== "tarefa") return;
