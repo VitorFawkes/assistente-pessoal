@@ -151,7 +151,18 @@ type DragState = {
   move: (e: PointerEvent) => void;
 };
 
-export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
+export function PlanoTimeline({
+  tarefas,
+  quadroId,
+  showManageButton = true,
+}: {
+  tarefas: Tarefa[];
+  // Quando presente, a timeline é a de um QUADRO: renderiza as tarefas recebidas
+  // (sem filtrar por no_plano), ordena/reordena por quadro_ordem e reordena via
+  // /api/quadros/[id]/reorder. Sem quadroId = o /plano pessoal (no_plano), intacto.
+  quadroId?: string;
+  showManageButton?: boolean;
+}) {
   const router = useRouter();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [groupBy, setGroupBy] = useState<GroupBy>("frente");
@@ -256,10 +267,16 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
     return m;
   }, [tarefas]);
 
-  // só entra na timeline o que está NO PLANO (opt-in). Tarefas de reunião não vazam.
+  // No /plano pessoal: só entra o que está NO PLANO (opt-in via no_plano).
+  // Num quadro (quadroId): as tarefas JÁ são a curadoria do quadro — renderiza todas.
   const visible = useMemo(
-    () => tarefas.filter((t) => t.no_plano && (showDone || isOpen(t) || doneRecente(t))),
-    [tarefas, showDone],
+    () =>
+      tarefas.filter(
+        (t) =>
+          (quadroId != null || t.no_plano) &&
+          (showDone || isOpen(t) || doneRecente(t)),
+      ),
+    [tarefas, showDone, quadroId],
   );
   const dated = useMemo(() => visible.filter((t) => geomOf(t) !== null), [visible]);
   const undated = useMemo(() => visible.filter((t) => geomOf(t) === null), [visible]);
@@ -329,15 +346,17 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
     [overrides],
   );
 
-  // chave de ordenação: ordem manual (override de arrasto → coluna `ordem`) ou fallback por data
+  // chave de ordenação: ordem manual (override de arrasto → coluna `ordem`) ou fallback por data.
+  // Num quadro usa a ordem POR-QUADRO (quadro_ordem); no /plano usa a global (ordem).
   const ORD_BASE = 10_000_000;
   const orderKey = useCallback(
     (t: Tarefa) => {
       if (ordemOver[t.id] !== undefined) return ordemOver[t.id];
-      if (t.ordem != null) return t.ordem;
+      const manual = quadroId != null ? t.quadro_ordem : t.ordem;
+      if (manual != null) return manual;
       return ORD_BASE + sortIdxOf(t);
     },
-    [ordemOver],
+    [ordemOver, quadroId],
   );
 
   const groups = useMemo(() => {
@@ -591,13 +610,16 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
     if (!d) return;
     const changed = d.last.some((id, i) => id !== d.baseOrder[i]);
     if (changed) {
-      fetch("/api/tarefas/reorder", {
+      const url = quadroId
+        ? `/api/quadros/${quadroId}/reorder`
+        : "/api/tarefas/reorder";
+      fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: d.last }),
       }).then(() => router.refresh());
     }
-  }, [router]);
+  }, [router, quadroId]);
 
   function startRowDrag(e: React.PointerEvent, t: Tarefa) {
     if (groupBy !== "tarefa") return;
@@ -1179,16 +1201,18 @@ export function PlanoTimeline({ tarefas }: { tarefas: Tarefa[] }) {
           </span>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setAdding(true)}
-          className="ml-auto inline-flex items-center gap-1.5 text-[12px] font-medium px-3 py-1 rounded-full bg-[color:var(--foreground)] text-[color:var(--background)] hover:opacity-90 transition cursor-pointer"
-        >
-          <ListChecks size={14} strokeWidth={2.5} />
-          Gerenciar tarefas
-        </button>
+        {showManageButton && (
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            className="ml-auto inline-flex items-center gap-1.5 text-[12px] font-medium px-3 py-1 rounded-full bg-[color:var(--foreground)] text-[color:var(--background)] hover:opacity-90 transition cursor-pointer"
+          >
+            <ListChecks size={14} strokeWidth={2.5} />
+            Gerenciar tarefas
+          </button>
+        )}
 
-        <label className="inline-flex items-center gap-1.5 text-[12px] text-[color:var(--muted-strong)] cursor-pointer select-none">
+        <label className={`${showManageButton ? "" : "ml-auto "}inline-flex items-center gap-1.5 text-[12px] text-[color:var(--muted-strong)] cursor-pointer select-none`}>
           <input
             type="checkbox"
             checked={showDone}

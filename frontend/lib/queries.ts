@@ -66,6 +66,9 @@ export type Tarefa = {
   precisa_revisao: boolean;
   ordem: number | null;
   no_plano: boolean;
+  // Ordem POR-QUADRO (quadro_tarefas.ordem) — só vem quando as tarefas são
+  // carregadas no contexto de um quadro (visão timeline do quadro).
+  quadro_ordem?: number | null;
   // Campos opcionais que podem vir do JOIN com meetings
   meeting_summary?: string | null;
   meeting_recorded_at?: string | null;

@@ -10,6 +10,7 @@ export type Quadro = {
   user_id: string;
   nome: string;
   descricao: string | null;
+  vista_padrao: "lista" | "timeline";
   created_at: string;
   updated_at: string;
   archived_at: string | null;
@@ -122,6 +123,7 @@ export function quadrosFor(userId: string) {
       id: string,
       nome?: string | null,
       descricao?: string | null,
+      vistaPadrao?: "lista" | "timeline",
     ): Promise<Quadro | null> => {
       return withTenant(userId, async (c) => {
         const updates: string[] = [];
@@ -135,6 +137,10 @@ export function quadrosFor(userId: string) {
         if (descricao !== undefined) {
           updates.push(`descricao = $${idx++}`);
           values.push(descricao || null);
+        }
+        if (vistaPadrao !== undefined) {
+          updates.push(`vista_padrao = $${idx++}`);
+          values.push(vistaPadrao);
         }
 
         if (updates.length === 0) return null;
@@ -169,11 +175,15 @@ export function quadrosFor(userId: string) {
      */
     tarefas: async (quadroId: string): Promise<Tarefa[]> => {
       return withTenant(userId, async (c) => {
+        // Wrap do TAREFA_SELECT como subquery pra expor a ordem POR-QUADRO
+        // (quadro_tarefas.ordem → quadro_ordem) sem colidir com t.ordem (global).
+        // A visão timeline do quadro ordena/reordena por quadro_ordem.
         const r = await c.query<Tarefa>(
-          `${TAREFA_SELECT}
-           JOIN quadro_tarefas qt ON qt.tarefa_id = t.id
-           WHERE qt.quadro_id = $1
-           ORDER BY qt.ordem NULLS LAST, t.created_at DESC`,
+          `SELECT sub.*, qt.ordem AS quadro_ordem
+             FROM (${TAREFA_SELECT}) sub
+             JOIN quadro_tarefas qt ON qt.tarefa_id = sub.id
+            WHERE qt.quadro_id = $1
+            ORDER BY qt.ordem NULLS LAST, sub.created_at DESC`,
           [quadroId],
         );
         return r.rows;
@@ -241,6 +251,27 @@ export function quadrosFor(userId: string) {
         await c.query(
           `DELETE FROM quadro_tarefas WHERE quadro_id = $1 AND tarefa_id = $2`,
           [quadroId, tarefaId],
+        );
+      });
+    },
+
+    /**
+     * Reordena as tarefas DENTRO do quadro (visão timeline "por tarefa"):
+     * grava quadro_tarefas.ordem = posição (com folga de 10) na ordem recebida.
+     * Só afeta linhas deste quadro — outras planos/quadros não mudam.
+     */
+    reordenarTarefas: async (
+      quadroId: string,
+      tarefaIds: string[],
+    ): Promise<void> => {
+      if (tarefaIds.length === 0) return;
+      return withTenant(userId, async (c) => {
+        await c.query(
+          `UPDATE quadro_tarefas qt
+              SET ordem = (u.idx - 1) * 10
+             FROM unnest($2::uuid[]) WITH ORDINALITY AS u(id, idx)
+            WHERE qt.quadro_id = $1 AND qt.tarefa_id = u.id`,
+          [quadroId, tarefaIds],
         );
       });
     },

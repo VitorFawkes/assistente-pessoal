@@ -7,6 +7,7 @@ type Ctx = { params: Promise<{ id: string }> };
 type PatchBody = Partial<{
   nome: string;
   descricao: string | null;
+  vista_padrao: "lista" | "timeline";
 }>;
 
 export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
@@ -19,10 +20,19 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
 
+  if (
+    body.vista_padrao !== undefined &&
+    body.vista_padrao !== "lista" &&
+    body.vista_padrao !== "timeline"
+  ) {
+    return NextResponse.json({ error: "vista_padrao inválida" }, { status: 400 });
+  }
+
   const quadro = await quadrosFor(user.id).atualizar(
     id,
     body.nome !== undefined ? body.nome : undefined,
     body.descricao !== undefined ? body.descricao : undefined,
+    body.vista_padrao !== undefined ? body.vista_padrao : undefined,
   );
 
   if (!quadro) {

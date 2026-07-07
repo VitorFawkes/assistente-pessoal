@@ -68,9 +68,16 @@ export default async function QuadrosPage() {
               href={`/quadros/${q.id}`}
               className="rounded-lg border border-[color:var(--border)] bg-[color:var(--card)] p-5 hover:border-[color:var(--accent)] hover:bg-[color:var(--muted)]/5 transition-all"
             >
-              <h3 className="font-display text-lg font-semibold">
-                {q.nome}
-              </h3>
+              <div className="flex items-start justify-between gap-2">
+                <h3 className="font-display text-lg font-semibold">
+                  {q.nome}
+                </h3>
+                {q.vista_padrao === "timeline" && (
+                  <span className="shrink-0 rounded-full bg-[color:var(--accent)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[color:var(--muted-strong)]">
+                    linha do tempo
+                  </span>
+                )}
+              </div>
               {q.descricao && (
                 <p className="mt-2 text-sm text-[color:var(--muted-strong)]">
                   {q.descricao}

@@ -8,6 +8,7 @@ import type { Quadro, QuadroConvidado, AtividadeItem } from "@/lib/quadros";
 import type { Tarefa } from "@/lib/queries";
 import { OwnerTaskProvider } from "@/lib/task-mutations";
 import { TaskBoardView } from "./task-board-view";
+import { PlanoTimeline } from "./plano-timeline";
 import { ActivityFeed } from "./activity-feed";
 import { CopyLinkButton } from "./copy-link-button";
 import { TaskPickerModal } from "./task-picker-modal";
@@ -40,6 +41,29 @@ export function QuadroManager({
   const [novaTarefa, setNovaTarefa] = useState("");
   const [criandoTarefa, setCriandoTarefa] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  // ─── Visão: Lista (board) ou Linha do tempo (Gantt = "plano") ─────────
+  const [vista, setVista] = useState<"lista" | "timeline">(
+    initialQuadro.vista_padrao,
+  );
+
+  // Troca a visão e persiste (é o "transformar em plano"). Otimista + reverte no erro.
+  const mudarVista = async (nova: "lista" | "timeline") => {
+    if (nova === vista) return;
+    const prev = vista;
+    setVista(nova);
+    try {
+      const res = await fetch(`/api/quadros/${quadro.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vista_padrao: nova }),
+      });
+      if (!res.ok) throw new Error("Erro ao mudar a visão");
+    } catch (e) {
+      setVista(prev);
+      toast.error(e instanceof Error ? e.message : "Erro ao mudar a visão");
+    }
+  };
 
   const handleUpdateQuadro = async (updates: Partial<Quadro>) => {
     try {
@@ -248,20 +272,47 @@ export function QuadroManager({
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-8 lg:gap-12 items-start">
           {/* Coluna esquerda: Tarefas */}
           <div className="min-w-0 space-y-5">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
               <h3 className="font-display text-lg sm:text-xl font-light text-[color:var(--foreground)]">
                 Tarefas{" "}
                 <span className="text-[color:var(--muted)] text-base">
                   {tarefas.length}
                 </span>
               </h3>
-              <button
-                type="button"
-                onClick={() => setPickerOpen(true)}
-                className="text-sm text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] underline underline-offset-2"
-              >
-                Adicionar existentes
-              </button>
+              <div className="flex items-center gap-3">
+                {/* Toggle Lista ↔ Linha do tempo (transformar em plano) */}
+                <div className="inline-flex rounded-full border border-[color:var(--border)] p-0.5 text-[12px] font-medium">
+                  <button
+                    type="button"
+                    onClick={() => mudarVista("lista")}
+                    className={`px-3 py-1 rounded-full transition ${
+                      vista === "lista"
+                        ? "bg-[color:var(--foreground)] text-[color:var(--background)]"
+                        : "text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)]"
+                    }`}
+                  >
+                    Lista
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => mudarVista("timeline")}
+                    className={`px-3 py-1 rounded-full transition ${
+                      vista === "timeline"
+                        ? "bg-[color:var(--foreground)] text-[color:var(--background)]"
+                        : "text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)]"
+                    }`}
+                  >
+                    Linha do tempo
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPickerOpen(true)}
+                  className="text-sm text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] underline underline-offset-2"
+                >
+                  Adicionar existentes
+                </button>
+              </div>
             </div>
 
             {/* Composer: nova tarefa direto no quadro */}
@@ -286,8 +337,19 @@ export function QuadroManager({
               </button>
             </div>
 
-            {/* Lista de tarefas do quadro: busca + filtros + agrupar + ordenar */}
-            <TaskBoardView tarefas={tarefas} onRemoveFromBoard={removerDoQuadro} />
+            {/* Conteúdo por visão: Lista (board) ou Linha do tempo (Gantt) */}
+            {vista === "timeline" ? (
+              <PlanoTimeline
+                tarefas={tarefas}
+                quadroId={quadro.id}
+                showManageButton={false}
+              />
+            ) : (
+              <TaskBoardView
+                tarefas={tarefas}
+                onRemoveFromBoard={removerDoQuadro}
+              />
+            )}
           </div>
 
           {/* Coluna direita: Convidados + Atividade — um único scroll sticky (sem scrollbar aninhado) */}
