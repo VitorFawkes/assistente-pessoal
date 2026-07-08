@@ -86,11 +86,16 @@ export function TaskAnexos({ tarefa }: { tarefa: Tarefa }) {
     const val = text.trim();
     setText("");
     const created = await mut.anexos.addLink(tarefa.id, val);
-    if (created) setAnexos((a) => [...a, created]);
-    else setText(val); // devolve o texto se falhou
+    if (created) {
+      setAnexos((a) => [...a, created]);
+      mut.refresh(); // sincroniza o prop do servidor → sobrevive a fechar/reabrir
+    } else {
+      setText(val); // devolve o texto se falhou
+    }
   };
 
   const uploadFiles = async (files: File[]) => {
+    let added = false;
     for (const raw of files) {
       const file = ensureNamed(raw);
       if (!isAllowedFile(file.name)) {
@@ -107,8 +112,12 @@ export function TaskAnexos({ tarefa }: { tarefa: Tarefa }) {
       setBusy((n) => n + 1);
       const created = await mut.anexos.upload(tarefa.id, file);
       setBusy((n) => n - 1);
-      if (created) setAnexos((a) => [...a, created]);
+      if (created) {
+        setAnexos((a) => [...a, created]);
+        added = true;
+      }
     }
+    if (added) mut.refresh(); // persiste no prop → visível ao reabrir e recarregar
   };
 
   const remove = async (id: string) => {
@@ -116,6 +125,7 @@ export function TaskAnexos({ tarefa }: { tarefa: Tarefa }) {
     setAnexos((a) => a.filter((x) => x.id !== id));
     const ok = await mut.anexos.remove(tarefa.id, id);
     if (!ok) setAnexos(prev); // restaura se falhou
+    else mut.refresh();
   };
 
   const onDrop = (e: React.DragEvent) => {

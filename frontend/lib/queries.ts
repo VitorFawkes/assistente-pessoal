@@ -456,23 +456,10 @@ export const tarefasFor = (userId: string) => ({
   /** Lista tarefas de um meeting. Ordem: suas (executar/cobrar) > aguardando, aberta > finalizada, prazo asc. */
   byMeeting: (meetingId: string) =>
     withTenant(userId, async (db) => {
-      const r = await db.query<
-        Tarefa & { prazo: string | null; created_at: string }
-      >(
-        `SELECT
-           t.id, t.meeting_id, t.titulo, t.descricao, t.owner, t.is_mine, t.acao,
-           to_char(t.prazo AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS prazo,
-           t.prazo_text, t.prioridade, t.status, t.evidencia,
-           to_char(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
-           f.nome AS frente, t.frente_proposta,
-           COALESCE((
-             SELECT jsonb_agg(jsonb_build_object('id', p.id, 'nome', p.nome, 'principal', tp.principal)
-                             ORDER BY tp.principal DESC, p.nome)
-             FROM tarefa_pessoas tp JOIN pessoas p ON p.id = tp.pessoa_id
-             WHERE tp.tarefa_id = t.id
-           ), '[]'::jsonb) AS pessoas
-         FROM tarefas t
-         LEFT JOIN frentes f ON f.id = t.frente_id
+      // Usa TAREFA_SELECT (mesmo shape das demais listas → inclui anexos) +
+      // ORDER BY próprio: suas (executar/cobrar) > aguardando, aberta > finalizada, prazo asc.
+      const r = await db.query<Tarefa>(
+        `${TAREFA_SELECT}
          WHERE t.meeting_id = $1
          ORDER BY (t.status NOT IN ('aberta','em_andamento')), (t.acao = 'aguardar'), (t.prazo IS NULL), t.prazo ASC, t.created_at ASC`,
         [meetingId],

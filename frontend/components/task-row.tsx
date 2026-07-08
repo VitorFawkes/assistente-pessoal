@@ -12,6 +12,7 @@ import {
   Quote,
   Check,
   Dot,
+  Paperclip,
 } from "lucide-react";
 import { cn, formatPrazo, type Prioridade } from "@/lib/utils";
 import { TaskExpandFields } from "./task-expand-fields";
@@ -300,6 +301,15 @@ export function TaskRow({
                   title={secondaryPeople.map((p) => p.nome).join(", ")}
                 >
                   +{secondaryPeople.length}
+                </span>
+              )}
+              {(tarefa.anexos?.length ?? 0) > 0 && (
+                <span
+                  className="inline-flex items-center gap-0.5 text-[11px] text-[color:var(--muted-strong)] whitespace-nowrap"
+                  title={`${tarefa.anexos.length} anexo${tarefa.anexos.length !== 1 ? "s" : ""}`}
+                >
+                  <Paperclip size={11} strokeWidth={2} />
+                  {tarefa.anexos.length}
                 </span>
               )}
               <AreaInline tarefa={tarefa} />
