@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Calendar, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTaskMutations } from "@/lib/task-mutations";
+import { TaskAnexos } from "./task-anexos";
 import type { Tarefa, TarefaPessoa } from "@/lib/queries";
 
 // Campos que NÃO cabem na linha compacta (a linha já edita título, prazo,
@@ -86,6 +87,10 @@ export function TaskExpandFields({ tarefa }: { tarefa: Tarefa }) {
           placeholder="Detalhes, contexto…"
           className="w-full px-3 py-2 rounded-lg border border-[color:var(--border)] bg-transparent text-[13px] focus:outline-none focus:border-[color:var(--muted)] resize-none"
         />
+      </Field>
+
+      <Field label="Links e arquivos">
+        <TaskAnexos tarefa={tarefa} />
       </Field>
 
       <Field label="Pessoas envolvidas">

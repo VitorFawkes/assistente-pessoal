@@ -3,7 +3,7 @@
 import { createContext, useContext, type ReactNode, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import type { Tarefa, Acao, TarefaPessoa } from "@/lib/queries";
+import type { Tarefa, Acao, TarefaPessoa, TarefaAnexo } from "@/lib/queries";
 
 // Tipos publicamente consumidos
 export type TaskMutations = {
@@ -61,6 +61,17 @@ export type TaskMutations = {
 
   // Refresh: router.refresh() (dono) ou re-fetch local (convidado)
   refresh: () => void;
+
+  // Anexos (links + arquivos) da tarefa. Owner e guest batem em endpoints
+  // diferentes; a UI usa esta interface única. As mutações NÃO dão refresh —
+  // a UI atualiza a lista local com o retorno (otimista).
+  anexos: {
+    addLink: (tarefaId: string, url: string, titulo?: string) => Promise<TarefaAnexo | null>;
+    upload: (tarefaId: string, file: File) => Promise<TarefaAnexo | null>;
+    remove: (tarefaId: string, anexoId: string) => Promise<boolean>;
+    // href pra <a href download> — same-origin força o download pelo browser.
+    downloadHref: (tarefaId: string, anexoId: string, opts?: { download?: boolean }) => string;
+  };
 
   // Escopo: indica se é dono ou convidado (UI, não segurança)
   scope: "owner" | "guest";
@@ -198,6 +209,55 @@ export function OwnerTaskProvider({ children }: OwnerTaskProviderProps) {
 
     refresh: () => {
       router.refresh();
+    },
+
+    anexos: {
+      addLink: async (tarefaId, url, titulo) => {
+        try {
+          const res = await fetch(`/api/tarefas/${tarefaId}/anexos`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url, titulo }),
+          });
+          if (!res.ok) throw new Error(`${res.status}`);
+          return (await res.json()) as TarefaAnexo;
+        } catch {
+          toast.error("Erro ao adicionar link");
+          return null;
+        }
+      },
+      upload: async (tarefaId, file) => {
+        try {
+          const fd = new FormData();
+          fd.append("file", file);
+          const res = await fetch(`/api/tarefas/${tarefaId}/anexos`, {
+            method: "POST",
+            body: fd,
+          });
+          if (!res.ok) {
+            const e = (await res.json().catch(() => ({}))) as { error?: string };
+            throw new Error(e.error || `${res.status}`);
+          }
+          return (await res.json()) as TarefaAnexo;
+        } catch (err) {
+          toast.error(`Erro ao enviar: ${err instanceof Error ? err.message : "desconhecido"}`);
+          return null;
+        }
+      },
+      remove: async (tarefaId, anexoId) => {
+        try {
+          const res = await fetch(`/api/tarefas/${tarefaId}/anexos/${anexoId}`, {
+            method: "DELETE",
+          });
+          if (!res.ok) throw new Error(`${res.status}`);
+          return true;
+        } catch {
+          toast.error("Erro ao remover anexo");
+          return false;
+        }
+      },
+      downloadHref: (tarefaId, anexoId, opts) =>
+        `/api/tarefas/${tarefaId}/anexos/${anexoId}${opts?.download ? "?dl=1" : ""}`,
     },
 
     scope: "owner",
@@ -394,6 +454,55 @@ export function GuestTaskProvider({ token, children }: GuestTaskProviderProps) {
         .catch(() =>
           toast.error("Erro ao recarregar tarefas"),
         );
+    },
+
+    anexos: {
+      addLink: async (tarefaId, url, titulo) => {
+        try {
+          const res = await fetch(`/api/q/${token}/tarefas/${tarefaId}/anexos`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url, titulo }),
+          });
+          if (!res.ok) throw new Error(`${res.status}`);
+          return (await res.json()) as TarefaAnexo;
+        } catch {
+          toast.error("Erro ao adicionar link");
+          return null;
+        }
+      },
+      upload: async (tarefaId, file) => {
+        try {
+          const fd = new FormData();
+          fd.append("file", file);
+          const res = await fetch(`/api/q/${token}/tarefas/${tarefaId}/anexos`, {
+            method: "POST",
+            body: fd,
+          });
+          if (!res.ok) {
+            const e = (await res.json().catch(() => ({}))) as { error?: string };
+            throw new Error(e.error || `${res.status}`);
+          }
+          return (await res.json()) as TarefaAnexo;
+        } catch (err) {
+          toast.error(`Erro ao enviar: ${err instanceof Error ? err.message : "desconhecido"}`);
+          return null;
+        }
+      },
+      remove: async (tarefaId, anexoId) => {
+        try {
+          const res = await fetch(`/api/q/${token}/tarefas/${tarefaId}/anexos/${anexoId}`, {
+            method: "DELETE",
+          });
+          if (!res.ok) throw new Error(`${res.status}`);
+          return true;
+        } catch {
+          toast.error("Erro ao remover anexo");
+          return false;
+        }
+      },
+      downloadHref: (tarefaId, anexoId, opts) =>
+        `/api/q/${token}/tarefas/${tarefaId}/anexos/${anexoId}${opts?.download ? "?dl=1" : ""}`,
     },
 
     scope: "guest",

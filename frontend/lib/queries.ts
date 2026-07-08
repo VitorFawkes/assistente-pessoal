@@ -40,6 +40,19 @@ export type Acao = "executar" | "cobrar" | "aguardar";
 
 export type TarefaPessoa = { id: string; nome: string; principal: boolean };
 
+// Anexo de tarefa (link ou arquivo). Nunca carrega os bytes do arquivo — só
+// metadados; o conteúdo sai pela rota de download.
+export type TarefaAnexo = {
+  id: string;
+  tipo: "link" | "arquivo";
+  url: string | null;
+  titulo: string | null;
+  filename: string | null;
+  content_type: string | null;
+  size_bytes: number | null;
+  created_at: string;
+};
+
 export type Tarefa = {
   id: string;
   user_id: string;
@@ -59,6 +72,7 @@ export type Tarefa = {
   frente_proposta: string | null;
   frentes: { id: string; nome: string; principal: boolean }[];
   pessoas: TarefaPessoa[];
+  anexos: TarefaAnexo[];
   created_at: string;
   updated_at: string;
   concluida_em: string | null;
@@ -135,7 +149,15 @@ export const TAREFA_SELECT = `
                             ORDER BY tp.principal DESC, p.nome)
            FROM tarefa_pessoas tp JOIN pessoas p ON p.id = tp.pessoa_id
            WHERE tp.tarefa_id = t.id
-         ), '[]'::jsonb) AS pessoas
+         ), '[]'::jsonb) AS pessoas,
+         COALESCE((
+           SELECT jsonb_agg(jsonb_build_object(
+                    'id', a.id, 'tipo', a.tipo, 'url', a.url, 'titulo', a.titulo,
+                    'filename', a.filename, 'content_type', a.content_type,
+                    'size_bytes', a.size_bytes, 'created_at', a.created_at)
+                  ORDER BY a.ordem, a.created_at)
+           FROM tarefa_anexos a WHERE a.tarefa_id = t.id
+         ), '[]'::jsonb) AS anexos
     FROM tarefas t
     LEFT JOIN meetings m ON m.id = t.meeting_id
     LEFT JOIN frentes f ON f.id = t.frente_id`;
