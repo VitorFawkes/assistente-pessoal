@@ -29,6 +29,20 @@ export function normalizeOwner(owner: string | null | undefined): string {
   return s;
 }
 
+// "Eu" = dono é o próprio usuário (vitor / vazio / "?").
+export function isOwnerMe(owner: string | null | undefined): boolean {
+  const s = (owner ?? "").trim().toLowerCase();
+  return !s || s === "?" || s === "vitor";
+}
+
+// Deriva a ação a partir do nome do dono, mantendo o invariante do sistema
+// (executar ⇔ é sua; qualquer outro dono ⇒ cobrar). Usado ao trocar o dono
+// direto pelo nome — o conceito de "cobro/aguardo" saiu da edição inline, mas
+// a coluna `acao` continua coerente pra filtros/plano/agrupamento.
+export function acaoForOwner(owner: string | null | undefined): "executar" | "cobrar" {
+  return isOwnerMe(owner) ? "executar" : "cobrar";
+}
+
 function dayKeySP(d: Date): string {
   return formatInTimeZone(d, SP_TZ, "yyyy-MM-dd");
 }

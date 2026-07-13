@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Calendar, Trash2 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Calendar, Trash2, UserRound } from "lucide-react";
+import { cn, normalizeOwner, isOwnerMe } from "@/lib/utils";
 import { useTaskMutations } from "@/lib/task-mutations";
 import { TaskAnexos } from "./task-anexos";
+import { OwnerPicker } from "./inline-edit-chips";
 import type { Tarefa, TarefaPessoa } from "@/lib/queries";
 
 // Campos que NÃO cabem na linha compacta (a linha já edita título, prazo,
@@ -40,6 +41,34 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       </label>
       {children}
     </div>
+  );
+}
+
+// Editor de dono dentro do expand: mostra o dono atual; clica → abre o mesmo
+// seletor por nome do chip inline (OwnerPicker). Trocar o dono é só trocar o nome.
+function OwnerField({ tarefa }: { tarefa: Tarefa }) {
+  const [editing, setEditing] = useState(false);
+  const me = isOwnerMe(tarefa.owner);
+  if (editing) {
+    return (
+      <div className="rounded-lg border border-[color:var(--border)] p-1">
+        <OwnerPicker tarefa={tarefa} close={() => setEditing(false)} />
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => setEditing(true)}
+      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-[color:var(--border)] bg-transparent text-[13px] hover:border-[color:var(--muted)] transition text-left"
+    >
+      <UserRound
+        size={14}
+        className={me ? "text-[color:var(--calm)]" : "text-[color:var(--warm)]"}
+      />
+      <span className="flex-1">{normalizeOwner(tarefa.owner)}</span>
+      <span className="text-[11px] text-[color:var(--muted)]">trocar</span>
+    </button>
   );
 }
 
@@ -87,6 +116,10 @@ export function TaskExpandFields({ tarefa }: { tarefa: Tarefa }) {
           placeholder="Detalhes, contexto…"
           className="w-full px-3 py-2 rounded-lg border border-[color:var(--border)] bg-transparent text-[13px] focus:outline-none focus:border-[color:var(--muted)] resize-none"
         />
+      </Field>
+
+      <Field label="Dono da tarefa">
+        <OwnerField tarefa={tarefa} />
       </Field>
 
       <Field label="Links e arquivos">

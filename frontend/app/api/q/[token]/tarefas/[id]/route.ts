@@ -121,6 +121,49 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         );
       }
 
+      // Mudou dono/ação sem `pessoas` explícitas → recalcula o flag `principal`
+      // (que decide o agrupamento por pessoa), espelhando a rota do dono:
+      //   executar → ninguém principal (agrupa em "Você")
+      //   cobrar/aguardar → principal = a pessoa do novo dono (cria/vincula)
+      if (!hasPessoas && sets.length && (body.owner !== undefined || body.acao !== undefined)) {
+        const cur = await c.query<{ acao: string; owner: string }>(
+          "SELECT acao, owner FROM tarefas WHERE id = $1",
+          [id],
+        );
+        const acao = String(cur.rows[0]?.acao ?? "");
+        const owner = String(cur.rows[0]?.owner ?? "").trim();
+        if (acao === "executar") {
+          await c.query(
+            "UPDATE tarefa_pessoas SET principal = false WHERE tarefa_id = $1 AND principal",
+            [id],
+          );
+        } else {
+          await c.query("UPDATE tarefa_pessoas SET principal = false WHERE tarefa_id = $1", [id]);
+          if (owner && owner !== "?" && owner.toLowerCase() !== "vitor") {
+            const found = await c.query<{ pessoa_id: string }>(
+              `SELECT tp.pessoa_id FROM tarefa_pessoas tp
+                 JOIN pessoas p ON p.id = tp.pessoa_id
+                WHERE tp.tarefa_id = $1 AND app_slugify(p.nome) = app_slugify($2) LIMIT 1`,
+              [id, owner],
+            );
+            let pessoaId = found.rows[0]?.pessoa_id;
+            if (!pessoaId) {
+              const pr = await c.query<{ id: string }>(
+                `INSERT INTO pessoas (user_id, nome) VALUES ($1,$2)
+                 ON CONFLICT (user_id, nome) DO UPDATE SET updated_at = now() RETURNING id`,
+                [acesso.ownerId, owner],
+              );
+              pessoaId = pr.rows[0].id;
+            }
+            await c.query(
+              `INSERT INTO tarefa_pessoas (tarefa_id, pessoa_id, principal) VALUES ($1,$2,true)
+               ON CONFLICT (tarefa_id, pessoa_id) DO UPDATE SET principal = true`,
+              [id, pessoaId],
+            );
+          }
+        }
+      }
+
       if (hasPessoas) {
         await c.query("DELETE FROM tarefa_pessoas WHERE tarefa_id = $1", [id]);
         for (const p of body.pessoas!) {

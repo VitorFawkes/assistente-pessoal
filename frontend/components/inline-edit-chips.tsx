@@ -7,13 +7,19 @@ import {
   Flame,
   Tag,
   UserRound,
-  Bell,
   Send,
   Check,
 } from "lucide-react";
-import { cn, formatPrazo, normalizeOwner, type Prioridade } from "@/lib/utils";
+import {
+  cn,
+  formatPrazo,
+  normalizeOwner,
+  isOwnerMe,
+  acaoForOwner,
+  type Prioridade,
+} from "@/lib/utils";
 import { useTaskMutations } from "@/lib/task-mutations";
-import type { Tarefa, Acao } from "@/lib/queries";
+import type { Tarefa } from "@/lib/queries";
 
 // ─── Popover inline (posição fixed → escapa o overflow-hidden do card e o
 //     clipping da lista; fecha no clique-fora / Esc). Reutilizado por todos os chips.
@@ -385,107 +391,120 @@ export function AreaInline({ tarefa }: { tarefa: Tarefa }) {
   );
 }
 
-// ─── Ação + responsável ───────────────────────────────────────────────
-export function AcaoInline({ tarefa }: { tarefa: Tarefa }) {
-  const mut = useTaskMutations();
-  const [draft, setDraft] = useState<Acao>(tarefa.acao);
-  const [owner, setOwner] = useState(
-    tarefa.owner && tarefa.owner !== "?" && tarefa.owner.toLowerCase() !== "vitor"
-      ? tarefa.owner
-      : "",
-  );
-  const isExec = tarefa.acao === "executar";
-  const isCobrar = tarefa.acao === "cobrar";
-  const ownerLabel = normalizeOwner(tarefa.owner);
+// ─── Dono da tarefa ───────────────────────────────────────────────────
+// Edição direta do DONO pelo nome: clique no chip → digite o nome (ou escolha
+// de pessoas já existentes) → pronto. Sem o modelo "Eu faço / Eu cobro /
+// Aguardar" — a coluna `acao` é derivada do nome (você → executar; outro →
+// cobrar) só pra manter filtros/plano/agrupamento coerentes.
+export { OwnerInline as AcaoInline };
 
-  const apply = (acao: Acao, ownerValue: string, close: () => void) => {
+export function OwnerInline({ tarefa }: { tarefa: Tarefa }) {
+  return (
+    <InlinePopover
+      ariaLabel="Trocar dono da tarefa"
+      width={232}
+      triggerClass={cn(
+        "inline-flex items-center gap-0.5 text-[10px] tracking-wide px-1.5 py-0.5 rounded-full whitespace-nowrap cursor-pointer transition",
+        isOwnerMe(tarefa.owner)
+          ? "bg-[color:var(--calm-bg)] text-[color:var(--calm)] font-medium hover:ring-1 hover:ring-[color:var(--calm)]/40"
+          : "bg-[color:var(--warm-bg)] text-[color:var(--warm)] font-medium hover:ring-1 hover:ring-[color:var(--warm)]/40",
+      )}
+      trigger={
+        <>
+          <UserRound size={10} strokeWidth={2} />
+          <span className="max-w-[120px] truncate">{normalizeOwner(tarefa.owner)}</span>
+        </>
+      }
+    >
+      {(close) => <OwnerPicker tarefa={tarefa} close={close} />}
+    </InlinePopover>
+  );
+}
+
+// Conteúdo reutilizável do editor de dono (usado no chip inline e no expand).
+export function OwnerPicker({
+  tarefa,
+  close,
+  autoFocus = true,
+}: {
+  tarefa: Tarefa;
+  close: () => void;
+  autoFocus?: boolean;
+}) {
+  const mut = useTaskMutations();
+  const [pessoas, setPessoas] = useState<{ id: string; nome: string }[]>([]);
+  const [txt, setTxt] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    mut.listPessoas().then((list) => {
+      if (alive) setPessoas(list);
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const setOwner = (nome: string) => {
+    const owner = nome.trim();
+    // "vitor"/vazio ⇒ você (executar); qualquer outro ⇒ cobrar. Manda os dois
+    // pra rota manter o invariante e recalcular a pessoa principal / agrupamento.
     mut.patch(
       tarefa.id,
-      { acao, owner: acao === "executar" ? "vitor" : ownerValue.trim() || "?" },
+      { owner: owner || "vitor", acao: acaoForOwner(owner) },
       { silent: true },
     );
     close();
   };
 
+  const q = txt.trim().toLowerCase();
+  const sugestoes = pessoas
+    .filter((p) => !isOwnerMe(p.nome) && p.nome.toLowerCase().includes(q))
+    .slice(0, 6);
+  const jaSou = isOwnerMe(tarefa.owner);
+
   return (
-    <InlinePopover
-      ariaLabel="Trocar ação / responsável"
-      width={232}
-      triggerClass={cn(
-        "inline-flex items-center gap-0.5 text-[10px] tracking-wide px-1.5 py-0.5 rounded-full whitespace-nowrap cursor-pointer transition",
-        isExec
-          ? "bg-[color:var(--calm-bg)] text-[color:var(--calm)] font-medium hover:ring-1 hover:ring-[color:var(--calm)]/40"
-          : isCobrar
-          ? "bg-[color:var(--warm-bg)] text-[color:var(--warm)] font-semibold ring-1 ring-[color:var(--warm)]/30"
-          : "bg-[color:var(--warm-bg)]/60 text-[color:var(--warm)] font-medium",
-      )}
-      trigger={
-        <>
-          {isExec ? (
-            <UserRound size={10} strokeWidth={2} />
-          ) : isCobrar ? (
-            <Bell size={10} strokeWidth={2} />
-          ) : (
-            <Send size={10} strokeWidth={2} />
-          )}
-          <span className="max-w-[120px] truncate">
-            {isExec ? "Vitor" : ownerLabel}
+    <div className="flex flex-col">
+      <div className="px-1.5 pt-1 pb-1 text-[10px] font-medium uppercase tracking-wider text-[color:var(--muted)]">
+        Dono da tarefa
+      </div>
+      <input
+        type="text"
+        value={txt}
+        onChange={(e) => setTxt(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && txt.trim()) setOwner(txt);
+        }}
+        placeholder="nome do dono + Enter"
+        autoFocus={autoFocus}
+        className="mx-1 mb-1 px-2 py-1.5 rounded border border-[color:var(--border)] bg-transparent text-[13px] outline-none focus:border-[color:var(--muted)]"
+      />
+      <MenuItem active={jaSou} onClick={() => setOwner("vitor")}>
+        <span className="inline-flex items-center gap-2">
+          <UserRound size={13} className="text-[color:var(--calm)]" />
+          Vitor (você)
+        </span>
+        {jaSou && <Check size={13} />}
+      </MenuItem>
+      {sugestoes.map((p) => (
+        <MenuItem
+          key={p.id || p.nome}
+          active={p.nome.toLowerCase() === (tarefa.owner ?? "").toLowerCase()}
+          onClick={() => setOwner(p.nome)}
+        >
+          {p.nome}
+          {p.nome.toLowerCase() === (tarefa.owner ?? "").toLowerCase() && <Check size={13} />}
+        </MenuItem>
+      ))}
+      {txt.trim() && !sugestoes.some((p) => p.nome.toLowerCase() === q) && (
+        <MenuItem onClick={() => setOwner(txt)}>
+          <span className="inline-flex items-center gap-2">
+            <Send size={12} className="text-[color:var(--warm)]" />
+            Passar para &ldquo;{txt.trim()}&rdquo;
           </span>
-        </>
-      }
-    >
-      {(close) => (
-        <div className="space-y-2 p-1">
-          <div className="flex flex-wrap gap-1">
-            {(
-              [
-                { v: "executar", label: "Eu faço" },
-                { v: "cobrar", label: "Eu cobro" },
-                { v: "aguardar", label: "Aguardar" },
-              ] as const
-            ).map((o) => (
-              <button
-                key={o.v}
-                type="button"
-                onClick={() =>
-                  o.v === "executar" ? apply("executar", "", close) : setDraft(o.v)
-                }
-                className={cn(
-                  "text-[12px] px-2 py-1 rounded-full border transition",
-                  draft === o.v
-                    ? "bg-[color:var(--foreground)] text-[color:var(--background)] border-[color:var(--foreground)] font-medium"
-                    : "border-[color:var(--border)] text-[color:var(--muted-strong)] hover:bg-[color:var(--accent)]",
-                )}
-              >
-                {o.label}
-              </button>
-            ))}
-          </div>
-          {draft !== "executar" && (
-            <div className="flex items-center gap-1.5">
-              <input
-                type="text"
-                value={owner}
-                onChange={(e) => setOwner(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && owner.trim()) apply(draft, owner, close);
-                }}
-                placeholder="responsável"
-                autoFocus
-                className="flex-1 min-w-0 px-2 py-1 rounded border border-[color:var(--border)] bg-transparent text-[12px] outline-none focus:border-[color:var(--muted)]"
-              />
-              <button
-                type="button"
-                disabled={!owner.trim()}
-                onClick={() => apply(draft, owner, close)}
-                className="shrink-0 text-[12px] px-2.5 py-1 rounded bg-[color:var(--foreground)] text-[color:var(--background)] disabled:opacity-40"
-              >
-                ok
-              </button>
-            </div>
-          )}
-        </div>
+        </MenuItem>
       )}
-    </InlinePopover>
+    </div>
   );
 }
