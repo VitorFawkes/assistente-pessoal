@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import {
   extname,
+  ensureNamed,
   isAllowedFile,
   resolveContentType,
   shouldInline,
@@ -23,18 +24,34 @@ describe("extname / allowlist", () => {
   });
 
   it("aceita os principais formatos e rejeita executáveis/scripts", () => {
-    for (const ok of ["a.pdf", "b.png", "c.jpg", "d.docx", "e.xlsx", "f.pptx", "g.csv", "h.zip", "i.mp4", "j.txt", "k.json"]) {
+    for (const ok of ["a.pdf", "b.png", "c.jpg", "d.docx", "e.xlsx", "f.pptx", "g.csv", "h.zip", "i.mp4", "j.txt", "k.json", "lp.html", "lp.htm"]) {
       expect(isAllowedFile(ok)).toBe(true);
     }
-    for (const bad of ["evil.html", "evil.htm", "x.js", "x.exe", "x.sh", "x.bat", "x.app", "noext"]) {
+    for (const bad of ["x.js", "x.exe", "x.sh", "x.bat", "x.app", "noext"]) {
       expect(isAllowedFile(bad)).toBe(false);
     }
+  });
+});
+
+describe("ensureNamed", () => {
+  it("preserva arquivo que já tem nome com extensão (permitida ou não)", () => {
+    const html = new File(["<!DOCTYPE html>"], "sugestao-lp.html", { type: "text/html" });
+    expect(ensureNamed(html)).toBe(html); // NUNCA renomear pra colado-*.png
+    const exe = new File(["MZ"], "setup.exe", { type: "application/x-msdownload" });
+    expect(ensureNamed(exe)).toBe(exe); // segue pro isAllowedFile → toast de rejeição
+  });
+  it("sintetiza nome só pra blob colado sem nome/extensão", () => {
+    const blob = new File(["x"], "", { type: "image/png" });
+    expect(ensureNamed(blob).name).toMatch(/^colado-\d+\.png$/);
+    const pdf = new File(["x"], "blob", { type: "application/pdf" });
+    expect(ensureNamed(pdf).name).toMatch(/^colado-\d+\.pdf$/);
   });
 });
 
 describe("resolveContentType", () => {
   it("a extensão manda sobre o content-type do cliente (que pode mentir)", () => {
     expect(resolveContentType("foto.png", "text/html")).toBe("image/png");
+    expect(resolveContentType("pagina.html", "image/png")).toBe("text/html");
     expect(resolveContentType("planilha.xlsx")).toBe(
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     );
@@ -124,6 +141,9 @@ describe("downloadHeaders", () => {
 
     const svg = downloadHeaders({ filename: "x.svg", contentType: "image/svg+xml" });
     expect(svg["Content-Disposition"].startsWith("attachment")).toBe(true);
+
+    const html = downloadHeaders({ filename: "lp.html", contentType: "text/html" });
+    expect(html["Content-Disposition"].startsWith("attachment")).toBe(true);
 
     const forced = downloadHeaders({ filename: "a.png", contentType: "image/png", forceAttachment: true });
     expect(forced["Content-Disposition"].startsWith("attachment")).toBe(true);

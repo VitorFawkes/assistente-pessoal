@@ -6,8 +6,10 @@
 export const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 MB
 
 // Allowlist extensão → content-type. É a fonte da verdade: arquivo cuja
-// extensão não está aqui é REJEITADO (defesa contra .html/.js/.exe servidos
-// da nossa origem). Cobre os principais formatos de trabalho.
+// extensão não está aqui é REJEITADO (defesa contra .js/.exe servidos da
+// nossa origem). Cobre os principais formatos de trabalho. Formatos que podem
+// carregar script (html, svg) são permitidos mas NUNCA inline — só download
+// (attachment + nosniff + CSP sandbox), então não executam na nossa origem.
 export const EXT_CONTENT_TYPE: Record<string, string> = {
   // imagens
   png: "image/png",
@@ -39,6 +41,8 @@ export const EXT_CONTENT_TYPE: Record<string, string> = {
   numbers: "application/vnd.apple.numbers",
   key: "application/vnd.apple.keynote",
   // texto / dados
+  html: "text/html",
+  htm: "text/html",
   txt: "text/plain",
   md: "text/markdown",
   csv: "text/csv",
@@ -99,6 +103,37 @@ export function extname(filename: string): string {
 /** Arquivo é permitido? (extensão na allowlist) */
 export function isAllowedFile(filename: string): boolean {
   return extname(filename) in EXT_CONTENT_TYPE;
+}
+
+// Screenshots colados vêm sem nome → sintetiza um com extensão pela mime.
+function extFromType(t: string): string {
+  const m: Record<string, string> = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "application/pdf": "pdf",
+  };
+  return m[t] || "";
+}
+
+/**
+ * Garante um nome utilizável pro upload. Só sintetiza nome pra blob colado
+ * SEM nome/extensão; arquivo que já tem extensão passa intacto — se ela não
+ * for permitida, a validação (isAllowedFile) rejeita com o nome verdadeiro,
+ * em vez de renomear silenciosamente pra colado-*.png (bug do .html→png).
+ */
+export function ensureNamed(file: File): File {
+  if (file.name && extname(file.name)) return file;
+  const ext = extFromType(file.type) || "png";
+  const name = `colado-${Date.now()}.${ext}`;
+  const renamed = new File([file], name, { type: file.type || "image/png" });
+  if (renamed.name !== name) {
+    // Bun 1.3 (testes): o construtor mantém o nome antigo de um part File cujo
+    // .name já foi lido, ignorando o fileName passado. No browser não acontece.
+    Object.defineProperty(renamed, "name", { value: name });
+  }
+  return renamed;
 }
 
 /**

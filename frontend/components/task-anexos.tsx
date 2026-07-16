@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { useTaskMutations } from "@/lib/task-mutations";
 import {
   MAX_FILE_BYTES,
+  ensureNamed,
   isAllowedFile,
   formatBytes,
   isProbablyUrl,
@@ -46,24 +47,6 @@ function iconFor(a: TarefaAnexo) {
   if (/(word|document|text|rtf|presentation|powerpoint|pdf|keynote|pages)/.test(ct))
     return FileText;
   return FileIcon;
-}
-
-// Screenshots colados vêm sem nome → sintetiza um com extensão pela mime.
-function extFromType(t: string): string {
-  const m: Record<string, string> = {
-    "image/png": "png",
-    "image/jpeg": "jpg",
-    "image/gif": "gif",
-    "image/webp": "webp",
-    "application/pdf": "pdf",
-  };
-  return m[t] || "";
-}
-function ensureNamed(file: File): File {
-  if (file.name && isAllowedFile(file.name)) return file;
-  const ext = extFromType(file.type) || "png";
-  const name = `colado-${Date.now()}.${ext}`;
-  return new File([file], name, { type: file.type || "image/png" });
 }
 
 export function TaskAnexos({ tarefa }: { tarefa: Tarefa }) {
