@@ -76,6 +76,19 @@ function frenteOf(t: Tarefa): string {
   return t.frente || t.frente_proposta || "Sem área";
 }
 
+// dias de atraso (prazo vencido e ainda em aberto). null = não está atrasada.
+function atrasoEmDias(t: Tarefa, today: number): number | null {
+  if (isDone(t) || t.prazo == null) return null;
+  const d = today - dayIndexOf(t.prazo);
+  return d > 0 ? d : null;
+}
+function labelAtraso(dias: number): string {
+  if (dias === 1) return "1 dia atrasada";
+  if (dias < 30) return `${dias} dias atrasada`;
+  const meses = Math.floor(dias / 30);
+  return meses === 1 ? "1 mês atrasada" : `${meses} meses atrasada`;
+}
+
 // cor da barra/marco por prioridade (paleta do tema)
 function prioColor(p: Tarefa["prioridade"]): string {
   switch (p) {
@@ -726,8 +739,10 @@ export function PlanoTimeline({
     const g = effGeom(t)!;
     const done = isDone(t);
     const andamento = t.status === "em_andamento";
-    const color = prioColor(t.prioridade);
-    const overdue = !done && t.prazo != null && dayIndexOf(t.prazo) < today;
+    const atraso = atrasoEmDias(t, today);
+    const overdue = atraso != null;
+    // vencida manda na cor: terracota vence a prioridade (o atraso é o que importa)
+    const color = overdue ? "var(--urgent)" : prioColor(t.prioridade);
     const resp = responsavelOf(t);
     const ghost = ghosts[t.id];
     const isHover = hoverId === t.id;
@@ -825,9 +840,9 @@ export function PlanoTimeline({
               border: done ? "1.5px solid var(--done)" : undefined,
               boxShadow: done
                 ? "none"
+                : overdue
+                ? `0 0 0 3px color-mix(in oklab, var(--urgent) 34%, transparent), 0 1px 2px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.28)`
                 : `0 1px 2px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.28)`,
-              outline: overdue ? "2px solid var(--urgent)" : "none",
-              outlineOffset: overdue ? "1px" : undefined,
             }}
           >
             {/* alça esquerda */}
@@ -890,18 +905,20 @@ export function PlanoTimeline({
             <span
               className="block rotate-45 rounded-[3px]"
               style={{
-                width: DIAMOND,
-                height: DIAMOND,
+                width: overdue ? DIAMOND + 3 : DIAMOND,
+                height: overdue ? DIAMOND + 3 : DIAMOND,
                 background: done
                   ? "var(--done-bg)"
                   : `linear-gradient(135deg, color-mix(in oklab, ${color} 82%, #fff 18%), ${color})`,
                 border: done
                   ? "2px solid var(--done)"
+                  : overdue
+                  ? "1px solid color-mix(in oklab, var(--urgent) 55%, #fff)"
                   : andamento
                   ? "2px solid var(--warm)"
                   : "1px solid rgba(0,0,0,0.06)",
                 boxShadow: overdue
-                  ? "0 0 0 4px var(--urgent-bg)"
+                  ? "0 0 0 4px color-mix(in oklab, var(--urgent) 32%, transparent), 0 1px 3px rgba(0,0,0,0.18)"
                   : done
                   ? "none"
                   : "0 1px 3px rgba(0,0,0,0.18)",
@@ -922,6 +939,21 @@ export function PlanoTimeline({
             )}
           </div>
         )}
+
+        {/* selo de atraso ao lado da forma — é o que o olho pega primeiro */}
+        {overdue && (
+          <span
+            className="absolute top-1/2 -translate-y-1/2 whitespace-nowrap text-[10px] font-semibold leading-none text-[color:var(--urgent)] pointer-events-none"
+            style={{
+              left:
+                g.kind === "bar"
+                  ? (g.endIdx - domain.startIdx + 1) * pxDay + 8
+                  : (g.idx - domain.startIdx + 0.5) * pxDay + DIAMOND + 7,
+            }}
+          >
+            {labelAtraso(atraso!)}
+          </span>
+        )}
       </div>
     );
   }
@@ -932,8 +964,12 @@ export function PlanoTimeline({
     const resp = responsavelOf(t);
     const area = frenteOf(t);
     const StatusIcon = t.status === "em_andamento" ? CircleDot : Circle;
-    const statusColor =
-      t.status === "em_andamento" ? "text-[color:var(--warm)]" : "text-[color:var(--muted)]";
+    const atraso = atrasoEmDias(t, today);
+    const statusColor = atraso
+      ? "text-[color:var(--urgent)]"
+      : t.status === "em_andamento"
+      ? "text-[color:var(--warm)]"
+      : "text-[color:var(--muted)]";
     const statusTitle = done
       ? "Concluída — clique pra reabrir"
       : t.status === "em_andamento"
@@ -946,6 +982,8 @@ export function PlanoTimeline({
           width: labelW,
           ...(done && rowDragId !== t.id
             ? { background: "color-mix(in oklab, var(--done-bg) 60%, var(--background))" }
+            : atraso && rowDragId !== t.id
+            ? { background: "color-mix(in oklab, var(--urgent-bg) 55%, var(--background))" }
             : {}),
         }}
         className={cn(
@@ -1197,7 +1235,8 @@ export function PlanoTimeline({
             <span className="h-2.5 w-2.5 rotate-45 rounded-[2px] bg-[color:var(--muted-strong)]" /> marco
           </span>
           <span className="inline-flex items-center gap-1">
-            <span className="h-2 w-5 rounded-full ring-2 ring-[color:var(--urgent)]" /> vencida
+            <span className="h-2 w-5 rounded-full bg-[color:var(--urgent)] ring-[3px] ring-[color:var(--urgent)]/35" />{" "}
+            atrasada
           </span>
         </div>
 
