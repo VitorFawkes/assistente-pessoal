@@ -79,5 +79,17 @@ export default async function proxy(req: NextRequest) {
     return NextResponse.redirect(new URL("/sem-acesso", req.url));
   }
 
-  return NextResponse.next();
+  // Renova o cookie a cada request válido. O TTL do lado do servidor já é
+  // deslizante (last_used_at), mas o cookie era gravado só no login com
+  // 30 dias fixos — então o navegador descartava a sessão 30 dias depois
+  // de entrar, mesmo em uso diário, e caía em /sem-acesso.
+  const res = NextResponse.next();
+  res.cookies.set("session", sessionId, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: SESSION_TTL_MS / 1000,
+  });
+  return res;
 }
