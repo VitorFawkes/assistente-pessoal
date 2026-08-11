@@ -105,7 +105,7 @@ function SpeakerChip({
               setValue(labels[speaker] || "");
             }
           }}
-          placeholder={`Speaker ${speaker}`}
+          placeholder={`Voz ${speaker}`}
           className="w-28 text-[11px] px-2 py-0.5 rounded-full bg-[color:var(--card)] border border-[color:var(--foreground)] outline-none"
           disabled={saving}
         />
@@ -165,7 +165,7 @@ function SpeakerChip({
   }
 
   // Conteúdo do chip
-  const display = confirmedName || (hasProposal ? proposed.nome : `Speaker ${speaker}`);
+  const display = confirmedName || (hasProposal ? proposed.nome : `Voz ${speaker}`);
 
   return (
     <button
@@ -281,7 +281,7 @@ function MoveTurnMenu({
           disabled={busy}
           className="w-full text-left text-[12px] px-2 py-1 rounded-md hover:bg-[color:var(--accent)] disabled:opacity-50"
         >
-          {labels[l] || `Speaker ${l}`}{" "}
+          {labels[l] || `Voz ${l}`}{" "}
           <span className="text-[color:var(--muted)]">({l})</span>
         </button>
       ))}

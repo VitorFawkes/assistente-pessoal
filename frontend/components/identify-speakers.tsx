@@ -276,7 +276,7 @@ function SpeakerRow({
           )}
         >
           {isSelf && <UserRound size={11} />}
-          {currentName ? `${currentName}` : `Speaker ${speaker.letter}`}
+          {currentName ? `${currentName}` : `Voz ${speaker.letter}`}
         </span>
         <span className="text-[12px] text-[color:var(--muted)]">
           {speaker.total_turns} {speaker.total_turns === 1 ? "fala" : "falas"} · {Math.round(speaker.total_seconds)}s de áudio total

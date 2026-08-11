@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Trash2, Music, ArrowRightLeft, Check, X } from "lucide-react";
+import { meetingLabel } from "@/lib/meeting-label";
 
 export type VoiceSample = {
   id: string;
@@ -202,7 +203,7 @@ export function PessoaSamplesList({
                     <>
                       <span>·</span>
                       <span className="px-1.5 py-0.5 rounded-full bg-[color:var(--accent)]">
-                        Speaker {s.source_speaker_letter}
+                        Voz {s.source_speaker_letter}
                       </span>
                     </>
                   )}
@@ -212,11 +213,12 @@ export function PessoaSamplesList({
                     href={`/reunioes/${s.source_meeting_id}`}
                     className="block mt-1 text-[14px] text-[color:var(--foreground)] hover:underline line-clamp-1"
                   >
-                    {s.meeting_summary || "reunião sem resumo"}
+                    {meetingLabel(s.meeting_summary, s.meeting_recorded_at) ||
+                      "reunião sem resumo"}
                   </Link>
                 )}
                 <p className="text-[11px] text-[color:var(--muted)] mt-0.5">
-                  enrolada em {fmtDateBR(s.created_at)}
+                  adicionada em {fmtDateBR(s.created_at)}
                 </p>
               </div>
               {!isReassigning && (

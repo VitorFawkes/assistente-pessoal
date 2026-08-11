@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { meetingSubject } from "@/lib/meeting-label";
 import { ArrowLeft, Mic, Video, FileQuestion, Scissors } from "lucide-react";
 import { query } from "@/lib/db";
 import { fmtDate } from "@/lib/utils";
@@ -109,7 +110,7 @@ export default async function ArquivadasPage() {
 
                   <div className="flex-1 min-w-0">
                     <p className="text-[15px] leading-snug text-[color:var(--foreground)] line-clamp-2">
-                      {m.summary || "Sessão sem resumo"}
+                      {meetingSubject(m.summary) || "Sessão sem resumo"}
                     </p>
                     <div className="mt-2 flex items-center flex-wrap gap-x-3 gap-y-1 text-[12px] text-[color:var(--muted)]">
                       {m.recorded_at && <span>{fmtDate(m.recorded_at)}</span>}

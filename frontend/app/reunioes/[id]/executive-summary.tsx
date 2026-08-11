@@ -30,7 +30,7 @@ function renderInline(text: string): ReactNode[] {
   );
 }
 
-type Item = { text: string; children: Item[] };
+export type Item = { text: string; children: Item[] };
 
 // A IA escreve os subgrupos como bullet solto ("- Site / Landing pages / UX")
 // seguido dos itens daquele subgrupo no MESMO nível, separando cada grupo por
@@ -40,7 +40,7 @@ type Item = { text: string; children: Item[] };
 // irmãos abaixo dele.
 const MAX_ROTULO = 64;
 
-function pareceRotulo(item: Item, irmaosAbaixo: number): boolean {
+export function pareceRotulo(item: Item, irmaosAbaixo: number): boolean {
   if (irmaosAbaixo === 0) return false;
   if (item.children.length > 0) return false;
   const t = item.text.trim();
@@ -51,7 +51,7 @@ function pareceRotulo(item: Item, irmaosAbaixo: number): boolean {
 }
 
 /** Agrupa cada bloco (separado por linha em branco) sob o seu rótulo. */
-function aninharPorBloco(blocos: Item[][]): Item[] {
+export function aninharPorBloco(blocos: Item[][]): Item[] {
   const out: Item[] = [];
   for (const bloco of blocos) {
     if (bloco.length === 0) continue;

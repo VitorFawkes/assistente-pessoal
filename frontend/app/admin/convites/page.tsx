@@ -1,5 +1,6 @@
 import { query } from "@/lib/db";
 import { criarConvite, revogarConvite } from "./actions";
+import { CopyLinkButton } from "@/components/copy-link-button";
 
 export const dynamic = "force-dynamic";
 
@@ -15,10 +16,10 @@ type InviteRow = {
 async function fetchInvites(): Promise<InviteRow[]> {
   return query<InviteRow>(
     `SELECT i.code, i.nome_sugerido,
-            to_char(i.created_at, 'YYYY-MM-DD HH24:MI') AS created_at,
-            to_char(i.consumed_at, 'YYYY-MM-DD HH24:MI') AS consumed_at,
+            to_char(i.created_at, 'DD/MM/YYYY HH24:MI') AS created_at,
+            to_char(i.consumed_at, 'DD/MM/YYYY HH24:MI') AS consumed_at,
             (SELECT u.nome FROM users u WHERE u.id = i.consumed_by) AS consumed_by_nome,
-            to_char(i.revoked_at, 'YYYY-MM-DD HH24:MI') AS revoked_at
+            to_char(i.revoked_at, 'DD/MM/YYYY HH24:MI') AS revoked_at
        FROM invites i
        ORDER BY i.created_at DESC
        LIMIT 100`,
@@ -43,8 +44,8 @@ export default async function AdminConvitesPage() {
         </p>
         <h1 className="font-display text-3xl sm:text-4xl">Convites</h1>
         <p className="text-[13px] text-[color:var(--muted-strong)]">
-          Gere um link, copia, manda no WhatsApp da pessoa. Cada link é uso
-          único — a primeira pessoa que abrir vira a dona da conta.
+          Gere o link, copie e mande no WhatsApp da pessoa. Cada link serve uma
+          vez só — quem abrir primeiro vira o dono da conta.
         </p>
       </header>
 
@@ -93,9 +94,7 @@ export default async function AdminConvitesPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <code className="text-[11px] bg-[color:var(--accent)] px-2 py-1 rounded font-mono break-all">
-                      {base}/c/{i.code}
-                    </code>
+                    <CopyLinkButton link={`${base}/c/${i.code}`} label="Copiar link" />
                     <form action={revogarConvite}>
                       <input type="hidden" name="code" value={i.code} />
                       <button

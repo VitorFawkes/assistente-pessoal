@@ -11,6 +11,22 @@ type SessionRow = {
   user_agent: string | null;
 };
 
+// user_agent guarda o rótulo interno de quem criou a sessão ("admin-issued",
+// "bridge-login-manual"). Mostrar o slug cru não diz nada a quem lê.
+function nomeDispositivo(ua: string | null): string {
+  if (!ua) return "Dispositivo desconhecido";
+  const s = ua.toLowerCase();
+  if (s.includes("iphone") || s.includes("ios")) return "iPhone";
+  if (s.includes("ipad")) return "iPad";
+  if (s.includes("android")) return "Android";
+  if (s.includes("macintosh") || s.includes("mac os")) return "Mac";
+  if (s.includes("windows")) return "Windows";
+  if (s.startsWith("admin-issued")) return "Entrada pelo link de convite";
+  if (s.startsWith("manual-bootstrap")) return "Primeiro acesso";
+  if (s.startsWith("bridge-login")) return "Assistente (Mac)";
+  return "Dispositivo desconhecido";
+}
+
 function fmtDateTime(iso: string): string {
   try {
     return new Date(iso).toLocaleString("pt-BR", {
@@ -69,8 +85,8 @@ export default async function SessoesPage() {
               }`}
             >
               <div className="flex items-start justify-between gap-2 flex-wrap">
-                <div className="font-medium break-all">
-                  {s.user_agent ?? "Dispositivo desconhecido"}
+                <div className="font-medium" title={s.user_agent ?? undefined}>
+                  {nomeDispositivo(s.user_agent)}
                 </div>
                 {isCurrent && (
                   <span className="text-[10px] tracking-wider uppercase px-2 py-0.5 rounded-full bg-[color:var(--calm)] text-[color:var(--background)]">
@@ -79,8 +95,9 @@ export default async function SessoesPage() {
                 )}
               </div>
               <div className="text-[color:var(--muted-strong)] text-xs mt-1">
-                IP {s.ip_address ?? "?"} · último uso {fmtDateTime(s.last_used_at)}{" "}
-                · criada em {fmtDateTime(s.created_at)}
+                {/* "IP ?" não informava nada — some quando não há IP. */}
+                {s.ip_address ? `IP ${s.ip_address} · ` : ""}último uso{" "}
+                {fmtDateTime(s.last_used_at)} · criada em {fmtDateTime(s.created_at)}
               </div>
             </li>
           );

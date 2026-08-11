@@ -17,6 +17,7 @@ import {
   peopleForFilter,
   areaOf,
   reuniaoOf,
+  tipoOf,
   principalPersonOf,
   dateInRange,
   type Facets,
@@ -35,6 +36,12 @@ const PRIO_LABEL: Record<string, string> = {
   alta: "Alta",
   media: "Média",
   baixa: "Baixa",
+};
+const TIPO_LABEL: Record<string, string> = {
+  Manual: "Escrita à mão",
+  online: "Reunião online",
+  presencial: "Presencial",
+  desconhecido: "Origem não identificada",
 };
 const MEETING_BUCKETS: { k: MeetingDateBucket; label: string }[] = [
   { k: "qualquer", label: "Qualquer" },
@@ -62,6 +69,9 @@ export function TaskPickerModal({ quadroId, onClose, onAdded }: Props) {
   const [selPrioridades, setSelPrioridades] = useState<Set<string>>(new Set());
   const [selReunioes, setSelReunioes] = useState<Set<string>>(new Set());
   const [meetingDate, setMeetingDate] = useState<MeetingDateBucket>("qualquer");
+  const [meetingFrom, setMeetingFrom] = useState("");
+  const [meetingTo, setMeetingTo] = useState("");
+  const [selTipos, setSelTipos] = useState<Set<string>>(new Set());
   const [prazoFrom, setPrazoFrom] = useState("");
   const [prazoTo, setPrazoTo] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("criacao_desc");
@@ -142,19 +152,32 @@ export function TaskPickerModal({ quadroId, onClose, onAdded }: Props) {
       .map(({ value, label, count }) => ({ value, label, count }));
   }, [base, reuniaoOrder]);
 
+  const tipoOpts: Opt[] = useMemo(() => {
+    const c = countBy(base, (t) => [tipoOf(t)]);
+    const opts = [...c.entries()]
+      .map(([value, count]) => ({ value, label: TIPO_LABEL[value] ?? value, count }))
+      .sort((a, b) => b.count - a.count);
+    return opts.length > 1 ? opts : [];
+  }, [base]);
+
   const filtered = useMemo(() => {
     const facets: Facets = {
       pessoas: selPessoas,
       areas: selAreas,
       meetingDate,
+      meetingFrom,
+      meetingTo,
       prioridades: selPrioridades,
-      tipos: new Set(),
+      tipos: selTipos,
     };
     let l = applyFacets(base, facets);
     if (selReunioes.size) l = l.filter((t) => selReunioes.has(meetingKey(t)));
     if (prazoFrom || prazoTo) l = l.filter((t) => dateInRange(t.prazo, prazoFrom, prazoTo));
     return sortTarefas(l, sortKey);
-  }, [base, selPessoas, selAreas, meetingDate, selPrioridades, selReunioes, prazoFrom, prazoTo, sortKey]);
+  }, [
+    base, selPessoas, selAreas, meetingDate, meetingFrom, meetingTo,
+    selPrioridades, selTipos, selReunioes, prazoFrom, prazoTo, sortKey,
+  ]);
 
   const toggleIn = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, v: string) =>
     setter((prev) => {
@@ -180,9 +203,18 @@ export function TaskPickerModal({ quadroId, onClose, onAdded }: Props) {
     setSelPrioridades(new Set());
     setSelReunioes(new Set());
     setMeetingDate("qualquer");
+    setMeetingFrom("");
+    setMeetingTo("");
+    setSelTipos(new Set());
     setPrazoFrom("");
     setPrazoTo("");
     setSearch("");
+  };
+
+  // "2026-08-04" é o formato interno; o chip fala com gente.
+  const diaBR = (key: string) => {
+    const m = key.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? `${m[3]}/${m[2]}` : key;
   };
 
   // Faixa do que está filtrado agora — mesmo padrão das Pendências. Sem ela,
@@ -214,6 +246,21 @@ export function TaskPickerModal({ quadroId, onClose, onAdded }: Props) {
         label: PRIO_LABEL[v] ?? v,
         onRemove: () => removeFrom(setSelPrioridades, v),
       });
+    for (const v of selTipos)
+      out.push({
+        id: `t:${v}`,
+        label: TIPO_LABEL[v] ?? v,
+        onRemove: () => removeFrom(setSelTipos, v),
+      });
+    if (meetingFrom || meetingTo)
+      out.push({
+        id: "mr",
+        label: `Reunião ${meetingFrom ? diaBR(meetingFrom) : "…"} → ${meetingTo ? diaBR(meetingTo) : "…"}`,
+        onRemove: () => {
+          setMeetingFrom("");
+          setMeetingTo("");
+        },
+      });
     if (meetingDate !== "qualquer")
       out.push({
         id: "md",
@@ -223,14 +270,17 @@ export function TaskPickerModal({ quadroId, onClose, onAdded }: Props) {
     if (prazoFrom || prazoTo)
       out.push({
         id: "prazo",
-        label: `Prazo ${prazoFrom || "…"} → ${prazoTo || "…"}`,
+        label: `Prazo ${prazoFrom ? diaBR(prazoFrom) : "…"} → ${prazoTo ? diaBR(prazoTo) : "…"}`,
         onRemove: () => {
           setPrazoFrom("");
           setPrazoTo("");
         },
       });
     return out;
-  }, [selReunioes, selPessoas, selAreas, selPrioridades, meetingDate, prazoFrom, prazoTo, reuniaoOpts]);
+  }, [
+    selReunioes, selPessoas, selAreas, selPrioridades, selTipos,
+    meetingDate, meetingFrom, meetingTo, prazoFrom, prazoTo, reuniaoOpts,
+  ]);
 
   async function adicionar() {
     const ids = [...sel];
@@ -327,9 +377,22 @@ export function TaskPickerModal({ quadroId, onClose, onAdded }: Props) {
               onToggle={(v) => toggleIn(setSelPrioridades, v)}
               onClear={() => setSelPrioridades(new Set())}
             />
+            {tipoOpts.length > 0 && (
+              <FacetDropdown
+                label="Tipo"
+                options={tipoOpts}
+                selected={selTipos}
+                onToggle={(v) => toggleIn(setSelTipos, v)}
+                onClear={() => setSelTipos(new Set())}
+              />
+            )}
             <select
               value={meetingDate}
-              onChange={(e) => setMeetingDate(e.target.value as MeetingDateBucket)}
+              onChange={(e) => {
+                setMeetingDate(e.target.value as MeetingDateBucket);
+                setMeetingFrom("");
+                setMeetingTo("");
+              }}
               title="Data da reunião"
               className="text-[12px] px-2.5 py-1.5 rounded-full border border-[color:var(--border)] bg-transparent text-[color:var(--muted-strong)]"
             >
@@ -347,6 +410,30 @@ export function TaskPickerModal({ quadroId, onClose, onAdded }: Props) {
                 <option key={s.k} value={s.k}>Ordenar: {s.label}</option>
               ))}
             </select>
+            {/* Intervalo exato da reunião — o painel de Pendências tem, e sem
+                ele "esta semana" era o recorte mais fino possível. */}
+            <span className="inline-flex items-center gap-1.5 text-[12px] text-[color:var(--muted)]">
+              Reunião de
+              <DateField
+                value={meetingFrom}
+                onChange={(v) => {
+                  setMeetingFrom(v);
+                  setMeetingDate("qualquer");
+                }}
+                placeholder="de"
+                ariaLabel="Reunião a partir de"
+              />
+              até
+              <DateField
+                value={meetingTo}
+                onChange={(v) => {
+                  setMeetingTo(v);
+                  setMeetingDate("qualquer");
+                }}
+                placeholder="até"
+                ariaLabel="Reunião até"
+              />
+            </span>
             <span className="inline-flex items-center gap-1.5 text-[12px] text-[color:var(--muted)]">
               Prazo
               <DateField
