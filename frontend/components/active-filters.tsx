@@ -18,9 +18,10 @@ export function ActiveFilters({
       {chips.map((c) => (
         <span
           key={c.id}
-          className="inline-flex items-center gap-1 text-[12px] pl-2 pr-1 py-0.5 rounded-full bg-[color:var(--accent)] text-[color:var(--muted-strong)]"
+          title={c.label}
+          className="inline-flex items-center gap-1 max-w-[min(22rem,100%)] text-[12px] pl-2 pr-1 py-0.5 rounded-full bg-[color:var(--accent)] text-[color:var(--muted-strong)]"
         >
-          {c.label}
+          <span className="truncate">{c.label}</span>
           <button
             type="button"
             onClick={c.onRemove}

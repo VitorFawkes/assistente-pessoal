@@ -44,8 +44,8 @@ export default async function PessoasPage() {
           </span>
         </h1>
         <p className="text-[14px] text-[color:var(--muted-strong)] max-w-md">
-          Cada speaker rotulado vira uma pessoa aqui. Aliases ajudam a casar
-          variações de nome; notas alimentam o reconhecimento por voz no futuro.
+          Cada voz que você identifica numa gravação vira uma pessoa aqui. Os
+          apelidos juntam variações do mesmo nome (Ana, Aninha) numa pessoa só.
         </p>
       </header>
 

@@ -165,6 +165,8 @@ export const TAREFA_SELECT = `
 // ─── meetingsFor ──────────────────────────────────────────────────────
 // Queries NÃO precisam de WHERE user_id — RLS filtra automaticamente.
 
+export const MEETINGS_LIMIT = 100;
+
 export const meetingsFor = (userId: string) => ({
   /** Lista (filhos arquivados ficam fora — archived_session é o status do pai). */
   list: () =>
@@ -289,6 +291,15 @@ export const meetingsFor = (userId: string) => ({
     }),
 
   /** Listagem pra `/reunioes` com contagem de tarefas joinadas. */
+  /** Total real — a lista é recortada em MEETINGS_LIMIT. */
+  total: () =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM meetings WHERE status != 'archived_session'`,
+      );
+      return r.rows[0]?.n ?? 0;
+    }),
+
   listForIndex: () =>
     withTenant(userId, async (db) => {
       const r = await db.query<{
@@ -344,8 +355,17 @@ export const meetingsFor = (userId: string) => ({
 
 // ─── tarefasFor ───────────────────────────────────────────────────────
 
+// Recortes da tela de pendências. Exportados porque a UI precisa saber o
+// tamanho do recorte pra avisar quando há mais coisa fora dele.
+export const ABERTAS_LIMIT = 300;
+export const CONCLUIDAS_LIMIT = 60;
+
 export const tarefasFor = (userId: string) => ({
-  /** Tarefas recentes — inclui abertas E concluídas/canceladas. UI filtra por status. */
+  /** Tarefas recentes — inclui abertas E concluídas/canceladas. UI filtra por status.
+   *
+   *  Os dois recortes são feitos separadamente de propósito: com um LIMIT único
+   *  as abertas ocupavam as 300 vagas e a aba "Concluídas" ficava eternamente
+   *  em zero, mesmo com centenas de tarefas feitas. */
   recentes: () =>
     withTenant(userId, async (db) => {
       const r = await db.query<
@@ -355,12 +375,34 @@ export const tarefasFor = (userId: string) => ({
         }
       >(
         `${TAREFA_SELECT}
+          WHERE t.id IN (
+            (SELECT id FROM tarefas
+              WHERE status IN ('aberta','em_andamento')
+              ORDER BY (acao = 'aguardar'), (prazo IS NULL), prazo ASC, created_at DESC
+              LIMIT ${ABERTAS_LIMIT})
+            UNION ALL
+            (SELECT id FROM tarefas
+              WHERE status NOT IN ('aberta','em_andamento')
+              ORDER BY COALESCE(concluida_em, cancelada_em, updated_at, created_at) DESC
+              LIMIT ${CONCLUIDAS_LIMIT})
+          )
           ORDER BY (t.status NOT IN ('aberta','em_andamento')),
                    (t.acao = 'aguardar'),
-                   (t.prazo IS NULL), t.prazo ASC, t.created_at DESC
-          LIMIT 300`,
+                   (t.prazo IS NULL), t.prazo ASC, t.created_at DESC`,
       );
       return r.rows;
+    }),
+
+  /** Quantas existem de verdade — a lista é recortada, os números não podem mentir. */
+  contagens: () =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<{ abertas: number; concluidas: number }>(
+        `SELECT
+           count(*) FILTER (WHERE status IN ('aberta','em_andamento'))::int AS abertas,
+           count(*) FILTER (WHERE status NOT IN ('aberta','em_andamento'))::int AS concluidas
+         FROM tarefas`,
+      );
+      return r.rows[0] ?? { abertas: 0, concluidas: 0 };
     }),
 
   /** Cria uma tarefa (manual ou captura) e devolve a Tarefa COMPLETA serializada.

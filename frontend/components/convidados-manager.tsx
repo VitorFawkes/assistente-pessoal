@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Trash2 } from "lucide-react";
 import { CopyLinkButton } from "./copy-link-button";
 
 export type ConvidadoLite = {
@@ -81,32 +82,36 @@ export function ConvidadosManager({
         )}
       </div>
 
-      <div className="space-y-3">
+      {/* Uma linha por convidado. Em cartões, 6 convidados ocupavam a tela
+          inteira e o "Revogar" vermelho era o elemento mais forte da página —
+          um botão de destruir gritando mais alto que o trabalho. */}
+      <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--card)] divide-y divide-[color:var(--border)]">
         {convidados.length === 0 ? (
-          <p className="text-sm text-[color:var(--muted)]">Nenhum convidado ainda.</p>
+          <p className="text-sm text-[color:var(--muted)] p-4">Nenhum convidado ainda.</p>
         ) : (
           convidados.map((c) => (
-            <div
-              key={c.id}
-              className="rounded-lg border border-[color:var(--border)] bg-[color:var(--card)] p-4 sm:p-5 space-y-3 hover:border-[color:var(--accent)] transition-colors"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-[color:var(--foreground)]">{c.nome}</p>
-                  <p className="text-xs text-[color:var(--muted)]">
-                    {new Date(c.created_at).toLocaleDateString("pt-BR")}
-                  </p>
-                </div>
-                <button
-                  onClick={() => onRevoke(c.id)}
-                  className="px-3 py-1 rounded-lg text-xs font-medium bg-[color:var(--urgent)] text-white hover:opacity-80 transition-opacity whitespace-nowrap flex-shrink-0"
-                >
-                  Revogar
-                </button>
+            <div key={c.id} className="flex items-center gap-2 px-3 py-2.5">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-[color:var(--foreground)] truncate">
+                  {c.nome}
+                </p>
+                <p className="text-[11px] text-[color:var(--muted)]">
+                  convidado em {new Date(c.created_at).toLocaleDateString("pt-BR")}
+                </p>
               </div>
-              <div className="pt-2 border-t border-[color:var(--border)]">
-                <CopyLinkButton link={`${baseUrl}/q/${c.token}`} label="Copiar link" variant="button" />
-              </div>
+              <CopyLinkButton
+                link={`${baseUrl}/q/${c.token}`}
+                label="Copiar link"
+                variant="button"
+              />
+              <button
+                onClick={() => onRevoke(c.id)}
+                title={`Tirar o acesso de ${c.nome}`}
+                aria-label={`Tirar o acesso de ${c.nome}`}
+                className="shrink-0 p-1.5 rounded-lg text-[color:var(--muted)] hover:text-[color:var(--urgent)] hover:bg-[color:var(--urgent-bg)] transition"
+              >
+                <Trash2 size={15} />
+              </button>
             </div>
           ))
         )}

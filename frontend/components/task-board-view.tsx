@@ -86,6 +86,8 @@ export function TaskBoardView({
   const [selPessoas, setSelPessoas] = useState<Set<string>>(new Set());
   const [selAreas, setSelAreas] = useState<Set<string>>(new Set());
   const [selPrioridades, setSelPrioridades] = useState<Set<string>>(new Set());
+  const [selReunioes, setSelReunioes] = useState<Set<string>>(new Set());
+  const [reuniaoOrder, setReuniaoOrder] = useState<"data" | "quantidade">("data");
   const [groupMode, setGroupMode] = useState<GroupMode>("nenhum");
   const [sortKey, setSortKey] = useState<SortKey>("prazo");
 
@@ -131,12 +133,14 @@ export function TaskBoardView({
   );
 
   const filtered = useMemo(() => {
-    const sorted = sortTarefas(applyFacets(base, facets), sortKey);
+    let l = applyFacets(base, facets);
+    if (selReunioes.size) l = l.filter((t) => selReunioes.has(t.meeting_id ?? "sem"));
+    const sorted = sortTarefas(l, sortKey);
     // Concluídas/canceladas vão pro fim (não somem ao marcar feito), preservando
     // a ordenação escolhida dentro de cada grupo (sort estável).
     const isClosed = (t: Tarefa) => t.status === "concluida" || t.status === "cancelada";
     return [...sorted].sort((a, b) => Number(isClosed(a)) - Number(isClosed(b)));
-  }, [base, facets, sortKey]);
+  }, [base, facets, sortKey, selReunioes]);
 
   const pessoaOpts: Opt[] = useMemo(() => {
     const c = countBy(base, peopleForFilter);
@@ -150,6 +154,31 @@ export function TaskBoardView({
       .map(([value, count]) => ({ value, label: value, count }))
       .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "pt-BR"));
   }, [base]);
+  // Faceta de reunião — mesma do picker. Sem ela, dentro do quadro não dava
+  // pra isolar "o que saiu da reunião tal".
+  const reuniaoOpts: Opt[] = useMemo(() => {
+    const m = new Map<string, { label: string; count: number; at: number }>();
+    for (const t of base) {
+      const k = t.meeting_id ?? "sem";
+      const g = m.get(k);
+      if (g) g.count++;
+      else
+        m.set(k, {
+          label: reuniaoOf(t),
+          count: 1,
+          at: t.meeting_recorded_at ? new Date(t.meeting_recorded_at).getTime() : 0,
+        });
+    }
+    return [...m.entries()]
+      .map(([value, { label, count, at }]) => ({ value, label, count, at }))
+      .sort((a, b) => {
+        if (a.value === "sem") return 1;
+        if (b.value === "sem") return -1;
+        return reuniaoOrder === "data" ? b.at - a.at : b.count - a.count;
+      })
+      .map(({ value, label, count }) => ({ value, label, count }));
+  }, [base, reuniaoOrder]);
+
   const prioOpts: Opt[] = useMemo(() => {
     const c = countBy(base, (t) => [t.prioridade]);
     return (["urgente", "alta", "media", "baixa"] as const)
@@ -170,11 +199,13 @@ export function TaskBoardView({
     return [...m.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], "pt-BR"));
   }, [filtered, groupMode]);
 
-  const activeFilters = selPessoas.size + selAreas.size + selPrioridades.size;
+  const activeFilters =
+    selPessoas.size + selAreas.size + selPrioridades.size + selReunioes.size;
   const clearAll = () => {
     setSelPessoas(new Set());
     setSelAreas(new Set());
     setSelPrioridades(new Set());
+    setSelReunioes(new Set());
     setSearch("");
   };
 
@@ -203,9 +234,26 @@ export function TaskBoardView({
           <select value={statusView} onChange={(e) => setStatusView(e.target.value as StatusView)} className={selectCls}>
             {STATUS_OPTS.map((o) => <option key={o.k} value={o.k}>{o.label}</option>)}
           </select>
-          <FacetDropdown label="Pessoa" options={pessoaOpts} selected={selPessoas} onToggle={(v) => toggleIn(setSelPessoas, v)} />
-          <FacetDropdown label="Área" options={areaOpts} selected={selAreas} onToggle={(v) => toggleIn(setSelAreas, v)} />
-          <FacetDropdown label="Prioridade" options={prioOpts} selected={selPrioridades} onToggle={(v) => toggleIn(setSelPrioridades, v)} />
+          <FacetDropdown label="Pessoa" options={pessoaOpts} selected={selPessoas} onToggle={(v) => toggleIn(setSelPessoas, v)} onClear={() => setSelPessoas(new Set())} searchable />
+          <FacetDropdown
+            label="Reunião"
+            options={reuniaoOpts}
+            selected={selReunioes}
+            onToggle={(v) => toggleIn(setSelReunioes, v)}
+            onClear={() => setSelReunioes(new Set())}
+            searchable
+            wide
+            order={{
+              options: [
+                { k: "data" as const, label: "data" },
+                { k: "quantidade" as const, label: "nº de tarefas" },
+              ],
+              value: reuniaoOrder,
+              onChange: setReuniaoOrder,
+            }}
+          />
+          <FacetDropdown label="Área" options={areaOpts} selected={selAreas} onToggle={(v) => toggleIn(setSelAreas, v)} onClear={() => setSelAreas(new Set())} searchable />
+          <FacetDropdown label="Prioridade" options={prioOpts} selected={selPrioridades} onToggle={(v) => toggleIn(setSelPrioridades, v)} onClear={() => setSelPrioridades(new Set())} />
           <select value={groupMode} onChange={(e) => setGroupMode(e.target.value as GroupMode)} className={selectCls}>
             {GROUP_OPTS.map((o) => <option key={o.k} value={o.k}>{o.label}</option>)}
           </select>

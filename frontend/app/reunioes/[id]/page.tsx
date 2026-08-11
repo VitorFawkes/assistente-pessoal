@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { requireUserOrRedirect } from "@/lib/auth";
 import { meetingsFor, tarefasFor, pessoasFor } from "@/lib/queries";
 import { fmtDate } from "@/lib/utils";
+import { meetingSubject } from "@/lib/meeting-label";
 import { TaskRow, type Tarefa } from "@/components/task-row";
 import { TaskGroupByPerson } from "@/components/task-group-by-person";
 import { MeetingTaskSummary } from "@/components/meeting-task-summary";
@@ -116,8 +117,10 @@ export default async function ReuniaoDetalhePage({
           ) : null}
         </div>
 
+        {/* Título = o assunto. O resumo inteiro como h1 tomava 6 linhas e
+            fazia toda reunião "começar igual" em qualquer lista. */}
         <h1 className="font-display text-2xl sm:text-3xl leading-[1.2] tracking-tight">
-          {meeting.summary || "Reunião sem resumo"}
+          {meetingSubject(meeting.summary) || "Reunião sem resumo"}
         </h1>
 
         <div className="space-y-1">
@@ -126,9 +129,12 @@ export default async function ReuniaoDetalhePage({
               {fmtDate(meeting.recorded_at)}
             </p>
           )}
-          <p className="text-[11px] text-[color:var(--muted)] font-mono">
-            {meeting.original_filename}
-          </p>
+          {meeting.summary && (
+            <p className="text-[13px] leading-relaxed text-[color:var(--muted-strong)]">
+              {meeting.summary}
+            </p>
+          )}
+          <p className="sr-only">{meeting.original_filename}</p>
         </div>
 
         {/* Player de áudio — full width abaixo do título */}

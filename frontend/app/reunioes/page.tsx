@@ -1,75 +1,25 @@
 import Link from "next/link";
 import { requireUserOrRedirect } from "@/lib/auth";
-import { meetingsFor } from "@/lib/queries";
-import { fmtDate } from "@/lib/utils";
-import { Mic, Video, Smartphone, ChevronRight, Archive } from "lucide-react";
-import { DeleteMeetingButton } from "@/components/delete-meeting-button";
+import { MEETINGS_LIMIT, meetingsFor } from "@/lib/queries";
+import { Archive } from "lucide-react";
+import { MeetingsList, type MeetingItem } from "@/components/meetings-list";
 
 export const dynamic = "force-dynamic";
 
-type Meeting = {
-  id: string;
-  source: string;
-  meeting_type: string | null;
-  recorded_at: string | null;
-  created_at: string;
-  status: string;
-  summary: string | null;
-  duration_seconds: number | null;
-  needs_segmentation: boolean;
-  n_tarefas: number;
-  n_minhas: number;
-};
-
-function MeetingIcon({ type, source }: { type: string | null; source: string | null }) {
-  if (type === "online")
-    return <Video size={16} strokeWidth={1.75} className="text-[color:var(--muted-strong)]" />;
-  if (type === "presencial")
-    return <Mic size={16} strokeWidth={1.75} className="text-[color:var(--muted-strong)]" />;
-  if (source === "iphone")
-    return <Smartphone size={16} strokeWidth={1.75} className="text-[color:var(--muted-strong)]" />;
-  return <Mic size={16} strokeWidth={1.75} className="text-[color:var(--muted)]" />;
-}
-
-function StatusPill({ status }: { status: string }) {
-  const map: Record<string, { cls: string; label: string }> = {
-    received: {
-      cls: "bg-[color:var(--accent)] text-[color:var(--muted-strong)]",
-      label: "recebida",
-    },
-    transcribing: {
-      cls: "bg-[color:var(--warm-bg)] text-[color:var(--warm)]",
-      label: "transcrevendo",
-    },
-    analyzing: {
-      cls: "bg-[color:var(--warm-bg)] text-[color:var(--warm)]",
-      label: "analisando",
-    },
-    done: {
-      cls: "bg-[color:var(--calm-bg)] text-[color:var(--calm)]",
-      label: "pronta",
-    },
-    error: {
-      cls: "bg-[color:var(--urgent-bg)] text-[color:var(--urgent)]",
-      label: "erro",
-    },
-  };
-  const s = map[status] ?? map.received;
-  return (
-    <span
-      className={`text-[10px] tracking-wide uppercase px-2 py-0.5 rounded-full font-medium ${s.cls}`}
-    >
-      {s.label}
-    </span>
-  );
-}
+type Meeting = MeetingItem;
 
 export default async function ReunioesPage() {
   const user = await requireUserOrRedirect();
   let meetings: Meeting[] = [];
+  let total = 0;
   let error: string | null = null;
   try {
-    meetings = await meetingsFor(user.id).listForIndex();
+    const [lista, n] = await Promise.all([
+      meetingsFor(user.id).listForIndex(),
+      meetingsFor(user.id).total(),
+    ]);
+    meetings = lista;
+    total = n;
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
@@ -100,8 +50,7 @@ export default async function ReunioesPage() {
           </span>
         </h1>
         <p className="text-[14px] text-[color:var(--muted-strong)] max-w-md">
-          Reuniões e voice notes processados pelo pipeline, do mais recente pro
-          mais antigo.
+          Tudo que foi gravado, da mais recente pra mais antiga.
         </p>
         <Link
           href="/reunioes/arquivadas"
@@ -119,74 +68,7 @@ export default async function ReunioesPage() {
           </p>
         </div>
       ) : (
-        <div className="space-y-2.5">
-          {meetings.map((m) => (
-            <div key={m.id} className="space-y-1.5">
-              <div className="flex items-stretch gap-2">
-              <Link
-                href={`/reunioes/${m.id}`}
-                className="press-feedback group block flex-1 min-w-0 paper-card rounded-2xl border border-[color:var(--border)] hover:border-[color:var(--muted)] p-4 sm:p-5"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="shrink-0 mt-0.5 w-8 h-8 rounded-full bg-[color:var(--accent)] flex items-center justify-center">
-                    <MeetingIcon type={m.meeting_type} source={m.source} />
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-3">
-                      <p
-                        className="flex-1 text-[15px] leading-snug text-[color:var(--foreground)] line-clamp-1"
-                        title={m.summary ?? undefined}
-                      >
-                        {m.summary || "Reunião sem resumo"}
-                      </p>
-                      <StatusPill status={m.status} />
-                    </div>
-                    <div className="mt-2 flex items-center flex-wrap gap-x-3 gap-y-1 text-[12px] text-[color:var(--muted)]">
-                      {m.recorded_at && <span>{fmtDate(m.recorded_at)}</span>}
-                      {m.duration_seconds && m.duration_seconds > 0 ? (
-                        <span>· {Math.max(1, Math.round(m.duration_seconds / 60))} min</span>
-                      ) : null}
-                      {m.n_tarefas > 0 && (
-                        <span className="text-[color:var(--muted-strong)]">
-                          · <span className="font-medium text-[color:var(--foreground)]">{m.n_tarefas}</span>{" "}
-                          {m.n_tarefas === 1 ? "ação" : "ações"}
-                          {m.n_minhas > 0 && (
-                            <span className="text-[color:var(--muted)]">
-                              {" "}
-                              (
-                              <span className="text-[color:var(--foreground)] font-medium">
-                                {m.n_minhas}
-                              </span>{" "}
-                              minhas)
-                            </span>
-                          )}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="shrink-0 self-center text-[color:var(--muted)] group-hover:text-[color:var(--foreground)] transition">
-                    <ChevronRight size={18} strokeWidth={1.75} />
-                  </div>
-                </div>
-              </Link>
-              <DeleteMeetingButton
-                meetingId={m.id}
-                className="shrink-0 flex items-center justify-center px-3 rounded-2xl border border-[color:var(--border)] text-[color:var(--muted)] hover:text-[color:var(--urgent)] hover:border-[color:var(--urgent)]/40 transition disabled:opacity-50"
-              />
-              </div>
-              {m.needs_segmentation && (
-                <Link
-                  href={`/reunioes/${m.id}/segmentar`}
-                  className="ml-11 inline-flex items-center gap-1.5 text-[11px] text-[color:var(--warm)] bg-[color:var(--warm-bg)] px-2.5 py-1 rounded-full hover:opacity-80 transition w-fit"
-                >
-                  ⚠️ áudio longo · revisar segmentação
-                </Link>
-              )}
-            </div>
-          ))}
-        </div>
+        <MeetingsList meetings={meetings} total={total} limite={MEETINGS_LIMIT} />
       )}
     </div>
   );

@@ -1,5 +1,5 @@
 import { withAuth } from "@/lib/auth";
-import { quadrosFor } from "@/lib/quadros";
+import { CANDIDATAS_LIMIT, quadrosFor } from "@/lib/quadros";
 import { type NextRequest, NextResponse } from "next/server";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -15,7 +15,11 @@ export const GET = withAuth<Ctx>(async (user, req, ctx) => {
   const url = new URL((req as NextRequest).url);
   const q = url.searchParams.get("q") ?? undefined;
   const candidatas = await quadrosFor(user.id).candidatas(id, q);
-  return NextResponse.json({ candidatas });
+  // Avisa quando bateu no teto: a tela precisa dizer que há mais fora da lista.
+  return NextResponse.json({
+    candidatas,
+    truncado: candidatas.length >= CANDIDATAS_LIMIT,
+  });
 });
 
 export const POST = withAuth<Ctx>(async (user, req, ctx) => {

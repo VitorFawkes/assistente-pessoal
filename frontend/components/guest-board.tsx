@@ -29,6 +29,10 @@ function GuestBoardContent({ token, acesso }: { token: string; acesso: AcessoCon
   const nomeAtual = quadro?.nome ?? acesso.quadroNome;
   const descAtual = quadro?.descricao ?? null;
   const quadroId = quadro?.id ?? acesso.quadroId;
+  const nAbertas = tarefas.filter(
+    (t) => t.status !== "concluida" && t.status !== "cancelada",
+  ).length;
+  const nFeitas = tarefas.length - nAbertas;
 
   const patchQuadro = async (updates: Record<string, unknown>) => {
     const res = await fetch(`/api/q/${token}`, {
@@ -213,7 +217,14 @@ function GuestBoardContent({ token, acesso }: { token: string; acesso: AcessoCon
         {/* Tarefas: título + toggle de visão */}
         <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
           <h3 className="font-display text-lg sm:text-xl font-light text-[color:var(--foreground)]">
-            Tarefas <span className="text-[color:var(--muted)] text-base">{tarefas.length}</span>
+            {/* Mesma contagem honesta do dono: o total sozinho não batia com o
+                que a tela mostra, porque as feitas ficam escondidas. */}
+            Tarefas <span className="text-[color:var(--muted)] text-base">{nAbertas}</span>
+            {nFeitas > 0 && (
+              <span className="ml-2 text-[color:var(--muted)] text-[13px] font-sans">
+                abertas · {nFeitas} feita{nFeitas > 1 ? "s" : ""}
+              </span>
+            )}
           </h3>
           <div className="inline-flex rounded-full border border-[color:var(--border)] p-0.5 text-[12px] font-medium">
             {toggleBtn("lista", "Lista")}

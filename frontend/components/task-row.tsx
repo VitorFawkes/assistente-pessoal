@@ -15,6 +15,7 @@ import {
   Paperclip,
 } from "lucide-react";
 import { cn, formatPrazo, type Prioridade } from "@/lib/utils";
+import { meetingDateShort, meetingSubject } from "@/lib/meeting-label";
 import { TaskExpandFields } from "./task-expand-fields";
 import {
   PrazoInline,
@@ -95,7 +96,9 @@ function TitleInline({ tarefa }: { tarefa: Tarefa }) {
       }}
       title="Clique pra editar o título"
       className={cn(
-        "flex-1 min-w-0 truncate text-[14px] leading-snug text-[color:var(--foreground)] font-medium cursor-text rounded px-1 -mx-1 hover:bg-[color:var(--accent)]/50 transition",
+        // 2 linhas no celular: com 1 linha só, o prazo comia a largura e o
+        // título virava "Finalizar o flu…" — a lista ficava ilegível no telefone.
+        "flex-1 min-w-0 line-clamp-2 sm:line-clamp-1 text-[14px] leading-snug text-[color:var(--foreground)] font-medium cursor-text rounded px-1 -mx-1 hover:bg-[color:var(--accent)]/50 transition",
         isDone && "line-through",
       )}
     >
@@ -226,7 +229,15 @@ export function TaskRow({
             }}
             aria-label={selected ? "Desmarcar tarefa" : "Selecionar tarefa"}
             aria-pressed={selected}
-            className="shrink-0 flex items-center justify-center w-8 touch-manipulation"
+            title="Selecionar (ações em massa)"
+            className={cn(
+              // Duas bolinhas iguais lado a lado escondiam qual delas conclui.
+              // No mouse, a de seleção só aparece ao passar por cima; no
+              // celular (sem hover) ela continua sempre visível.
+              "shrink-0 flex items-center justify-center w-8 touch-manipulation transition-opacity",
+              !selected &&
+                "sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
+            )}
           >
             <span
               className={cn(
@@ -262,9 +273,13 @@ export function TaskRow({
 
         {/* conteúdo */}
         <div className="flex-1 min-w-0 py-2 pr-2 sm:pr-3">
-          {/* Linha 1: título (editável) + prazo (editável) */}
-          <div className="flex items-center gap-2 min-w-0">
-            <TitleInline tarefa={tarefa} />
+          {/* Linha 1: título (editável) + prazo (editável).
+              No celular o prazo desce pra linha de baixo — disputando espaço
+              com ele, o título sobrava com ~110px e ficava ilegível. */}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
+            <div className="w-full sm:w-auto sm:flex-1 min-w-0 flex">
+              <TitleInline tarefa={tarefa} />
+            </div>
             <span className="shrink-0">
               <PrazoInline tarefa={tarefa} />
             </span>
@@ -326,11 +341,16 @@ export function TaskRow({
                   href={`/reunioes/${tarefa.meeting_id}`}
                   onClick={(e) => e.stopPropagation()}
                   title={tarefa.meeting_summary ?? undefined}
-                  className="press-feedback inline-flex items-center gap-0.5 px-1.5 py-0 rounded bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:bg-[color:var(--foreground)] hover:text-[color:var(--background)] transition min-w-0"
+                  className="press-feedback inline-flex items-center gap-1 px-1.5 py-0 rounded bg-[color:var(--accent)] text-[color:var(--muted-strong)] hover:bg-[color:var(--foreground)] hover:text-[color:var(--background)] transition min-w-0"
                 >
                   <Mic size={10} className="shrink-0" />
+                  {meetingDateShort(tarefa.meeting_recorded_at) && (
+                    <span className="shrink-0 tabular-nums opacity-80">
+                      {meetingDateShort(tarefa.meeting_recorded_at)}
+                    </span>
+                  )}
                   <span className="truncate max-w-[150px] sm:max-w-[240px]">
-                    {tarefa.meeting_summary || "reunião"}
+                    {meetingSubject(tarefa.meeting_summary) || "reunião"}
                   </span>
                 </Link>
               )}

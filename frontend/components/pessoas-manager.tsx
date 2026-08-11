@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Pencil, Trash2, Check, X, Plus, Music, ChevronRight } from "lucide-react";
+import { Pencil, Trash2, Check, X, Plus, Music, ChevronRight, Search } from "lucide-react";
 
 export type PessoaListItem = {
   id: string;
@@ -22,6 +22,19 @@ export function PessoasManager({ initial }: { initial: PessoaListItem[] }) {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [busca, setBusca] = useState("");
+
+  // Com 200 pessoas na lista, achar alguém era rolar a tela no olho.
+  const visiveis = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    if (!q) return pessoas;
+    return pessoas.filter((p) =>
+      [p.nome, ...(p.aliases ?? []), p.notas ?? ""]
+        .join(" ")
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [pessoas, busca]);
 
   const refresh = () => router.refresh();
 
@@ -126,8 +139,38 @@ export function PessoasManager({ initial }: { initial: PessoaListItem[] }) {
         </button>
       )}
 
+      {pessoas.length > 8 && (
+        <div className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-[color:var(--border)]">
+          <Search size={14} className="text-[color:var(--muted)] shrink-0" />
+          <input
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar pessoa…"
+            className="flex-1 min-w-0 bg-transparent text-sm outline-none"
+          />
+          <span className="shrink-0 text-[11px] text-[color:var(--muted)] tabular-nums">
+            {visiveis.length}/{pessoas.length}
+          </span>
+          {busca && (
+            <button
+              type="button"
+              onClick={() => setBusca("")}
+              aria-label="Limpar busca"
+              className="text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
+            >
+              <X size={13} />
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="space-y-2">
-        {pessoas.map((p) =>
+        {visiveis.length === 0 && (
+          <p className="text-sm text-[color:var(--muted)] py-6 text-center">
+            Ninguém com esse nome.
+          </p>
+        )}
+        {visiveis.map((p) =>
           editingId === p.id ? (
             <PessoaForm
               key={p.id}

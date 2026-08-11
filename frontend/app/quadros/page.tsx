@@ -43,8 +43,8 @@ export default async function QuadrosPage() {
           Listas <span className="italic font-[450] text-[color:var(--muted-strong)]">compartilhadas.</span>
         </h1>
         <p className="text-[14px] text-[color:var(--muted-strong)] max-w-md">
-          Cura tarefas manualmente e compartilhe com convidados via link seguro
-          e passwordless.
+          Junte tarefas num quadro e compartilhe por um link — quem recebe entra
+          sem precisar de senha nem de conta.
         </p>
         <div className="pt-1">
           <NovoQuadro />
@@ -66,7 +66,7 @@ export default async function QuadrosPage() {
             <Link
               key={q.id}
               href={`/quadros/${q.id}`}
-              className="rounded-lg border border-[color:var(--border)] bg-[color:var(--card)] p-5 hover:border-[color:var(--accent)] hover:bg-[color:var(--muted)]/5 transition-all"
+              className="flex flex-col rounded-lg border border-[color:var(--border)] bg-[color:var(--card)] p-5 hover:border-[color:var(--muted)] hover:bg-[color:var(--accent)]/20 transition-all"
             >
               <div className="flex items-start justify-between gap-2">
                 <h3 className="font-display text-lg font-semibold">
@@ -79,11 +79,13 @@ export default async function QuadrosPage() {
                 )}
               </div>
               {q.descricao && (
-                <p className="mt-2 text-sm text-[color:var(--muted-strong)]">
+                <p className="mt-2 text-sm text-[color:var(--muted-strong)] line-clamp-2">
                   {q.descricao}
                 </p>
               )}
-              <div className="mt-4 flex gap-4 text-xs text-[color:var(--muted)]">
+              {/* mt-auto: sem isso a linha de contagens flutuava em alturas
+                  diferentes em cada cartão da mesma fileira. */}
+              <div className="mt-auto pt-4 flex gap-4 text-xs text-[color:var(--muted)]">
                 <span>{q.n_tarefas} tarefa{q.n_tarefas !== 1 ? "s" : ""}</span>
                 <span>{q.n_convidados} convidado{q.n_convidados !== 1 ? "s" : ""}</span>
               </div>

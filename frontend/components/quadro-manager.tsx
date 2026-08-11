@@ -9,8 +9,8 @@ import type { Tarefa } from "@/lib/queries";
 import { OwnerTaskProvider } from "@/lib/task-mutations";
 import { TaskBoardView } from "./task-board-view";
 import { PlanoTimeline } from "./plano-timeline";
+import { ConvidadosManager } from "./convidados-manager";
 import { ActivityFeed } from "./activity-feed";
-import { CopyLinkButton } from "./copy-link-button";
 import { TaskPickerModal } from "./task-picker-modal";
 
 interface QuadroManagerProps {
@@ -31,11 +31,11 @@ export function QuadroManager({
   const [convidados, setConvidados] = useState(initialConvidados);
   const [editingName, setEditingName] = useState(false);
   const [editingDesc, setEditingDesc] = useState(false);
-  const [newConvidadoName, setNewConvidadoName] = useState("");
-  const [creatingConvidado, setCreatingConvidado] = useState(false);
-  const [bulkOpen, setBulkOpen] = useState(false);
-  const [bulkText, setBulkText] = useState("");
-  const [creatingBulk, setCreatingBulk] = useState(false);
+
+  const nAbertas = tarefas.filter(
+    (t) => t.status !== "concluida" && t.status !== "cancelada",
+  ).length;
+  const nFeitas = tarefas.length - nAbertas;
 
   // ─── Tarefas: criar / adicionar existentes ────────────────────────────
   const [novaTarefa, setNovaTarefa] = useState("");
@@ -129,14 +129,13 @@ export function QuadroManager({
   };
 
 
-  const handleCreateConvidado = async () => {
-    if (!newConvidadoName.trim()) return;
-    setCreatingConvidado(true);
+  const criarConvidado = async (nome: string) => {
+    if (!nome.trim()) return;
     try {
       const res = await fetch(`/api/quadros/${quadro.id}/convidados`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nome: newConvidadoName }),
+        body: JSON.stringify({ nome }),
       });
       if (!res.ok) throw new Error("Erro ao criar convidado");
       const result = await res.json();
@@ -152,36 +151,22 @@ export function QuadroManager({
           revoked_at: null,
         },
       ]);
-      setNewConvidadoName("");
       toast.success(`Convidado criado: ${result.nome}`);
       const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
       await navigator.clipboard.writeText(`${baseUrl}/q/${result.token}`);
       toast.success("Link copiado!");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro desconhecido");
-    } finally {
-      setCreatingConvidado(false);
     }
   };
 
-  // Nomes válidos do lote: uma linha = um nome, sem vazios, sem duplicatas exatas.
-  const bulkNomes = [
-    ...new Set(
-      bulkText
-        .split("\n")
-        .map((n) => n.trim())
-        .filter((n) => n.length > 0),
-    ),
-  ];
-
-  const handleCreateConvidadosBulk = async () => {
-    if (bulkNomes.length === 0) return;
-    setCreatingBulk(true);
+  const criarConvidadosBulk = async (nomes: string[]) => {
+    if (nomes.length === 0) return;
     try {
       const res = await fetch(`/api/quadros/${quadro.id}/convidados`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nomes: bulkNomes }),
+        body: JSON.stringify({ nomes }),
       });
       if (!res.ok) throw new Error("Erro ao criar convidados");
       const { convidados: criados } = await res.json();
@@ -197,15 +182,11 @@ export function QuadroManager({
           revoked_at: null,
         })),
       ]);
-      setBulkText("");
-      setBulkOpen(false);
       toast.success(
         `${criados.length} ${criados.length === 1 ? "convidado criado" : "convidados criados"}`,
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro desconhecido");
-    } finally {
-      setCreatingBulk(false);
     }
   };
 
@@ -275,9 +256,16 @@ export function QuadroManager({
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <h3 className="font-display text-lg sm:text-xl font-light text-[color:var(--foreground)]">
                 Tarefas{" "}
+                {/* Só o total confundia: o quadro dizia 28 e a tela mostrava 6,
+                    porque as feitas ficam escondidas por padrão. */}
                 <span className="text-[color:var(--muted)] text-base">
-                  {tarefas.length}
+                  {nAbertas}
                 </span>
+                {nFeitas > 0 && (
+                  <span className="ml-2 text-[color:var(--muted)] text-[13px] font-sans">
+                    abertas · {nFeitas} feita{nFeitas > 1 ? "s" : ""}
+                  </span>
+                )}
               </h3>
               <div className="flex items-center gap-3">
                 {/* Toggle Lista ↔ Linha do tempo (transformar em plano) */}
@@ -354,126 +342,14 @@ export function QuadroManager({
 
           {/* Coluna direita: Convidados + Atividade — um único scroll sticky (sem scrollbar aninhado) */}
           <div className="space-y-8 lg:sticky lg:top-20 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto lg:pr-1">
-            <section className="space-y-6">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="font-display text-lg sm:text-xl font-light text-[color:var(--foreground)]">
-                  Convidados
-                </h3>
-                {convidados.length >= 2 &&
-                  (() => {
-                    const baseUrl =
-                      typeof window !== "undefined" ? window.location.origin : "";
-                    const bloco = convidados
-                      .map((c) => `${c.nome} — ${baseUrl}/q/${c.token}`)
-                      .join("\n");
-                    return (
-                      <CopyLinkButton
-                        link={bloco}
-                        label="Copiar todos os links"
-                        variant="button"
-                      />
-                    );
-                  })()}
-              </div>
-              <div className="space-y-3">
-                {convidados.length === 0 ? (
-                  <p className="text-sm text-[color:var(--muted)]">Nenhum convidado ainda.</p>
-                ) : (
-                  convidados.map((c) => {
-                    const baseUrl =
-                      typeof window !== "undefined" ? window.location.origin : "";
-                    const link = `${baseUrl}/q/${c.token}`;
-                    return (
-                      <div
-                        key={c.id}
-                        className="rounded-lg border border-[color:var(--border)] bg-[color:var(--card)] p-4 sm:p-5 space-y-3 hover:border-[color:var(--accent)] transition-colors"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-[color:var(--foreground)]">
-                              {c.nome}
-                            </p>
-                            <p className="text-xs text-[color:var(--muted)]">
-                              {new Date(c.created_at).toLocaleDateString("pt-BR")}
-                            </p>
-                          </div>
-                          <button
-                            onClick={() => handleRevokeConvidado(c.id)}
-                            className="px-3 py-1 rounded-lg text-xs font-medium bg-[color:var(--urgent)] text-white hover:opacity-80 transition-opacity whitespace-nowrap flex-shrink-0"
-                          >
-                            Revogar
-                          </button>
-                        </div>
-                        <div className="pt-2 border-t border-[color:var(--border)]">
-                          <CopyLinkButton link={link} label="Copiar link" variant="button" />
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="text"
-                  placeholder="Nome do novo convidado..."
-                  value={newConvidadoName}
-                  onChange={(e) => setNewConvidadoName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleCreateConvidado();
-                  }}
-                  className="flex-1 rounded-lg border border-[color:var(--border)] px-4 py-2 text-sm bg-[color:var(--card)] text-[color:var(--foreground)] focus:border-[color:var(--accent)] outline-none transition-colors"
-                />
-                <button
-                  onClick={handleCreateConvidado}
-                  disabled={creatingConvidado || !newConvidadoName.trim()}
-                  className="px-4 py-2 rounded-lg bg-[color:var(--calm)] text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity whitespace-nowrap"
-                >
-                  {creatingConvidado ? "Criando..." : "Criar"}
-                </button>
-              </div>
-
-              {bulkOpen ? (
-                <div className="space-y-2">
-                  <textarea
-                    value={bulkText}
-                    onChange={(e) => setBulkText(e.target.value)}
-                    placeholder={"Um nome por linha…\nAna Souza\nBruno Lima\nCarla Dias"}
-                    rows={5}
-                    autoFocus
-                    className="w-full rounded-lg border border-[color:var(--border)] px-4 py-2 text-sm bg-[color:var(--card)] text-[color:var(--foreground)] focus:border-[color:var(--accent)] outline-none transition-colors resize-y"
-                  />
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleCreateConvidadosBulk}
-                      disabled={creatingBulk || bulkNomes.length === 0}
-                      className="px-4 py-2 rounded-lg bg-[color:var(--calm)] text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity whitespace-nowrap"
-                    >
-                      {creatingBulk
-                        ? "Criando…"
-                        : `Criar ${bulkNomes.length} ${bulkNomes.length === 1 ? "convidado" : "convidados"}`}
-                    </button>
-                    <button
-                      onClick={() => {
-                        setBulkOpen(false);
-                        setBulkText("");
-                      }}
-                      className="px-3 py-2 rounded-lg text-sm text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] transition-colors"
-                    >
-                      Cancelar
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setBulkOpen(true)}
-                  className="text-sm text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] underline underline-offset-2"
-                >
-                  Colar vários
-                </button>
-              )}
-            </section>
+            {/* Mesmo componente que o convidado enxerga — a tela do dono
+                tinha uma cópia própria do mesmo painel, que foi divergindo. */}
+            <ConvidadosManager
+              convidados={convidados}
+              onCreate={criarConvidado}
+              onCreateBulk={criarConvidadosBulk}
+              onRevoke={handleRevokeConvidado}
+            />
 
             <section className="space-y-5 border-t border-[color:var(--border)] pt-6">
               <h3 className="font-display text-lg sm:text-xl font-light text-[color:var(--foreground)]">

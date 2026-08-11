@@ -16,9 +16,10 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import { cn, normalizeOwner } from "@/lib/utils";
+import { areaLabel, cn, normalizeOwner } from "@/lib/utils";
 import { TaskEditFields } from "./task-edit-fields";
 import { PlanoManageModal } from "./plano-manage-modal";
+import { DateField } from "./date-field";
 import { useTaskMutations } from "@/lib/task-mutations";
 import type { Tarefa } from "@/lib/queries";
 import { X } from "lucide-react";
@@ -1078,7 +1079,7 @@ export function PlanoTimeline({
               title="Trocar área"
             >
               <Tag size={9} strokeWidth={2} className="shrink-0" />
-              <span className="truncate">{area}</span>
+              <span className="truncate">{areaLabel(area)}</span>
             </button>
           </div>
         </div>
@@ -1292,11 +1293,11 @@ export function PlanoTimeline({
                   >
                     {t.titulo}
                   </button>
-                  <input
-                    type="date"
-                    aria-label={`definir prazo de ${t.titulo}`}
-                    onChange={(e) => patch(t.id, { prazo: dInputToIso(e.target.value, true) })}
-                    className="text-[11px] bg-transparent border border-[color:var(--border)] rounded px-1.5 py-0.5 text-[color:var(--muted-strong)] cursor-pointer focus-visible:outline-2 focus-visible:outline-[color:var(--foreground)] focus-visible:outline-offset-1"
+                  <DateField
+                    value=""
+                    ariaLabel={`definir prazo de ${t.titulo}`}
+                    placeholder="dar data"
+                    onChange={(key) => patch(t.id, { prazo: dInputToIso(key, true) })}
                   />
                 </div>
               ))}
@@ -1312,7 +1313,7 @@ export function PlanoTimeline({
             Nada com data no plano ainda.
           </p>
           <p className="text-[12px] text-[color:var(--muted)] mt-1">
-            Clique em “＋ Adicionar tarefas” pra escolher o que entra — ou defina um prazo nas de “Sem data”.
+            Clique em “Gerenciar tarefas” pra escolher o que entra — ou dê um prazo às de “Sem data”.
           </p>
         </div>
       ) : (
@@ -1527,8 +1528,11 @@ export function PlanoTimeline({
                             size={13}
                             className={cn("transition shrink-0", collapsed[grp.key] && "-rotate-90")}
                           />
-                          <span className="text-[11px] font-semibold uppercase tracking-[0.06em] truncate">
-                            {grp.key}
+                          <span
+                            title={grp.key}
+                            className="text-[11px] font-semibold tracking-[0.04em] truncate"
+                          >
+                            {groupBy === "frente" ? areaLabel(grp.key) : grp.key}
                           </span>
                           <GripVertical
                             size={12}

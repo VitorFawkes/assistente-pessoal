@@ -136,3 +136,10 @@ export function formatCreatedAt(iso: string | null | undefined): string {
   if (isThisYearSP(date)) return formatInTimeZone(date, SP_TZ, "dd/MM", { locale: ptBR });
   return formatInTimeZone(date, SP_TZ, "dd/MM/yyyy", { locale: ptBR });
 }
+
+/** Nome de área legível: as propostas da IA vêm em slug ("midia_paga"). */
+export function areaLabel(nome: string): string {
+  const s = nome.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!s) return nome;
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}

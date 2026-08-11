@@ -1,5 +1,5 @@
 import { requireUserOrRedirect } from "@/lib/auth";
-import { tarefasFor } from "@/lib/queries";
+import { ABERTAS_LIMIT, tarefasFor } from "@/lib/queries";
 import { type Tarefa } from "@/lib/queries";
 import { TasksDashboard } from "@/components/tasks-dashboard";
 import { OwnerTaskProvider } from "@/lib/task-mutations";
@@ -10,11 +10,17 @@ export default async function HomePage() {
   const user = await requireUserOrRedirect();
 
   let tarefas: Tarefa[] = [];
+  let totalAbertas = 0;
   let dbError: string | null = null;
   try {
     // tarefasFor.recentes() retorna abertas + concluídas/canceladas com meeting joinado.
     // RLS filtra por user_id automaticamente. UI filtra por status.
-    tarefas = (await tarefasFor(user.id).recentes()) as unknown as Tarefa[];
+    const [lista, contagens] = await Promise.all([
+      tarefasFor(user.id).recentes(),
+      tarefasFor(user.id).contagens(),
+    ]);
+    tarefas = lista as unknown as Tarefa[];
+    totalAbertas = contagens.abertas;
   } catch (e: unknown) {
     dbError = e instanceof Error ? e.message : String(e);
   }
@@ -51,7 +57,11 @@ export default async function HomePage() {
           </p>
         </header>
 
-        <TasksDashboard tarefas={tarefas} />
+        <TasksDashboard
+          tarefas={tarefas}
+          totalAbertas={totalAbertas}
+          limiteAbertas={ABERTAS_LIMIT}
+        />
       </div>
     </OwnerTaskProvider>
   );

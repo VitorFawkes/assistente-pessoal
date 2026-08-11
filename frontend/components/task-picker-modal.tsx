@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Search, X, Check, CalendarClock, Mic, UserRound } from "lucide-react";
 import { cn, formatPrazo } from "@/lib/utils";
 import type { Tarefa } from "@/lib/queries";
 import { FacetDropdown, type Opt } from "./facet-dropdown";
+import { ActiveFilters, type ActiveChip } from "./active-filters";
+import { DateField } from "./date-field";
+import { meetingDateShort, meetingSubject } from "@/lib/meeting-label";
 import {
   applyFacets,
   matchesSearch,
@@ -49,6 +52,7 @@ const SORTS: { k: SortKey; label: string }[] = [
 
 export function TaskPickerModal({ quadroId, onClose, onAdded }: Props) {
   const [candidatas, setCandidatas] = useState<Tarefa[]>([]);
+  const [truncado, setTruncado] = useState(false);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
 
@@ -61,6 +65,7 @@ export function TaskPickerModal({ quadroId, onClose, onAdded }: Props) {
   const [prazoFrom, setPrazoFrom] = useState("");
   const [prazoTo, setPrazoTo] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("criacao_desc");
+  const [reuniaoOrder, setReuniaoOrder] = useState<"data" | "quantidade">("data");
   const [sel, setSel] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -71,7 +76,10 @@ export function TaskPickerModal({ quadroId, onClose, onAdded }: Props) {
     window.addEventListener("keydown", onKey);
     fetch(`/api/quadros/${quadroId}/tarefas`)
       .then((r) => r.json())
-      .then((d: { candidatas?: Tarefa[] }) => setCandidatas(d.candidatas ?? []))
+      .then((d: { candidatas?: Tarefa[]; truncado?: boolean }) => {
+        setCandidatas(d.candidatas ?? []);
+        setTruncado(Boolean(d.truncado));
+      })
       .catch(() => toast.error("Erro ao carregar tarefas"))
       .finally(() => setLoading(false));
     return () => {
@@ -111,21 +119,28 @@ export function TaskPickerModal({ quadroId, onClose, onAdded }: Props) {
   }, [base]);
 
   const reuniaoOpts: Opt[] = useMemo(() => {
-    const m = new Map<string, { label: string; count: number }>();
+    const m = new Map<string, { label: string; count: number; at: number }>();
     for (const t of base) {
       const k = meetingKey(t);
       const g = m.get(k);
       if (g) g.count++;
-      else m.set(k, { label: reuniaoOf(t), count: 1 });
+      else
+        m.set(k, {
+          label: reuniaoOf(t),
+          count: 1,
+          at: t.meeting_recorded_at ? new Date(t.meeting_recorded_at).getTime() : 0,
+        });
     }
     return [...m.entries()]
-      .map(([value, { label, count }]) => ({ value, label, count }))
+      .map(([value, { label, count, at }]) => ({ value, label, count, at }))
       .sort((a, b) => {
         if (a.value === "sem") return 1;
         if (b.value === "sem") return -1;
-        return b.count - a.count;
-      });
-  }, [base]);
+        // Por data é o padrão: "a última reunião" é como se procura uma reunião.
+        return reuniaoOrder === "data" ? b.at - a.at : b.count - a.count;
+      })
+      .map(({ value, label, count }) => ({ value, label, count }));
+  }, [base, reuniaoOrder]);
 
   const filtered = useMemo(() => {
     const facets: Facets = {
@@ -159,9 +174,6 @@ export function TaskPickerModal({ quadroId, onClose, onAdded }: Props) {
       return next;
     });
 
-  const activeFilters =
-    selPessoas.size + selAreas.size + selPrioridades.size + selReunioes.size +
-    (meetingDate !== "qualquer" ? 1 : 0) + (prazoFrom || prazoTo ? 1 : 0);
   const clearFilters = () => {
     setSelPessoas(new Set());
     setSelAreas(new Set());
@@ -172,6 +184,53 @@ export function TaskPickerModal({ quadroId, onClose, onAdded }: Props) {
     setPrazoTo("");
     setSearch("");
   };
+
+  // Faixa do que está filtrado agora — mesmo padrão das Pendências. Sem ela,
+  // o botão "Reunião" com 1 escolha não dizia QUAL reunião estava puxando.
+  const chips: ActiveChip[] = useMemo(() => {
+    const out: ActiveChip[] = [];
+    const removeFrom = (
+      setter: React.Dispatch<React.SetStateAction<Set<string>>>,
+      v: string,
+    ) =>
+      setter((prev) => {
+        const next = new Set(prev);
+        next.delete(v);
+        return next;
+      });
+    for (const v of selReunioes)
+      out.push({
+        id: `r:${v}`,
+        label: reuniaoOpts.find((o) => o.value === v)?.label ?? "reunião",
+        onRemove: () => removeFrom(setSelReunioes, v),
+      });
+    for (const v of selPessoas)
+      out.push({ id: `p:${v}`, label: v, onRemove: () => removeFrom(setSelPessoas, v) });
+    for (const v of selAreas)
+      out.push({ id: `a:${v}`, label: v, onRemove: () => removeFrom(setSelAreas, v) });
+    for (const v of selPrioridades)
+      out.push({
+        id: `pr:${v}`,
+        label: PRIO_LABEL[v] ?? v,
+        onRemove: () => removeFrom(setSelPrioridades, v),
+      });
+    if (meetingDate !== "qualquer")
+      out.push({
+        id: "md",
+        label: `Reunião: ${MEETING_BUCKETS.find((b) => b.k === meetingDate)?.label ?? meetingDate}`,
+        onRemove: () => setMeetingDate("qualquer"),
+      });
+    if (prazoFrom || prazoTo)
+      out.push({
+        id: "prazo",
+        label: `Prazo ${prazoFrom || "…"} → ${prazoTo || "…"}`,
+        onRemove: () => {
+          setPrazoFrom("");
+          setPrazoTo("");
+        },
+      });
+    return out;
+  }, [selReunioes, selPessoas, selAreas, selPrioridades, meetingDate, prazoFrom, prazoTo, reuniaoOpts]);
 
   async function adicionar() {
     const ids = [...sel];
@@ -200,7 +259,7 @@ export function TaskPickerModal({ quadroId, onClose, onAdded }: Props) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full sm:max-w-2xl bg-[color:var(--card)] border border-[color:var(--border)] rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[92vh] sm:max-h-[85vh]">
+      <div className="w-full sm:max-w-3xl bg-[color:var(--card)] border border-[color:var(--border)] rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[92vh] sm:max-h-[85vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-3">
           <h2 className="font-display text-xl">Adicionar tarefas ao quadro</h2>
@@ -228,10 +287,46 @@ export function TaskPickerModal({ quadroId, onClose, onAdded }: Props) {
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5">
-            <FacetDropdown label="Pessoa" options={pessoaOpts} selected={selPessoas} onToggle={(v) => toggleIn(setSelPessoas, v)} />
-            <FacetDropdown label="Reunião" options={reuniaoOpts} selected={selReunioes} onToggle={(v) => toggleIn(setSelReunioes, v)} />
-            <FacetDropdown label="Área" options={areaOpts} selected={selAreas} onToggle={(v) => toggleIn(setSelAreas, v)} />
-            <FacetDropdown label="Prioridade" options={prioOpts} selected={selPrioridades} onToggle={(v) => toggleIn(setSelPrioridades, v)} />
+            <FacetDropdown
+              label="Pessoa"
+              options={pessoaOpts}
+              selected={selPessoas}
+              onToggle={(v) => toggleIn(setSelPessoas, v)}
+              onClear={() => setSelPessoas(new Set())}
+              searchable
+            />
+            <FacetDropdown
+              label="Reunião"
+              options={reuniaoOpts}
+              selected={selReunioes}
+              onToggle={(v) => toggleIn(setSelReunioes, v)}
+              onClear={() => setSelReunioes(new Set())}
+              searchable
+              wide
+              order={{
+                options: [
+                  { k: "data" as const, label: "data" },
+                  { k: "quantidade" as const, label: "nº de tarefas" },
+                ],
+                value: reuniaoOrder,
+                onChange: setReuniaoOrder,
+              }}
+            />
+            <FacetDropdown
+              label="Área"
+              options={areaOpts}
+              selected={selAreas}
+              onToggle={(v) => toggleIn(setSelAreas, v)}
+              onClear={() => setSelAreas(new Set())}
+              searchable
+            />
+            <FacetDropdown
+              label="Prioridade"
+              options={prioOpts}
+              selected={selPrioridades}
+              onToggle={(v) => toggleIn(setSelPrioridades, v)}
+              onClear={() => setSelPrioridades(new Set())}
+            />
             <select
               value={meetingDate}
               onChange={(e) => setMeetingDate(e.target.value as MeetingDateBucket)}
@@ -239,7 +334,7 @@ export function TaskPickerModal({ quadroId, onClose, onAdded }: Props) {
               className="text-[12px] px-2.5 py-1.5 rounded-full border border-[color:var(--border)] bg-transparent text-[color:var(--muted-strong)]"
             >
               {MEETING_BUCKETS.map((b) => (
-                <option key={b.k} value={b.k}>Reunião: {b.label}</option>
+                <option key={b.k} value={b.k}>Quando: {b.label}</option>
               ))}
             </select>
             <select
@@ -252,19 +347,25 @@ export function TaskPickerModal({ quadroId, onClose, onAdded }: Props) {
                 <option key={s.k} value={s.k}>Ordenar: {s.label}</option>
               ))}
             </select>
+            <span className="inline-flex items-center gap-1.5 text-[12px] text-[color:var(--muted)]">
+              Prazo
+              <DateField
+                value={prazoFrom}
+                onChange={setPrazoFrom}
+                placeholder="de"
+                ariaLabel="Prazo a partir de"
+              />
+              até
+              <DateField
+                value={prazoTo}
+                onChange={setPrazoTo}
+                placeholder="até"
+                ariaLabel="Prazo até"
+              />
+            </span>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 text-[12px]">
-            <span className="text-[color:var(--muted)]">Prazo:</span>
-            <input type="date" value={prazoFrom} onChange={(e) => setPrazoFrom(e.target.value)} className="px-2 py-1 rounded border border-[color:var(--border)] bg-transparent" />
-            <span className="text-[color:var(--muted)]">até</span>
-            <input type="date" value={prazoTo} onChange={(e) => setPrazoTo(e.target.value)} className="px-2 py-1 rounded border border-[color:var(--border)] bg-transparent" />
-            {activeFilters > 0 && (
-              <button type="button" onClick={clearFilters} className="ml-auto text-[color:var(--muted)] hover:text-[color:var(--urgent)] underline underline-offset-2">
-                limpar filtros
-              </button>
-            )}
-          </div>
+          {chips.length > 0 && <ActiveFilters chips={chips} onClearAll={clearFilters} />}
         </div>
 
         {/* Lista */}
@@ -274,6 +375,14 @@ export function TaskPickerModal({ quadroId, onClose, onAdded }: Props) {
           </button>
           {sel.size > 0 && <span className="text-[12px] text-[color:var(--muted)]">{sel.size} selecionada{sel.size > 1 ? "s" : ""}</span>}
         </div>
+        {truncado && (
+          <div className="px-5 pb-1.5">
+            <p className="text-[11px] text-[color:var(--muted)]">
+              Lista limitada às tarefas mais recentes — se não achar a que quer,
+              use a busca acima.
+            </p>
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto px-5 pb-3 space-y-1.5 min-h-[120px]">
           {loading ? (
             <p className="text-sm text-[color:var(--muted)] py-10 text-center">Carregando…</p>
@@ -325,8 +434,19 @@ export function TaskPickerModal({ quadroId, onClose, onAdded }: Props) {
                         <span className="px-1.5 py-0.5 rounded bg-[color:var(--accent)] text-[color:var(--muted-strong)]">{areaOf(t)}</span>
                       )}
                       {t.meeting_id && (
-                        <span className="inline-flex items-center gap-0.5 max-w-[200px] truncate">
-                          <Mic size={10} /> {t.meeting_summary || "reunião"}
+                        <span
+                          title={t.meeting_summary ?? undefined}
+                          className="inline-flex items-center gap-1 max-w-[340px] truncate"
+                        >
+                          <Mic size={10} className="shrink-0" />
+                          {meetingDateShort(t.meeting_recorded_at) && (
+                            <span className="shrink-0 tabular-nums">
+                              {meetingDateShort(t.meeting_recorded_at)}
+                            </span>
+                          )}
+                          <span className="truncate">
+                            {meetingSubject(t.meeting_summary) || "reunião"}
+                          </span>
                         </span>
                       )}
                     </span>

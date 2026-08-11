@@ -3,6 +3,10 @@ import { PoolClient } from "pg";
 import { TAREFA_SELECT, type Tarefa, type TarefaPessoa } from "./queries";
 import { randomBytes } from "node:crypto";
 
+// Teto do picker "adicionar existentes". Exportado porque a tela precisa
+// avisar quando sobrou tarefa de fora — cortar em silêncio some com tarefa.
+export const CANDIDATAS_LIMIT = 500;
+
 // ─── Tipos de Domínio ──────────────────────────────────────────────────
 
 export type Quadro = {
@@ -207,7 +211,7 @@ export function quadrosFor(userId: string) {
              )
              AND ($2::text IS NULL OR t.titulo ILIKE $2 OR t.descricao ILIKE $2 OR t.owner ILIKE $2)
            ORDER BY t.created_at DESC
-           LIMIT 500`,
+           LIMIT ${CANDIDATAS_LIMIT}`,
           [quadroId, like],
         );
         return r.rows;

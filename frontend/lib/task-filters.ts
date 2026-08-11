@@ -3,6 +3,7 @@
 
 import type { Tarefa } from "@/components/task-row";
 import { nowSP, toSP } from "@/lib/utils";
+import { meetingLabel } from "@/lib/meeting-label";
 
 export type MeetingDateBucket = "qualquer" | "hoje" | "semana" | "mes" | "antigas";
 
@@ -104,8 +105,11 @@ export function principalPersonOf(t: Tarefa): string {
   return owner;
 }
 
+// Rótulo curto e datado — o resumo cru começa igual em toda reunião e vira
+// uma coluna de itens idênticos em filtro/agrupamento (ver lib/meeting-label).
 export function reuniaoOf(t: Tarefa): string {
-  return t.meeting_summary || (t.meeting_id ? "Reunião" : "Sem reunião");
+  if (!t.meeting_id) return "Sem reunião";
+  return meetingLabel(t.meeting_summary, t.meeting_recorded_at);
 }
 
 // Busca livre (AND entre os tokens) sobre os campos textuais relevantes.

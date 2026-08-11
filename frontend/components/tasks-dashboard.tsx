@@ -10,6 +10,7 @@ import { FiltersPanel, type GroupMode, type Option } from "./filters-panel";
 import { ActiveFilters, type ActiveChip } from "./active-filters";
 import { BulkActionBar } from "./bulk-action-bar";
 import { DateFilter, filterByDate, type DateBucket } from "./date-filter";
+import { meetingLabel } from "@/lib/meeting-label";
 import { filterByCreated, type CreatedBucket } from "./created-filter";
 import {
   applyFacets,
@@ -183,8 +184,10 @@ function groupByReuniao(list: Tarefa[]): [string, Tarefa[]][] {
     const key = t.meeting_id ?? "sem";
     let g = map.get(key);
     if (!g) {
+      // Rótulo curto e datado: o resumo cru começa igual em toda reunião, e
+      // como cabeçalho de grupo virava uma pilha de títulos idênticos.
       const label = t.meeting_id
-        ? t.meeting_summary?.trim() || "Reunião sem resumo"
+        ? meetingLabel(t.meeting_summary, t.meeting_recorded_at)
         : "Sem reunião";
       g = { label, date: t.meeting_recorded_at ?? "", items: [] };
       map.set(key, g);
@@ -242,6 +245,7 @@ function GroupHeader({
   ids,
   selected,
   onToggleGroup,
+  caixaAlta = true,
 }: {
   label: string;
   count: number;
@@ -249,12 +253,21 @@ function GroupHeader({
   ids: string[];
   selected: Set<string>;
   onToggleGroup: (ids: string[]) => void;
+  /** Nome de reunião em CAIXA ALTA vira um bloco ilegível — só rótulo fixo. */
+  caixaAlta?: boolean;
 }) {
   return (
     <div className="flex items-center gap-2 mb-2">
       <GroupSelectBox ids={ids} selected={selected} onToggle={onToggleGroup} />
       <h3
-        className={cn("text-[11px] tracking-[0.2em] uppercase font-semibold truncate", accent)}
+        title={label}
+        className={cn(
+          "font-semibold truncate",
+          caixaAlta
+            ? "text-[11px] tracking-[0.2em] uppercase"
+            : "text-[13px] tracking-normal",
+          accent,
+        )}
       >
         {label}
       </h3>
@@ -266,7 +279,16 @@ function GroupHeader({
 const isUrgentish = (t: Tarefa) =>
   t.prioridade === "urgente" || t.prioridade === "alta";
 
-export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
+export function TasksDashboard({
+  tarefas,
+  totalAbertas = 0,
+  limiteAbertas = 0,
+}: {
+  tarefas: Tarefa[];
+  /** Quantas abertas existem no banco — a lista abaixo é um recorte. */
+  totalAbertas?: number;
+  limiteAbertas?: number;
+}) {
   const [bucket, setBucket] = useState<DateBucket>("todos");
   const [createdBucket, setCreatedBucket] = useState<CreatedBucket>("todas");
   const [onlyUrgent, setOnlyUrgent] = useState(false);
@@ -297,19 +319,27 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
       .catch(() => {});
   }, []);
 
+  const aberta = (t: Tarefa) =>
+    t.status !== "concluida" && t.status !== "cancelada";
+
+  // Os atalhos de prazo falam de pendência: uma tarefa concluída não está
+  // "vencida" nem "pra hoje". Contar as feitas junto inflava os números e
+  // brigava com o cabeçalho de cada bloco da lista.
+  const pendentes = useMemo(() => tarefas.filter(aberta), [tarefas]);
+
   const counts = useMemo(() => {
     const bs: DateBucket[] = ["todos", "vencidas", "hoje", "semana", "mes", "sem_prazo"];
     return Object.fromEntries(
-      bs.map((b) => [b, filterByDate(tarefas, b).length]),
+      bs.map((b) => [b, filterByDate(pendentes, b).length]),
     ) as Record<DateBucket, number>;
-  }, [tarefas]);
+  }, [pendentes]);
 
   const createdCounts = useMemo(() => {
     const bs: CreatedBucket[] = ["todas", "hoje", "semana", "mes"];
     return Object.fromEntries(
-      bs.map((b) => [b, filterByCreated(tarefas, b).length]),
+      bs.map((b) => [b, filterByCreated(pendentes, b).length]),
     ) as Record<CreatedBucket, number>;
-  }, [tarefas]);
+  }, [pendentes]);
 
   // Pré-filtros "globais" (prazo + criação + urgentes + busca) aplicados antes das facetas.
   const globalList = useMemo(() => {
@@ -381,8 +411,6 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
     ) as Record<MeetingDateBucket, number>;
   }, [globalList, facets]);
 
-  const aberta = (t: Tarefa) =>
-    t.status !== "concluida" && t.status !== "cancelada";
   const executar = filtered.filter((t) => aberta(t) && t.acao === "executar");
   const cobrar = filtered.filter((t) => aberta(t) && t.acao === "cobrar");
   const aguardando = filtered.filter((t) => aberta(t) && t.acao === "aguardar");
@@ -390,8 +418,8 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
   const abertas = filtered.filter(aberta);
 
   const urgentCount = useMemo(
-    () => tarefas.filter(isUrgentish).length,
-    [tarefas],
+    () => pendentes.filter(isUrgentish).length,
+    [pendentes],
   );
 
   // ─── Filtros: toggles + chips + limpar ──────────────────────────────
@@ -536,7 +564,11 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
       />
     ));
 
-  const groupedView = (groups: [string, Tarefa[]][], accent = "text-[color:var(--muted-strong)]") => (
+  const groupedView = (
+    groups: [string, Tarefa[]][],
+    accent = "text-[color:var(--muted-strong)]",
+    caixaAlta = true,
+  ) => (
     <div className="space-y-6">
       {groups.map(([label, items], gi) =>
         items.length === 0 ? null : (
@@ -545,6 +577,7 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
               label={label}
               count={items.length}
               accent={accent}
+              caixaAlta={caixaAlta}
               ids={items.map((t) => t.id)}
               selected={selected}
               onToggleGroup={toggleMany}
@@ -570,7 +603,8 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
       return <div className="flex flex-col gap-2">{rows(list)}</div>;
     if (groupMode === "frente") return groupedView(groupByFrente(list));
     if (groupMode === "pessoa") return groupedView(groupByPessoa(list));
-    if (groupMode === "reuniao") return groupedView(groupByReuniao(list));
+    if (groupMode === "reuniao")
+      return groupedView(groupByReuniao(list), "text-[color:var(--muted-strong)]", false);
 
     // groupMode === "prazo": agrupa por prazo só quando não há bucket de data ativo.
     if (bucket !== "todos") {
@@ -681,6 +715,13 @@ export function TasksDashboard({ tarefas }: { tarefas: Tarefa[] }) {
         </div>
 
         <ActiveFilters chips={chips} onClearAll={clearAllFilters} />
+
+        {totalAbertas > limiteAbertas && limiteAbertas > 0 && (
+          <p className="text-[11px] text-[color:var(--muted)]">
+            Mostrando as {limiteAbertas} pendências mais urgentes — você tem{" "}
+            {totalAbertas} em aberto ao todo.
+          </p>
+        )}
       </div>
 
       <Tabs

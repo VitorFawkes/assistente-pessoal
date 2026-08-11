@@ -132,7 +132,7 @@ export function SpeakersStrip({
     <section className="space-y-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
-          Speakers ({speakers.length})
+          Quem falou ({speakers.length})
         </h2>
         <p className="text-[11px] text-[color:var(--muted)]">
           Clique pra escutar e identificar
@@ -193,11 +193,14 @@ export function SpeakersStrip({
                   )}
                 >
                   {isSelf && <UserRound size={10} />}
-                  {labeled || `Speaker ${s.letter}`}
+                  {labeled || `Voz ${s.letter}`}
                 </span>
                 <span className="text-[10px] text-[color:var(--muted)] flex-1 text-left truncate">
-                  {Math.round(s.total_seconds)}s · {s.total_turns}{" "}
-                  {s.total_turns === 1 ? "fala" : "falas"}
+                  {/* segundos crus não dizem nada: 1794s vira "30 min" */}
+                  {s.total_seconds >= 60
+                    ? `${Math.round(s.total_seconds / 60)} min`
+                    : `${Math.round(s.total_seconds)}s`}{" "}
+                  · {s.total_turns} {s.total_turns === 1 ? "fala" : "falas"}
                 </span>
                 <ChevronDown
                   size={13}
