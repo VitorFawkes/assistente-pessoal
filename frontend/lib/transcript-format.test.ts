@@ -48,8 +48,8 @@ describe("speakerName", () => {
   test("usa label quando existe", () => {
     expect(speakerName("A", { A: "Vitor" })).toBe("Vitor");
   });
-  test("fallback Speaker X", () => {
-    expect(speakerName("B", { A: "Vitor" })).toBe("Speaker B");
+  test("sem nome ainda, cai em \"Voz X\"", () => {
+    expect(speakerName("B", { A: "Vitor" })).toBe("Voz B");
   });
 });
 
@@ -72,9 +72,9 @@ describe("toPlainText", () => {
         "[1:05] Vitor: Próximo ponto.",
     );
   });
-  test("fallback Speaker X sem labels", () => {
+  test("sem nome salvo, sai \"Voz X\"", () => {
     const out = toPlainText([{ speaker: "A", start: 0, end: 1, text: "oi" }], {});
-    expect(out).toBe("[0:00] Speaker A: oi");
+    expect(out).toBe("[0:00] Voz A: oi");
   });
 });
 

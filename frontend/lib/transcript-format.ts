@@ -52,7 +52,7 @@ export function coerceSegments(raw: unknown): Segment[] {
 }
 
 export function speakerName(letter: string, labels: Record<string, string>): string {
-  return labels[letter] || `Speaker ${letter}`;
+  return labels[letter] || `Voz ${letter}`;
 }
 
 export function fmtClock(seconds: number): string {

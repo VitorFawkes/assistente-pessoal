@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { meetingLabel } from "@/lib/meeting-label";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { withTenant } from "@/lib/db";
@@ -61,7 +62,7 @@ export default async function IdentificarPage({
 
       <header className="space-y-2">
         <p className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
-          Identificar speakers
+          Identificar vozes
         </p>
         <h1 className="font-display text-3xl sm:text-4xl leading-[1.1]">
           Quem é{" "}
@@ -71,18 +72,17 @@ export default async function IdentificarPage({
         </h1>
         {meeting.summary && (
           <p className="text-[13px] text-[color:var(--muted)] line-clamp-2">
-            {meeting.summary}
+            {meetingLabel(meeting.summary, meeting.recorded_at)}
           </p>
         )}
         <p className="text-[13px] text-[color:var(--muted-strong)] max-w-md">
-          Ouve os trechos de cada speaker abaixo, identifica a voz e rotula.
-          Cada nome salvo já enrola a voz daquela pessoa pra reconhecimento
-          automático em reuniões futuras.
+          Escute os trechos de cada voz abaixo e diga de quem é. Cada nome que
+          você salva ensina o sistema a reconhecer essa pessoa sozinho nas
+          próximas gravações.
         </p>
         {naoRotulados > 0 && (
           <p className="text-[12px] text-[color:var(--muted)]">
-            {naoRotulados} speaker{naoRotulados === 1 ? "" : "s"} ainda sem
-            nome.
+            {naoRotulados} {naoRotulados === 1 ? "voz ainda sem nome" : "vozes ainda sem nome"}.
           </p>
         )}
       </header>

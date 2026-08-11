@@ -173,7 +173,7 @@ export function IdentifySpeakers({
 
       {naoRotulados.length === 0 && (
         <div className="text-[13px] text-[color:var(--calm)] bg-[color:var(--calm-bg)] px-4 py-3 rounded-2xl">
-          ✓ todos os speakers rotulados nessa reunião.
+          ✓ todas as vozes desta reunião já têm nome.
         </div>
       )}
 
@@ -279,7 +279,11 @@ function SpeakerRow({
           {currentName ? `${currentName}` : `Voz ${speaker.letter}`}
         </span>
         <span className="text-[12px] text-[color:var(--muted)]">
-          {speaker.total_turns} {speaker.total_turns === 1 ? "fala" : "falas"} · {Math.round(speaker.total_seconds)}s de áudio total
+          {speaker.total_turns} {speaker.total_turns === 1 ? "fala" : "falas"} ·{" "}
+          {speaker.total_seconds >= 60
+            ? `${Math.round(speaker.total_seconds / 60)} min`
+            : `${Math.round(speaker.total_seconds)}s`}{" "}
+          de áudio
         </span>
       </div>
 
