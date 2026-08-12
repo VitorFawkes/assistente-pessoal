@@ -4,6 +4,7 @@ import { meetingsFor } from "@/lib/queries";
 import { fmtDate } from "@/lib/utils";
 import { coerceSegments, groupTurns, speakerName, fmtClock } from "@/lib/transcript-format";
 import { meetingSubject } from "@/lib/meeting-label";
+import { Markdown } from "@/lib/md";
 import { PrintTrigger } from "./print-trigger";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +38,23 @@ export default async function ImprimirPage({
           <p className="text-sm text-neutral-700 mt-2 leading-relaxed">{m.summary}</p>
         )}
       </header>
+
+      {/* O resumo é o que ele lê primeiro na tela — no papel também vem antes
+          da transcrição, senão o PDF sai só com as falas cruas. */}
+      {m.executive_summary && (
+        <section className="mb-8 text-[14px]">
+          <h2 className="text-[11px] tracking-[0.18em] uppercase text-neutral-500 mb-2">
+            Resumo executivo
+          </h2>
+          <Markdown text={m.executive_summary} />
+        </section>
+      )}
+
+      {turns.length > 0 && (
+        <h2 className="text-[11px] tracking-[0.18em] uppercase text-neutral-500 mb-2">
+          Transcrição
+        </h2>
+      )}
       <div className="space-y-3">
         {turns.map((t, i) => (
           <p key={i} className="text-[14px] leading-relaxed">

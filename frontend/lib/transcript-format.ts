@@ -102,6 +102,16 @@ export function toVtt(segments: Segment[], labels: Record<string, string>): stri
   return `WEBVTT\n\n${body}`;
 }
 
+/** Só as falas em markdown, sem cabeçalho — pra compor com o resumo. */
+export function turnsToMarkdown(
+  segments: Segment[],
+  labels: Record<string, string>,
+): string {
+  return groupTurns(segments)
+    .map((t) => `**[${fmtClock(t.start)}] ${speakerName(t.speaker, labels)}:** ${t.text.trim()}`)
+    .join("\n\n");
+}
+
 export function toMarkdown(
   segments: Segment[],
   labels: Record<string, string>,
@@ -112,10 +122,7 @@ export function toMarkdown(
     `**Data:** ${meta.dateLabel}  \n` +
     `**Participantes:** ${meta.participants.join(", ")}\n\n` +
     `---\n\n`;
-  const body = groupTurns(segments)
-    .map((t) => `**[${fmtClock(t.start)}] ${speakerName(t.speaker, labels)}:** ${t.text.trim()}`)
-    .join("\n\n");
-  return `${head}${body}\n`;
+  return `${head}${turnsToMarkdown(segments, labels)}\n`;
 }
 
 /** Segmentos cujo start cai no intervalo da seção `index` (sorted por start_seconds). */

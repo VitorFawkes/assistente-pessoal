@@ -244,11 +244,12 @@ export const meetingsFor = (userId: string) => ({
       return r.rows[0] ?? null;
     }),
 
-  /** Dados crus pra export (segments, labels, summary, recorded_at ISO, sections). */
+  /** Dados crus pra export (segments, labels, resumo, recorded_at ISO, sections). */
   forExport: (id: string) =>
     withTenant(userId, async (db) => {
       const r = await db.query<{
         summary: string | null;
+        executive_summary: string | null;
         duration_seconds: number | null;
         recorded_at: string | null;
         segments: unknown;
@@ -256,6 +257,7 @@ export const meetingsFor = (userId: string) => ({
         sections: unknown;
       }>(
         `SELECT summary, duration_seconds,
+                raw_ai_response->>'executive_summary' AS executive_summary,
                 to_char(coalesce(recorded_at, created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
                 segments, speaker_labels, sections
          FROM meetings WHERE id = $1`,

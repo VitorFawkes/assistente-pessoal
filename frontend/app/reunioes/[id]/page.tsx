@@ -18,7 +18,7 @@ import { ArrowLeft, Mic, Video, FileQuestion, UsersRound } from "lucide-react";
 import { ExecutiveSummary } from "./executive-summary";
 import { AutoLabelByContent } from "./auto-label-by-content";
 import { DeleteMeetingButton } from "@/components/delete-meeting-button";
-import { TranscriptExportMenu } from "@/components/transcript-export-menu";
+import { MeetingExportMenu } from "@/components/meeting-export-menu";
 import { OwnerTaskProvider } from "@/lib/task-mutations";
 
 export const dynamic = "force-dynamic";
@@ -177,9 +177,19 @@ export default async function ReuniaoDetalhePage({
       {/* RESUMO EXECUTIVO */}
       {meeting.executive_summary && (
         <section className="space-y-3">
-          <h2 className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
-            Resumo executivo
-          </h2>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <h2 className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
+              Resumo executivo
+            </h2>
+            <MeetingExportMenu
+              meetingId={meeting.id}
+              segments={meeting.segments || []}
+              labels={meeting.speaker_labels || {}}
+              sections={meeting.sections || []}
+              summaryMd={meeting.executive_summary}
+              label="baixar resumo"
+            />
+          </div>
           <div className="paper-card rounded-2xl border border-[color:var(--border)] p-5 sm:p-6">
             <ExecutiveSummary md={meeting.executive_summary} meetingId={meeting.id} />
           </div>
@@ -254,11 +264,12 @@ export default async function ReuniaoDetalhePage({
                 >
                   <UsersRound size={13} /> identificar speakers
                 </Link>
-                <TranscriptExportMenu
+                <MeetingExportMenu
                   meetingId={meeting.id}
                   segments={meeting.segments}
                   labels={meeting.speaker_labels || {}}
                   sections={meeting.sections || []}
+                  summaryMd={meeting.executive_summary}
                 />
               </div>
             )}
