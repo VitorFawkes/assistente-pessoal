@@ -12,10 +12,13 @@ import {
   Scissors,
   BookmarkPlus,
   Split,
+  Trash2,
+  Undo2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { groupTurns } from "@/lib/transcript-format";
 import { CutBar } from "@/components/cut-bar";
+import { RemoveBar } from "@/components/remove-bar";
 
 // Nome canônico do dono do sistema (corresponde a pessoas.is_vitor=TRUE).
 const SELF_NAME = "Vitor";
@@ -365,6 +368,7 @@ export function TranscriptionView({
   pessoas = [],
   fallbackText,
   sections = [],
+  removidosCount = 0,
 }: {
   meetingId: string;
   segments: Segment[] | null | undefined;
@@ -373,6 +377,8 @@ export function TranscriptionView({
   pessoas?: Array<{ id: string; nome: string }>;
   fallbackText: string | null;
   sections?: { start_seconds: number; title: string }[];
+  /** Quantos trechos estão na lixeira desta reunião (0 = nada apagado). */
+  removidosCount?: number;
 }) {
   const router = useRouter();
   const [labels, setLabels] = useState<Record<string, string>>(initialLabels || {});
@@ -384,6 +390,9 @@ export function TranscriptionView({
     [...sections].sort((a, b) => a.start_seconds - b.start_seconds),
   );
   const [pendingCuts, setPendingCuts] = useState<{ at_seconds: number; label: string }[]>([]);
+  // Índices de turn marcados pra apagar (a unidade é a fala inteira).
+  const [pendingRemovals, setPendingRemovals] = useState<Set<number>>(new Set());
+  const [restaurando, setRestaurando] = useState(false);
 
   async function saveSections(next: { start_seconds: number; title: string }[]) {
     const sorted = [...next].sort((a, b) => a.start_seconds - b.start_seconds);
@@ -497,6 +506,36 @@ export function TranscriptionView({
     return pendingCuts.some((c) => Math.abs(c.at_seconds - at) <= 1);
   }
 
+  function toggleRemoval(turnIndex: number) {
+    setPendingRemovals((prev) => {
+      const next = new Set(prev);
+      if (next.has(turnIndex)) next.delete(turnIndex);
+      else next.add(turnIndex);
+      return next;
+    });
+  }
+
+  function restaurarTrechos() {
+    setRestaurando(true);
+    // Dentro da transition o "restaurando…" fica de pé até a página voltar com
+    // os trechos no lugar — a transcrição é longa e o refresh leva segundos.
+    startTransition(async () => {
+      try {
+        const res = await fetch(`/api/meetings/${meetingId}/segments/remove`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ restore: true }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        router.refresh();
+      } catch (e) {
+        console.error("falha ao restaurar trechos", e);
+      } finally {
+        setRestaurando(false);
+      }
+    });
+  }
+
   return (
     <div className="space-y-4">
       <datalist id={PESSOAS_DATALIST_ID}>
@@ -532,6 +571,7 @@ export function TranscriptionView({
       )}
       {turns.map((t, i) => {
         const sec = sectionStartingAt(i);
+        const marcadoPraApagar = pendingRemovals.has(i);
         return (
           <div key={i}>
             {sec && (
@@ -591,7 +631,12 @@ export function TranscriptionView({
                   {fmtTime(t.start)}
                 </span>
               </div>
-              <p className="flex-1 text-[14px] leading-relaxed text-[color:var(--foreground)] pt-0.5">
+              <p
+                className={cn(
+                  "flex-1 text-[14px] leading-relaxed text-[color:var(--foreground)] pt-0.5",
+                  marcadoPraApagar && "line-through opacity-40",
+                )}
+              >
                 {t.text.trim()}
               </p>
               <div className="shrink-0 flex items-start gap-1">
@@ -631,16 +676,57 @@ export function TranscriptionView({
                 >
                   <Split size={12} />
                 </button>
+                <button
+                  type="button"
+                  title={
+                    marcadoPraApagar
+                      ? "não apagar este trecho"
+                      : "apagar este trecho da transcrição"
+                  }
+                  onClick={() => toggleRemoval(i)}
+                  className={
+                    marcadoPraApagar
+                      ? "text-[color:var(--urgent)] shrink-0 mt-0.5"
+                      : "opacity-30 hover:opacity-100 text-[color:var(--muted-strong)] hover:text-[color:var(--urgent)] transition shrink-0 mt-0.5"
+                  }
+                  aria-label="apagar este trecho"
+                >
+                  <Trash2 size={12} />
+                </button>
               </div>
             </div>
           </div>
         );
       })}
 
+      {removidosCount > 0 && (
+        <div className="flex items-center gap-2 pt-2 border-t border-[color:var(--border)]/50">
+          <p className="text-[12px] text-[color:var(--muted)]">
+            {removidosCount} {removidosCount === 1 ? "trecho apagado" : "trechos apagados"}
+          </p>
+          <button
+            type="button"
+            onClick={restaurarTrechos}
+            disabled={restaurando || isPending}
+            className="inline-flex items-center gap-1 text-[12px] text-[color:var(--calm)] hover:underline disabled:opacity-50"
+          >
+            <Undo2 size={12} />
+            {restaurando ? "restaurando…" : "restaurar"}
+          </button>
+        </div>
+      )}
+
       <CutBar
         meetingId={meetingId}
         cuts={pendingCuts}
         onClear={() => setPendingCuts([])}
+      />
+
+      <RemoveBar
+        meetingId={meetingId}
+        turnsMarcados={pendingRemovals.size}
+        segmentIndices={[...pendingRemovals].flatMap((i) => turns[i]?.segmentIndices ?? [])}
+        onClear={() => setPendingRemovals(new Set())}
       />
     </div>
   );

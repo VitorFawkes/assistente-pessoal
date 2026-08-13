@@ -102,7 +102,7 @@
           "conditions": [
             {
               "id": "no-actions",
-              "leftValue": "={{ $json.no_actions }}",
+              "leftValue": "={{ $('Aggregate').first().json.no_actions }}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -397,6 +397,51 @@
         860,
         260
       ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "meetings"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Webhook').first().json.body.meeting_id }}",
+            "user_id": "={{ $('SELECT meeting').first().json.user_id }}",
+            "summary": "={{ $('Aggregate').first().json.summary }}",
+            "raw_ai_response": "={{ $('Aggregate').first().json.raw_ai_response }}"
+          },
+          "matchingColumns": [
+            "id",
+            "user_id"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "sc-updatesummary",
+      "name": "UPDATE meeting (summary)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "executeOnce": true,
+      "position": [
+        1560,
+        460
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "KQJgErf7zPLrLq1t",
+          "name": "Acoes - Postgres"
+        }
+      }
     }
   ],
   "connections": {
@@ -470,7 +515,7 @@
       "main": [
         [
           {
-            "node": "Has Actions?",
+            "node": "UPDATE meeting (summary)",
             "type": "main",
             "index": 0
           }
@@ -577,6 +622,17 @@
         [
           {
             "node": "Build Judge Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "UPDATE meeting (summary)": {
+      "main": [
+        [
+          {
+            "node": "Has Actions?",
             "type": "main",
             "index": 0
           }

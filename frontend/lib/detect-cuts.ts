@@ -128,12 +128,16 @@ export function validateManualCuts(
   cutSeconds: number[],
   duration: number,
   minDur: number,
+  /** Índices de intervalo que vão pro lixo — o piso de duração não vale pra eles. */
+  skipIntervals: number[] = [],
 ): { ok: boolean; tooShort?: number; outOfRange?: number } {
   for (const c of cutSeconds) {
     if (c <= 0 || c >= duration) return { ok: false, outOfRange: c };
   }
+  const descartados = new Set(skipIntervals);
   const positions = [0, ...[...cutSeconds].sort((a, b) => a - b), duration];
   for (let i = 0; i < positions.length - 1; i++) {
+    if (descartados.has(i)) continue;
     const segDur = positions[i + 1] - positions[i];
     if (segDur < minDur) return { ok: false, tooShort: segDur };
   }

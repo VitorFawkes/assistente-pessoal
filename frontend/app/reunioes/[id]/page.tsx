@@ -19,6 +19,7 @@ import { ExecutiveSummary } from "./executive-summary";
 import { AutoLabelByContent } from "./auto-label-by-content";
 import { DeleteMeetingButton } from "@/components/delete-meeting-button";
 import { MeetingExportMenu } from "@/components/meeting-export-menu";
+import { RegenerateButton } from "@/components/regenerate-button";
 import { OwnerTaskProvider } from "@/lib/task-mutations";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +41,7 @@ type Meeting = {
   speaker_labels: Record<string, string> | null;
   speaker_labels_proposed: Record<string, ProposedLabel | null> | null;
   sections: { start_seconds: number; title: string }[] | null;
+  segments_removidos_count: number;
 };
 
 function MeetingTypeIcon({ type }: { type: string | null }) {
@@ -181,14 +183,17 @@ export default async function ReuniaoDetalhePage({
             <h2 className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
               Resumo executivo
             </h2>
-            <MeetingExportMenu
-              meetingId={meeting.id}
-              segments={meeting.segments || []}
-              labels={meeting.speaker_labels || {}}
-              sections={meeting.sections || []}
-              summaryMd={meeting.executive_summary}
-              label="baixar resumo"
-            />
+            <div className="flex items-center gap-2">
+              <RegenerateButton meetingId={meeting.id} tarefasCount={tarefas.length} />
+              <MeetingExportMenu
+                meetingId={meeting.id}
+                segments={meeting.segments || []}
+                labels={meeting.speaker_labels || {}}
+                sections={meeting.sections || []}
+                summaryMd={meeting.executive_summary}
+                label="baixar resumo"
+              />
+            </div>
           </div>
           <div className="paper-card rounded-2xl border border-[color:var(--border)] p-5 sm:p-6">
             <ExecutiveSummary md={meeting.executive_summary} meetingId={meeting.id} />
@@ -283,6 +288,7 @@ export default async function ReuniaoDetalhePage({
               pessoas={pessoas}
               fallbackText={meeting.transcription}
               sections={meeting.sections || []}
+              removidosCount={meeting.segments_removidos_count ?? 0}
             />
           </div>
         </section>

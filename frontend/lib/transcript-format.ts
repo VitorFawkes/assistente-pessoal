@@ -51,6 +51,11 @@ export function coerceSegments(raw: unknown): Segment[] {
   return [];
 }
 
+/** Texto corrido da reunião a partir dos segments — é o que a IA lê. */
+export function joinSegmentsText(segments: Segment[]): string {
+  return segments.map((s) => s.text).join("");
+}
+
 export function speakerName(letter: string, labels: Record<string, string>): string {
   return labels[letter] || `Voz ${letter}`;
 }

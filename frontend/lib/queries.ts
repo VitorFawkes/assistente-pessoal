@@ -229,6 +229,7 @@ export const meetingsFor = (userId: string) => ({
         speaker_labels: Record<string, string> | null;
         speaker_labels_proposed: Record<string, unknown> | null;
         sections: unknown;
+        segments_removidos_count: number;
       }>(
         `SELECT
            id, source, meeting_type, original_filename,
@@ -237,7 +238,8 @@ export const meetingsFor = (userId: string) => ({
            status, status_error, transcription, summary,
            raw_ai_response->>'executive_summary' AS executive_summary,
            duration_seconds, segments,
-           speaker_labels, speaker_labels_proposed, sections
+           speaker_labels, speaker_labels_proposed, sections,
+           jsonb_array_length(coalesce(segments_removidos, '[]'::jsonb)) AS segments_removidos_count
          FROM meetings WHERE id = $1`,
         [id],
       );

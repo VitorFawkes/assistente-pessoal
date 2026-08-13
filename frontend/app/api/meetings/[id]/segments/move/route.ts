@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { withClient } from "@/lib/db";
+import { withAuth } from "@/lib/auth";
+import { withTenant } from "@/lib/db";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LETTER_RE = /^[A-Z]{1,3}$/;
@@ -38,10 +39,10 @@ function nextFreeLetter(existing: Set<string>): string {
   throw new Error("NO_FREE_LETTER");
 }
 
-export async function PATCH(
-  req: NextRequest,
-  ctx: { params: Promise<{ id: string }> },
-) {
+type Ctx = { params: Promise<{ id: string }> };
+
+export const PATCH = withAuth<Ctx>(async (user, request, ctx) => {
+  const req = request as NextRequest;
   const { id } = await ctx.params;
   if (!UUID_RE.test(id)) {
     return NextResponse.json({ error: "id inválido" }, { status: 400 });
@@ -65,9 +66,10 @@ export async function PATCH(
   const newName = typeof body.new_name === "string" ? body.new_name.trim().slice(0, 80) : "";
 
   try {
-    const result = await withClient(async (c) => {
-      await c.query("BEGIN");
-      try {
+    // withTenant já abre transação + SET LOCAL app.current_user_id: a RLS
+    // filtra a reunião pelo dono, então nenhuma sessão mexe na reunião alheia.
+    const result = await withTenant(user.id, async (c) => {
+      {
         const r = await c.query<MeetingRow>(
           `SELECT id, segments, speaker_labels, speaker_pessoas
              FROM meetings WHERE id = $1::uuid FOR UPDATE`,
@@ -114,10 +116,10 @@ export async function PATCH(
 
         if (newName) {
           const ins = await c.query<{ id: string; nome: string }>(
-            `INSERT INTO pessoas (nome) VALUES ($1)
-             ON CONFLICT (nome) DO UPDATE SET nome = EXCLUDED.nome
+            `INSERT INTO pessoas (user_id, nome) VALUES ($1, $2)
+             ON CONFLICT (user_id, nome) DO UPDATE SET nome = EXCLUDED.nome
              RETURNING id, nome`,
-            [newName],
+            [user.id, newName],
           );
           createdPessoaId = ins.rows[0].id;
           createdPessoaNome = ins.rows[0].nome;
@@ -146,8 +148,6 @@ export async function PATCH(
           ],
         );
 
-        await c.query("COMMIT");
-
         // Coleta turns (start/end) dos segments movidos pra enrollar no voice-svc
         const movedTurns = indices
           .map((i) => ({ start: segments[i].start, end: segments[i].end }))
@@ -161,9 +161,6 @@ export async function PATCH(
           movedTurns,
           enrollMapping: pessoas,
         };
-      } catch (e) {
-        await c.query("ROLLBACK");
-        throw e;
       }
     });
 
@@ -171,7 +168,7 @@ export async function PATCH(
     fetch(REPROCESS_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ meeting_id: id }),
+      body: JSON.stringify({ meeting_id: id, user_id: user.id }),
     }).catch(() => {});
 
     // Se nomeou novo speaker, enrolla voz no voice-svc com os turns específicos
@@ -181,6 +178,7 @@ export async function PATCH(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           meeting_id: id,
+          user_id: user.id,
           mapping: result.enrollMapping,
           turns_by_letter: { [result.targetLetter]: result.movedTurns },
         }),
@@ -203,4 +201,4 @@ export async function PATCH(
       500;
     return NextResponse.json({ error: msg }, { status });
   }
-}
+});

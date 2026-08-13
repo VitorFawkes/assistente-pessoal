@@ -5,6 +5,7 @@ import {
   speakerName,
   fmtClock,
   toPlainText,
+  joinSegmentsText,
   type Segment,
 } from "./transcript-format";
 
@@ -160,5 +161,22 @@ describe("participantNames", () => {
       { A: "Vitor", B: "Marcelo" },
     );
     expect(out).toEqual(["Marcelo", "Vitor"]);
+  });
+});
+
+describe("joinSegmentsText", () => {
+  test("cola o texto na ordem, sem separador extra", () => {
+    expect(joinSegmentsText(segs)).toBe(
+      "Oi pessoal. Vamos começar. Bora. Próximo ponto. ",
+    );
+  });
+
+  test("apagar trechos = juntar só o que sobrou", () => {
+    const ficam = segs.filter((_, i) => i !== 2);
+    expect(joinSegmentsText(ficam)).toBe("Oi pessoal. Vamos começar. Próximo ponto. ");
+  });
+
+  test("lista vazia vira string vazia", () => {
+    expect(joinSegmentsText([])).toBe("");
   });
 });

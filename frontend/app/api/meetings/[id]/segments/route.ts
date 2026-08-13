@@ -33,6 +33,8 @@ type Body = {
   mark_single?: boolean;
   restore?: boolean;
   allow_short?: boolean;
+  /** Índices de intervalo que vão pro lixo: não viram reunião nem áudio. */
+  skip_intervals?: number[];
 };
 
 type ChildResult = {
@@ -123,6 +125,10 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
     );
   }
 
+  const skipIntervals = Array.isArray(body.skip_intervals)
+    ? [...new Set(body.skip_intervals.filter((n) => Number.isInteger(n) && n >= 0))]
+    : [];
+
   const cuts: Array<{ at_seconds: number; title: string | null }> = [];
   for (const c of rawCuts) {
     if (typeof c?.at_seconds !== "number" || !Number.isFinite(c.at_seconds)) continue;
@@ -201,7 +207,12 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
         const minDur = allowShort
           ? DETECT_CONSTANTS.MIN_MANUAL_SEGMENT_DURATION
           : DETECT_CONSTANTS.MIN_SEGMENT_DURATION;
-        const check = validateManualCuts(cuts.map((c) => c.at_seconds), duration, minDur);
+        const check = validateManualCuts(
+          cuts.map((c) => c.at_seconds),
+          duration,
+          minDur,
+          skipIntervals,
+        );
         if (!check.ok) {
           if (check.outOfRange !== undefined) {
             throw new Error(`CUT_OUT_OF_RANGE:${check.outOfRange}`);
@@ -209,14 +220,19 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
           throw new Error(`SEGMENT_TOO_SHORT:${check.tooShort}`);
         }
         const positions = [0, ...cuts.map((c) => c.at_seconds), duration];
+        // Pedaço descartado não vira reunião nem arquivo — some junto com a
+        // sessão arquivada, que continua guardando o áudio inteiro.
+        const descartados = new Set(skipIntervals);
         const intervals: Array<{ start: number; end: number; title: string | null }> = [];
         for (let i = 0; i < positions.length - 1; i++) {
+          if (descartados.has(i)) continue;
           intervals.push({
             start: positions[i],
             end: positions[i + 1],
             title: i === 0 ? null : cuts[i - 1].title,
           });
         }
+        if (intervals.length === 0) throw new Error("ALL_INTERVALS_SKIPPED");
 
         const childIds = intervals.map(() => randomUUID());
         const { logical: logicalPaths, physical: physicalPaths } = childAudioPaths(childIds);
@@ -329,8 +345,12 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
       const dateStr = recordedAt
         ? new Date(recordedAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })
         : "hoje";
+      const descartadosMsg =
+        skipIntervals.length > 0
+          ? ` ${skipIntervals.length} pedaço(s) descartado(s).`
+          : "";
       sendWhatsApp(
-        `✂️ Sessão de ${dateStr} segmentada em ${result.children.length} reuniões. Tarefas serão extraídas em segundo plano.`,
+        `✂️ Sessão de ${dateStr} segmentada em ${result.children.length} reuniões.${descartadosMsg} Tarefas serão extraídas em segundo plano.`,
       ).catch(() => {});
     }
 
@@ -339,6 +359,7 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
       archived_only: result.archived,
       restored: result.restored,
       marked_single: result.markedSingle,
+      intervals_skipped: skipIntervals.length,
       segments_created: result.children.map((c) => ({
         id: c.id,
         start: c.start,
@@ -357,7 +378,8 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
       msg === "ALREADY_ARCHIVED" ? 409 :
       msg === "NOT_ARCHIVED" ? 409 :
       msg === "IS_CHILD" ? 409 :
-      msg.startsWith("CUT_") || msg.startsWith("SEGMENT_") || msg === "PARENT_NO_DURATION" ? 400 :
+      msg.startsWith("CUT_") || msg.startsWith("SEGMENT_") ||
+      msg === "PARENT_NO_DURATION" || msg === "ALL_INTERVALS_SKIPPED" ? 400 :
       500;
     return NextResponse.json({ error: msg }, { status });
   }

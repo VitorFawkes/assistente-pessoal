@@ -107,4 +107,21 @@ describe("validateManualCuts", () => {
     const r = validateManualCuts([300], 1200, DETECT_CONSTANTS.MIN_SEGMENT_DURATION);
     expect(r.ok).toBe(false);
   });
+
+  test("pedaço descartado não precisa respeitar o piso", () => {
+    // trecho 0 = 10s (curto demais), mas vai pro lixo
+    expect(validateManualCuts([10], 200, 30, [0]).ok).toBe(true);
+    // o trecho que fica continua sendo cobrado
+    expect(validateManualCuts([10], 35, 30, [0]).ok).toBe(false);
+  });
+
+  test("descartar o índice errado não afrouxa o piso do que fica", () => {
+    const r = validateManualCuts([10], 200, 30, [1]);
+    expect(r.ok).toBe(false);
+    expect(r.tooShort).toBe(10);
+  });
+
+  test("corte fora do intervalo continua barrado mesmo com descarte", () => {
+    expect(validateManualCuts([0], 200, 30, [0, 1]).ok).toBe(false);
+  });
 });

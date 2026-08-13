@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Sparkles, X, Plus, Archive } from "lucide-react";
+import { Check, Sparkles, X, Plus, Archive, Trash2, Undo2 } from "lucide-react";
 import type { Cut, Segment } from "@/lib/detect-cuts";
 import { DETECT_CONSTANTS } from "@/lib/detect-cuts";
 import { cn } from "@/lib/utils";
@@ -65,6 +65,8 @@ export function SegmentTimeline({
     })),
   );
   const [newCutInput, setNewCutInput] = useState("");
+  // Índices de intervalo marcados como lixo: não viram reunião.
+  const [skipped, setSkipped] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -98,9 +100,12 @@ export function SegmentTimeline({
     [positions, segments],
   );
 
+  const mantidos = intervals.length - skipped.size;
+
   const intervalErrors = useMemo(() => {
     const errs: string[] = [];
     for (let i = 0; i < intervals.length; i++) {
+      if (skipped.has(i)) continue;
       if (intervals[i].durationSeconds < DETECT_CONSTANTS.MIN_SEGMENT_DURATION) {
         errs.push(
           `segmento ${i + 1} tem ${fmtDurShort(intervals[i].durationSeconds)} (mín. ${DETECT_CONSTANTS.MIN_SEGMENT_DURATION / 60}min)`,
@@ -108,7 +113,7 @@ export function SegmentTimeline({
       }
     }
     return errs;
-  }, [intervals]);
+  }, [intervals, skipped]);
 
   function moveCut(idx: number, newAt: number) {
     setCuts((prev) => {
@@ -120,7 +125,18 @@ export function SegmentTimeline({
   }
 
   function removeCut(idx: number) {
+    // Cortes mudam de posição: o que estava descartado deixa de fazer sentido.
+    setSkipped(new Set());
     setCuts((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function toggleSkip(idx: number) {
+    setSkipped((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
   }
 
   function addCut() {
@@ -131,6 +147,7 @@ export function SegmentTimeline({
     }
     setError(null);
     setNewCutInput("");
+    setSkipped(new Set());
     setCuts((prev) => {
       const next = [
         ...prev,
@@ -146,6 +163,12 @@ export function SegmentTimeline({
       setError(intervalErrors.join("; "));
       return;
     }
+    if (mantidos === 0) {
+      setError(
+        "você descartou todos os pedaços — pra jogar a gravação inteira fora, use arquivar",
+      );
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -154,6 +177,7 @@ export function SegmentTimeline({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cuts: cuts.map((c) => ({ at_seconds: c.at_seconds, title: c.title || null })),
+          skip_intervals: [...skipped],
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -250,6 +274,7 @@ export function SegmentTimeline({
         <p className="text-[12px] text-[color:var(--muted)] mt-2">
           {fmtDurShort(duration)} total · {cuts.length} cortes propostos ·{" "}
           {intervals.length} segmentos
+          {skipped.size > 0 && ` · ${skipped.size} no lixo`}
         </p>
       </div>
 
@@ -262,12 +287,40 @@ export function SegmentTimeline({
       <div className="space-y-3">
         {intervals.map((iv, i) => (
           <div key={`iv-${i}`}>
-            <div className="paper-card rounded-2xl border border-[color:var(--border)] p-4 sm:p-5 space-y-2">
+            <div
+              className={cn(
+                "paper-card rounded-2xl border border-[color:var(--border)] p-4 sm:p-5 space-y-2",
+                skipped.has(i) && "opacity-45 border-dashed",
+              )}
+            >
               <div className="flex items-baseline justify-between gap-2 flex-wrap">
                 <p className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
                   Segmento {i + 1} · {fmtTime(iv.start)}–{fmtTime(iv.end)} (
                   {fmtDurShort(iv.durationSeconds)})
+                  {skipped.has(i) && (
+                    <span className="ml-2 normal-case tracking-normal text-[color:var(--urgent)]">
+                      vai pro lixo
+                    </span>
+                  )}
                 </p>
+                <button
+                  type="button"
+                  onClick={() => toggleSkip(i)}
+                  disabled={busy}
+                  className={
+                    skipped.has(i)
+                      ? "inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-full bg-[color:var(--calm-bg)] text-[color:var(--calm)] hover:opacity-80"
+                      : "inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-full bg-[color:var(--card)] border border-[color:var(--border)] text-[color:var(--muted)] hover:text-[color:var(--urgent)]"
+                  }
+                  title={
+                    skipped.has(i)
+                      ? "voltar a criar reunião deste pedaço"
+                      : "descartar: este pedaço não vira reunião"
+                  }
+                >
+                  {skipped.has(i) ? <Undo2 size={11} /> : <Trash2 size={11} />}
+                  {skipped.has(i) ? "recuperar" : "descartar"}
+                </button>
               </div>
               <p className="text-[12px] text-[color:var(--muted-strong)]">
                 Speakers: {iv.speakers.join(", ") || "—"}
@@ -348,7 +401,8 @@ export function SegmentTimeline({
           className="inline-flex items-center gap-1 text-[13px] px-4 py-2 rounded-full bg-[color:var(--foreground)] text-[color:var(--background)] disabled:opacity-50"
         >
           {busy ? <Sparkles size={12} className="animate-pulse" /> : <Check size={12} />}
-          confirmar e criar {intervals.length} reuniões
+          confirmar e criar {mantidos} {mantidos === 1 ? "reunião" : "reuniões"}
+          {skipped.size > 0 && ` (${skipped.size} descartado${skipped.size > 1 ? "s" : ""})`}
         </button>
         <button
           type="button"
