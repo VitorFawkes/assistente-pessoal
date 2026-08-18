@@ -13,8 +13,9 @@ import {
   Check,
   Dot,
   Paperclip,
+  Users,
 } from "lucide-react";
-import { cn, formatPrazo, type Prioridade } from "@/lib/utils";
+import { cn, formatPrazo, normalizeOwner, type Prioridade } from "@/lib/utils";
 import { meetingDateShort, meetingSubject } from "@/lib/meeting-label";
 import { TaskExpandFields } from "./task-expand-fields";
 import {
@@ -129,7 +130,19 @@ export function TaskRow({
   const isCancelled = tarefa.status === "cancelada";
   const isOverdue = prazo.status === "vencida";
   const isUrgent = tarefa.prioridade === "urgente";
-  const secondaryPeople = (tarefa.pessoas ?? []).filter((p) => !p.principal);
+  // Quem mais está atrelado — tirando quem já aparece no chip de dono, pra não
+  // repetir o mesmo nome duas vezes na mesma linha. Antes isso era só um "+2",
+  // que obrigava a abrir a tarefa pra descobrir de quem se tratava.
+  const donoNome = normalizeOwner(tarefa.owner).toLowerCase();
+  const outrasPessoas = (tarefa.pessoas ?? []).filter(
+    (p) => p.nome.trim().toLowerCase() !== donoNome,
+  );
+  const PESSOAS_VISIVEIS = 2;
+  const pessoasOcultas = outrasPessoas.length - PESSOAS_VISIVEIS;
+  // Com mais de uma pessoa na linha, nome inteiro estoura o espaço e a segunda
+  // some no "…" — aí só o primeiro nome, como se fala.
+  const nomeCurto = (nome: string) =>
+    outrasPessoas.length > 1 ? nome.trim().split(/\s+/)[0] : nome;
 
   // Reseta a confirmação de delete ao expandir/recolher.
   useEffect(() => {
@@ -286,15 +299,18 @@ export function TaskRow({
           </div>
 
           {/* Linha 2: descrição + indicadores + chips editáveis */}
-          <div className="mt-1 flex items-start gap-1.5 min-w-0">
+          {/* No celular a descrição perdia a disputa de espaço com os chips e
+              sobrava um caractere solto — lá ela fica com a linha inteira e os
+              chips descem. No desktop continuam lado a lado. */}
+          <div className="mt-1 flex flex-wrap items-start gap-x-1.5 gap-y-1 min-w-0">
             {tarefa.descricao ? (
-              <p className="flex-1 min-w-0 text-[12px] leading-snug text-[color:var(--muted-strong)] line-clamp-1">
+              <p className="w-full sm:w-auto sm:flex-1 min-w-0 text-[12px] leading-snug text-[color:var(--muted-strong)] line-clamp-1">
                 {tarefa.descricao}
               </p>
             ) : (
               <span className="flex-1 min-w-0" />
             )}
-            <div className="flex items-center flex-wrap justify-end gap-x-1 gap-y-1 min-w-0">
+            <div className="w-full sm:w-auto flex items-center flex-wrap justify-end gap-x-1 gap-y-1 min-w-0">
               {isUrgent && !isOverdue && !isDone && (
                 <Flame
                   size={12}
@@ -310,14 +326,6 @@ export function TaskRow({
                   <Dot size={14} strokeWidth={4} />
                 </span>
               )}
-              {secondaryPeople.length > 0 && (
-                <span
-                  className="text-[11px] text-[color:var(--muted-strong)] whitespace-nowrap"
-                  title={secondaryPeople.map((p) => p.nome).join(", ")}
-                >
-                  +{secondaryPeople.length}
-                </span>
-              )}
               {(tarefa.anexos?.length ?? 0) > 0 && (
                 <span
                   className="inline-flex items-center gap-0.5 text-[11px] text-[color:var(--muted-strong)] whitespace-nowrap"
@@ -329,6 +337,23 @@ export function TaskRow({
               )}
               <AreaInline tarefa={tarefa} />
               <PrioridadeInline tarefa={tarefa} />
+              {outrasPessoas.length > 0 && (
+                <span
+                  title={`Também nesta tarefa: ${outrasPessoas.map((p) => p.nome).join(", ")}`}
+                  className="inline-flex items-center gap-1 text-[10px] tracking-wide px-1.5 py-0.5 rounded-full whitespace-nowrap bg-[color:var(--accent)] text-[color:var(--muted-strong)]"
+                >
+                  <Users size={10} strokeWidth={2} className="shrink-0" />
+                  <span className="max-w-[150px] truncate">
+                    {outrasPessoas
+                      .slice(0, PESSOAS_VISIVEIS)
+                      .map((p) => nomeCurto(p.nome))
+                      .join(", ")}
+                  </span>
+                  {pessoasOcultas > 0 && (
+                    <span className="opacity-70">+{pessoasOcultas}</span>
+                  )}
+                </span>
+              )}
               <AcaoInline tarefa={tarefa} />
             </div>
           </div>
