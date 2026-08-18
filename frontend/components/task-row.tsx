@@ -140,9 +140,16 @@ export function TaskRow({
   const PESSOAS_VISIVEIS = 2;
   const pessoasOcultas = outrasPessoas.length - PESSOAS_VISIVEIS;
   // Com mais de uma pessoa na linha, nome inteiro estoura o espaço e a segunda
-  // some no "…" — aí só o primeiro nome, como se fala.
-  const nomeCurto = (nome: string) =>
-    outrasPessoas.length > 1 ? nome.trim().split(/\s+/)[0] : nome;
+  // some no "…" — aí só o primeiro nome, como se fala. Salvo quando o primeiro
+  // nome se repete ("Maria" e "Maria Rafa" virariam "Maria, Maria"): aí vale
+  // mais o nome inteiro, mesmo cortado, do que dois nomes iguais na tela.
+  const nomesVisiveis = (() => {
+    const inteiros = outrasPessoas.slice(0, PESSOAS_VISIVEIS).map((p) => p.nome.trim());
+    if (inteiros.length < 2) return inteiros;
+    const curtos = inteiros.map((n) => n.split(/\s+/)[0]);
+    const distintos = new Set(curtos.map((n) => n.toLowerCase())).size === curtos.length;
+    return distintos ? curtos : inteiros;
+  })();
 
   // Reseta a confirmação de delete ao expandir/recolher.
   useEffect(() => {
@@ -343,11 +350,8 @@ export function TaskRow({
                   className="inline-flex items-center gap-1 text-[10px] tracking-wide px-1.5 py-0.5 rounded-full whitespace-nowrap bg-[color:var(--accent)] text-[color:var(--muted-strong)]"
                 >
                   <Users size={10} strokeWidth={2} className="shrink-0" />
-                  <span className="max-w-[150px] truncate">
-                    {outrasPessoas
-                      .slice(0, PESSOAS_VISIVEIS)
-                      .map((p) => nomeCurto(p.nome))
-                      .join(", ")}
+                  <span className="max-w-[170px] truncate">
+                    {nomesVisiveis.join(", ")}
                   </span>
                   {pessoasOcultas > 0 && (
                     <span className="opacity-70">+{pessoasOcultas}</span>
