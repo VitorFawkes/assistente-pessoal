@@ -5,7 +5,7 @@ import { TAREFA_SELECT } from "@/lib/queries";
 
 type Ctx = { params: Promise<{ token: string; id: string }> };
 
-const VALID_STATUS = ["aberta", "em_andamento", "concluida", "cancelada"] as const;
+const VALID_STATUS = ["aberta", "em_andamento", "aguardando_aprovacao", "concluida", "cancelada"] as const;
 const VALID_PRIORIDADE = ["baixa", "media", "alta", "urgente"] as const;
 const VALID_ACAO = ["executar", "cobrar", "aguardar"] as const;
 
@@ -20,6 +20,7 @@ type PatchBody = Partial<{
   prioridade: (typeof VALID_PRIORIDADE)[number];
   status: (typeof VALID_STATUS)[number];
   frente_id: string | null;
+  depende_de: string | null;
   pessoas: { nome: string; principal?: boolean }[];
 }>;
 
@@ -88,6 +89,10 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         if (body.status === "aberta" || body.status === "em_andamento") {
           sets.push("concluida_em = NULL", "cancelada_em = NULL");
         }
+      }
+      if (body.depende_de !== undefined) {
+        const dep = typeof body.depende_de === "string" ? body.depende_de.trim() : null;
+        push("depende_de", dep && dep !== "—" ? dep.slice(0, 300) : null);
       }
       if (body.frente_id !== undefined) push("frente_id", body.frente_id);
       // no_plano NÃO é editável pelo convidado: ele não injeta no /plano do dono.
@@ -260,10 +265,36 @@ export async function DELETE(req: NextRequest, ctx: Ctx) {
 
   try {
     await withGuest(token, ip, async ({ acesso, c }) => {
-      await c.query(
-        `DELETE FROM quadro_tarefas WHERE quadro_id = $1 AND tarefa_id = $2`,
-        [acesso.quadroId, id],
+      // Decisão do Vitor (20/08/2026): quem entra pelo link exclui de verdade,
+      // como o dono. Antes daqui a tarefa só saía do quadro.
+      // Guarda um retrato inteiro antes de apagar — é o que permite recuperar
+      // depois que o "Desfazer" da tela some.
+      const antes = await c.query(
+        `SELECT to_jsonb(t) AS tarefa,
+                COALESCE((SELECT jsonb_agg(jsonb_build_object('pessoa_id', tp.pessoa_id, 'principal', tp.principal))
+                          FROM tarefa_pessoas tp WHERE tp.tarefa_id = t.id), '[]'::jsonb) AS pessoas
+           FROM tarefas t WHERE t.id = $1`,
+        [id],
       );
+      if (!antes.rows.length) return;
+
+      await c.query(
+        `INSERT INTO audit_log (user_id, action, target_id, metadata)
+         VALUES ($1, 'tarefa.excluida_por_convidado', $2, $3)`,
+        [
+          acesso.ownerId,
+          id,
+          JSON.stringify({
+            quadro_id: acesso.quadroId,
+            convidado_id: acesso.convidadoId,
+            convidado_nome: acesso.convidadoNome,
+            snapshot: antes.rows[0],
+          }),
+        ],
+      );
+
+      await c.query("DELETE FROM tarefa_eventos WHERE tarefa_id = $1", [id]);
+      await c.query("DELETE FROM tarefas WHERE id = $1", [id]);
     });
     return new NextResponse(null, { status: 204 });
   } catch (e) {

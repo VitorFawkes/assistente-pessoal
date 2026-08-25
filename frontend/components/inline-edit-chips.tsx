@@ -20,6 +20,7 @@ import {
   type Prioridade,
 } from "@/lib/utils";
 import { useTaskMutations } from "@/lib/task-mutations";
+import { SITUACOES, rotuloSituacao } from "@/lib/quadro-v2";
 import type { Tarefa } from "@/lib/queries";
 import { MiniCalendar } from "./mini-calendar";
 
@@ -337,6 +338,7 @@ export function AreaInline({ tarefa }: { tarefa: Tarefa }) {
   const mut = useTaskMutations();
   const [frentes, setFrentes] = useState<{ id: string; nome: string }[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [novoTema, setNovoTema] = useState("");
   const atual = tarefa.frente;
   const proposta = !tarefa.frente && tarefa.frente_proposta ? tarefa.frente_proposta : null;
 
@@ -399,6 +401,45 @@ export function AreaInline({ tarefa }: { tarefa: Tarefa }) {
               {f.nome === atual && <Check size={13} />}
             </MenuItem>
           ))}
+          {/* Tema é aberto: escreveu um que não existe, ele passa a existir. */}
+          {mut.createFrente && (
+            <form
+              className="border-t border-[color:var(--border)] p-1.5"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const nome = novoTema.trim();
+                if (!nome) return;
+                setNovoTema("");
+                const igual = frentes.find(
+                  (f) => f.nome.toLowerCase() === nome.toLowerCase(),
+                );
+                if (igual) {
+                  mut.patch(tarefa.id, { frente_id: igual.id }, { silent: true });
+                  close();
+                  return;
+                }
+                const criada = await mut.createFrente!(nome);
+                if (criada) {
+                  setFrentes((antes) => [...antes, criada]);
+                  mut.patch(tarefa.id, { frente_id: criada.id }, { silent: true });
+                }
+                close();
+              }}
+            >
+              <input
+                value={novoTema}
+                onChange={(e) => setNovoTema(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Escape") close();
+                }}
+                placeholder="+ escrever um tema novo"
+                className="w-full text-[12px] px-2 py-1 rounded bg-transparent border border-dashed border-[color:var(--border)] focus:outline-none focus:border-[color:var(--muted-strong)]"
+              />
+            </form>
+          )}
         </div>
       )}
     </InlinePopover>
@@ -520,5 +561,55 @@ export function OwnerPicker({
         </MenuItem>
       )}
     </div>
+  );
+}
+
+// ─── Situação da tarefa (as 4 do quadro) ──────────────────────────────
+// A fazer · Fazendo · Aguardando aprovação · Feito.
+// Um clique escolhe, sem abrir a tarefa. "Cancelada" continua existindo no
+// banco, mas fica fora do seletor — ninguém usa.
+export function SituacaoInline({ tarefa }: { tarefa: Tarefa }) {
+  const mut = useTaskMutations();
+  const atual = tarefa.status;
+
+  const cor =
+    atual === "concluida"
+      ? "bg-[color:var(--calm)]/12 text-[color:var(--calm)]"
+      : atual === "em_andamento"
+      ? "bg-[color:var(--warm)]/14 text-[color:var(--warm)]"
+      : atual === "aguardando_aprovacao"
+      ? "bg-[color:var(--accent)] text-[color:var(--muted-strong)] ring-1 ring-dashed ring-[color:var(--warm)]/40"
+      : "bg-[color:var(--accent)] text-[color:var(--muted-strong)]";
+
+  return (
+    <InlinePopover
+      ariaLabel="Mudar situação"
+      width={200}
+      triggerClass={cn(
+        "inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded whitespace-nowrap cursor-pointer transition hover:ring-1 hover:ring-[color:var(--muted)]/40",
+        cor,
+      )}
+      trigger={<span className="truncate">{rotuloSituacao(atual)}</span>}
+    >
+      {(close) => (
+        <div className="flex flex-col">
+          {SITUACOES.map((s) => (
+            <MenuItem
+              key={s.valor}
+              active={s.valor === atual}
+              onClick={() => {
+                if (s.valor !== atual) {
+                  mut.patch(tarefa.id, { status: s.valor }, { silent: true });
+                }
+                close();
+              }}
+            >
+              {s.rotulo}
+              {s.valor === atual && <Check size={13} />}
+            </MenuItem>
+          ))}
+        </div>
+      )}
+    </InlinePopover>
   );
 }

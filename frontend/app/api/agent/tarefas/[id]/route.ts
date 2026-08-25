@@ -4,7 +4,7 @@ import { tarefasFor, frentesFor } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
-const VALID_STATUS = ["aberta", "em_andamento", "concluida", "cancelada"] as const;
+const VALID_STATUS = ["aberta", "em_andamento", "aguardando_aprovacao", "concluida", "cancelada"] as const;
 const VALID_PRIORIDADE = ["baixa", "media", "alta", "urgente"] as const;
 const VALID_ACAO = ["executar", "cobrar", "aguardar"] as const;
 

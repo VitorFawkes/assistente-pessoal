@@ -66,8 +66,9 @@ export type Tarefa = {
   inicio: string | null;
   prazo_text: string | null;
   prioridade: "baixa" | "media" | "alta" | "urgente";
-  status: "aberta" | "em_andamento" | "concluida" | "cancelada";
+  status: "aberta" | "em_andamento" | "aguardando_aprovacao" | "concluida" | "cancelada";
   evidencia: string | null;
+  depende_de: string | null;
   frente: string | null;
   frente_proposta: string | null;
   frentes: { id: string; nome: string; principal: boolean }[];

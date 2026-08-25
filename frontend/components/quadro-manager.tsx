@@ -334,6 +334,7 @@ export function QuadroManager({
               />
             ) : (
               <TaskBoardView
+                noQuadro
                 tarefas={tarefas}
                 onRemoveFromBoard={removerDoQuadro}
               />

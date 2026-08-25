@@ -165,6 +165,20 @@ export function OwnerTaskProvider({ children }: OwnerTaskProviderProps) {
       }
     },
 
+    createFrente: async (nome: string) => {
+      const res = await fetch("/api/frentes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nome }),
+      });
+      if (!res.ok) {
+        toast.error("Não consegui criar o tema");
+        return null;
+      }
+      const data = (await res.json()) as { frente?: { id: string; nome: string } };
+      return data.frente ?? null;
+    },
+
     listFrentes: async () => {
       try {
         const res = await fetch("/api/frentes");
@@ -395,6 +409,22 @@ export function GuestTaskProvider({ token, children }: GuestTaskProviderProps) {
         toast.error(
           `Erro ao criar: ${err instanceof Error ? err.message : "desconhecido"}`,
         );
+        return null;
+      }
+    },
+
+    createFrente: async (nome: string) => {
+      try {
+        const res = await fetch(`/api/q/${token}/frentes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ nome }),
+        });
+        if (!res.ok) throw new Error(`POST frentes failed: ${res.status}`);
+        const data = (await res.json()) as { frente?: { id: string; nome: string } };
+        return data.frente ?? null;
+      } catch {
+        toast.error("Não consegui criar o tema");
         return null;
       }
     },

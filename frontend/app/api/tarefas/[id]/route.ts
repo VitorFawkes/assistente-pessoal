@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/db";
 
-const VALID_STATUS = ["aberta", "em_andamento", "concluida", "cancelada"] as const;
+const VALID_STATUS = ["aberta", "em_andamento", "aguardando_aprovacao", "concluida", "cancelada"] as const;
 const VALID_PRIORIDADE = ["baixa", "media", "alta", "urgente"] as const;
 const VALID_ACAO = ["executar", "cobrar", "aguardar"] as const;
 
@@ -17,6 +17,7 @@ type PatchBody = Partial<{
   prioridade: (typeof VALID_PRIORIDADE)[number];
   status: (typeof VALID_STATUS)[number];
   frente_id: string | null;
+  depende_de: string | null;
   area_raw: string | null;
   no_plano: boolean;
   ordem: number | null;
@@ -72,6 +73,11 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
     if (body.status === "aberta" || body.status === "em_andamento") {
       sets.push("concluida_em = NULL", "cancelada_em = NULL");
     }
+  }
+
+  if (body.depende_de !== undefined) {
+    const v = typeof body.depende_de === "string" ? body.depende_de.trim() : null;
+    push("depende_de", v && v !== "—" ? v.slice(0, 300) : null);
   }
 
   if (body.frente_id !== undefined) {

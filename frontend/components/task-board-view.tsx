@@ -74,12 +74,15 @@ function groupByPrazo(list: Tarefa[]): [string, Tarefa[]][] {
 }
 
 export function TaskBoardView({
+  noQuadro = false,
   tarefas,
   onRemoveFromBoard,
 }: {
   tarefas: Tarefa[];
   // Opcional: só o dono "remove do quadro" (desvincula). Convidado não recebe.
   onRemoveFromBoard?: (id: string) => void;
+  /** Dentro de um quadro a linha mostra a situação no lugar da prioridade. */
+  noQuadro?: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [statusView, setStatusView] = useState<StatusView>("todas");
@@ -295,7 +298,7 @@ export function TaskBoardView({
               <div className="flex flex-col gap-2.5">
                 {items.map((t) => (
                   <div key={t.id} className="group relative">
-                    <TaskRow tarefa={t} />
+                    <TaskRow tarefa={t} noQuadro={noQuadro} />
                     {onRemoveFromBoard && (
                       <button
                         type="button"

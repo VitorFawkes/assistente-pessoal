@@ -240,7 +240,7 @@ function GuestBoardContent({ token, acesso }: { token: string; acesso: AcessoCon
           ) : vista === "timeline" ? (
             <PlanoTimeline tarefas={tarefas} quadroId={quadroId} showManageButton={false} />
           ) : (
-            <TaskBoardView tarefas={tarefas} onRemoveFromBoard={(id) => mut.remove(id)} />
+            <TaskBoardView tarefas={tarefas} noQuadro onRemoveFromBoard={(id) => mut.remove(id)} />
           )}
         </main>
 
