@@ -434,3 +434,8 @@ body {
   .q-coluna { max-height: none; flex-basis: 84vw; min-width: 84vw; max-width: 84vw; }
   .q-coluna-corpo { overflow-y: visible; }
 }
+
+/* "nesta coluna desde X": só faz sentido em Colunas, onde existe coluna.
+   Na Lista e na Tabela a informação vive dentro da tarefa aberta. */
+.q-aqui { display: none; }
+.q-colunas .q-aqui { display: block; grid-column: 2; margin-top: 2px; }

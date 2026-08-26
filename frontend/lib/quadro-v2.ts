@@ -280,3 +280,84 @@ export function numerosDoQuadro(tarefas: Tarefa[], agora = new Date()) {
     porcento: tarefas.length ? Math.round((feitas / tarefas.length) * 100) : 0,
   };
 }
+
+// ── A régua de cada coluna do Kanban ───────────────────────────────────
+// Decisão do Vitor (26/08/2026): cada coluna manda na própria ordem e tem a
+// própria busca. Antes a ordem era uma só pro quadro inteiro, então a tarefa
+// que ele acabava de concluir caía no MEIO da coluna Feito (13ª de 16), por
+// data de vencimento.
+
+export type OrdemColuna =
+  | "padrao"
+  | "entrou_novo"
+  | "entrou_antigo"
+  | "prazo"
+  | "pessoa"
+  | "titulo";
+
+export const ORDENS_COLUNA: { valor: OrdemColuna; rotulo: string }[] = [
+  { valor: "padrao", rotulo: "Ordem do quadro" },
+  { valor: "entrou_novo", rotulo: "Entrou por último" },
+  { valor: "entrou_antigo", rotulo: "Entrou primeiro" },
+  { valor: "prazo", rotulo: "Vence antes" },
+  { valor: "pessoa", rotulo: "Pessoa" },
+  { valor: "titulo", rotulo: "Título (A a Z)" },
+];
+
+/** Feito abre pelo que acabou de chegar; o resto segue a ordem do quadro. */
+export const ordemPadraoDaColuna = (chave: string): OrdemColuna =>
+  chave === "concluida" ? "entrou_novo" : "padrao";
+
+const quandoEntrou = (t: Tarefa): number | null => {
+  const iso = t.situacao_desde ?? (t.status === "concluida" ? t.concluida_em : null);
+  if (!iso) return null;
+  const n = new Date(iso).getTime();
+  return Number.isNaN(n) ? null : n;
+};
+
+/** Rótulo curto do "entrou aqui": "hoje", "ontem", "há 5 dias", "12/08". */
+export function rotuloEntrouAqui(t: Tarefa, agora = new Date()): string | null {
+  const q = quandoEntrou(t);
+  if (q === null) return null;
+  const hoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate()).getTime();
+  const d = new Date(q);
+  const dia = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const dias = Math.round((hoje - dia) / 86_400_000);
+  if (dias <= 0) return "hoje";
+  if (dias === 1) return "ontem";
+  if (dias < 30) return `há ${dias} dias`;
+  return `${dd(d.getDate())}/${dd(d.getMonth() + 1)}`;
+}
+
+/** Ordena DENTRO de uma coluna. "padrao" devolve 0: a lista já vem ordenada
+ *  pelo quadro, e `Array.sort` é estável, então a ordem de fora se mantém. */
+export function compararNaColuna(a: Tarefa, b: Tarefa, ordem: OrdemColuna): number {
+  switch (ordem) {
+    case "entrou_novo":
+    case "entrou_antigo": {
+      const ea = quandoEntrou(a), eb = quandoEntrou(b);
+      // Quem não tem data conhecida vai pro fim, nas duas direções.
+      if (ea === null && eb === null) return 0;
+      if (ea === null) return 1;
+      if (eb === null) return -1;
+      return ordem === "entrou_novo" ? eb - ea : ea - eb;
+    }
+    case "prazo":
+      return comparar(a, b, "prazo");
+    case "pessoa":
+      return comparar(a, b, "pessoa");
+    case "titulo":
+      return comparar(a, b, "titulo");
+    default:
+      return 0;
+  }
+}
+
+/** Busca só dentro da coluna, no mesmo texto que a busca de cima usa. */
+export function passaNaBuscaDaColuna(t: Tarefa, busca: string): boolean {
+  const q = busca.trim().toLowerCase();
+  if (!q) return true;
+  return [t.titulo, t.descricao, t.depende_de, t.frente, t.owner,
+          t.pessoas.map((p) => p.nome).join(" ")]
+    .filter(Boolean).join(" ").toLowerCase().includes(q);
+}

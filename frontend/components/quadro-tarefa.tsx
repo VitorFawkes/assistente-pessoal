@@ -11,7 +11,7 @@
 // no avatar.
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { areaLabel, cn } from "@/lib/utils";
+import { areaLabel, cn, formatCreatedAt } from "@/lib/utils";
 import { meetingDateShort, meetingSubject } from "@/lib/meeting-label";
 import { useTaskMutations } from "@/lib/task-mutations";
 import {
@@ -21,6 +21,7 @@ import {
   faixaDoPrazo,
   iniciais,
   relacionadasDe,
+  rotuloEntrouAqui,
   rotuloPrazo,
 } from "@/lib/quadro-v2";
 import { TaskAnexos } from "./task-anexos";
@@ -429,6 +430,7 @@ export function QuadroTarefa({
   const feito = tarefa.status === "concluida";
   const faixa = faixaDoPrazo(tarefa);
   const farol = feito ? "feito" : faixa;
+  const entrouAqui = rotuloEntrouAqui(tarefa);
 
   useEffect(() => {
     if (!confirmando) return;
@@ -529,6 +531,15 @@ export function QuadroTarefa({
           ›
         </span>
       </span>
+
+      {entrouAqui && (
+        <span
+          className="q-aqui text-[11px] text-[color:var(--muted)]"
+          title="Desde quando esta tarefa está nesta coluna"
+        >
+          nesta coluna: {entrouAqui}
+        </span>
+      )}
 
       <div className="q-sub flex items-center gap-2.5 text-[12.5px] text-[color:var(--muted-strong)]">
         <span className="q-resumo q-resumo-1linha flex-1">
@@ -632,6 +643,28 @@ export function QuadroTarefa({
                 }
                 className="min-w-[140px] rounded-md border border-[color:var(--border)] bg-transparent px-2 py-0.5 text-[12.5px]"
               />
+            </span>
+
+            <span className="flex items-center gap-2">
+              <b className="text-[10.5px] uppercase tracking-wide text-[color:var(--muted)]">
+                Nesta situação desde
+              </b>
+              <span className="text-[color:var(--muted-strong)]">
+                {entrouAqui ?? (
+                  <span className="text-[color:var(--muted)]">
+                    não sei (nunca mudou de situação por aqui)
+                  </span>
+                )}
+              </span>
+            </span>
+
+            <span className="flex items-center gap-2">
+              <b className="text-[10.5px] uppercase tracking-wide text-[color:var(--muted)]">
+                Criada em
+              </b>
+              <span className="text-[color:var(--muted-strong)]">
+                {formatCreatedAt(tarefa.created_at) || "—"}
+              </span>
             </span>
 
             <span className="flex items-center gap-2">

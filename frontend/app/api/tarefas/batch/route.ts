@@ -71,6 +71,8 @@ export const PATCH = withAuth(async (user, req) => {
 
   if (patch.status !== undefined) {
     push("status", patch.status);
+    // desde quando está nesta situação — é o "entrou nesta coluna" do quadro
+    sets.push("situacao_desde = now()");
     if (patch.status === "concluida") sets.push("concluida_em = now()");
     if (patch.status === "cancelada") sets.push("cancelada_em = now()");
     if (patch.status === "aberta" || patch.status === "em_andamento") {

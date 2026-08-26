@@ -84,6 +84,8 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           throw new Error("invalid_status");
         }
         push("status", body.status);
+        // desde quando está nesta situação — é o "entrou nesta coluna" do quadro
+        sets.push("situacao_desde = now()");
         if (body.status === "concluida") sets.push("concluida_em = now()");
         if (body.status === "cancelada") sets.push("cancelada_em = now()");
         if (body.status === "aberta" || body.status === "em_andamento") {

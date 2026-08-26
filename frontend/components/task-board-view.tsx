@@ -7,6 +7,7 @@
 // muda a situação (ou o dono, ou o tema, conforme o "Ver por").
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { QuadroTarefa } from "./quadro-tarefa";
 import { QuadroResumo } from "./quadro-resumo";
@@ -21,10 +22,15 @@ import {
   comparar,
   donoDe,
   faixaDoPrazo,
+  ORDENS_COLUNA,
+  compararNaColuna,
+  ordemPadraoDaColuna,
   passa,
+  passaNaBuscaDaColuna,
   pessoasDoQuadro,
   type Filtros,
   type Grupo,
+  type OrdemColuna,
   type Ordenacao,
   type VerPor,
 } from "@/lib/quadro-v2";
@@ -62,6 +68,8 @@ export function TaskBoardView({
   const [ordenar, setOrdenar] = useState<Ordenacao>("prazo");
   const [maisAberto, setMaisAberto] = useState(false);
   const [arrasto, setArrasto] = useState<Arrasto | null>(null);
+  // Cada coluna guarda a própria régua: como ordena e o que busca ali dentro.
+  const [reguas, setReguas] = useState<Record<string, { ordem?: OrdemColuna; busca?: string }>>({});
   const arrastouRef = useRef(false);
   const criarRef = useRef<HTMLDivElement>(null);
 
@@ -88,9 +96,17 @@ export function TaskBoardView({
   );
 
   const grupos: Grupo[] = useMemo(() => {
-    if (visao === "colunas" && modo === "situacao") return colunasKanban(visiveis);
-    return agrupar(visiveis, modo);
-  }, [visiveis, modo, visao]);
+    const base =
+      visao === "colunas" && modo === "situacao" ? colunasKanban(visiveis) : agrupar(visiveis, modo);
+    // Fora de Colunas a régua por coluna não existe: a lista é a do quadro.
+    if (visao !== "colunas") return base;
+    return base.map((g) => {
+      const r = reguas[g.chave] ?? {};
+      const ordem = r.ordem ?? ordemPadraoDaColuna(g.chave);
+      const dentro = g.tarefas.filter((t) => passaNaBuscaDaColuna(t, r.busca ?? ""));
+      return { ...g, tarefas: [...dentro].sort((a, b) => compararNaColuna(a, b, ordem)) };
+    });
+  }, [visiveis, modo, visao, reguas]);
 
   // ─── arrastar ───────────────────────────────────────────────────────
   const aplicarSolta = useCallback(
@@ -202,6 +218,14 @@ export function TaskBoardView({
     window.addEventListener("pointerup", solta);
   }
 
+  // Quantas tarefas cada coluna tem ANTES da busca dela — pra poder dizer
+  // "3 escondidas pela busca" em vez de a pessoa achar que sumiram.
+  const grupoBruto = useMemo(() => {
+    const base =
+      visao === "colunas" && modo === "situacao" ? colunasKanban(visiveis) : agrupar(visiveis, modo);
+    return new Map(base.map((g) => [g.chave, g.tarefas.length]));
+  }, [visiveis, modo, visao]);
+
   const arrastando = !!arrasto;
   const emColunas = visao === "colunas";
   const emTabela = visao === "tabela";
@@ -243,6 +267,76 @@ export function TaskBoardView({
     em_andamento: "bg-[color:var(--warm)]",
     aguardando_aprovacao: "bg-[color:var(--calm)]",
   };
+
+  // A régua da coluna: como ela ordena e o que ela busca. Fica sempre à vista,
+  // porque controle escondido é controle que ninguém acha.
+  function ReguaDaColuna({
+    chave,
+    regua,
+    onMudar,
+    escondidas,
+  }: {
+    chave: string;
+    regua: { ordem?: OrdemColuna; busca?: string };
+    onMudar: (m: { ordem?: OrdemColuna; busca?: string }) => void;
+    escondidas: number;
+  }) {
+    const ordem = regua.ordem ?? ordemPadraoDaColuna(chave);
+    const busca = regua.busca ?? "";
+    return (
+      <div className="mt-1 flex items-center gap-1">
+        <span className="relative flex-1 min-w-[60px]">
+          <Search
+            size={11}
+            className="absolute left-2 top-1/2 -translate-y-1/2 text-[color:var(--muted)]"
+          />
+          <input
+            value={busca}
+            onChange={(e) => onMudar({ busca: e.target.value })}
+            placeholder="buscar aqui"
+            aria-label={`Buscar dentro da coluna ${chave}`}
+            className="w-full rounded-md border border-[color:var(--border)] bg-[color:var(--card)] pl-6 pr-5 py-1 text-[11.5px] outline-none focus:border-[color:var(--muted-strong)]"
+          />
+          {busca && (
+            <button
+              type="button"
+              onClick={() => onMudar({ busca: "" })}
+              aria-label="Limpar a busca desta coluna"
+              className="absolute right-1 top-1/2 -translate-y-1/2 text-[color:var(--muted)] p-0.5"
+            >
+              <X size={10} />
+            </button>
+          )}
+        </span>
+        <select
+          value={ordem}
+          onChange={(e) => onMudar({ ordem: e.target.value as OrdemColuna })}
+          aria-label={`Ordenar a coluna ${chave}`}
+          title="Ordem só desta coluna"
+          className={cn(
+            "shrink-0 w-[152px] truncate rounded-md border px-1 py-1 text-[11.5px] font-medium cursor-pointer outline-none",
+            ordem === ordemPadraoDaColuna(chave)
+              ? "border-[color:var(--border)] bg-[color:var(--card)] text-[color:var(--muted-strong)]"
+              : "border-[color:var(--foreground)]/40 bg-[color:var(--accent)] text-[color:var(--foreground)]",
+          )}
+        >
+          {ORDENS_COLUNA.map((o) => (
+            <option key={o.valor} value={o.valor}>
+              {o.rotulo}
+            </option>
+          ))}
+        </select>
+        {escondidas > 0 && (
+          <span
+            title={`${escondidas} escondida${escondidas > 1 ? "s" : ""} pela busca desta coluna`}
+            className="shrink-0 text-[11px] font-semibold text-[color:var(--muted)]"
+          >
+            +{escondidas}
+          </span>
+        )}
+      </div>
+    );
+  }
 
   function CabecalhoGrupo({ g }: { g: Grupo }) {
     const abertas = g.tarefas.filter((t) => t.status !== "concluida").length;
@@ -333,6 +427,16 @@ export function TaskBoardView({
                 >
                   <div className="q-coluna-cab">
                     <CabecalhoGrupo g={g} />
+                    <ReguaDaColuna
+                      chave={g.chave}
+                      regua={reguas[g.chave] ?? {}}
+                      onMudar={(mudanca) =>
+                        setReguas((r) => ({ ...r, [g.chave]: { ...r[g.chave], ...mudanca } }))
+                      }
+                      escondidas={
+                        (grupoBruto.get(g.chave) ?? g.tarefas.length) - g.tarefas.length
+                      }
+                    />
                   </div>
                   <div className="q-coluna-corpo flex flex-col gap-2">
                     {g.tarefas.map((t) => (
