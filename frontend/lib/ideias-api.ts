@@ -9,6 +9,7 @@ export type IdeiasApi = {
   guardar: (texto: string, tema: string) => Promise<Ideia[]>;
   apoiar: (id: string) => Promise<Ideia[]>;
   editar: (id: string, texto: string) => Promise<void>;
+  mudarTema: (id: string, tema: string) => Promise<void>;
   excluir: (id: string) => Promise<void>;
   virarTarefa: (ideia: Ideia) => Promise<void>;
 };
@@ -48,6 +49,12 @@ export function ideiasDoDono(quadroId: string, aoMudarTarefas: () => void): Idei
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ texto }),
       }), "Erro ao salvar a ideia");
+    },
+    mudarTema: async (id, tema) => {
+      await comErro(() => pega(`${base}/${id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tema }),
+      }), "Erro ao salvar o tema");
     },
     excluir: async (id) => {
       await comErro(() => pega(`${base}/${id}`, { method: "DELETE" }), "Erro ao excluir a ideia");
@@ -102,6 +109,12 @@ export function ideiasDoConvidado(token: string, aoMudarTarefas: () => void): Id
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ texto }),
       }), "Erro ao salvar a ideia");
+    },
+    mudarTema: async (id, tema) => {
+      await comErro(() => pega(`${base}/${id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tema }),
+      }), "Erro ao salvar o tema");
     },
     excluir: async (id) => {
       await comErro(() => pega(`${base}/${id}`, { method: "DELETE" }), "Erro ao excluir a ideia");

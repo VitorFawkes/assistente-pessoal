@@ -243,7 +243,7 @@ export function QuadroManager({
         </header>
 
         {pagina === "ideias" ? (
-          <QuadroIdeias api={apiIdeias} />
+          <QuadroIdeias api={apiIdeias} onContagem={setQuantasIdeias} />
         ) : (
           <TaskBoardView
             quadroId={quadro.id}

@@ -203,7 +203,7 @@ function GuestBoardContent({ token, acesso }: { token: string; acesso: AcessoCon
 
       <main className="mb-10">
         {pagina === "ideias" ? (
-          <QuadroIdeias api={apiIdeias} />
+          <QuadroIdeias api={apiIdeias} onContagem={setQuantasIdeias} />
         ) : loading ? (
           <div className="flex justify-center py-16">
             <p className="text-[color:var(--muted)]">Carregando tarefas…</p>
@@ -218,11 +218,22 @@ function GuestBoardContent({ token, acesso }: { token: string; acesso: AcessoCon
         )}
       </main>
 
+      {/* O rodapé fala da página que está aberta. Antes a página de Ideias
+          mostrava a dica de tarefas, falando de "Ver por" e de anexo. */}
       <footer className="mt-12 pt-6 border-t border-[color:var(--border)] text-center">
         <p className="text-xs text-[color:var(--muted)]">
-          Clique em qualquer texto e escreva: salva sozinho, sem botão de editar. Em
-          &ldquo;Ver por&rdquo; você escolhe como a página se organiza. Todo mundo que entra
-          pelo link pode criar, mudar, anexar e excluir tarefa.
+          {pagina === "ideias" ? (
+            <>
+              Clique no texto pra editar. O joinha marca quem gostou e faz a ideia subir.
+              &ldquo;Virar tarefa&rdquo; leva a ideia pro quadro.
+            </>
+          ) : (
+            <>
+              Clique em qualquer texto e escreva: salva sozinho, sem botão de editar. Em
+              &ldquo;Ver por&rdquo; você escolhe como a página se organiza. Todo mundo que
+              entra pelo link pode criar, mudar, anexar e excluir tarefa.
+            </>
+          )}
         </p>
       </footer>
     </div>
