@@ -23,7 +23,8 @@ export type TaskMutations = {
       no_plano?: boolean;
       frente_id?: string | null;
       inicio?: string | null;
-      pessoas?: TarefaPessoa[];
+      pessoas?: ({ nome: string; principal?: boolean } | TarefaPessoa)[];
+      depende_de?: string | null;
     }>,
     opts?: { silent?: boolean },
   ) => Promise<Tarefa | null>;

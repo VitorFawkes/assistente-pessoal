@@ -1,320 +1,316 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Search, X } from "lucide-react";
-import { cn, nowSP, toSP } from "@/lib/utils";
-import type { Tarefa } from "@/lib/queries";
+// Tela das tarefas dentro de um quadro.
+// Três formatos (Lista, Colunas/Kanban e Tabela) sobre a MESMA lista, com
+// "Ver por" mandando no agrupamento — a página não é presa à situação.
+// Arrastar funciona pegando o cartão inteiro; soltar em outro grupo muda a
+// situação (ou o dono, ou o tema, conforme o "Ver por").
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { TaskRow } from "./task-row";
-import { FacetDropdown, type Opt } from "./facet-dropdown";
+import { QuadroControles, type Visao } from "./quadro-controles";
+import { useTaskMutations } from "@/lib/task-mutations";
 import {
-  applyFacets,
-  matchesSearch,
-  countBy,
-  sortTarefas,
-  peopleForFilter,
-  areaOf,
-  reuniaoOf,
-  principalPersonOf,
-  type Facets,
-  type SortKey,
-} from "@/lib/task-filters";
+  FILTROS_VAZIOS,
+  ORDEM_KANBAN,
+  agrupar,
+  colunasKanban,
+  comparar,
+  donoDe,
+  passa,
+  rotuloSituacao,
+  type Filtros,
+  type Grupo,
+  type Ordenacao,
+  type VerPor,
+} from "@/lib/quadro-v2";
+import type { Tarefa } from "@/lib/queries";
 
-type GroupMode = "nenhum" | "pessoa" | "area" | "reuniao" | "prazo";
-type StatusView = "abertas" | "atrasadas" | "concluidas" | "todas";
-
-const PRIO_LABEL: Record<string, string> = {
-  urgente: "Urgente",
-  alta: "Alta",
-  media: "Média",
-  baixa: "Baixa",
+type Arrasto = {
+  id: string;
+  origem: string;
+  alvo: string | null;
+  antesDe: string | null;
+  x: number;
+  y: number;
 };
-const STATUS_OPTS: { k: StatusView; label: string }[] = [
-  { k: "abertas", label: "Ver: em aberto" },
-  { k: "atrasadas", label: "Ver: atrasadas" },
-  { k: "concluidas", label: "Ver: feitas" },
-  { k: "todas", label: "Ver: todas" },
-];
-const GROUP_OPTS: { k: GroupMode; label: string }[] = [
-  { k: "nenhum", label: "Agrupar: não" },
-  { k: "pessoa", label: "Agrupar: pessoa" },
-  { k: "prazo", label: "Agrupar: prazo" },
-  { k: "area", label: "Agrupar: área" },
-  { k: "reuniao", label: "Agrupar: reunião" },
-];
-const SORT_OPTS: { k: SortKey; label: string }[] = [
-  { k: "prazo", label: "Ordenar: prazo" },
-  { k: "criacao_desc", label: "Ordenar: mais recentes" },
-  { k: "prioridade", label: "Ordenar: prioridade" },
-  { k: "reuniao_desc", label: "Ordenar: reunião" },
-];
-
-// Agrupa por prazo em baldes ordenados (vencidas → sem prazo).
-function groupByPrazo(list: Tarefa[]): [string, Tarefa[]][] {
-  const now = nowSP();
-  const startToday = new Date(now); startToday.setHours(0, 0, 0, 0);
-  const endToday = new Date(now); endToday.setHours(23, 59, 59, 999);
-  const endWeek = new Date(now);
-  endWeek.setDate(endWeek.getDate() + ((7 - now.getDay()) % 7));
-  endWeek.setHours(23, 59, 59, 999);
-  const buckets: Record<string, Tarefa[]> = {
-    Vencidas: [], Hoje: [], "Esta semana": [], "Mais adiante": [], "Sem prazo": [],
-  };
-  for (const t of list) {
-    if (!t.prazo) { buckets["Sem prazo"].push(t); continue; }
-    const p = toSP(t.prazo);
-    if (Number.isNaN(p.getTime())) { buckets["Sem prazo"].push(t); continue; }
-    if (p < startToday) buckets["Vencidas"].push(t);
-    else if (p <= endToday) buckets["Hoje"].push(t);
-    else if (p <= endWeek) buckets["Esta semana"].push(t);
-    else buckets["Mais adiante"].push(t);
-  }
-  return (["Vencidas", "Hoje", "Esta semana", "Mais adiante", "Sem prazo"] as const)
-    .map((k) => [k, buckets[k]] as [string, Tarefa[]])
-    .filter(([, items]) => items.length > 0);
-}
 
 export function TaskBoardView({
-  noQuadro = false,
   tarefas,
   onRemoveFromBoard,
+  quadroId,
 }: {
   tarefas: Tarefa[];
-  // Opcional: só o dono "remove do quadro" (desvincula). Convidado não recebe.
+  /** Só o dono "remove do quadro" (desvincula sem apagar). */
   onRemoveFromBoard?: (id: string) => void;
-  /** Dentro de um quadro a linha mostra a situação no lugar da prioridade. */
-  noQuadro?: boolean;
+  /** Necessário pra guardar a ordem que a pessoa montou arrastando. */
+  quadroId?: string;
 }) {
-  const [search, setSearch] = useState("");
-  const [statusView, setStatusView] = useState<StatusView>("todas");
-  const [selPessoas, setSelPessoas] = useState<Set<string>>(new Set());
-  const [selAreas, setSelAreas] = useState<Set<string>>(new Set());
-  const [selPrioridades, setSelPrioridades] = useState<Set<string>>(new Set());
-  const [selReunioes, setSelReunioes] = useState<Set<string>>(new Set());
-  const [reuniaoOrder, setReuniaoOrder] = useState<"data" | "quantidade">("data");
-  const [groupMode, setGroupMode] = useState<GroupMode>("nenhum");
-  const [sortKey, setSortKey] = useState<SortKey>("prazo");
+  const mut = useTaskMutations();
+  const [visao, setVisao] = useState<Visao>("lista");
+  const [filtros, setFiltros] = useState<Filtros>(FILTROS_VAZIOS);
+  const [verPor, setVerPor] = useState<VerPor>("nada");
+  const [ordenar, setOrdenar] = useState<Ordenacao>("prazo");
+  const [maisAberto, setMaisAberto] = useState(false);
+  const [arrasto, setArrasto] = useState<Arrasto | null>(null);
+  const arrastouRef = useRef(false);
 
-  const toggleIn = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, v: string) =>
-    setter((prev) => {
-      const next = new Set(prev);
-      if (next.has(v)) next.delete(v);
-      else next.add(v);
-      return next;
-    });
+  // Em Colunas o quadro vira Kanban: sem agrupamento escolhido, agrupa por situação.
+  const modo: VerPor = visao === "colunas" && verPor === "nada" ? "situacao" : verPor;
 
-  // base = status + busca (opções e contagens das facetas saem daqui)
-  const base = useMemo(() => {
-    let l = tarefas;
-    if (statusView === "abertas")
-      l = l.filter((t) => t.status === "aberta" || t.status === "em_andamento");
-    else if (statusView === "concluidas")
-      l = l.filter((t) => t.status === "concluida" || t.status === "cancelada");
-    else if (statusView === "atrasadas") {
-      // Atrasadas = ainda em aberto e com prazo anterior ao início de hoje (vencidas).
-      const startToday = nowSP();
-      startToday.setHours(0, 0, 0, 0);
-      l = l.filter((t) => {
-        if (t.status !== "aberta" && t.status !== "em_andamento") return false;
-        if (!t.prazo) return false;
-        const p = toSP(t.prazo);
-        return !Number.isNaN(p.getTime()) && p < startToday;
-      });
-    }
-    if (search.trim()) l = l.filter((t) => matchesSearch(t, search));
-    return l;
-  }, [tarefas, statusView, search]);
-
-  const facets: Facets = useMemo(
-    () => ({
-      pessoas: selPessoas,
-      areas: selAreas,
-      meetingDate: "qualquer",
-      prioridades: selPrioridades,
-      tipos: new Set(),
-    }),
-    [selPessoas, selAreas, selPrioridades],
+  const visiveis = useMemo(
+    () => tarefas.filter((t) => passa(t, filtros)).sort((a, b) => comparar(a, b, ordenar)),
+    [tarefas, filtros, ordenar],
   );
 
-  const filtered = useMemo(() => {
-    let l = applyFacets(base, facets);
-    if (selReunioes.size) l = l.filter((t) => selReunioes.has(t.meeting_id ?? "sem"));
-    const sorted = sortTarefas(l, sortKey);
-    // Concluídas/canceladas vão pro fim (não somem ao marcar feito), preservando
-    // a ordenação escolhida dentro de cada grupo (sort estável).
-    const isClosed = (t: Tarefa) => t.status === "concluida" || t.status === "cancelada";
-    return [...sorted].sort((a, b) => Number(isClosed(a)) - Number(isClosed(b)));
-  }, [base, facets, sortKey, selReunioes]);
+  const grupos: Grupo[] = useMemo(() => {
+    if (visao === "colunas" && modo === "situacao") return colunasKanban(visiveis);
+    return agrupar(visiveis, modo);
+  }, [visiveis, modo, visao]);
 
-  const pessoaOpts: Opt[] = useMemo(() => {
-    const c = countBy(base, peopleForFilter);
-    return [...c.entries()]
-      .map(([value, count]) => ({ value, label: value, count }))
-      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "pt-BR"));
-  }, [base]);
-  const areaOpts: Opt[] = useMemo(() => {
-    const c = countBy(base, (t) => [areaOf(t)]);
-    return [...c.entries()]
-      .map(([value, count]) => ({ value, label: value, count }))
-      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "pt-BR"));
-  }, [base]);
-  // Faceta de reunião — mesma do picker. Sem ela, dentro do quadro não dava
-  // pra isolar "o que saiu da reunião tal".
-  const reuniaoOpts: Opt[] = useMemo(() => {
-    const m = new Map<string, { label: string; count: number; at: number }>();
-    for (const t of base) {
-      const k = t.meeting_id ?? "sem";
-      const g = m.get(k);
-      if (g) g.count++;
-      else
-        m.set(k, {
-          label: reuniaoOf(t),
-          count: 1,
-          at: t.meeting_recorded_at ? new Date(t.meeting_recorded_at).getTime() : 0,
-        });
-    }
-    return [...m.entries()]
-      .map(([value, { label, count, at }]) => ({ value, label, count, at }))
-      .sort((a, b) => {
-        if (a.value === "sem") return 1;
-        if (b.value === "sem") return -1;
-        return reuniaoOrder === "data" ? b.at - a.at : b.count - a.count;
-      })
-      .map(({ value, label, count }) => ({ value, label, count }));
-  }, [base, reuniaoOrder]);
+  // ─── arrastar ───────────────────────────────────────────────────────
+  const podeSoltarEm = useCallback(
+    (grupo: string) => modo !== "prazo" && modo !== "nada" ? true : modo === "nada",
+    [modo],
+  );
 
-  const prioOpts: Opt[] = useMemo(() => {
-    const c = countBy(base, (t) => [t.prioridade]);
-    return (["urgente", "alta", "media", "baixa"] as const)
-      .map((v) => ({ value: v, label: PRIO_LABEL[v], count: c.get(v) ?? 0 }))
-      .filter((o) => o.count > 0);
-  }, [base]);
+  const aplicarSolta = useCallback(
+    async (tarefa: Tarefa, grupoDestino: string, ordemNova: string[]) => {
+      // muda o campo que o agrupamento representa
+      if (modo === "situacao" && tarefa.status !== grupoDestino) {
+        await mut.patch(tarefa.id, { status: grupoDestino as Tarefa["status"] }, { silent: true });
+      } else if (modo === "pessoa") {
+        const novo = grupoDestino === "__sem__" ? "" : grupoDestino;
+        if ((donoDe(tarefa) ?? "") !== novo) {
+          const pessoas = [
+            ...(novo ? [{ nome: novo, principal: true }] : []),
+            ...tarefa.pessoas.filter((p) => !p.principal && p.nome !== novo).map((p) => ({ nome: p.nome })),
+          ];
+          await mut.patch(tarefa.id, { pessoas, owner: novo || "vitor" }, { silent: true });
+        }
+      } else if (modo === "tema") {
+        const atual = tarefa.frente ?? "";
+        const alvo = grupoDestino === "__sem__" ? "" : grupoDestino;
+        if (atual !== alvo) {
+          if (!alvo) await mut.patch(tarefa.id, { frente_id: null }, { silent: true });
+          else {
+            const lista = await mut.listFrentes();
+            const achou = lista.find((f) => f.nome === alvo);
+            if (achou) await mut.patch(tarefa.id, { frente_id: achou.id }, { silent: true });
+          }
+        }
+      }
+      // guarda a ordem montada
+      if (quadroId && ordemNova.length) {
+        await mut.reorder(ordemNova, quadroId);
+        if (ordenar !== "manual") {
+          setOrdenar("manual");
+          toast.info('Ordenação virou "Minha ordem" pra guardar o que você arrastou.');
+        }
+      }
+    },
+    [modo, mut, quadroId, ordenar],
+  );
 
-  const groups: [string, Tarefa[]][] = useMemo(() => {
-    if (groupMode === "nenhum") return [["", filtered]];
-    if (groupMode === "prazo") return groupByPrazo(filtered);
-    const keyFn =
-      groupMode === "pessoa" ? principalPersonOf : groupMode === "area" ? areaOf : reuniaoOf;
-    const m = new Map<string, Tarefa[]>();
-    for (const t of filtered) {
-      const k = keyFn(t);
-      (m.get(k) ?? m.set(k, []).get(k)!).push(t);
-    }
-    return [...m.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], "pt-BR"));
-  }, [filtered, groupMode]);
+  const soltar = useCallback(() => {
+    const a = arrasto;
+    setArrasto(null);
+    if (!a || !a.alvo) return;
+    const tarefa = tarefas.find((t) => t.id === a.id);
+    if (!tarefa) return;
+    const destino = grupos.find((g) => g.chave === a.alvo);
+    const ids = (destino?.tarefas ?? []).map((t) => t.id).filter((id) => id !== a.id);
+    const corte = a.antesDe ? ids.indexOf(a.antesDe) : ids.length;
+    ids.splice(corte < 0 ? ids.length : corte, 0, a.id);
+    void aplicarSolta(tarefa, a.alvo, ids);
+  }, [arrasto, tarefas, grupos, aplicarSolta]);
 
-  const activeFilters =
-    selPessoas.size + selAreas.size + selPrioridades.size + selReunioes.size;
-  const clearAll = () => {
-    setSelPessoas(new Set());
-    setSelAreas(new Set());
-    setSelPrioridades(new Set());
-    setSelReunioes(new Set());
-    setSearch("");
-  };
+  useEffect(() => {
+    if (!arrasto) return;
+    const mover = (e: PointerEvent | { clientX: number; clientY: number }) => {
+      const alvoEl = document.elementFromPoint(e.clientX, e.clientY);
+      const grupoEl = alvoEl?.closest?.("[data-grupo]") as HTMLElement | null;
+      const cartaoEl = alvoEl?.closest?.("[data-tarefa]") as HTMLElement | null;
+      let antesDe: string | null = null;
+      if (cartaoEl && cartaoEl.dataset.tarefa !== arrasto.id) {
+        const r = cartaoEl.getBoundingClientRect();
+        antesDe = e.clientY < r.top + r.height / 2 ? cartaoEl.dataset.tarefa ?? null : null;
+        if (!antesDe) {
+          const irmao = cartaoEl.nextElementSibling as HTMLElement | null;
+          antesDe = irmao?.dataset?.tarefa ?? null;
+        }
+      }
+      setArrasto((prev) =>
+        prev
+          ? { ...prev, alvo: grupoEl?.dataset.grupo ?? null, antesDe, x: e.clientX, y: e.clientY }
+          : prev,
+      );
+    };
+    const onMove = (e: PointerEvent) => { e.preventDefault(); mover(e); };
+    const onUp = () => soltar();
+    window.addEventListener("pointermove", onMove, { passive: false });
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [arrasto, soltar]);
 
-  const selectCls =
-    "text-[12px] px-2.5 py-1.5 rounded-full border border-[color:var(--border)] bg-transparent text-[color:var(--muted-strong)] cursor-pointer hover:bg-[color:var(--accent)]";
+  function pegar(tarefa: Tarefa, grupo: string, e: React.PointerEvent) {
+    // campos e botões não arrastam — ali é edição.
+    const alvo = e.target as HTMLElement;
+    if (alvo.closest("input, select, textarea, button, a, [contenteditable='true']")) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    arrastouRef.current = false;
+    const x0 = e.clientX, y0 = e.clientY;
+    const limiar = e.pointerType === "mouse" ? 6 : 10;
+
+    const começa = (ev: PointerEvent) => {
+      if (Math.abs(ev.clientX - x0) < limiar && Math.abs(ev.clientY - y0) < limiar) return;
+      arrastouRef.current = true;
+      setArrasto({ id: tarefa.id, origem: grupo, alvo: grupo, antesDe: null, x: ev.clientX, y: ev.clientY });
+      window.removeEventListener("pointermove", começa);
+    };
+    const solta = () => {
+      window.removeEventListener("pointermove", começa);
+      window.removeEventListener("pointerup", solta);
+    };
+    window.addEventListener("pointermove", começa);
+    window.addEventListener("pointerup", solta);
+  }
+
+  const arrastando = !!arrasto;
+  const emColunas = visao === "colunas";
+
+  function Cartao({ t, grupo }: { t: Tarefa; grupo: string }) {
+    return (
+      <div
+        data-tarefa={t.id}
+        onPointerDown={(e) => pegar(t, grupo, e)}
+        onClickCapture={(e) => {
+          if (arrastouRef.current) {
+            e.stopPropagation();
+            e.preventDefault();
+            arrastouRef.current = false;
+          }
+        }}
+        className={cn(
+          "group relative touch-pan-y",
+          arrasto?.id === t.id && "opacity-30",
+          arrasto?.antesDe === t.id && "before:content-[''] before:absolute before:-top-1.5 before:left-0 before:right-0 before:h-[3px] before:rounded-full before:bg-[color:var(--foreground)]",
+        )}
+      >
+        <TaskRow tarefa={t} noQuadro />
+        {onRemoveFromBoard && !arrastando && (
+          <button
+            type="button"
+            onClick={() => onRemoveFromBoard(t.id)}
+            title="Tirar do quadro (não apaga a tarefa)"
+            className="absolute -top-2 right-2 z-10 text-[10px] tracking-wide px-2 py-0.5 rounded-full border border-[color:var(--border)] bg-[color:var(--card)] text-[color:var(--muted)] opacity-0 group-hover:opacity-100 hover:text-[color:var(--urgent)] transition"
+          >
+            tirar do quadro
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  function CabecalhoGrupo({ g }: { g: Grupo }) {
+    const abertas = g.tarefas.filter((t) => t.status !== "concluida").length;
+    const atrasadas = g.tarefas.filter(
+      (t) => t.status !== "concluida" && t.prazo && new Date(t.prazo) < new Date(new Date().toDateString()),
+    ).length;
+    return (
+      <div className="flex items-center gap-2 flex-wrap px-0.5">
+        <h3 className="font-serif text-[17px]">{g.rotulo}</h3>
+        <span className="text-[12px] text-[color:var(--muted)]">
+          {modo === "pessoa" || modo === "tema"
+            ? `${abertas} abertas de ${g.tarefas.length}`
+            : `${g.tarefas.length} ${g.tarefas.length === 1 ? "tarefa" : "tarefas"}`}
+          {atrasadas > 0 && (
+            <span className="text-[color:var(--urgent)] font-semibold"> · {atrasadas} atrasada{atrasadas > 1 ? "s" : ""}</span>
+          )}
+        </span>
+        {g.nota && <span className="text-[11.5px] text-[color:var(--muted)]">— {g.nota}</span>}
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-4">
-      {/* Controles */}
-      <div className="space-y-2">
-        <div className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-[color:var(--border)]">
-          <Search size={14} className="text-[color:var(--muted)] shrink-0" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar nas tarefas do quadro…"
-            className="flex-1 bg-transparent text-sm outline-none"
-          />
-          {search && (
-            <button type="button" onClick={() => setSearch("")} className="text-[color:var(--muted)] hover:text-[color:var(--foreground)]">
-              <X size={13} />
-            </button>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <select value={statusView} onChange={(e) => setStatusView(e.target.value as StatusView)} className={selectCls}>
-            {STATUS_OPTS.map((o) => <option key={o.k} value={o.k}>{o.label}</option>)}
-          </select>
-          <FacetDropdown label="Pessoa" options={pessoaOpts} selected={selPessoas} onToggle={(v) => toggleIn(setSelPessoas, v)} onClear={() => setSelPessoas(new Set())} searchable />
-          <FacetDropdown
-            label="Reunião"
-            options={reuniaoOpts}
-            selected={selReunioes}
-            onToggle={(v) => toggleIn(setSelReunioes, v)}
-            onClear={() => setSelReunioes(new Set())}
-            searchable
-            wide
-            order={{
-              options: [
-                { k: "data" as const, label: "data" },
-                { k: "quantidade" as const, label: "nº de tarefas" },
-              ],
-              value: reuniaoOrder,
-              onChange: setReuniaoOrder,
-            }}
-          />
-          <FacetDropdown label="Área" options={areaOpts} selected={selAreas} onToggle={(v) => toggleIn(setSelAreas, v)} onClear={() => setSelAreas(new Set())} searchable />
-          <FacetDropdown label="Prioridade" options={prioOpts} selected={selPrioridades} onToggle={(v) => toggleIn(setSelPrioridades, v)} onClear={() => setSelPrioridades(new Set())} />
-          <select value={groupMode} onChange={(e) => setGroupMode(e.target.value as GroupMode)} className={selectCls}>
-            {GROUP_OPTS.map((o) => <option key={o.k} value={o.k}>{o.label}</option>)}
-          </select>
-          <select value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)} className={selectCls}>
-            {SORT_OPTS.map((o) => <option key={o.k} value={o.k}>{o.label}</option>)}
-          </select>
-          {(activeFilters > 0 || search) && (
-            <button type="button" onClick={clearAll} className="text-[12px] text-[color:var(--muted)] hover:text-[color:var(--urgent)] underline underline-offset-2">
-              limpar
-            </button>
-          )}
-        </div>
-      </div>
+    <div className="flex flex-col gap-3.5">
+      <QuadroControles
+        tarefas={tarefas}
+        visao={visao}
+        setVisao={setVisao}
+        filtros={filtros}
+        setFiltros={setFiltros}
+        verPor={verPor}
+        setVerPor={setVerPor}
+        ordenar={ordenar}
+        setOrdenar={setOrdenar}
+        maisAberto={maisAberto}
+        setMaisAberto={setMaisAberto}
+        visiveis={visiveis.length}
+      />
 
-      {/* Lista (agrupada ou flat) */}
-      {filtered.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-[color:var(--border)] py-10 px-6 text-center">
-          <p className="text-sm text-[color:var(--muted-strong)]">
-            {tarefas.length === 0 ? "Nenhuma tarefa neste quadro ainda." : "Nenhuma tarefa bate nos filtros."}
+      {visiveis.length === 0 ? (
+        <div className="text-center py-12 text-[color:var(--muted)]">
+          <p className="font-serif text-[20px] text-[color:var(--foreground)] mb-1">
+            Nada com esses filtros.
           </p>
-          {tarefas.length === 0 && (
-            <p className="text-xs text-[color:var(--muted)] mt-1">
-              {onRemoveFromBoard
-                ? "Crie uma acima, ou adicione tarefas que já existem."
-                : "Crie a primeira tarefa no campo lá em cima."}
-            </p>
-          )}
+          <p className="text-[13px]">Tire um filtro ou limpe tudo pra ver as tarefas de novo.</p>
         </div>
-      ) : (
-        <div className="space-y-6">
-          {groups.map(([label, items]) => (
-            <div key={label || "all"} className="space-y-2.5">
-              {label && (
-                <div className="flex items-center gap-2">
-                  <h4 className="text-[11px] tracking-[0.2em] uppercase font-semibold text-[color:var(--muted-strong)]">{label}</h4>
-                  <span className="text-[11px] text-[color:var(--muted)]">{items.length}</span>
-                </div>
+      ) : emColunas ? (
+        <div className="grid gap-3 items-start overflow-x-auto pb-4 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
+          {grupos.map((g) => (
+            <section
+              key={g.chave}
+              data-grupo={g.chave}
+              className={cn(
+                "rounded-2xl border p-2.5 flex flex-col gap-2 min-h-[120px] transition",
+                arrastando && arrasto?.alvo === g.chave && modo !== "prazo"
+                  ? "border-[color:var(--foreground)] bg-[color:var(--accent)]/50"
+                  : arrastando && arrasto?.alvo === g.chave
+                  ? "border-[color:var(--urgent)]/60"
+                  : "border-[color:var(--border)] bg-[color:var(--accent)]/25",
               )}
-              <div className="flex flex-col gap-2.5">
-                {items.map((t) => (
-                  <div key={t.id} className="group relative">
-                    <TaskRow tarefa={t} noQuadro={noQuadro} />
-                    {onRemoveFromBoard && (
-                      <button
-                        type="button"
-                        onClick={() => onRemoveFromBoard(t.id)}
-                        title="Remover do quadro"
-                        className="absolute -top-2 right-2 z-10 text-[10px] tracking-wide px-2 py-0.5 rounded-full border border-[color:var(--border)] bg-[color:var(--card)] text-[color:var(--muted)] opacity-0 group-hover:opacity-100 hover:text-[color:var(--urgent)] hover:border-[color:var(--urgent)]/40 transition"
-                      >
-                        remover do quadro
-                      </button>
-                    )}
-                  </div>
+            >
+              <CabecalhoGrupo g={g} />
+              <div className="flex flex-col gap-2">
+                {g.tarefas.map((t) => (
+                  <Cartao key={t.id} t={t} grupo={g.chave} />
                 ))}
               </div>
-            </div>
+            </section>
           ))}
         </div>
+      ) : (
+        <div className="flex flex-col gap-5">
+          {grupos.map((g) => (
+            <section key={g.chave} data-grupo={g.chave} className="flex flex-col gap-2">
+              {modo !== "nada" && <CabecalhoGrupo g={g} />}
+              <div
+                className={cn(
+                  "flex flex-col gap-2 rounded-xl transition",
+                  arrastando && arrasto?.alvo === g.chave && modo !== "prazo" && "ring-2 ring-[color:var(--foreground)]/30 ring-offset-2 ring-offset-[color:var(--background)]",
+                )}
+              >
+                {g.tarefas.map((t) => (
+                  <Cartao key={t.id} t={t} grupo={g.chave} />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+
+      {visao === "tabela" && (
+        <p className="text-[12px] text-[color:var(--muted)] text-center">
+          Na tabela, a linha mostra o quê, quem, quando vence, a situação, o resumo e o tema — clique em qualquer um pra editar.
+        </p>
       )}
     </div>
   );
