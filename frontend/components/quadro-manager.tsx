@@ -10,8 +10,8 @@ import { TaskBoardView } from "./task-board-view";
 import { QuadroAbas } from "./quadro-abas";
 import { QuadroIdeias } from "./quadro-ideias";
 import { ideiasDoDono } from "@/lib/ideias-api";
-import { ConvidadosManager } from "./convidados-manager";
-import { ActivityFeed } from "./activity-feed";
+import { QuadroPainel } from "./quadro-painel";
+import { QuadroDescricao } from "./quadro-descricao";
 import { TaskPickerModal } from "./task-picker-modal";
 
 interface QuadroManagerProps {
@@ -48,12 +48,7 @@ export function QuadroManager({
   }, [apiIdeias, pagina]);
   const [convidados, setConvidados] = useState(initialConvidados);
   const [editingName, setEditingName] = useState(false);
-  const [editingDesc, setEditingDesc] = useState(false);
 
-  const nAbertas = tarefas.filter(
-    (t) => t.status !== "concluida" && t.status !== "cancelada",
-  ).length;
-  const nFeitas = tarefas.length - nAbertas;
 
   // ─── Tarefas: adicionar existentes ──────────────────────────────────
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -93,7 +88,6 @@ export function QuadroManager({
       setQuadro(updated);
       toast.success("Quadro atualizado");
       setEditingName(false);
-      setEditingDesc(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro desconhecido");
     }
@@ -189,9 +183,11 @@ export function QuadroManager({
 
   return (
     <OwnerTaskProvider>
-      <div className="w-full space-y-8 pb-16">
-        {/* Cabeçalho editável */}
-        <section className="space-y-3 border-b border-[color:var(--border)] pb-6">
+      <div className="w-full pb-16 py-5 sm:py-7">
+        {/* Cabeçalho enxuto, na mesma linha: nome do quadro, as duas páginas e
+            os botões. A coluna de 340px que existia à direita foi pra dentro do
+            botão "Convidados" — era ela que espremia o Kanban pra 3 colunas. */}
+        <header className="flex items-center gap-x-4 gap-y-2 flex-wrap pb-4 mb-5 border-b border-[color:var(--border)]">
           {editingName ? (
             <input
               type="text"
@@ -202,106 +198,61 @@ export function QuadroManager({
                 if (e.key === "Enter") handleUpdateQuadro({ nome: quadro.nome });
               }}
               autoFocus
-              className="font-display text-3xl sm:text-4xl border-b-2 border-[color:var(--accent)] bg-transparent outline-none text-[color:var(--foreground)]"
+              className="font-display text-[22px] sm:text-[24px] border-b-2 border-[color:var(--foreground)] bg-transparent outline-none text-[color:var(--foreground)]"
             />
           ) : (
             <h1
               onClick={() => setEditingName(true)}
-              className="font-display text-3xl sm:text-4xl cursor-pointer hover:opacity-60 transition-opacity text-[color:var(--foreground)]"
+              title="Clique pra editar"
+              className="font-display text-[22px] sm:text-[24px] cursor-pointer hover:opacity-70 transition min-w-0 truncate text-[color:var(--foreground)]"
             >
               {quadro.nome}
             </h1>
           )}
 
-          {editingDesc ? (
-            <textarea
-              value={quadro.descricao || ""}
-              onChange={(e) =>
-                setQuadro({ ...quadro, descricao: e.target.value || null })
-              }
-              onBlur={() => handleUpdateQuadro({ descricao: quadro.descricao })}
-              autoFocus
-              className="w-full border border-[color:var(--border)] rounded-lg p-3 text-sm bg-[color:var(--card)] text-[color:var(--foreground)]"
-              rows={3}
-            />
-          ) : (
-            <p
-              onClick={() => setEditingDesc(true)}
-              className="text-sm text-[color:var(--muted-strong)] cursor-pointer hover:opacity-60 transition-opacity"
+          <QuadroAbas
+            pagina={pagina}
+            setPagina={setPagina}
+            quantasTarefas={tarefas.length}
+            quantasIdeias={quantasIdeias}
+          />
+
+          {/* A descrição continua editável, mas só ocupa espaço quando existe:
+              o "Adicione uma descrição…" antigo comia uma linha inteira à toa. */}
+          <QuadroDescricao
+            valor={quadro.descricao}
+            onSalvar={(d) => handleUpdateQuadro({ descricao: d })}
+          />
+
+          <div className="ml-auto flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setPickerOpen(true)}
+              className="rounded-lg border border-[color:var(--border)] bg-[color:var(--card)] px-3 py-1.5 text-[12.5px] font-medium text-[color:var(--muted-strong)] hover:border-[color:var(--muted)] hover:text-[color:var(--foreground)] transition whitespace-nowrap"
             >
-              {quadro.descricao || "Adicione uma descrição..."}
-            </p>
-          )}
-        </section>
-
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-8 lg:gap-12 items-start">
-          {/* Coluna esquerda: Tarefas */}
-          <div className="min-w-0 space-y-5">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <h3 className="font-display text-lg sm:text-xl font-light text-[color:var(--foreground)]">
-                Tarefas{" "}
-                {/* Só o total confundia: o quadro dizia 28 e a tela mostrava 6,
-                    porque as feitas ficam escondidas por padrão. */}
-                <span className="text-[color:var(--muted)] text-base">
-                  {nAbertas}
-                </span>
-                {nFeitas > 0 && (
-                  <span className="ml-2 text-[color:var(--muted)] text-[13px] font-sans">
-                    abertas · {nFeitas} feita{nFeitas > 1 ? "s" : ""}
-                  </span>
-                )}
-              </h3>
-              <div className="flex items-center gap-3">
-                <QuadroAbas
-                  pagina={pagina}
-                  setPagina={setPagina}
-                  quantasTarefas={tarefas.length}
-                  quantasIdeias={quantasIdeias}
-                />
-                <button
-                  type="button"
-                  onClick={() => setPickerOpen(true)}
-                  className="text-sm text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)] underline underline-offset-2"
-                >
-                  Adicionar existentes
-                </button>
-              </div>
-            </div>
-
-            {pagina === "ideias" ? (
-              <QuadroIdeias api={apiIdeias} />
-            ) : (
-              <>
-            <TaskBoardView
-              quadroId={quadro.id}
-              tarefas={tarefas}
-              onRemoveFromBoard={removerDoQuadro}
-              vistaPadrao={vista}
-              onMudarVistaPadrao={mudarVista}
-            />
-              </>
-            )}
-          </div>
-
-          {/* Coluna direita: Convidados + Atividade — um único scroll sticky (sem scrollbar aninhado) */}
-          <div className="space-y-8 lg:sticky lg:top-20 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto lg:pr-1">
-            {/* Mesmo componente que o convidado enxerga — a tela do dono
-                tinha uma cópia própria do mesmo painel, que foi divergindo. */}
-            <ConvidadosManager
+              Adicionar existentes
+            </button>
+            <QuadroPainel
               convidados={convidados}
               onCreate={criarConvidado}
               onCreateBulk={criarConvidadosBulk}
               onRevoke={handleRevokeConvidado}
+              atividade={atividade}
             />
-
-            <section className="space-y-5 border-t border-[color:var(--border)] pt-6">
-              <h3 className="font-display text-lg sm:text-xl font-light text-[color:var(--foreground)]">
-                Atividade
-              </h3>
-              <ActivityFeed items={atividade} />
-            </section>
           </div>
-        </div>
+        </header>
+
+        {pagina === "ideias" ? (
+          <QuadroIdeias api={apiIdeias} />
+        ) : (
+          <TaskBoardView
+            quadroId={quadro.id}
+            tarefas={tarefas}
+            onRemoveFromBoard={removerDoQuadro}
+            vistaPadrao={vista}
+            onMudarVistaPadrao={mudarVista}
+          />
+        )}
       </div>
 
       {pickerOpen && (

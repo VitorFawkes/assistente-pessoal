@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Menu, X } from "lucide-react";
 import { UserMenu } from "@/components/user-menu";
+import { TemaBotao } from "@/components/tema-botao";
 import { cn } from "@/lib/utils";
 
 // Páginas full-bleed (conteúdo largo). O header acompanha a largura pra alinhar
@@ -125,6 +126,7 @@ export function SiteHeader({
               )}
             </div>
           )}
+          <TemaBotao />
           {user && <UserMenu nome={user.nome} isAdmin={user.is_admin} />}
         </div>
       </div>

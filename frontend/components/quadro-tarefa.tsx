@@ -445,7 +445,7 @@ export function QuadroTarefa({
     <article
       onClick={() => setAberta((v) => !v)}
       className={cn(
-        "q-tarefa group paper-card rounded-xl border px-3.5 py-2.5 cursor-pointer transition",
+        "q-tarefa group relative paper-card rounded-xl border px-3.5 py-2.5 cursor-pointer transition",
         "border-[color:var(--border)] hover:border-[color:var(--muted)]",
         `q-farol-${farol}`,
         feito && "opacity-70",
@@ -454,7 +454,7 @@ export function QuadroTarefa({
     >
       <button
         type="button"
-        className="q-pun text-[color:var(--muted)] opacity-0 group-hover:opacity-100 transition cursor-grab active:cursor-grabbing text-[13px] leading-none"
+        className="q-pun text-[color:var(--muted)] opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition cursor-grab active:cursor-grabbing text-[13px] leading-none"
         title="arrastar"
         aria-label="arrastar"
         onClick={(e) => e.stopPropagation()}

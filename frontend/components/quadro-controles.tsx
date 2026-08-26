@@ -4,7 +4,7 @@
 // ordenação e os filtros de pessoa/tema/situação. O que sobrou de menos usado
 // mora atrás de "Mais filtros" pra não poluir a tela.
 import { useMemo } from "react";
-import { Search, X, SlidersHorizontal } from "lucide-react";
+import { Columns3, GanttChartSquare, Rows3, Search, SlidersHorizontal, Table2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   SITUACOES,
@@ -21,11 +21,13 @@ export type Visao = "lista" | "colunas" | "tabela" | "timeline";
 
 // Um único lugar pra escolher o formato — antes havia dois seletores com
 // "Lista" nos dois, e um deles gravava no quadro sem avisar.
-const VISOES: { valor: Visao; rotulo: string }[] = [
-  { valor: "lista", rotulo: "Lista" },
-  { valor: "colunas", rotulo: "Colunas" },
-  { valor: "tabela", rotulo: "Tabela" },
-  { valor: "timeline", rotulo: "Linha do tempo" },
+// Cada formato tem desenho próprio: sem os ícones, "Linha do tempo" parecia
+// legenda e o Vitor não achou o botão.
+const VISOES: { valor: Visao; rotulo: string; Icone: typeof Rows3 }[] = [
+  { valor: "lista", rotulo: "Lista", Icone: Rows3 },
+  { valor: "colunas", rotulo: "Colunas", Icone: Columns3 },
+  { valor: "tabela", rotulo: "Tabela", Icone: Table2 },
+  { valor: "timeline", rotulo: "Linha do tempo", Icone: GanttChartSquare },
 ];
 
 const ATALHOS: { chave: FaixaPrazo | "todas"; rotulo: string; tom?: "perigo" | "alerta" }[] = [
@@ -167,23 +169,29 @@ export function QuadroControles({
     <div className="flex flex-col gap-2.5">
       {/* visão + busca + contagem */}
       <div className="flex items-center gap-2.5 flex-wrap">
-        <div className="inline-flex rounded-lg border border-[color:var(--border)] bg-[color:var(--accent)]/40 p-0.5 gap-0.5">
-          {VISOES.map((v) => (
-            <button
-              key={v.valor}
-              type="button"
-              onClick={() => setVisao(v.valor)}
-              aria-pressed={visao === v.valor}
-              className={cn(
-                "px-3 py-1.5 rounded-md text-[12.5px] font-medium transition whitespace-nowrap",
-                visao === v.valor
-                  ? "bg-[color:var(--card)] text-[color:var(--foreground)] shadow-sm"
-                  : "text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)]",
-              )}
-            >
-              {v.rotulo}
-            </button>
-          ))}
+        <div className="inline-flex flex-wrap rounded-xl border border-[color:var(--border)] bg-[color:var(--accent)]/50 p-1 gap-1 max-w-full">
+          {VISOES.map((v) => {
+            const ativa = visao === v.valor;
+            const Icone = v.Icone;
+            return (
+              <button
+                key={v.valor}
+                type="button"
+                onClick={() => setVisao(v.valor)}
+                aria-pressed={ativa}
+                title={`Ver como ${v.rotulo}`}
+                className={cn(
+                  "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12.5px] font-semibold transition whitespace-nowrap border",
+                  ativa
+                    ? "bg-[color:var(--card)] text-[color:var(--foreground)] border-[color:var(--muted-strong)] shadow-sm"
+                    : "bg-[color:var(--card)]/60 text-[color:var(--muted-strong)] border-[color:var(--border)] hover:text-[color:var(--foreground)] hover:border-[color:var(--muted)]",
+                )}
+              >
+                <Icone size={13} strokeWidth={2} />
+                {v.rotulo}
+              </button>
+            );
+          })}
         </div>
 
         <div className="relative flex-1 min-w-[190px] max-w-[340px]">

@@ -1,6 +1,15 @@
 @import "tailwindcss";
 
-:root {
+/* A cor da tela é ESCOLHA da pessoa, não do aparelho. Um script no topo da
+   página resolve "igual ao aparelho" e carimba data-tema="claro"|"escuro" no
+   <html> antes do primeiro desenho, então nunca pisca a cor errada.
+   O `dark:` do Tailwind passa a seguir esse carimbo, e não mais o sistema. */
+@custom-variant dark (&:where([data-tema="escuro"], [data-tema="escuro"] *));
+
+:root,
+:root[data-tema="claro"] {
+  color-scheme: light;
+
   /* warm paper palette */
   --background: #faf7f2;
   --foreground: #1e1b18;
@@ -21,25 +30,25 @@
   --done-bg: #d8f3e2;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #1a1715;
-    --foreground: #f5f0e8;
-    --muted: #8a8175;
-    --muted-strong: #b3a89a;
-    --border: #2e2924;
-    --card: #221e1a;
-    --accent: #2a2520;
+:root[data-tema="escuro"] {
+  color-scheme: dark;
 
-    --urgent: #d97a63;
-    --urgent-bg: #3b201a;
-    --warm: #d4a861;
-    --warm-bg: #3a2e1a;
-    --calm: #8b9967;
-    --calm-bg: #232b1c;
-    --done: #3ecf7a;
-    --done-bg: #16331f;
-  }
+  --background: #1a1715;
+  --foreground: #f5f0e8;
+  --muted: #8a8175;
+  --muted-strong: #b3a89a;
+  --border: #2e2924;
+  --card: #221e1a;
+  --accent: #2a2520;
+
+  --urgent: #d97a63;
+  --urgent-bg: #3b201a;
+  --warm: #d4a861;
+  --warm-bg: #3a2e1a;
+  --calm: #8b9967;
+  --calm-bg: #232b1c;
+  --done: #3ecf7a;
+  --done-bg: #16331f;
 }
 
 @theme inline {
@@ -156,8 +165,8 @@ body {
   animation: plano-stripe 900ms linear infinite;
   pointer-events: none;
 }
-/* no dark mode as barras já são escuras — listras precisam de mais opacidade */
-@media (prefers-color-scheme: dark) {
+/* no tema escuro as barras já são escuras — listras precisam de mais opacidade */
+:root[data-tema="escuro"] {
   .plano-progress::after {
     background-image: repeating-linear-gradient(
       45deg,
@@ -227,7 +236,14 @@ body {
   align-items: start;
   gap: 6px 10px;
 }
-.q-colunas .q-pun,
+/* Em Colunas o cartão é quase todo campo: sem o punho ninguém descobre que
+   dá pra arrastar. Ele não cabe na grade estreita, então vai no canto. */
+.q-colunas .q-pun {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 1;
+}
 .q-colunas .q-seta { display: none; }
 .q-colunas .q-titulo { white-space: normal; }
 .q-colunas .q-sub { flex-direction: column; align-items: flex-start; gap: 4px; }
@@ -310,7 +326,7 @@ body {
 .p6 { --p-bg: #e9efdc; --p-fg: #4f6b1f; }
 .p7 { --p-bg: #e6e8fa; --p-fg: #38409c; }
 .p-sem { --p-bg: var(--accent); --p-fg: var(--muted); }
-@media (prefers-color-scheme: dark) {
+:root[data-tema="escuro"] {
   .p0 { --p-bg: #3a1d2c; --p-fg: #f0a6c8; }
   .p1 { --p-bg: #16283f; --p-fg: #9dc4f2; }
   .p2 { --p-bg: #26203f; --p-fg: #bda9f0; }
@@ -384,4 +400,37 @@ body {
   .q-acoes { grid-area: acoes; align-self: start; justify-self: end; }
   .q-titulo { white-space: normal; overflow: visible; }
   .q-etapa select, .q-tema input { width: auto; max-width: 100%; }
+}
+
+/* ── Kanban: fileira que rola de lado, coluna que rola pra baixo ────────
+   O cabeçalho da coluna fica grudado no topo enquanto as tarefas passam. */
+.q-coluna {
+  flex: 1 0 292px;
+  min-width: 292px;
+  max-width: 420px;
+  max-height: calc(100dvh - 200px);
+  background: color-mix(in srgb, var(--accent) 45%, var(--background));
+}
+.q-coluna-alvo {
+  background: color-mix(in srgb, var(--accent) 90%, var(--background));
+}
+.q-coluna-cab {
+  position: sticky;
+  top: -10px;
+  z-index: 2;
+  margin: -10px -10px 0;
+  padding: 10px 10px 2px;
+  background: inherit;
+  border-radius: 14px 14px 0 0;
+  flex-shrink: 0;
+}
+.q-coluna-corpo {
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 40px;
+  padding-right: 2px;
+}
+@media (max-width: 860px) {
+  .q-coluna { max-height: none; flex-basis: 84vw; min-width: 84vw; max-width: 84vw; }
+  .q-coluna-corpo { overflow-y: visible; }
 }

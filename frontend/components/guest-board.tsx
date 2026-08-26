@@ -8,7 +8,8 @@ import { TaskBoardView } from "./task-board-view";
 import { QuadroAbas } from "./quadro-abas";
 import { QuadroIdeias } from "./quadro-ideias";
 import { ideiasDoConvidado } from "@/lib/ideias-api";
-import { ConvidadosManager } from "./convidados-manager";
+import { QuadroPainel } from "./quadro-painel";
+import { QuadroDescricao } from "./quadro-descricao";
 import { corDaPessoa, iniciais } from "@/lib/quadro-v2";
 import { cn } from "@/lib/utils";
 
@@ -36,6 +37,7 @@ function GuestBoardContent({ token, acesso }: { token: string; acesso: AcessoCon
 
   const vista = quadro?.vista_padrao ?? "lista";
   const nomeAtual = quadro?.nome ?? acesso.quadroNome;
+  const descAtual = quadro?.descricao ?? null;
   const quadroId = quadro?.id ?? acesso.quadroId;
 
   const patchQuadro = async (updates: Record<string, unknown>) => {
@@ -69,6 +71,17 @@ function GuestBoardContent({ token, acesso }: { token: string; acesso: AcessoCon
     try {
       await patchQuadro({ nome: n });
       toast.success("Quadro atualizado");
+    } catch (e) {
+      setQuadro(prev);
+      toast.error(e instanceof Error ? e.message : "Erro ao salvar");
+    }
+  };
+
+  const salvarDescricao = async (nova: string | null) => {
+    const prev = quadro;
+    setQuadro((q) => (q ? { ...q, descricao: nova } : q));
+    try {
+      await patchQuadro({ descricao: nova });
     } catch (e) {
       setQuadro(prev);
       toast.error(e instanceof Error ? e.message : "Erro ao salvar");
@@ -166,16 +179,26 @@ function GuestBoardContent({ token, acesso }: { token: string; acesso: AcessoCon
           quantasIdeias={quantasIdeias}
         />
 
-        <span
-          className={cn(
-            "ml-auto inline-flex items-center gap-2 rounded-full border border-[color:var(--border)] bg-[color:var(--accent)] pl-1 pr-3 py-1 text-[12.5px] font-semibold text-[color:var(--muted-strong)]",
-            corDaPessoa(acesso.convidadoNome),
-          )}
-        >
-          <span className="q-ini">{iniciais(acesso.convidadoNome)}</span>
-          Você está como {acesso.convidadoNome}
-          <small className="font-semibold text-[color:var(--muted)]">· pode editar tudo</small>
-        </span>
+        <QuadroDescricao valor={descAtual} onSalvar={(d) => void salvarDescricao(d)} />
+
+        <div className="ml-auto flex items-center gap-2 flex-wrap">
+          <span
+            className={cn(
+              "inline-flex items-center gap-2 rounded-full border border-[color:var(--border)] bg-[color:var(--accent)] pl-1 pr-3 py-1 text-[12.5px] font-semibold text-[color:var(--muted-strong)]",
+              corDaPessoa(acesso.convidadoNome),
+            )}
+          >
+            <span className="q-ini">{iniciais(acesso.convidadoNome)}</span>
+            Você está como {acesso.convidadoNome}
+            <small className="font-semibold text-[color:var(--muted)]">· pode editar tudo</small>
+          </span>
+          <QuadroPainel
+            convidados={convidados}
+            onCreate={criarConvidado}
+            onCreateBulk={criarConvidadosBulk}
+            onRevoke={revogarConvidado}
+          />
+        </div>
       </header>
 
       <main className="mb-10">
@@ -194,15 +217,6 @@ function GuestBoardContent({ token, acesso }: { token: string; acesso: AcessoCon
           />
         )}
       </main>
-
-      <div className="max-w-2xl border-t border-[color:var(--border)] pt-8">
-        <ConvidadosManager
-          convidados={convidados}
-          onCreate={criarConvidado}
-          onCreateBulk={criarConvidadosBulk}
-          onRevoke={revogarConvidado}
-        />
-      </div>
 
       <footer className="mt-12 pt-6 border-t border-[color:var(--border)] text-center">
         <p className="text-xs text-[color:var(--muted)]">

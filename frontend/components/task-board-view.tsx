@@ -314,22 +314,27 @@ export function TaskBoardView({
               <p className="text-[13px]">Tire um filtro ou limpe tudo pra ver as tarefas de novo.</p>
             </div>
           ) : emColunas ? (
-            <div className="grid gap-3 items-start overflow-x-auto pb-4 [grid-template-columns:repeat(auto-fit,minmax(250px,1fr))]">
+            /* Kanban: cada coluna tem largura própria e a fileira rola de lado
+               quando não cabe. Com "auto-fit" as colunas encolhiam pra caber e
+               a quarta ia parar 10 mil pixels abaixo da página. */
+            <div className="q-colunas flex items-start gap-3 overflow-x-auto pb-4 -mx-1 px-1">
               {grupos.map((g) => (
                 <section
                   key={g.chave}
                   data-grupo={g.chave}
                   className={cn(
-                    "q-colunas rounded-2xl border p-2.5 flex flex-col gap-2 min-h-[120px] transition",
+                    "q-coluna rounded-2xl border p-2.5 flex flex-col gap-2 transition",
                     arrastando && arrasto?.alvo === g.chave && modo !== "prazo"
-                      ? "border-[color:var(--foreground)] bg-[color:var(--accent)]/60"
+                      ? "border-[color:var(--foreground)] q-coluna-alvo"
                       : arrastando && arrasto?.alvo === g.chave
                       ? "border-[color:var(--urgent)]/60"
-                      : "border-[color:var(--border)] bg-[color:var(--accent)]/30",
+                      : "border-[color:var(--border)]",
                   )}
                 >
-                  <CabecalhoGrupo g={g} />
-                  <div className="flex flex-col gap-2">
+                  <div className="q-coluna-cab">
+                    <CabecalhoGrupo g={g} />
+                  </div>
+                  <div className="q-coluna-corpo flex flex-col gap-2">
                     {g.tarefas.map((t) => (
                       <Cartao key={t.id} t={t} grupo={g.chave} />
                     ))}
@@ -337,7 +342,7 @@ export function TaskBoardView({
                   <button
                     type="button"
                     onClick={() => criarRef.current?.querySelector("button")?.click()}
-                    className="mt-1 w-full rounded-lg border border-dashed border-[color:var(--border)] py-1.5 text-[12.5px] font-semibold text-[color:var(--muted)] hover:border-[color:var(--foreground)] hover:text-[color:var(--foreground)] transition"
+                    className="shrink-0 mt-1 w-full rounded-lg border border-dashed border-[color:var(--border)] py-1.5 text-[12.5px] font-semibold text-[color:var(--muted)] hover:border-[color:var(--foreground)] hover:text-[color:var(--foreground)] transition"
                   >
                     + tarefa aqui
                   </button>

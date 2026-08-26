@@ -53,8 +53,20 @@ export default async function RootLayout({
   return (
     <html
       lang="pt-BR"
+      // O script abaixo carimba data-tema antes do React entrar: sem isto o
+      // React reclama que o HTML do servidor está diferente do da tela.
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} h-full antialiased`}
     >
+      <head>
+        {/* Carimba a cor escolhida ANTES do primeiro desenho. Sem isto, quem
+            escolheu Claro num computador escuro veria a tela piscar preta. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var e=localStorage.getItem("tema")||"sistema";var d=e==="escuro"||(e==="sistema"&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.setAttribute("data-tema",d?"escuro":"claro");}catch(x){document.documentElement.setAttribute("data-tema","claro");}})();`,
+          }}
+        />
+      </head>
       <body className="min-h-full flex flex-col font-sans">
         <SiteHeader user={user} />
         <main className="flex-1 mx-auto max-w-3xl w-full px-5 sm:px-6 py-6 sm:py-10">
