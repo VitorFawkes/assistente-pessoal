@@ -2,19 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import {
-  GuestTaskProvider,
-  useGuestTasks,
-  useTaskMutations,
-} from "@/lib/task-mutations";
+import { GuestTaskProvider, useGuestTasks } from "@/lib/task-mutations";
 import type { AcessoConvidado } from "@/lib/quadros";
 import { TaskBoardView } from "./task-board-view";
 import { QuadroAbas } from "./quadro-abas";
 import { QuadroIdeias } from "./quadro-ideias";
 import { ideiasDoConvidado } from "@/lib/ideias-api";
-import { PlanoTimeline } from "./plano-timeline";
-import { CaptureComposer } from "./capture-composer";
 import { ConvidadosManager } from "./convidados-manager";
+import { corDaPessoa, iniciais } from "@/lib/quadro-v2";
+import { cn } from "@/lib/utils";
 
 interface GuestBoardProps {
   token: string;
@@ -24,9 +20,7 @@ interface GuestBoardProps {
 function GuestBoardContent({ token, acesso }: { token: string; acesso: AcessoConvidado }) {
   const { tarefas, loading, quadro, convidados, setQuadro, setConvidados } =
     useGuestTasks();
-  const mut = useTaskMutations();
-  const [editingName, setEditingName] = useState(false);
-  const [editingDesc, setEditingDesc] = useState(false);
+  const [editandoNome, setEditandoNome] = useState(false);
 
   const [pagina, setPagina] = useState<"tarefas" | "ideias">("tarefas");
   const [quantasIdeias, setQuantasIdeias] = useState(0);
@@ -42,12 +36,7 @@ function GuestBoardContent({ token, acesso }: { token: string; acesso: AcessoCon
 
   const vista = quadro?.vista_padrao ?? "lista";
   const nomeAtual = quadro?.nome ?? acesso.quadroNome;
-  const descAtual = quadro?.descricao ?? null;
   const quadroId = quadro?.id ?? acesso.quadroId;
-  const nAbertas = tarefas.filter(
-    (t) => t.status !== "concluida" && t.status !== "cancelada",
-  ).length;
-  const nFeitas = tarefas.length - nAbertas;
 
   const patchQuadro = async (updates: Record<string, unknown>) => {
     const res = await fetch(`/api/q/${token}`, {
@@ -72,7 +61,7 @@ function GuestBoardContent({ token, acesso }: { token: string; acesso: AcessoCon
   };
 
   const salvarNome = async (novo: string) => {
-    setEditingName(false);
+    setEditandoNome(false);
     const n = novo.trim();
     if (!n || n === nomeAtual) return;
     const prev = quadro;
@@ -80,20 +69,6 @@ function GuestBoardContent({ token, acesso }: { token: string; acesso: AcessoCon
     try {
       await patchQuadro({ nome: n });
       toast.success("Quadro atualizado");
-    } catch (e) {
-      setQuadro(prev);
-      toast.error(e instanceof Error ? e.message : "Erro ao salvar");
-    }
-  };
-
-  const salvarDescricao = async (novo: string) => {
-    setEditingDesc(false);
-    const d = novo.trim() || null;
-    if (d === descAtual) return;
-    const prev = quadro;
-    setQuadro((q) => (q ? { ...q, descricao: d } : q));
-    try {
-      await patchQuadro({ descricao: d });
     } catch (e) {
       setQuadro(prev);
       toast.error(e instanceof Error ? e.message : "Erro ao salvar");
@@ -158,133 +133,84 @@ function GuestBoardContent({ token, acesso }: { token: string; acesso: AcessoCon
     }
   };
 
-  const toggleBtn = (v: "lista" | "timeline", label: string) => (
-    <button
-      type="button"
-      onClick={() => mudarVista(v)}
-      className={`px-3 py-1 rounded-full transition ${
-        vista === v
-          ? "bg-[color:var(--foreground)] text-[color:var(--background)]"
-          : "text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)]"
-      }`}
-    >
-      {label}
-    </button>
-  );
-
   return (
-    <div className="min-h-screen bg-[color:var(--background)]">
-      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
-        {/* Cabeçalho editável */}
-        <header className="mb-8 pb-6 border-b border-[color:var(--border)] space-y-2">
-          {editingName ? (
-            <input
-              type="text"
-              defaultValue={nomeAtual}
-              autoFocus
-              onBlur={(e) => salvarNome(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") salvarNome((e.target as HTMLInputElement).value);
-              }}
-              className="font-display text-3xl sm:text-4xl border-b-2 border-[color:var(--accent)] bg-transparent outline-none text-[color:var(--foreground)]"
-            />
-          ) : (
-            <h1
-              onClick={() => setEditingName(true)}
-              className="font-display text-3xl sm:text-4xl font-light cursor-pointer hover:opacity-60 transition-opacity text-[color:var(--foreground)]"
-              title="Clique pra editar"
-            >
-              {nomeAtual}
-            </h1>
-          )}
-
-          {editingDesc ? (
-            <textarea
-              defaultValue={descAtual || ""}
-              autoFocus
-              rows={2}
-              onBlur={(e) => salvarDescricao(e.target.value)}
-              className="w-full max-w-2xl border border-[color:var(--border)] rounded-lg p-2 text-sm bg-[color:var(--card)] text-[color:var(--foreground)]"
-            />
-          ) : (
-            <p
-              onClick={() => setEditingDesc(true)}
-              className="text-sm text-[color:var(--muted-strong)] cursor-pointer hover:opacity-60 transition-opacity"
-              title="Clique pra editar"
-            >
-              {descAtual || "Adicione uma descrição..."}
-            </p>
-          )}
-
-          <p className="text-sm text-[color:var(--muted-strong)] pt-1">
-            Você está como{" "}
-            <span className="font-semibold text-[color:var(--calm)]">
-              {acesso.convidadoNome}
-            </span>
-          </p>
-        </header>
-
-        {/* Criar nova tarefa */}
-        <div className="mb-8">
-          <CaptureComposer onOpenFull={() => {}} />
-        </div>
-
-        {/* Tarefas: título + toggle de visão */}
-        <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
-          <h3 className="font-display text-lg sm:text-xl font-light text-[color:var(--foreground)]">
-            {/* Mesma contagem honesta do dono: o total sozinho não batia com o
-                que a tela mostra, porque as feitas ficam escondidas. */}
-            Tarefas <span className="text-[color:var(--muted)] text-base">{nAbertas}</span>
-            {nFeitas > 0 && (
-              <span className="ml-2 text-[color:var(--muted)] text-[13px] font-sans">
-                abertas · {nFeitas} feita{nFeitas > 1 ? "s" : ""}
-              </span>
-            )}
-          </h3>
-          <div className="flex items-center gap-3 flex-wrap">
-            <QuadroAbas
-              pagina={pagina}
-              setPagina={setPagina}
-              quantasTarefas={tarefas.length}
-              quantasIdeias={quantasIdeias}
-            />
-            <div className="inline-flex rounded-full border border-[color:var(--border)] p-0.5 text-[12px] font-medium">
-              {toggleBtn("lista", "Lista")}
-              {toggleBtn("timeline", "Linha do tempo")}
-            </div>
-          </div>
-        </div>
-
-        <main className="mb-12">
-          {pagina === "ideias" ? (
-            <QuadroIdeias api={apiIdeias} />
-          ) : loading ? (
-            <div className="flex justify-center py-16">
-              <p className="text-[color:var(--muted)]">Carregando tarefas…</p>
-            </div>
-          ) : vista === "timeline" ? (
-            <PlanoTimeline tarefas={tarefas} quadroId={quadroId} showManageButton={false} />
-          ) : (
-            <TaskBoardView tarefas={tarefas} quadroId={quadro?.id} onRemoveFromBoard={(id) => mut.remove(id)} />
-          )}
-        </main>
-
-        {/* Convidados */}
-        <div className="max-w-2xl border-t border-[color:var(--border)] pt-8">
-          <ConvidadosManager
-            convidados={convidados}
-            onCreate={criarConvidado}
-            onCreateBulk={criarConvidadosBulk}
-            onRevoke={revogarConvidado}
+    <div className="py-5 sm:py-7">
+      {/* Cabeçalho enxuto: nome do quadro, as duas páginas e quem você é.
+          O título gigante de antes empurrava as tarefas pra fora da tela. */}
+      <header className="flex items-center gap-4 flex-wrap pb-4 mb-5 border-b border-[color:var(--border)]">
+        {editandoNome ? (
+          <input
+            defaultValue={nomeAtual}
+            autoFocus
+            onBlur={(e) => salvarNome(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              if (e.key === "Escape") setEditandoNome(false);
+            }}
+            className="font-display text-[22px] border-b-2 border-[color:var(--foreground)] bg-transparent outline-none"
           />
-        </div>
+        ) : (
+          <h1
+            onClick={() => setEditandoNome(true)}
+            title="Clique pra editar"
+            className="font-display text-[22px] sm:text-[24px] cursor-pointer hover:opacity-70 transition min-w-0 truncate"
+          >
+            {nomeAtual}
+          </h1>
+        )}
 
-        <footer className="mt-16 pt-8 border-t border-[color:var(--border)] text-center">
-          <p className="text-xs text-[color:var(--muted)]">
-            Quadro compartilhado — acesso seguro por link
-          </p>
-        </footer>
+        <QuadroAbas
+          pagina={pagina}
+          setPagina={setPagina}
+          quantasTarefas={tarefas.length}
+          quantasIdeias={quantasIdeias}
+        />
+
+        <span
+          className={cn(
+            "ml-auto inline-flex items-center gap-2 rounded-full border border-[color:var(--border)] bg-[color:var(--accent)] pl-1 pr-3 py-1 text-[12.5px] font-semibold text-[color:var(--muted-strong)]",
+            corDaPessoa(acesso.convidadoNome),
+          )}
+        >
+          <span className="q-ini">{iniciais(acesso.convidadoNome)}</span>
+          Você está como {acesso.convidadoNome}
+          <small className="font-semibold text-[color:var(--muted)]">· pode editar tudo</small>
+        </span>
+      </header>
+
+      <main className="mb-10">
+        {pagina === "ideias" ? (
+          <QuadroIdeias api={apiIdeias} />
+        ) : loading ? (
+          <div className="flex justify-center py-16">
+            <p className="text-[color:var(--muted)]">Carregando tarefas…</p>
+          </div>
+        ) : (
+          <TaskBoardView
+            tarefas={tarefas}
+            quadroId={quadroId}
+            vistaPadrao={vista}
+            onMudarVistaPadrao={mudarVista}
+          />
+        )}
+      </main>
+
+      <div className="max-w-2xl border-t border-[color:var(--border)] pt-8">
+        <ConvidadosManager
+          convidados={convidados}
+          onCreate={criarConvidado}
+          onCreateBulk={criarConvidadosBulk}
+          onRevoke={revogarConvidado}
+        />
       </div>
+
+      <footer className="mt-12 pt-6 border-t border-[color:var(--border)] text-center">
+        <p className="text-xs text-[color:var(--muted)]">
+          Clique em qualquer texto e escreva: salva sozinho, sem botão de editar. Em
+          &ldquo;Ver por&rdquo; você escolhe como a página se organiza. Todo mundo que entra
+          pelo link pode criar, mudar, anexar e excluir tarefa.
+        </p>
+      </footer>
     </div>
   );
 }

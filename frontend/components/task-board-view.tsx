@@ -1,25 +1,28 @@
 "use client";
 
 // Tela das tarefas dentro de um quadro.
-// Três formatos (Lista, Colunas/Kanban e Tabela) sobre a MESMA lista, com
-// "Ver por" mandando no agrupamento — a página não é presa à situação.
-// Arrastar funciona pegando o cartão inteiro; soltar em outro grupo muda a
-// situação (ou o dono, ou o tema, conforme o "Ver por").
+// Quatro formatos (Lista, Colunas/Kanban, Tabela e Linha do tempo) sobre a
+// MESMA lista, com "Ver por" mandando no agrupamento — a página não é presa à
+// situação. Arrastar funciona pegando o cartão inteiro; soltar em outro grupo
+// muda a situação (ou o dono, ou o tema, conforme o "Ver por").
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { TaskRow } from "./task-row";
+import { QuadroTarefa } from "./quadro-tarefa";
+import { QuadroResumo } from "./quadro-resumo";
+import { QuadroCriar } from "./quadro-criar";
+import { PlanoTimeline } from "./plano-timeline";
 import { QuadroControles, type Visao } from "./quadro-controles";
 import { useTaskMutations } from "@/lib/task-mutations";
 import {
   FILTROS_VAZIOS,
-  ORDEM_KANBAN,
   agrupar,
   colunasKanban,
   comparar,
   donoDe,
+  faixaDoPrazo,
   passa,
-  rotuloSituacao,
+  pessoasDoQuadro,
   type Filtros,
   type Grupo,
   type Ordenacao,
@@ -40,21 +43,35 @@ export function TaskBoardView({
   tarefas,
   onRemoveFromBoard,
   quadroId,
+  vistaPadrao = "lista",
+  onMudarVistaPadrao,
 }: {
   tarefas: Tarefa[];
   /** Só o dono "remove do quadro" (desvincula sem apagar). */
   onRemoveFromBoard?: (id: string) => void;
   /** Necessário pra guardar a ordem que a pessoa montou arrastando. */
   quadroId?: string;
+  /** Visão gravada no quadro: 'timeline' é o quadro aberto como plano. */
+  vistaPadrao?: "lista" | "timeline";
+  onMudarVistaPadrao?: (v: "lista" | "timeline") => void;
 }) {
   const mut = useTaskMutations();
-  const [visao, setVisao] = useState<Visao>("lista");
+  const [visao, setVisao] = useState<Visao>(vistaPadrao === "timeline" ? "timeline" : "lista");
   const [filtros, setFiltros] = useState<Filtros>(FILTROS_VAZIOS);
   const [verPor, setVerPor] = useState<VerPor>("nada");
   const [ordenar, setOrdenar] = useState<Ordenacao>("prazo");
   const [maisAberto, setMaisAberto] = useState(false);
   const [arrasto, setArrasto] = useState<Arrasto | null>(null);
   const arrastouRef = useRef(false);
+  const criarRef = useRef<HTMLDivElement>(null);
+
+  // "Linha do tempo" fica gravada no quadro (é o "transformar em plano");
+  // Lista/Colunas/Tabela são escolha de quem está olhando agora.
+  const trocarVisao = (nova: Visao) => {
+    setVisao(nova);
+    if (nova === "timeline" && vistaPadrao !== "timeline") onMudarVistaPadrao?.("timeline");
+    if (nova !== "timeline" && vistaPadrao === "timeline") onMudarVistaPadrao?.("lista");
+  };
 
   // Em Colunas o quadro vira Kanban: sem agrupamento escolhido, agrupa por situação.
   const modo: VerPor = visao === "colunas" && verPor === "nada" ? "situacao" : verPor;
@@ -64,17 +81,18 @@ export function TaskBoardView({
     [tarefas, filtros, ordenar],
   );
 
+  // Só quem já está no quadro entra no seletor de dono da linha.
+  const nomesNoQuadro = useMemo(
+    () => pessoasDoQuadro(tarefas).filter((p) => p.chave !== "__sem__").map((p) => p.nome),
+    [tarefas],
+  );
+
   const grupos: Grupo[] = useMemo(() => {
     if (visao === "colunas" && modo === "situacao") return colunasKanban(visiveis);
     return agrupar(visiveis, modo);
   }, [visiveis, modo, visao]);
 
   // ─── arrastar ───────────────────────────────────────────────────────
-  const podeSoltarEm = useCallback(
-    (grupo: string) => modo !== "prazo" && modo !== "nada" ? true : modo === "nada",
-    [modo],
-  );
-
   const aplicarSolta = useCallback(
     async (tarefa: Tarefa, grupoDestino: string, ordemNova: string[]) => {
       // muda o campo que o agrupamento representa
@@ -160,13 +178,15 @@ export function TaskBoardView({
   }, [arrasto, soltar]);
 
   function pegar(tarefa: Tarefa, grupo: string, e: React.PointerEvent) {
-    // campos e botões não arrastam — ali é edição.
+    // campos e botões não arrastam — ali é edição. O punho (⠿) é a exceção:
+    // ali o arrasto começa na hora.
     const alvo = e.target as HTMLElement;
-    if (alvo.closest("input, select, textarea, button, a, [contenteditable='true']")) return;
+    const noPunho = !!alvo.closest(".q-pun");
+    if (!noPunho && alvo.closest("input, select, textarea, button, a, [contenteditable='true']")) return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
     arrastouRef.current = false;
     const x0 = e.clientX, y0 = e.clientY;
-    const limiar = e.pointerType === "mouse" ? 6 : 10;
+    const limiar = noPunho ? 3 : e.pointerType === "mouse" ? 6 : 10;
 
     const começa = (ev: PointerEvent) => {
       if (Math.abs(ev.clientX - x0) < limiar && Math.abs(ev.clientY - y0) < limiar) return;
@@ -184,6 +204,7 @@ export function TaskBoardView({
 
   const arrastando = !!arrasto;
   const emColunas = visao === "colunas";
+  const emTabela = visao === "tabela";
 
   function Cartao({ t, grupo }: { t: Tarefa; grupo: string }) {
     return (
@@ -198,53 +219,74 @@ export function TaskBoardView({
           }
         }}
         className={cn(
-          "group relative touch-pan-y",
+          "q-linha relative touch-pan-y",
           arrasto?.id === t.id && "opacity-30",
-          arrasto?.antesDe === t.id && "before:content-[''] before:absolute before:-top-1.5 before:left-0 before:right-0 before:h-[3px] before:rounded-full before:bg-[color:var(--foreground)]",
+          arrasto?.antesDe === t.id &&
+            "before:content-[''] before:absolute before:-top-1 before:left-0 before:right-0 before:h-[3px] before:rounded-full before:bg-[color:var(--foreground)]",
         )}
       >
-        <TaskRow tarefa={t} noQuadro />
-        {onRemoveFromBoard && !arrastando && (
-          <button
-            type="button"
-            onClick={() => onRemoveFromBoard(t.id)}
-            title="Tirar do quadro (não apaga a tarefa)"
-            className="absolute -top-2 right-2 z-10 text-[10px] tracking-wide px-2 py-0.5 rounded-full border border-[color:var(--border)] bg-[color:var(--card)] text-[color:var(--muted)] opacity-0 group-hover:opacity-100 hover:text-[color:var(--urgent)] transition"
-          >
-            tirar do quadro
-          </button>
-        )}
+        <QuadroTarefa
+          tarefa={t}
+          pessoasDoQuadro={nomesNoQuadro}
+          onTirarDoQuadro={onRemoveFromBoard ? () => onRemoveFromBoard(t.id) : undefined}
+        />
       </div>
     );
   }
 
+  const TOM_MARCADOR: Record<string, string> = {
+    vencida: "bg-[color:var(--urgent)]",
+    hoje: "bg-[color:var(--warm)]",
+    semana: "bg-[color:var(--warm)]",
+    concluida: "bg-[color:var(--done)]",
+    feito: "bg-[color:var(--done)]",
+    em_andamento: "bg-[color:var(--warm)]",
+    aguardando_aprovacao: "bg-[color:var(--calm)]",
+  };
+
   function CabecalhoGrupo({ g }: { g: Grupo }) {
     const abertas = g.tarefas.filter((t) => t.status !== "concluida").length;
-    const atrasadas = g.tarefas.filter(
-      (t) => t.status !== "concluida" && t.prazo && new Date(t.prazo) < new Date(new Date().toDateString()),
-    ).length;
+    const atrasadas = g.tarefas.filter((t) => faixaDoPrazo(t) === "vencida").length;
     return (
-      <div className="flex items-center gap-2 flex-wrap px-0.5">
-        <h3 className="font-serif text-[17px]">{g.rotulo}</h3>
-        <span className="text-[12px] text-[color:var(--muted)]">
+      <div className="flex items-center gap-2.5 flex-wrap px-0.5 pb-1">
+        <span
+          className={cn(
+            "w-2.5 h-2.5 rounded-[3px] shrink-0",
+            TOM_MARCADOR[g.chave] ?? "bg-[color:var(--muted-strong)]",
+          )}
+          aria-hidden
+        />
+        <h3 className="font-display text-[20px] font-normal">{g.rotulo}</h3>
+        <span className="text-[12.5px] font-semibold text-[color:var(--muted)]">
           {modo === "pessoa" || modo === "tema"
             ? `${abertas} abertas de ${g.tarefas.length}`
             : `${g.tarefas.length} ${g.tarefas.length === 1 ? "tarefa" : "tarefas"}`}
           {atrasadas > 0 && (
-            <span className="text-[color:var(--urgent)] font-semibold"> · {atrasadas} atrasada{atrasadas > 1 ? "s" : ""}</span>
+            <span className="text-[color:var(--urgent)]">
+              {" "}
+              · {atrasadas} atrasada{atrasadas > 1 ? "s" : ""}
+            </span>
           )}
         </span>
-        {g.nota && <span className="text-[11.5px] text-[color:var(--muted)]">— {g.nota}</span>}
+        {g.nota && <span className="text-[12px] text-[color:var(--muted)]">— {g.nota}</span>}
       </div>
     );
   }
 
+  const grupoTudo: Grupo = { chave: "tudo", rotulo: "Todas as tarefas", tarefas: visiveis };
+
   return (
-    <div className="flex flex-col gap-3.5">
+    <div className="flex flex-col gap-4">
+      <QuadroResumo
+        tarefas={tarefas}
+        pessoaFiltrada={filtros.pessoa}
+        onFiltrarPessoa={(chave) => setFiltros({ ...filtros, pessoa: chave })}
+      />
+
       <QuadroControles
         tarefas={tarefas}
         visao={visao}
-        setVisao={setVisao}
+        setVisao={trocarVisao}
         filtros={filtros}
         setFiltros={setFiltros}
         verPor={verPor}
@@ -256,61 +298,108 @@ export function TaskBoardView({
         visiveis={visiveis.length}
       />
 
-      {visiveis.length === 0 ? (
-        <div className="text-center py-12 text-[color:var(--muted)]">
-          <p className="font-serif text-[20px] text-[color:var(--foreground)] mb-1">
-            Nada com esses filtros.
-          </p>
-          <p className="text-[13px]">Tire um filtro ou limpe tudo pra ver as tarefas de novo.</p>
-        </div>
-      ) : emColunas ? (
-        <div className="grid gap-3 items-start overflow-x-auto pb-4 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
-          {grupos.map((g) => (
-            <section
-              key={g.chave}
-              data-grupo={g.chave}
-              className={cn(
-                "rounded-2xl border p-2.5 flex flex-col gap-2 min-h-[120px] transition",
-                arrastando && arrasto?.alvo === g.chave && modo !== "prazo"
-                  ? "border-[color:var(--foreground)] bg-[color:var(--accent)]/50"
-                  : arrastando && arrasto?.alvo === g.chave
-                  ? "border-[color:var(--urgent)]/60"
-                  : "border-[color:var(--border)] bg-[color:var(--accent)]/25",
-              )}
-            >
-              <CabecalhoGrupo g={g} />
-              <div className="flex flex-col gap-2">
-                {g.tarefas.map((t) => (
-                  <Cartao key={t.id} t={t} grupo={g.chave} />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
+      {visao === "timeline" ? (
+        <PlanoTimeline tarefas={tarefas} quadroId={quadroId} showManageButton={false} />
       ) : (
-        <div className="flex flex-col gap-5">
-          {grupos.map((g) => (
-            <section key={g.chave} data-grupo={g.chave} className="flex flex-col gap-2">
-              {modo !== "nada" && <CabecalhoGrupo g={g} />}
-              <div
-                className={cn(
-                  "flex flex-col gap-2 rounded-xl transition",
-                  arrastando && arrasto?.alvo === g.chave && modo !== "prazo" && "ring-2 ring-[color:var(--foreground)]/30 ring-offset-2 ring-offset-[color:var(--background)]",
-                )}
-              >
-                {g.tarefas.map((t) => (
-                  <Cartao key={t.id} t={t} grupo={g.chave} />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-      )}
+        <>
+          <div ref={criarRef}>
+            <QuadroCriar tarefas={tarefas} />
+          </div>
 
-      {visao === "tabela" && (
-        <p className="text-[12px] text-[color:var(--muted)] text-center">
-          Na tabela, a linha mostra o quê, quem, quando vence, a situação, o resumo e o tema — clique em qualquer um pra editar.
-        </p>
+          {visiveis.length === 0 ? (
+            <div className="text-center py-12 text-[color:var(--muted)]">
+              <p className="font-display text-[22px] text-[color:var(--foreground)] mb-1.5">
+                Nada com esses filtros.
+              </p>
+              <p className="text-[13px]">Tire um filtro ou limpe tudo pra ver as tarefas de novo.</p>
+            </div>
+          ) : emColunas ? (
+            <div className="grid gap-3 items-start overflow-x-auto pb-4 [grid-template-columns:repeat(auto-fit,minmax(250px,1fr))]">
+              {grupos.map((g) => (
+                <section
+                  key={g.chave}
+                  data-grupo={g.chave}
+                  className={cn(
+                    "q-colunas rounded-2xl border p-2.5 flex flex-col gap-2 min-h-[120px] transition",
+                    arrastando && arrasto?.alvo === g.chave && modo !== "prazo"
+                      ? "border-[color:var(--foreground)] bg-[color:var(--accent)]/60"
+                      : arrastando && arrasto?.alvo === g.chave
+                      ? "border-[color:var(--urgent)]/60"
+                      : "border-[color:var(--border)] bg-[color:var(--accent)]/30",
+                  )}
+                >
+                  <CabecalhoGrupo g={g} />
+                  <div className="flex flex-col gap-2">
+                    {g.tarefas.map((t) => (
+                      <Cartao key={t.id} t={t} grupo={g.chave} />
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => criarRef.current?.querySelector("button")?.click()}
+                    className="mt-1 w-full rounded-lg border border-dashed border-[color:var(--border)] py-1.5 text-[12.5px] font-semibold text-[color:var(--muted)] hover:border-[color:var(--foreground)] hover:text-[color:var(--foreground)] transition"
+                  >
+                    + tarefa aqui
+                  </button>
+                </section>
+              ))}
+            </div>
+          ) : emTabela ? (
+            <div className="q-tabela overflow-x-auto">
+              <div className="min-w-[900px]">
+                <div className="q-cabecalho-tabela px-3.5 pb-2 text-[10.5px] font-bold uppercase tracking-wide text-[color:var(--muted)]">
+                  <span />
+                  <span>O quê</span>
+                  <span>Dono</span>
+                  <span>Vence em</span>
+                  <span>Situação</span>
+                  <span>Resumo</span>
+                  <span>Tema</span>
+                  <span />
+                </div>
+                <div className="flex flex-col gap-4">
+                  {(modo === "nada" ? [grupoTudo] : grupos).map((g) => (
+                    <section
+                      key={g.chave}
+                      data-grupo={g.chave}
+                      className="rounded-xl border border-[color:var(--border)] bg-[color:var(--card)] pt-3"
+                    >
+                      <div className="px-3.5">
+                        <CabecalhoGrupo g={g} />
+                      </div>
+                      <div className="flex flex-col">
+                        {g.tarefas.map((t) => (
+                          <Cartao key={t.id} t={t} grupo={g.chave} />
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-5">
+              {(modo === "nada" ? [grupoTudo] : grupos).map((g) => (
+                <section key={g.chave} data-grupo={g.chave} className="flex flex-col gap-2">
+                  <CabecalhoGrupo g={g} />
+                  <div
+                    className={cn(
+                      "flex flex-col gap-2 rounded-xl transition",
+                      arrastando &&
+                        arrasto?.alvo === g.chave &&
+                        modo !== "prazo" &&
+                        "ring-2 ring-[color:var(--foreground)]/30 ring-offset-2 ring-offset-[color:var(--background)]",
+                    )}
+                  >
+                    {g.tarefas.map((t) => (
+                      <Cartao key={t.id} t={t} grupo={g.chave} />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

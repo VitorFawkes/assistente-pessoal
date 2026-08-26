@@ -23,7 +23,6 @@ import {
   PrioridadeInline,
   AreaInline,
   AcaoInline,
-  SituacaoInline,
 } from "./inline-edit-chips";
 import { useTaskMutations } from "@/lib/task-mutations";
 import type { Tarefa, Acao } from "@/lib/queries";
@@ -113,15 +112,11 @@ export function TaskRow({
   tarefa,
   selected = false,
   onToggleSelect,
-  noQuadro = false,
 }: {
   tarefa: Tarefa;
   selected?: boolean;
   // Quando passado, mostra a checkbox de seleção em massa (sempre visível).
   onToggleSelect?: (id: string, e: React.MouseEvent) => void;
-  // Dentro de um quadro a linha muda: a situação (4 opções) entra no lugar da
-  // prioridade. Pendências, Plano e Reuniões seguem com a linha de sempre.
-  noQuadro?: boolean;
 }) {
   const mut = useTaskMutations();
   const isOwner = mut.scope === "owner";
@@ -348,14 +343,7 @@ export function TaskRow({
                 </span>
               )}
               <AreaInline tarefa={tarefa} />
-              {/* No quadro a tarefa anda por situação (A fazer, Fazendo,
-                  Aguardando aprovação, Feito) e a prioridade sai de cena —
-                  decisão do Vitor em 20/08/2026. Nas outras telas fica igual. */}
-              {noQuadro ? (
-                <SituacaoInline tarefa={tarefa} />
-              ) : (
-                <PrioridadeInline tarefa={tarefa} />
-              )}
+              <PrioridadeInline tarefa={tarefa} />
               {outrasPessoas.length > 0 && (
                 <span
                   title={`Também nesta tarefa: ${outrasPessoas.map((p) => p.nome).join(", ")}`}

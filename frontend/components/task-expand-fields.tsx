@@ -26,10 +26,12 @@ function dateInputToIsoStart(value: string): string | null {
   return new Date(y, m - 1, d, 0, 0, 0, 0).toISOString();
 }
 
+// As mesmas 4 etapas do quadro, pra tarefa não ter uma situação aqui e outra lá.
 const STATUS: { v: Tarefa["status"]; label: string }[] = [
-  { v: "aberta", label: "Aberta" },
-  { v: "em_andamento", label: "Em andamento" },
-  { v: "concluida", label: "Concluída" },
+  { v: "aberta", label: "A fazer" },
+  { v: "em_andamento", label: "Fazendo" },
+  { v: "aguardando_aprovacao", label: "Aguardando aprovação" },
+  { v: "concluida", label: "Feito" },
   { v: "cancelada", label: "Cancelada" },
 ];
 
@@ -256,11 +258,9 @@ export function TaskExpandFields({ tarefa }: { tarefa: Tarefa }) {
         )}
       >
         <Trash2 size={14} />
-        {confirmDelete
-          ? "Clique de novo pra confirmar"
-          : mut.scope === "guest"
-          ? "Remover do quadro"
-          : "Deletar tarefa"}
+        {/* O botão apaga a tarefa de verdade, pro dono e pra quem entra pelo
+            link — dizer "remover do quadro" escondia isso. */}
+        {confirmDelete ? "Clique de novo pra confirmar" : "Excluir tarefa"}
       </button>
     </div>
   );

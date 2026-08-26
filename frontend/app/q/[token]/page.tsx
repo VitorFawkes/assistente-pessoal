@@ -32,9 +32,13 @@ export default async function QuadroConvidadoPage(ctx: Ctx) {
 
   const acesso = rows[0];
 
+  // full-bleed: escapa do <main max-w-3xl> do layout. Sem isso o quadro do
+  // convidado abria espremido em ~650px e o Kanban quebrava em duas colunas.
   return (
-    <div className="min-h-screen bg-background">
-      <GuestBoard token={token} acesso={acesso} />
+    <div className="mx-[calc(50%-50vw)] px-4 sm:px-6 lg:px-8 overflow-x-clip">
+      <div className="mx-auto max-w-[1400px]">
+        <GuestBoard token={token} acesso={acesso} />
+      </div>
     </div>
   );
 }

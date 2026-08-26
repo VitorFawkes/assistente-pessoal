@@ -17,7 +17,16 @@ import {
 } from "@/lib/quadro-v2";
 import type { Tarefa } from "@/lib/queries";
 
-export type Visao = "lista" | "colunas" | "tabela";
+export type Visao = "lista" | "colunas" | "tabela" | "timeline";
+
+// Um único lugar pra escolher o formato — antes havia dois seletores com
+// "Lista" nos dois, e um deles gravava no quadro sem avisar.
+const VISOES: { valor: Visao; rotulo: string }[] = [
+  { valor: "lista", rotulo: "Lista" },
+  { valor: "colunas", rotulo: "Colunas" },
+  { valor: "tabela", rotulo: "Tabela" },
+  { valor: "timeline", rotulo: "Linha do tempo" },
+];
 
 const ATALHOS: { chave: FaixaPrazo | "todas"; rotulo: string; tom?: "perigo" | "alerta" }[] = [
   { chave: "todas", rotulo: "Todas" },
@@ -52,18 +61,21 @@ function Campo({
   rotulo,
   valor,
   onChange,
+  destaque,
   children,
 }: {
   rotulo: string;
   valor: string;
   onChange: (v: string) => void;
+  /** "Ver por" é o botão que mais muda a página — fica sempre em destaque. */
+  destaque?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <span
       className={cn(
         "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1",
-        valor
+        valor || destaque
           ? "border-[color:var(--foreground)]/35 bg-[color:var(--accent)]"
           : "border-[color:var(--border)] bg-[color:var(--card)]",
       )}
@@ -156,20 +168,20 @@ export function QuadroControles({
       {/* visão + busca + contagem */}
       <div className="flex items-center gap-2.5 flex-wrap">
         <div className="inline-flex rounded-lg border border-[color:var(--border)] bg-[color:var(--accent)]/40 p-0.5 gap-0.5">
-          {(["lista", "colunas", "tabela"] as Visao[]).map((v) => (
+          {VISOES.map((v) => (
             <button
-              key={v}
+              key={v.valor}
               type="button"
-              onClick={() => setVisao(v)}
-              aria-pressed={visao === v}
+              onClick={() => setVisao(v.valor)}
+              aria-pressed={visao === v.valor}
               className={cn(
-                "px-3 py-1.5 rounded-md text-[12.5px] font-medium capitalize transition",
-                visao === v
+                "px-3 py-1.5 rounded-md text-[12.5px] font-medium transition whitespace-nowrap",
+                visao === v.valor
                   ? "bg-[color:var(--card)] text-[color:var(--foreground)] shadow-sm"
                   : "text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)]",
               )}
             >
-              {v}
+              {v.rotulo}
             </button>
           ))}
         </div>
@@ -265,7 +277,7 @@ export function QuadroControles({
 
       {/* ver por, ordenar e os filtros principais */}
       <div className="flex items-center gap-2 flex-wrap">
-        <Campo rotulo="Ver por" valor={verPor === "nada" ? "" : verPor} onChange={(v) => setVerPor((v || "nada") as VerPor)}>
+        <Campo destaque rotulo="Ver por" valor={verPor === "nada" ? "" : verPor} onChange={(v) => setVerPor((v || "nada") as VerPor)}>
           {VER_POR.map((o) => (
             <option key={o.valor} value={o.valor === "nada" ? "" : o.valor}>
               {o.rotulo}

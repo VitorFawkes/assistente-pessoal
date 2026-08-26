@@ -186,3 +186,202 @@ body {
   .plano-rise,
   .plano-progress::after { animation: none; }
 }
+
+/* ── Quadro: a linha da tarefa em três formatos ───────────────────────
+   Mesmo DOM em Lista, Colunas e Tabela — só muda a grade, como no rascunho
+   aprovado. Fica em CSS (e não em classes utilitárias) porque são áreas de
+   grade nomeadas e três pontos de quebra. */
+
+.q-tarefa {
+  display: grid;
+  gap: 2px 14px;
+  align-items: center;
+  grid-template-areas:
+    "pun st tit quem prazo etapa acoes"
+    ".   .  sub sub  sub   sub   ."
+    "det det det det det det det";
+  grid-template-columns: 14px 18px minmax(0, 1fr) 190px 132px 158px 44px;
+}
+.q-pun   { grid-area: pun; }
+.q-st    { grid-area: st; }
+.q-tit   { grid-area: tit; min-width: 0; }
+.q-quem  { grid-area: quem; min-width: 0; }
+.q-prazo { grid-area: prazo; }
+.q-etapa { grid-area: etapa; min-width: 0; }
+.q-acoes { grid-area: acoes; }
+.q-sub   { grid-area: sub; min-width: 0; }
+.q-det   { grid-area: det; grid-column: 1 / -1; }
+.q-resumo { min-width: 0; }
+.q-tema   { flex-shrink: 0; }
+
+/* Colunas (kanban): tudo empilhado dentro do cartão */
+.q-colunas .q-tarefa {
+  grid-template-areas:
+    "st tit"
+    ".  quem"
+    ".  prazo"
+    ".  etapa"
+    ".  sub"
+    "det det";
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 6px 10px;
+}
+.q-colunas .q-pun,
+.q-colunas .q-seta { display: none; }
+.q-colunas .q-titulo { white-space: normal; }
+.q-colunas .q-sub { flex-direction: column; align-items: flex-start; gap: 4px; }
+.q-colunas .q-resumo { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* Tabela: resumo e tema viram colunas próprias, sob um cabeçalho */
+.q-cabecalho-tabela,
+.q-tabela .q-tarefa {
+  grid-template-columns: 18px minmax(0, 1.35fr) 124px 128px 168px minmax(0, 1.25fr) 132px 40px;
+}
+.q-tabela .q-tarefa {
+  grid-template-areas:
+    "st tit quem prazo etapa resumo tema acoes"
+    "det det det det det det det det";
+}
+.q-cabecalho-tabela { display: grid; gap: 14px; }
+.q-tabela .q-sub { display: contents; }
+.q-tabela .q-resumo { grid-area: resumo; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.q-tabela .q-tema { grid-area: tema; }
+.q-tabela .q-pun { display: none; }
+
+/* Telas médias: some quem não cabe */
+@media (max-width: 1120px) and (min-width: 861px) {
+  .q-tarefa { grid-template-columns: 14px 18px minmax(0, 1fr) 150px 122px 140px 44px; }
+  .q-cabecalho-tabela,
+  .q-tabela .q-tarefa { grid-template-columns: 18px minmax(0, 1.3fr) 116px 120px 150px minmax(0, 1.1fr) 120px 40px; }
+}
+
+/* Celular: uma coluna só, em qualquer visão */
+@media (max-width: 860px) {
+  .q-tarefa,
+  .q-tabela .q-tarefa,
+  .q-colunas .q-tarefa {
+    grid-template-areas:
+      "st tit"
+      ".  quem"
+      ".  prazo"
+      ".  etapa"
+      ".  resumo"
+      ".  tema"
+      "det det";
+    grid-template-columns: 18px minmax(0, 1fr);
+    align-items: start;
+    gap: 6px 10px;
+  }
+  .q-cabecalho-tabela { display: none; }
+  .q-pun, .q-seta { display: none; }
+  .q-titulo { white-space: normal; }
+  .q-sub { display: contents; }
+  .q-resumo { grid-area: resumo; white-space: normal; }
+  .q-tema { grid-area: tema; justify-self: start; }
+  .q-acoes { grid-area: st; align-self: start; justify-self: start; }
+}
+
+.q-titulo {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.q-resumo-1linha {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Farol na borda: a cor da esquerda é o prazo, nunca a pessoa */
+.q-tarefa { border-left: 3px solid transparent; }
+.q-farol-vencida { border-left-color: var(--urgent); }
+.q-farol-hoje    { border-left-color: var(--warm); }
+.q-farol-semana  { border-left-color: color-mix(in srgb, var(--warm) 45%, transparent); }
+.q-farol-feito   { border-left-color: color-mix(in srgb, var(--done) 45%, transparent); }
+
+/* Cor por pessoa: só no avatar (decisão do Vitor, 08/2026) */
+.p0 { --p-bg: #fbe4ef; --p-fg: #a32063; }
+.p1 { --p-bg: #e4eefc; --p-fg: #17539e; }
+.p2 { --p-bg: #ece7fb; --p-fg: #5a3ba8; }
+.p3 { --p-bg: #def2f0; --p-fg: #0b6660; }
+.p4 { --p-bg: #f4ebdd; --p-fg: #7c4a17; }
+.p5 { --p-bg: #fde8e4; --p-fg: #a33a22; }
+.p6 { --p-bg: #e9efdc; --p-fg: #4f6b1f; }
+.p7 { --p-bg: #e6e8fa; --p-fg: #38409c; }
+.p-sem { --p-bg: var(--accent); --p-fg: var(--muted); }
+@media (prefers-color-scheme: dark) {
+  .p0 { --p-bg: #3a1d2c; --p-fg: #f0a6c8; }
+  .p1 { --p-bg: #16283f; --p-fg: #9dc4f2; }
+  .p2 { --p-bg: #26203f; --p-fg: #bda9f0; }
+  .p3 { --p-bg: #123230; --p-fg: #85d3cb; }
+  .p4 { --p-bg: #33261a; --p-fg: #dcae7c; }
+  .p5 { --p-bg: #3a201a; --p-fg: #f0a894; }
+  .p6 { --p-bg: #26301a; --p-fg: #bcd489; }
+  .p7 { --p-bg: #1e2140; --p-fg: #a9b0f2; }
+}
+.q-ini {
+  width: 21px; height: 21px; border-radius: 50%;
+  background: var(--p-bg, var(--accent)); color: var(--p-fg, var(--muted-strong));
+  font-size: 10px; font-weight: 700; letter-spacing: -0.02em;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+
+/* Na Tabela a linha perde o cartão: fica dentro de uma folha só, separada por
+   um fio. (Precisa ser CSS "solto" pra vencer o .paper-card, que também é.) */
+.q-tabela .q-tarefa {
+  border-radius: 0;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+}
+.q-tabela .q-linha:last-child .q-tarefa { border-bottom: 0; }
+.q-cabecalho-tabela { padding-left: 17px; padding-right: 14px; }
+
+/* O resumo da linha vive numa coluna estreita: corta com reticências. */
+.q-resumo-1linha,
+.q-resumo-1linha > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.q-tabela .q-resumo-1linha,
+.q-tabela .q-resumo-1linha > *,
+.q-colunas .q-resumo-1linha,
+.q-colunas .q-resumo-1linha > * {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+@media (max-width: 860px) {
+  .q-resumo-1linha,
+  .q-resumo-1linha > * { white-space: normal; overflow: visible; }
+}
+
+/* fim do bloco do quadro */
+
+/* Celular: o título quebra em várias linhas e o 🗑 tem lugar próprio (antes
+   caía em cima da bolinha de concluir). Fica no fim do arquivo porque precisa
+   valer sobre as regras de cima. */
+@media (max-width: 860px) {
+  .q-tarefa,
+  .q-tabela .q-tarefa,
+  .q-colunas .q-tarefa {
+    grid-template-columns: 18px minmax(0, 1fr) 30px;
+    grid-template-areas:
+      "st tit acoes"
+      ".  quem ."
+      ".  prazo ."
+      ".  etapa ."
+      ".  resumo ."
+      ".  tema ."
+      "det det det";
+  }
+  .q-acoes { grid-area: acoes; align-self: start; justify-self: end; }
+  .q-titulo { white-space: normal; overflow: visible; }
+  .q-etapa select, .q-tema input { width: auto; max-width: 100%; }
+}

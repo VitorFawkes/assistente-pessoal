@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
 import type { Quadro, QuadroConvidado, AtividadeItem } from "@/lib/quadros";
 import type { Tarefa } from "@/lib/queries";
 import { OwnerTaskProvider } from "@/lib/task-mutations";
@@ -11,7 +10,6 @@ import { TaskBoardView } from "./task-board-view";
 import { QuadroAbas } from "./quadro-abas";
 import { QuadroIdeias } from "./quadro-ideias";
 import { ideiasDoDono } from "@/lib/ideias-api";
-import { PlanoTimeline } from "./plano-timeline";
 import { ConvidadosManager } from "./convidados-manager";
 import { ActivityFeed } from "./activity-feed";
 import { TaskPickerModal } from "./task-picker-modal";
@@ -57,9 +55,7 @@ export function QuadroManager({
   ).length;
   const nFeitas = tarefas.length - nAbertas;
 
-  // ─── Tarefas: criar / adicionar existentes ────────────────────────────
-  const [novaTarefa, setNovaTarefa] = useState("");
-  const [criandoTarefa, setCriandoTarefa] = useState(false);
+  // ─── Tarefas: adicionar existentes ──────────────────────────────────
   const [pickerOpen, setPickerOpen] = useState(false);
 
   // ─── Visão: Lista (board) ou Linha do tempo (Gantt = "plano") ─────────
@@ -100,38 +96,6 @@ export function QuadroManager({
       setEditingDesc(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro desconhecido");
-    }
-  };
-
-  // Cria a tarefa e já vincula ao quadro (2 chamadas: POST tarefa → POST link).
-  const criarTarefaNoQuadro = async () => {
-    const titulo = novaTarefa.trim();
-    if (!titulo) return;
-    setCriandoTarefa(true);
-    try {
-      const res = await fetch("/api/tarefas", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ titulo }),
-      });
-      if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error ?? "Erro ao criar tarefa");
-      }
-      const tarefa = (await res.json()) as { id: string };
-      const link = await fetch(`/api/quadros/${quadro.id}/tarefas`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tarefaIds: [tarefa.id] }),
-      });
-      if (!link.ok) throw new Error("Tarefa criada, mas falhou ao vincular ao quadro");
-      setNovaTarefa("");
-      toast.success("Tarefa criada no quadro");
-      router.refresh();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erro desconhecido");
-    } finally {
-      setCriandoTarefa(false);
     }
   };
 
@@ -294,31 +258,6 @@ export function QuadroManager({
                   quantasTarefas={tarefas.length}
                   quantasIdeias={quantasIdeias}
                 />
-                {/* Toggle Lista ↔ Linha do tempo (transformar em plano) */}
-                <div className="inline-flex rounded-full border border-[color:var(--border)] p-0.5 text-[12px] font-medium">
-                  <button
-                    type="button"
-                    onClick={() => mudarVista("lista")}
-                    className={`px-3 py-1 rounded-full transition ${
-                      vista === "lista"
-                        ? "bg-[color:var(--foreground)] text-[color:var(--background)]"
-                        : "text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)]"
-                    }`}
-                  >
-                    Lista
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => mudarVista("timeline")}
-                    className={`px-3 py-1 rounded-full transition ${
-                      vista === "timeline"
-                        ? "bg-[color:var(--foreground)] text-[color:var(--background)]"
-                        : "text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)]"
-                    }`}
-                  >
-                    Linha do tempo
-                  </button>
-                </div>
                 <button
                   type="button"
                   onClick={() => setPickerOpen(true)}
@@ -333,42 +272,13 @@ export function QuadroManager({
               <QuadroIdeias api={apiIdeias} />
             ) : (
               <>
-            {/* Composer: nova tarefa direto no quadro */}
-            <div className="flex items-center gap-2">
-              <input
-                value={novaTarefa}
-                onChange={(e) => setNovaTarefa(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") criarTarefaNoQuadro();
-                }}
-                placeholder="Nova tarefa neste quadro…"
-                className="flex-1 rounded-lg border border-[color:var(--border)] px-4 py-2.5 text-sm bg-[color:var(--card)] text-[color:var(--foreground)] focus:border-[color:var(--accent)] outline-none transition-colors"
-              />
-              <button
-                type="button"
-                onClick={criarTarefaNoQuadro}
-                disabled={criandoTarefa || !novaTarefa.trim()}
-                className="press-feedback inline-flex items-center gap-1.5 rounded-lg bg-[color:var(--foreground)] text-[color:var(--background)] px-4 py-2.5 text-sm font-medium hover:opacity-90 disabled:opacity-50 transition whitespace-nowrap"
-              >
-                <Plus size={15} strokeWidth={2.5} />
-                {criandoTarefa ? "Criando…" : "Criar"}
-              </button>
-            </div>
-
-            {/* Conteúdo por visão: Lista (board) ou Linha do tempo (Gantt) */}
-            {vista === "timeline" ? (
-              <PlanoTimeline
-                tarefas={tarefas}
-                quadroId={quadro.id}
-                showManageButton={false}
-              />
-            ) : (
-              <TaskBoardView
-                quadroId={quadro.id}
-                tarefas={tarefas}
-                onRemoveFromBoard={removerDoQuadro}
-              />
-            )}
+            <TaskBoardView
+              quadroId={quadro.id}
+              tarefas={tarefas}
+              onRemoveFromBoard={removerDoQuadro}
+              vistaPadrao={vista}
+              onMudarVistaPadrao={mudarVista}
+            />
               </>
             )}
           </div>

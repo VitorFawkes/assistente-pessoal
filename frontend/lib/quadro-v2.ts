@@ -195,3 +195,88 @@ export function colunasKanban(tarefas: Tarefa[]): Grupo[] {
     (s) => porStatus.find((g) => g.chave === s) ?? { chave: s, rotulo: rotuloSituacao(s), tarefas: [] },
   );
 }
+
+// ── Como o quadro fala de gente e de data ──────────────────────────────
+
+const DIA_CURTO = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+
+const dd = (n: number) => String(n).padStart(2, "0");
+
+/** "sex 14/08" */
+export function dataCurta(iso: string): string {
+  const d = new Date(iso);
+  return `${DIA_CURTO[d.getDay()]} ${dd(d.getDate())}/${dd(d.getMonth() + 1)}`;
+}
+
+/** O selo de prazo do quadro, na fala do rascunho: "venceu sex 14/08",
+ *  "hoje, qui 20/08", "amanhã, sex 21/08", "seg 24/08", "sem prazo". */
+export function rotuloPrazo(t: Tarefa, agora = new Date()): string {
+  if (t.status === "concluida")
+    return t.concluida_em ? `feito ${dataCurta(t.concluida_em)}` : "feito";
+  if (!t.prazo) return "sem prazo";
+  const hoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
+  const d = new Date(t.prazo);
+  const dia = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dias = Math.round((dia.getTime() - hoje.getTime()) / 86_400_000);
+  const curta = dataCurta(t.prazo);
+  if (dias < 0) return `venceu ${curta}`;
+  if (dias === 0) return `hoje, ${curta}`;
+  if (dias === 1) return `amanhã, ${curta}`;
+  return curta;
+}
+
+/** "GI" — as duas primeiras letras, como no rascunho. */
+export const iniciais = (nome: string): string =>
+  nome.trim().slice(0, 2).toUpperCase() || "—";
+
+/** Classe da paleta de pessoa (p0..p7). A cor da pessoa só vive no avatar. */
+export function corDaPessoa(nome: string | null | undefined): string {
+  const n = (nome ?? "").trim().toLowerCase();
+  if (!n) return "p-sem";
+  let soma = 0;
+  for (let i = 0; i < n.length; i++) soma = (soma * 31 + n.charCodeAt(i)) % 997;
+  return `p${soma % 8}`;
+}
+
+export type PessoaDoQuadro = { nome: string; chave: string; abertas: number; atrasadas: number };
+
+/** Quem está no quadro, com quantas tarefas abertas e quantas atrasadas.
+ *  Conta como o rascunho: pelo dono, mais um balde de "Sem dono". */
+export function pessoasDoQuadro(tarefas: Tarefa[], agora = new Date()): PessoaDoQuadro[] {
+  const mapa = new Map<string, PessoaDoQuadro>();
+  const põe = (chave: string, nome: string, t: Tarefa) => {
+    if (!mapa.has(chave)) mapa.set(chave, { nome, chave, abertas: 0, atrasadas: 0 });
+    const p = mapa.get(chave)!;
+    if (t.status !== "concluida" && t.status !== "cancelada") p.abertas++;
+    if (faixaDoPrazo(t, agora) === "vencida") p.atrasadas++;
+  };
+  for (const t of tarefas) {
+    const d = donoDe(t);
+    põe(d ?? "__sem__", d ?? "Sem dono", t);
+  }
+  const lista = [...mapa.values()];
+  lista.sort((a, b) =>
+    a.chave === "__sem__" ? 1 : b.chave === "__sem__" ? -1 : b.abertas - a.abertas,
+  );
+  return lista;
+}
+
+/** Os números da faixa de resumo: atrasadas, até sexta, fazendo e progresso. */
+export function numerosDoQuadro(tarefas: Tarefa[], agora = new Date()) {
+  let atrasadas = 0, ateSexta = 0, fazendo = 0, feitas = 0;
+  for (const t of tarefas) {
+    const faixa = faixaDoPrazo(t, agora);
+    if (faixa === "vencida") atrasadas++;
+    if (faixa === "hoje" || faixa === "semana") ateSexta++;
+    if (t.status === "em_andamento") fazendo++;
+    if (t.status === "concluida") feitas++;
+  }
+  return {
+    atrasadas,
+    ateSexta,
+    fazendo,
+    feitas,
+    total: tarefas.length,
+    porcento: tarefas.length ? Math.round((feitas / tarefas.length) * 100) : 0,
+  };
+}
