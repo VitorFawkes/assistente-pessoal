@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
@@ -8,6 +8,9 @@ import type { Quadro, QuadroConvidado, AtividadeItem } from "@/lib/quadros";
 import type { Tarefa } from "@/lib/queries";
 import { OwnerTaskProvider } from "@/lib/task-mutations";
 import { TaskBoardView } from "./task-board-view";
+import { QuadroAbas } from "./quadro-abas";
+import { QuadroIdeias } from "./quadro-ideias";
+import { ideiasDoDono } from "@/lib/ideias-api";
 import { PlanoTimeline } from "./plano-timeline";
 import { ConvidadosManager } from "./convidados-manager";
 import { ActivityFeed } from "./activity-feed";
@@ -28,6 +31,23 @@ export function QuadroManager({
 }: QuadroManagerProps) {
   const router = useRouter();
   const [quadro, setQuadro] = useState(initialQuadro);
+  const [pagina, setPagina] = useState<"tarefas" | "ideias">("tarefas");
+  const [quantasIdeias, setQuantasIdeias] = useState(0);
+  
+  const apiIdeias = useMemo(
+    () => ideiasDoDono(initialQuadro.id, () => router.refresh()),
+    [initialQuadro.id, router],
+  );
+
+  // conta as ideias pra mostrar no número da aba
+  useEffect(() => {
+    let vivo = true;
+    void apiIdeias
+      .listar()
+      .then((l) => { if (vivo) setQuantasIdeias(l.length); })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, [apiIdeias, pagina]);
   const [convidados, setConvidados] = useState(initialConvidados);
   const [editingName, setEditingName] = useState(false);
   const [editingDesc, setEditingDesc] = useState(false);
@@ -268,6 +288,12 @@ export function QuadroManager({
                 )}
               </h3>
               <div className="flex items-center gap-3">
+                <QuadroAbas
+                  pagina={pagina}
+                  setPagina={setPagina}
+                  quantasTarefas={tarefas.length}
+                  quantasIdeias={quantasIdeias}
+                />
                 {/* Toggle Lista ↔ Linha do tempo (transformar em plano) */}
                 <div className="inline-flex rounded-full border border-[color:var(--border)] p-0.5 text-[12px] font-medium">
                   <button
@@ -303,6 +329,10 @@ export function QuadroManager({
               </div>
             </div>
 
+            {pagina === "ideias" ? (
+              <QuadroIdeias api={apiIdeias} />
+            ) : (
+              <>
             {/* Composer: nova tarefa direto no quadro */}
             <div className="flex items-center gap-2">
               <input
@@ -338,6 +368,8 @@ export function QuadroManager({
                 tarefas={tarefas}
                 onRemoveFromBoard={removerDoQuadro}
               />
+            )}
+              </>
             )}
           </div>
 

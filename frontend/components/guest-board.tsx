@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   GuestTaskProvider,
@@ -9,6 +9,9 @@ import {
 } from "@/lib/task-mutations";
 import type { AcessoConvidado } from "@/lib/quadros";
 import { TaskBoardView } from "./task-board-view";
+import { QuadroAbas } from "./quadro-abas";
+import { QuadroIdeias } from "./quadro-ideias";
+import { ideiasDoConvidado } from "@/lib/ideias-api";
 import { PlanoTimeline } from "./plano-timeline";
 import { CaptureComposer } from "./capture-composer";
 import { ConvidadosManager } from "./convidados-manager";
@@ -24,6 +27,18 @@ function GuestBoardContent({ token, acesso }: { token: string; acesso: AcessoCon
   const mut = useTaskMutations();
   const [editingName, setEditingName] = useState(false);
   const [editingDesc, setEditingDesc] = useState(false);
+
+  const [pagina, setPagina] = useState<"tarefas" | "ideias">("tarefas");
+  const [quantasIdeias, setQuantasIdeias] = useState(0);
+  const apiIdeias = useMemo(
+    () => ideiasDoConvidado(token, () => window.location.reload()),
+    [token],
+  );
+  useEffect(() => {
+    let vivo = true;
+    void apiIdeias.listar().then((l) => { if (vivo) setQuantasIdeias(l.length); }).catch(() => {});
+    return () => { vivo = false; };
+  }, [apiIdeias, pagina]);
 
   const vista = quadro?.vista_padrao ?? "lista";
   const nomeAtual = quadro?.nome ?? acesso.quadroNome;
@@ -226,14 +241,24 @@ function GuestBoardContent({ token, acesso }: { token: string; acesso: AcessoCon
               </span>
             )}
           </h3>
-          <div className="inline-flex rounded-full border border-[color:var(--border)] p-0.5 text-[12px] font-medium">
-            {toggleBtn("lista", "Lista")}
-            {toggleBtn("timeline", "Linha do tempo")}
+          <div className="flex items-center gap-3 flex-wrap">
+            <QuadroAbas
+              pagina={pagina}
+              setPagina={setPagina}
+              quantasTarefas={tarefas.length}
+              quantasIdeias={quantasIdeias}
+            />
+            <div className="inline-flex rounded-full border border-[color:var(--border)] p-0.5 text-[12px] font-medium">
+              {toggleBtn("lista", "Lista")}
+              {toggleBtn("timeline", "Linha do tempo")}
+            </div>
           </div>
         </div>
 
         <main className="mb-12">
-          {loading ? (
+          {pagina === "ideias" ? (
+            <QuadroIdeias api={apiIdeias} />
+          ) : loading ? (
             <div className="flex justify-center py-16">
               <p className="text-[color:var(--muted)]">Carregando tarefas…</p>
             </div>
