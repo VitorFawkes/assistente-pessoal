@@ -1,5 +1,7 @@
 "use client";
 
+import { dataBR } from "@/lib/data-br";
+
 import { useState } from "react";
 import { Trash2 } from "lucide-react";
 import { CopyLinkButton } from "./copy-link-button";
@@ -96,7 +98,7 @@ export function ConvidadosManager({
                   {c.nome}
                 </p>
                 <p className="text-[11px] text-[color:var(--muted)]">
-                  convidado em {new Date(c.created_at).toLocaleDateString("pt-BR")}
+                  convidado em {dataBR(c.created_at)}
                 </p>
               </div>
               <CopyLinkButton

@@ -1,5 +1,11 @@
 // Lógica da experiência nova do Quadro: as 4 situações, filtros, ordenação e
 // agrupamento. Tudo puro (sem React, sem banco) pra poder testar sozinho.
+import {
+  dataCurtaBR,
+  diasAteBR,
+  ehDataValida,
+  haQuantoTempoBR,
+} from "./data-br";
 import type { Tarefa } from "./queries";
 
 export type Situacao = "aberta" | "em_andamento" | "aguardando_aprovacao" | "concluida";
@@ -19,13 +25,12 @@ export const rotuloSituacao = (s: string): string =>
 
 export type FaixaPrazo = "vencida" | "hoje" | "semana" | "depois" | "semprazo" | "feito";
 
-export function faixaDoPrazo(t: Tarefa, agora = new Date()): FaixaPrazo {
+export function faixaDoPrazo(t: Tarefa, agora: Date | string = new Date()): FaixaPrazo {
   if (t.status === "concluida") return "feito";
-  if (!t.prazo) return "semprazo";
-  const hoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
-  const d = new Date(t.prazo);
-  const dia = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const dias = Math.round((dia.getTime() - hoje.getTime()) / 86_400_000);
+  if (!ehDataValida(t.prazo)) return "semprazo";
+  // Dias de calendário de BRASÍLIA. Com o servidor em UTC, às 22h daqui já era
+  // "amanhã" lá e o que vencia hoje entrava como atrasado.
+  const dias = diasAteBR(t.prazo!, agora);
   if (dias < 0) return "vencida";
   if (dias === 0) return "hoje";
   if (dias <= 7) return "semana";
@@ -73,7 +78,7 @@ const textoDe = (t: Tarefa): string =>
     .filter(Boolean).join(" ").toLowerCase();
 
 /** Passa nos filtros? `ignorar` deixa um filtro de fora (pra contar os chips). */
-export function passa(t: Tarefa, f: Filtros, agora = new Date(), ignorar?: keyof Filtros): boolean {
+export function passa(t: Tarefa, f: Filtros, agora: Date | string = new Date(), ignorar?: keyof Filtros): boolean {
   if (ignorar !== "concluidas" && !f.concluidas && t.status === "concluida") return false;
   if (ignorar !== "prazo" && f.prazo !== "todas" && faixaDoPrazo(t, agora) !== f.prazo) return false;
   if (ignorar !== "pessoa" && f.pessoa && !envolve(t, f.pessoa)) return false;
@@ -151,7 +156,7 @@ const ROTULO_PRAZO: Record<FaixaPrazo, string> = {
 
 /** Agrupa mantendo a ordem já aplicada na lista. Ninguém some: sem dono e sem
  *  tema viram grupo próprio. */
-export function agrupar(tarefas: Tarefa[], modo: VerPor, agora = new Date()): Grupo[] {
+export function agrupar(tarefas: Tarefa[], modo: VerPor, agora: Date | string = new Date()): Grupo[] {
   if (modo === "nada") return [{ chave: "tudo", rotulo: "Todas as tarefas", tarefas }];
 
   const mapa = new Map<string, Grupo>();
@@ -198,27 +203,17 @@ export function colunasKanban(tarefas: Tarefa[]): Grupo[] {
 
 // ── Como o quadro fala de gente e de data ──────────────────────────────
 
-const DIA_CURTO = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
-
-const dd = (n: number) => String(n).padStart(2, "0");
-
-/** "sex 14/08" */
-export function dataCurta(iso: string): string {
-  const d = new Date(iso);
-  return `${DIA_CURTO[d.getDay()]} ${dd(d.getDate())}/${dd(d.getMonth() + 1)}`;
-}
+/** "sex 14/08", sempre no horário de Brasília. */
+export const dataCurta = dataCurtaBR;
 
 /** O selo de prazo do quadro, na fala do rascunho: "venceu sex 14/08",
  *  "hoje, qui 20/08", "amanhã, sex 21/08", "seg 24/08", "sem prazo". */
-export function rotuloPrazo(t: Tarefa, agora = new Date()): string {
+export function rotuloPrazo(t: Tarefa, agora: Date | string = new Date()): string {
   if (t.status === "concluida")
-    return t.concluida_em ? `feito ${dataCurta(t.concluida_em)}` : "feito";
-  if (!t.prazo) return "sem prazo";
-  const hoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
-  const d = new Date(t.prazo);
-  const dia = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const dias = Math.round((dia.getTime() - hoje.getTime()) / 86_400_000);
-  const curta = dataCurta(t.prazo);
+    return ehDataValida(t.concluida_em) ? `feito ${dataCurtaBR(t.concluida_em!)}` : "feito";
+  if (!ehDataValida(t.prazo)) return "sem prazo";
+  const dias = diasAteBR(t.prazo!, agora);
+  const curta = dataCurtaBR(t.prazo!);
   if (dias < 0) return `venceu ${curta}`;
   if (dias === 0) return `hoje, ${curta}`;
   if (dias === 1) return `amanhã, ${curta}`;
@@ -242,7 +237,7 @@ export type PessoaDoQuadro = { nome: string; chave: string; abertas: number; atr
 
 /** Quem está no quadro, com quantas tarefas abertas e quantas atrasadas.
  *  Conta como o rascunho: pelo dono, mais um balde de "Sem dono". */
-export function pessoasDoQuadro(tarefas: Tarefa[], agora = new Date()): PessoaDoQuadro[] {
+export function pessoasDoQuadro(tarefas: Tarefa[], agora: Date | string = new Date()): PessoaDoQuadro[] {
   const mapa = new Map<string, PessoaDoQuadro>();
   const põe = (chave: string, nome: string, t: Tarefa) => {
     if (!mapa.has(chave)) mapa.set(chave, { nome, chave, abertas: 0, atrasadas: 0 });
@@ -262,7 +257,7 @@ export function pessoasDoQuadro(tarefas: Tarefa[], agora = new Date()): PessoaDo
 }
 
 /** Os números da faixa de resumo: atrasadas, até sexta, fazendo e progresso. */
-export function numerosDoQuadro(tarefas: Tarefa[], agora = new Date()) {
+export function numerosDoQuadro(tarefas: Tarefa[], agora: Date | string = new Date()) {
   let atrasadas = 0, ateSexta = 0, fazendo = 0, feitas = 0;
   for (const t of tarefas) {
     const faixa = faixaDoPrazo(t, agora);
@@ -316,17 +311,9 @@ const quandoEntrou = (t: Tarefa): number | null => {
 };
 
 /** Rótulo curto do "entrou aqui": "hoje", "ontem", "há 5 dias", "12/08". */
-export function rotuloEntrouAqui(t: Tarefa, agora = new Date()): string | null {
+export function rotuloEntrouAqui(t: Tarefa): string | null {
   const q = quandoEntrou(t);
-  if (q === null) return null;
-  const hoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate()).getTime();
-  const d = new Date(q);
-  const dia = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  const dias = Math.round((hoje - dia) / 86_400_000);
-  if (dias <= 0) return "hoje";
-  if (dias === 1) return "ontem";
-  if (dias < 30) return `há ${dias} dias`;
-  return `${dd(d.getDate())}/${dd(d.getMonth() + 1)}`;
+  return q === null ? null : haQuantoTempoBR(q);
 }
 
 /** Ordena DENTRO de uma coluna. "padrao" devolve 0: a lista já vem ordenada

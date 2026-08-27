@@ -1,39 +1,42 @@
 import { test, expect, describe } from "bun:test";
 import { quickDeadlineISO, allConcluidas, concluirAction } from "./bulk";
+import { horaBR, paraCampoBR } from "./data-br";
 
-// Quarta-feira, 2026-06-24 10:00 local.
-const WED = new Date(2026, 5, 24, 10, 0, 0, 0);
+// Quarta-feira, 24/06/2026, 10h EM BRASÍLIA (13:00 UTC). Instante explícito:
+// com `new Date(2026,5,24,10,0)` o próprio teste mudava de resposta conforme o
+// fuso da máquina, que é justamente o defeito que estamos consertando.
+const QUA = "2026-06-24T13:00:00Z";
 
-function ymd(iso: string): string {
-  const d = new Date(iso);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-    d.getDate(),
-  ).padStart(2, "0")}`;
-}
+// Lê o dia SEMPRE em Brasília — é o que a pessoa vê na tela.
+const dia = (iso: string) => paraCampoBR(iso);
 
 describe("quickDeadlineISO", () => {
-  test("hoje = mesmo dia, fim do dia", () => {
-    const iso = quickDeadlineISO("hoje", WED);
-    expect(ymd(iso)).toBe("2026-06-24");
-    expect(new Date(iso).getHours()).toBe(23);
-    expect(new Date(iso).getMinutes()).toBe(59);
+  test("hoje = mesmo dia, 23h59 de Brasília", () => {
+    const iso = quickDeadlineISO("hoje", QUA);
+    expect(dia(iso)).toBe("2026-06-24");
+    expect(horaBR(iso)).toBe("23h59");
   });
 
   test("amanha = +1 dia", () => {
-    expect(ymd(quickDeadlineISO("amanha", WED))).toBe("2026-06-25");
+    expect(dia(quickDeadlineISO("amanha", QUA))).toBe("2026-06-25");
   });
 
   test("sexta = próxima sexta (2026-06-26)", () => {
-    expect(ymd(quickDeadlineISO("sexta", WED))).toBe("2026-06-26");
+    expect(dia(quickDeadlineISO("sexta", QUA))).toBe("2026-06-26");
   });
 
   test("sexta a partir de uma sexta pula pra próxima", () => {
-    const fri = new Date(2026, 5, 26, 10, 0, 0, 0); // sexta
-    expect(ymd(quickDeadlineISO("sexta", fri))).toBe("2026-07-03");
+    const sex = "2026-06-26T13:00:00Z";
+    expect(dia(quickDeadlineISO("sexta", sex))).toBe("2026-07-03");
   });
 
   test("proxsemana = próxima segunda (2026-06-29)", () => {
-    expect(ymd(quickDeadlineISO("proxsemana", WED))).toBe("2026-06-29");
+    expect(dia(quickDeadlineISO("proxsemana", QUA))).toBe("2026-06-29");
+  });
+
+  test("às 22h de Brasília ainda é HOJE, mesmo o servidor em UTC já sendo amanhã", () => {
+    // 01:00 UTC do dia 25 = 22:00 do dia 24 aqui.
+    expect(dia(quickDeadlineISO("hoje", "2026-06-25T01:00:00Z"))).toBe("2026-06-24");
   });
 });
 

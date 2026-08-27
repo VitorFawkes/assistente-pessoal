@@ -12,7 +12,7 @@ import { QuadroIdeias } from "./quadro-ideias";
 import { ideiasDoDono } from "@/lib/ideias-api";
 import { QuadroPainel } from "./quadro-painel";
 import { QuadroDescricao } from "./quadro-descricao";
-import { TaskPickerModal } from "./task-picker-modal";
+import { EscolherDasReunioes } from "./escolher-das-reunioes";
 
 interface QuadroManagerProps {
   quadro: Quadro;
@@ -230,7 +230,7 @@ export function QuadroManager({
               onClick={() => setPickerOpen(true)}
               className="rounded-lg border border-[color:var(--border)] bg-[color:var(--card)] px-3 py-1.5 text-[12.5px] font-medium text-[color:var(--muted-strong)] hover:border-[color:var(--muted)] hover:text-[color:var(--foreground)] transition whitespace-nowrap"
             >
-              Adicionar existentes
+              Escolher das reuniões
             </button>
             <QuadroPainel
               convidados={convidados}
@@ -256,8 +256,9 @@ export function QuadroManager({
       </div>
 
       {pickerOpen && (
-        <TaskPickerModal
+        <EscolherDasReunioes
           quadroId={quadro.id}
+          tarefasNoQuadro={tarefas}
           onClose={() => setPickerOpen(false)}
           onAdded={() => router.refresh()}
         />

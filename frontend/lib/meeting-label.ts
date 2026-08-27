@@ -19,7 +19,7 @@ const ABRE_COM_REUNIAO = /^(reuni(ão|ao|ões|oes)|conversa|call|bate[- ]papo)\b
 // perto do começo (senão cortariam no meio do próprio assunto).
 const MARCADORES: RegExp[] = [
   /\bfocad[ao]s?\s+(em|na|no|nas|nos)\s+/i,
-  /\btratam?\s+de\s+/i,
+  /\btrat(a|am|ando|ou|aram)\s+d[eoa]s?\s+/i,
   /\bsobre\s+/i,
   /\bpara\s+/i,
   /\bentre\s+/i,
@@ -46,7 +46,20 @@ function limpar(s: string): string {
  * Assunto da reunião sem a abertura genérica. Sem data — use
  * `meetingLabel` pra montar o rótulo completo.
  */
-export function meetingSubject(summary: string | null | undefined): string {
+/**
+ * O nome da reunião na tela.
+ *
+ * Se alguém batizou a reunião (`nome`), é esse e ponto. Só quando ninguém
+ * batizou é que a gente esculpe um rótulo do parágrafo de resumo — e aí
+ * continua valendo a regra de tirar a abertura genérica.
+ */
+export function meetingSubject(
+  summary: string | null | undefined,
+  nome?: string | null,
+): string {
+  const batizado = (nome ?? "").trim();
+  if (batizado) return batizado;
+
   const base = limpar(summary ?? "");
   if (!base) return "";
 

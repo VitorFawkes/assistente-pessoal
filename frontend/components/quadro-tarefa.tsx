@@ -11,9 +11,10 @@
 // no avatar.
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { areaLabel, cn, formatCreatedAt } from "@/lib/utils";
+import { areaLabel, cn } from "@/lib/utils";
 import { meetingDateShort, meetingSubject } from "@/lib/meeting-label";
 import { useTaskMutations } from "@/lib/task-mutations";
+import { fimDoDiaBR, inicioDoDiaBR, paraCampoBR, quandoBR } from "@/lib/data-br";
 import {
   SITUACOES,
   corDaPessoa,
@@ -215,24 +216,10 @@ const CORES_SELO: Record<string, string> = {
   feito: "bg-[color:var(--done-bg)] text-[color:var(--done)]",
 };
 
-function toDateInput(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-function fimDoDia(valor: string): string | null {
-  if (!valor) return null;
-  const [y, m, d] = valor.split("-").map(Number);
-  if (!y || !m || !d) return null;
-  return new Date(y, m - 1, d, 23, 59, 0, 0).toISOString();
-}
-function inicioDoDia(valor: string): string | null {
-  if (!valor) return null;
-  const [y, m, d] = valor.split("-").map(Number);
-  if (!y || !m || !d) return null;
-  return new Date(y, m - 1, d, 0, 0, 0, 0).toISOString();
-}
+// Datas: sempre pelo relógio de Brasília (ver lib/data-br.ts).
+const toDateInput = paraCampoBR;
+const fimDoDia = fimDoDiaBR;
+const inicioDoDia = inicioDoDiaBR;
 
 /** Prazo: o selo vira campo de data com um clique. */
 function PrazoVivo({ tarefa }: { tarefa: Tarefa }) {
@@ -663,7 +650,7 @@ export function QuadroTarefa({
                 Criada em
               </b>
               <span className="text-[color:var(--muted-strong)]">
-                {formatCreatedAt(tarefa.created_at) || "—"}
+                {quandoBR(tarefa.created_at) || "—"}
               </span>
             </span>
 

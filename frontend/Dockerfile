@@ -16,10 +16,15 @@ WORKDIR /app
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
-    HOSTNAME=0.0.0.0
+    HOSTNAME=0.0.0.0 \
+    TZ=America/Sao_Paulo
 
-# ffmpeg pra fatiamento de áudio em /api/meetings/[id]/segments
-RUN apk add --no-cache ffmpeg
+# ffmpeg pra fatiamento de áudio em /api/meetings/[id]/segments.
+# tzdata: sem o banco de fusos, TZ=America/Sao_Paulo é ignorado e o container
+# fica em UTC — foi assim que das 21h à meia-noite o servidor já estava no dia
+# seguinte. O código não depende disto (lib/data-br.ts resolve sozinho), mas
+# aqui é a segunda camada.
+RUN apk add --no-cache ffmpeg tzdata
 
 RUN addgroup -S app && adduser -S app -G app
 USER app

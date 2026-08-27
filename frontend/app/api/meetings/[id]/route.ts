@@ -50,3 +50,27 @@ export const DELETE = withAuth<Ctx>(async (user, _req, ctx) => {
     );
   }
 });
+
+/** PATCH — por enquanto só o nome que uma pessoa dá à reunião.
+ *  Sem nome próprio, a tela precisa esculpir um rótulo do parágrafo de resumo,
+ *  e em 33 das 177 reuniões esse rótulo ainda começa pelas pessoas em vez do
+ *  assunto. Batizar resolve de vez, uma reunião por vez. */
+export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
+  const { id } = await ctx.params;
+  if (!UUID_RE.test(id)) {
+    return NextResponse.json({ error: "id inválido" }, { status: 400 });
+  }
+  let body: { nome?: string | null };
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    return NextResponse.json({ error: "invalid json" }, { status: 400 });
+  }
+  if (body.nome === undefined) {
+    return NextResponse.json({ error: "nada para atualizar" }, { status: 400 });
+  }
+  const nome = typeof body.nome === "string" ? body.nome.trim().slice(0, 120) : "";
+  const ok = await meetingsFor(user.id).renomear(id, nome || null);
+  if (!ok) return NextResponse.json({ error: "reunião não encontrada" }, { status: 404 });
+  return NextResponse.json({ ok: true, nome: nome || null });
+});

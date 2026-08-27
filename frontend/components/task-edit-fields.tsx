@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Calendar, Trash2 } from "lucide-react";
 import { cn, type Prioridade } from "@/lib/utils";
+import { fimDoDiaBR, hojeBR, inicioDoDiaBR, maisDiasBR, paraCampoBR, proximoDiaDaSemanaBR } from "@/lib/data-br";
 import { useTaskMutations } from "@/lib/task-mutations";
 import type { Tarefa, Acao, TarefaPessoa } from "@/lib/queries";
 
@@ -27,38 +28,12 @@ const ACOES: { value: Acao; label: string; hint: string }[] = [
   },
 ];
 
-function toDateInput(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
+const toDateInput = paraCampoBR;
 
-function dateInputToIso(value: string): string | null {
-  if (!value) return null;
-  const [y, m, d] = value.split("-").map((s) => parseInt(s, 10));
-  if (!y || !m || !d) return null;
-  const date = new Date(y, m - 1, d, 23, 59, 0, 0);
-  return date.toISOString();
-}
+// Prazo = fim do dia EM BRASÍLIA (ver lib/data-br.ts).
+const dateInputToIso = fimDoDiaBR;
 
-function dateInputToIsoStart(value: string): string | null {
-  if (!value) return null;
-  const [y, m, d] = value.split("-").map((s) => parseInt(s, 10));
-  if (!y || !m || !d) return null;
-  return new Date(y, m - 1, d, 0, 0, 0, 0).toISOString();
-}
-
-function nextWeekday(targetDay: number): Date {
-  const d = new Date();
-  const cur = d.getDay();
-  const delta = (targetDay - cur + 7) % 7 || 7;
-  d.setDate(d.getDate() + delta);
-  return d;
-}
+const dateInputToIsoStart = inicioDoDiaBR;
 
 export function TaskEditFields({ tarefa }: Props) {
   const mut = useTaskMutations();
@@ -158,18 +133,11 @@ export function TaskEditFields({ tarefa }: Props) {
   const handleQuickPrazo = async (
     when: "hoje" | "amanha" | "sexta" | "proxsemana",
   ) => {
-    let date: Date;
-    if (when === "hoje") {
-      date = new Date();
-    } else if (when === "amanha") {
-      date = new Date();
-      date.setDate(date.getDate() + 1);
-    } else if (when === "sexta") {
-      date = nextWeekday(5);
-    } else {
-      date = nextWeekday(1);
-    }
-    const newPrazo = toDateInput(date.toISOString());
+    const newPrazo =
+      when === "hoje" ? hojeBR()
+      : when === "amanha" ? maisDiasBR(1)
+      : when === "sexta" ? proximoDiaDaSemanaBR(5)
+      : proximoDiaDaSemanaBR(1);
     const old = prazo;
     setPrazo(newPrazo);
     const ok = await mut.patch(tarefa.id, { prazo: dateInputToIso(newPrazo) });

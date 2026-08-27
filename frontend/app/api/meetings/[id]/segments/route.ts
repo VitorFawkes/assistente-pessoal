@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { diaMesBR } from "@/lib/data-br";
 import { randomUUID } from "node:crypto";
 import { resolve as resolvePath, dirname } from "node:path";
 import { rm, mkdir } from "node:fs/promises";
@@ -343,7 +344,7 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
     } else if (result.children.length > 0) {
       const recordedAt = result.parent.recorded_at;
       const dateStr = recordedAt
-        ? new Date(recordedAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })
+        ? diaMesBR(recordedAt)
         : "hoje";
       const descartadosMsg =
         skipIntervals.length > 0

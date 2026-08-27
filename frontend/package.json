@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "tz": "for tz in UTC Asia/Tokyo America/Sao_Paulo Pacific/Kiritimati; do echo \"— $tz\"; TZ=$tz bun test || exit 1; done"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

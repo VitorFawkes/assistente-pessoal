@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { ArrowRight, Search, ThumbsUp, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { corDaPessoa, iniciais } from "@/lib/quadro-v2";
+import { haQuantoTempoBR } from "@/lib/data-br";
 import type { Ideia } from "@/lib/ideias";
 
 type Api = {
@@ -35,19 +36,6 @@ const ORDENS: { valor: Ordem; rotulo: string }[] = [
   { valor: "tema", rotulo: "Tema" },
 ];
 
-function quando(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const hoje = new Date();
-  const dias = Math.round(
-    (new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate()).getTime() -
-      new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()) / 86_400_000,
-  );
-  if (dias <= 0) return "hoje";
-  if (dias === 1) return "ontem";
-  if (dias < 30) return `há ${dias} dias`;
-  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
-}
 
 function CartaoIdeia({
   ideia,
@@ -144,7 +132,7 @@ function CartaoIdeia({
               <span className="q-ini">{iniciais(ideia.autor_nome)}</span>
               {ideia.autor_nome}
             </span>
-            <span>{quando(ideia.criado_em)}</span>
+            <span>{haQuantoTempoBR(ideia.criado_em)}</span>
             <input
               list={listaId}
               defaultValue={ideia.tema ?? ""}

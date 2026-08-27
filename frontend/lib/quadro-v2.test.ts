@@ -5,7 +5,9 @@ import {
 } from "./quadro-v2";
 import type { Tarefa } from "./queries";
 
-const HOJE = new Date(2026, 7, 20); // qui 20/08/2026
+// Instante explícito, não meia-noite local: com `new Date(2026,7,20)` o
+// próprio teste mudava de resposta conforme o fuso da máquina.
+const HOJE = "2026-08-20T15:00:00Z"; // qui 20/08/2026, 12h em Brasília
 
 function tarefa(over: Partial<Tarefa> = {}): Tarefa {
   return {

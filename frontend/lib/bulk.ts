@@ -1,39 +1,18 @@
 // Lógica pura das ações em massa de pendências. Sem I/O — testável isolada.
-// Datas em horário local (espelha o task-edit-modal: prazo = fim do dia 23:59).
+// Datas SEMPRE no horário de Brasília (ver lib/data-br.ts): "sexta" é a sexta
+// daqui e o prazo é 23h59 daqui, não do fuso de quem está com a tela aberta.
+import { fimDoDiaBR, hojeBR, maisDiasBR, proximoDiaDaSemanaBR } from "./data-br";
 
 export type QuickWhen = "hoje" | "amanha" | "sexta" | "proxsemana";
 
-// Próximo dia-da-semana (0=dom..6=sáb) a partir de `from`. Se for hoje, pula pro próximo.
-function nextWeekday(targetDay: number, from: Date): Date {
-  const d = new Date(from);
-  const cur = d.getDay();
-  const delta = (targetDay - cur + 7) % 7 || 7;
-  d.setDate(d.getDate() + delta);
-  return d;
-}
-
-// ISO de um prazo rápido (fim do dia local). `now` injetável p/ testes.
-export function quickDeadlineISO(when: QuickWhen, now: Date = new Date()): string {
-  let date: Date;
-  if (when === "hoje") {
-    date = new Date(now);
-  } else if (when === "amanha") {
-    date = new Date(now);
-    date.setDate(date.getDate() + 1);
-  } else if (when === "sexta") {
-    date = nextWeekday(5, now);
-  } else {
-    date = nextWeekday(1, now); // próxima segunda
-  }
-  return new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
-    23,
-    59,
-    0,
-    0,
-  ).toISOString();
+/** ISO do prazo rápido: fim do dia, em Brasília. `now` injetável p/ testes. */
+export function quickDeadlineISO(when: QuickWhen, now: Date | string = new Date()): string {
+  const dia =
+    when === "hoje" ? hojeBR(now)
+    : when === "amanha" ? maisDiasBR(1, now)
+    : when === "sexta" ? proximoDiaDaSemanaBR(5, now)
+    : proximoDiaDaSemanaBR(1, now); // próxima segunda
+  return fimDoDiaBR(dia)!;
 }
 
 // Todas as selecionadas já estão concluídas? → botão vira "Reabrir".

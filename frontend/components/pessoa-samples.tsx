@@ -1,5 +1,7 @@
 "use client";
 
+import { dataHoraBR } from "@/lib/data-br";
+
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -40,12 +42,7 @@ function fmtTimecode(seconds: number): string {
 function fmtDateBR(iso: string | null): string {
   if (!iso) return "?";
   const d = new Date(iso);
-  return d.toLocaleString("pt-BR", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return dataHoraBR(d);
 }
 
 export function PessoaSamplesList({

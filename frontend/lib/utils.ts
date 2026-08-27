@@ -1,8 +1,13 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { formatDistanceToNowStrict, isPast } from "date-fns";
-import { formatInTimeZone, toZonedTime } from "date-fns-tz";
-import { ptBR } from "date-fns/locale";
+import { toZonedTime } from "date-fns-tz";
+import {
+  dataHoraBR,
+  dataLongaBR,
+  diasAteBR,
+  ehDataValida,
+  quandoBR,
+} from "./data-br";
 
 export const SP_TZ = "America/Sao_Paulo";
 
@@ -43,27 +48,6 @@ export function acaoForOwner(owner: string | null | undefined): "executar" | "co
   return isOwnerMe(owner) ? "executar" : "cobrar";
 }
 
-function dayKeySP(d: Date): string {
-  return formatInTimeZone(d, SP_TZ, "yyyy-MM-dd");
-}
-
-function isTodaySP(d: Date): boolean {
-  return dayKeySP(d) === dayKeySP(new Date());
-}
-
-function isYesterdaySP(d: Date): boolean {
-  return dayKeySP(d) === dayKeySP(new Date(Date.now() - 86_400_000));
-}
-
-function isTomorrowSP(d: Date): boolean {
-  return dayKeySP(d) === dayKeySP(new Date(Date.now() + 86_400_000));
-}
-
-function isThisYearSP(d: Date): boolean {
-  return formatInTimeZone(d, SP_TZ, "yyyy") ===
-    formatInTimeZone(new Date(), SP_TZ, "yyyy");
-}
-
 export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
@@ -87,21 +71,17 @@ export function formatPrazo(iso: string | null | undefined): {
   text: string;
   status: "vencida" | "hoje" | "amanha" | "futuro" | "sem-prazo";
 } {
-  if (!iso) return { text: "sem prazo", status: "sem-prazo" };
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return { text: "sem prazo", status: "sem-prazo" };
-
-  if (isTodaySP(date)) return { text: "hoje", status: "hoje" };
-  if (isTomorrowSP(date)) return { text: "amanhã", status: "amanha" };
-  if (isPast(date))
-    return {
-      text: `vencida há ${formatDistanceToNowStrict(date, { locale: ptBR })}`,
-      status: "vencida",
-    };
-  return {
-    text: `em ${formatDistanceToNowStrict(date, { locale: ptBR })}`,
-    status: "futuro",
-  };
+  // Tudo contado em dias de Brasília: às 22h daqui o servidor está em UTC e já
+  // acha que é amanhã, e o que vence hoje aparecia como atrasado.
+  if (!ehDataValida(iso)) return { text: "sem prazo", status: "sem-prazo" };
+  const dias = diasAteBR(iso!);
+  if (dias === 0) return { text: "hoje", status: "hoje" };
+  if (dias === 1) return { text: "amanhã", status: "amanha" };
+  if (dias < 0) {
+    const n = -dias;
+    return { text: `vencida há ${n} ${n === 1 ? "dia" : "dias"}`, status: "vencida" };
+  }
+  return { text: `em ${dias} ${dias === 1 ? "dia" : "dias"}`, status: "futuro" };
 }
 
 export function formatPrazoColor(status: ReturnType<typeof formatPrazo>["status"]): string {
@@ -119,23 +99,9 @@ export function formatPrazoColor(status: ReturnType<typeof formatPrazo>["status"
   }
 }
 
-export function fmtDate(iso: string): string {
-  return formatInTimeZone(new Date(iso), SP_TZ, "dd 'de' LLLL 'de' yyyy 'às' HH:mm", { locale: ptBR });
-}
-
-export function fmtDateShort(iso: string): string {
-  return formatInTimeZone(new Date(iso), SP_TZ, "dd/MM HH:mm", { locale: ptBR });
-}
-
-export function formatCreatedAt(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  if (isTodaySP(date)) return formatInTimeZone(date, SP_TZ, "'hoje' HH:mm", { locale: ptBR });
-  if (isYesterdaySP(date)) return formatInTimeZone(date, SP_TZ, "'ontem' HH:mm", { locale: ptBR });
-  if (isThisYearSP(date)) return formatInTimeZone(date, SP_TZ, "dd/MM", { locale: ptBR });
-  return formatInTimeZone(date, SP_TZ, "dd/MM/yyyy", { locale: ptBR });
-}
+export const fmtDate = dataLongaBR;
+export const fmtDateShort = dataHoraBR;
+export const formatCreatedAt = quandoBR;
 
 /** Nome de área legível: as propostas da IA vêm em slug ("midia_paga"). */
 export function areaLabel(nome: string): string {

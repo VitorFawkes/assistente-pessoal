@@ -88,6 +88,9 @@ export type Tarefa = {
   quadro_ordem?: number | null;
   // Campos opcionais que podem vir do JOIN com meetings
   meeting_summary?: string | null;
+  /** Nome que uma pessoa deu à reunião. Vazio = usar o rótulo do resumo. */
+  meeting_nome?: string | null;
+  meeting_duracao?: number | null;
   meeting_recorded_at?: string | null;
   meeting_type?: string | null;
 };
@@ -145,6 +148,8 @@ export const TAREFA_SELECT = `
   SELECT t.*,
          to_char(m.recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS meeting_recorded_at,
          m.summary AS meeting_summary,
+         m.nome AS meeting_nome,
+         m.duration_seconds AS meeting_duracao,
          m.meeting_type AS meeting_type,
          f.nome AS frente,
          COALESCE((
@@ -171,6 +176,13 @@ export const TAREFA_SELECT = `
 export const MEETINGS_LIMIT = 100;
 
 export const meetingsFor = (userId: string) => ({
+  /** Dá (ou tira) o nome próprio de uma reunião. */
+  renomear: (id: string, nome: string | null) =>
+    withTenant(userId, async (db) => {
+      const r = await db.query("UPDATE meetings SET nome = $1 WHERE id = $2", [nome, id]);
+      return (r.rowCount ?? 0) > 0;
+    }),
+
   /** Lista (filhos arquivados ficam fora — archived_session é o status do pai). */
   list: () =>
     withTenant(userId, async (db) => {
@@ -848,6 +860,8 @@ export const voiceSamplesFor = (userId: string) => ({
                 vs.duration_seconds,
                 to_char(vs.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
                 m.summary AS meeting_summary,
+         m.nome AS meeting_nome,
+         m.duration_seconds AS meeting_duracao,
                 to_char(coalesce(m.recorded_at, m.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS meeting_recorded_at
          FROM voice_samples vs
          LEFT JOIN meetings m ON m.id = vs.source_meeting_id

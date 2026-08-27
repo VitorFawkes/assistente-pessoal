@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Fraunces } from "next/font/google";
 import { cookies } from "next/headers";
+import { anoBR } from "@/lib/data-br";
 import { query } from "@/lib/db";
 import { SiteHeader } from "@/components/site-header";
 import { Toaster } from "sonner";
@@ -73,7 +74,7 @@ export default async function RootLayout({
           {children}
         </main>
         <footer className="border-t border-[color:var(--border)] py-5 text-center text-[11px] tracking-wider uppercase text-[color:var(--muted)]">
-          Assistente Pessoal · {new Date().getFullYear()}
+          Assistente Pessoal · {anoBR()}
         </footer>
         <Toaster />
       </body>

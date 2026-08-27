@@ -1,4 +1,5 @@
 "use client";
+import { horaBR } from "@/lib/data-br";
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Sparkles, Trash2, ArrowUp } from "lucide-react";
@@ -47,7 +48,7 @@ const nowTs = () => Date.now() / 1000;
 
 function fmtTime(ts: number): string {
   const d = new Date(ts * 1000);
-  return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  return horaBR(d);
 }
 
 export function ChatPanel() {

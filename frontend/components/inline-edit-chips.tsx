@@ -19,6 +19,14 @@ import {
   acaoForOwner,
   type Prioridade,
 } from "@/lib/utils";
+import {
+  fimDoDiaBR,
+  hojeBR,
+  maisDiasBR,
+  paraCampoBR,
+  proximoDiaDaSemanaBR,
+  relogioBR,
+} from "@/lib/data-br";
 import { useTaskMutations } from "@/lib/task-mutations";
 import { SITUACOES, rotuloSituacao } from "@/lib/quadro-v2";
 import type { Tarefa } from "@/lib/queries";
@@ -170,17 +178,8 @@ function MenuItem({
 }
 
 // ─── Datas ────────────────────────────────────────────────────────────
-function nextWeekday(target: number): Date {
-  const d = new Date();
-  const delta = (target - d.getDay() + 7) % 7 || 7;
-  d.setDate(d.getDate() + delta);
-  return d;
-}
-function isoEndOfDay(d: Date): string {
-  const x = new Date(d);
-  x.setHours(23, 59, 0, 0);
-  return x.toISOString();
-}
+// Atalhos de prazo pelo calendário de Brasília: "sexta" é a sexta daqui, e
+// "fim do dia" é 23h59 daqui — não do fuso de quem está com a tela aberta.
 
 function prazoChipColor(status: ReturnType<typeof formatPrazo>["status"]): string {
   switch (status) {
@@ -202,28 +201,16 @@ function prazoChipColor(status: ReturnType<typeof formatPrazo>["status"]): strin
 export function PrazoInline({ tarefa }: { tarefa: Tarefa }) {
   const mut = useTaskMutations();
   const prazo = formatPrazo(tarefa.prazo);
-  const selectedDate = tarefa.prazo ? new Date(tarefa.prazo) : null;
+  const selectedDate = tarefa.prazo ? relogioBR(tarefa.prazo) : null;
   const set = (iso: string | null, close: () => void) => {
     mut.patch(tarefa.id, { prazo: iso, prazo_text: null }, { silent: true });
     close();
   };
-  const quick: { k: string; label: string; date: () => Date }[] = [
-    { k: "hoje", label: "Hoje", date: () => new Date() },
-    {
-      k: "amanha",
-      label: "Amanhã",
-      date: () => {
-        const d = new Date();
-        d.setDate(d.getDate() + 1);
-        return d;
-      },
-    },
-    { k: "sexta", label: "Sexta", date: () => nextWeekday(5) },
-    {
-      k: "prox",
-      label: "Próx. semana",
-      date: () => nextWeekday(1),
-    },
+  const quick: { k: string; label: string; dia: () => string }[] = [
+    { k: "hoje", label: "Hoje", dia: () => hojeBR() },
+    { k: "amanha", label: "Amanhã", dia: () => maisDiasBR(1) },
+    { k: "sexta", label: "Sexta", dia: () => proximoDiaDaSemanaBR(5) },
+    { k: "prox", label: "Próx. semana", dia: () => proximoDiaDaSemanaBR(1) },
   ];
   return (
     <InlinePopover
@@ -248,7 +235,7 @@ export function PrazoInline({ tarefa }: { tarefa: Tarefa }) {
               <button
                 key={q.k}
                 type="button"
-                onClick={() => set(isoEndOfDay(q.date()), close)}
+                onClick={() => set(fimDoDiaBR(q.dia()), close)}
                 className="text-[12px] px-2 py-1 rounded-full border border-[color:var(--border)] text-[color:var(--muted-strong)] hover:bg-[color:var(--accent)] transition"
               >
                 {q.label}
@@ -258,7 +245,7 @@ export function PrazoInline({ tarefa }: { tarefa: Tarefa }) {
           <div className="my-1 border-t border-[color:var(--border)]" />
           <MiniCalendar
             selected={selectedDate}
-            onPick={(d) => set(isoEndOfDay(d), close)}
+            onPick={(d) => set(fimDoDiaBR(paraCampoBR(d)), close)}
           />
           {tarefa.prazo && (
             <>

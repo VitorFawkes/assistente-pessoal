@@ -1,4 +1,5 @@
 import { requireUserOrRedirect, getCurrentSessionId } from "@/lib/auth";
+import { dataBR, horaBR } from "@/lib/data-br";
 import { query } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -29,13 +30,7 @@ function nomeDispositivo(ua: string | null): string {
 
 function fmtDateTime(iso: string): string {
   try {
-    return new Date(iso).toLocaleString("pt-BR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    return `${dataBR(iso)} às ${horaBR(iso)}`;
   } catch {
     return iso;
   }

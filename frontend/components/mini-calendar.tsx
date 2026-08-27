@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { relogioBR } from "@/lib/data-br";
 import { cn } from "@/lib/utils";
 
 const WEEKDAYS = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -26,7 +27,7 @@ export function MiniCalendar({
   selected: Date | null;
   onPick: (d: Date) => void;
 }) {
-  const today = new Date();
+  const today = relogioBR();
   // Mês visível: o do prazo atual, senão o de hoje.
   const [view, setView] = useState(() => {
     const base = selected ?? today;

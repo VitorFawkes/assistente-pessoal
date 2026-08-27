@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Calendar, Trash2, UserRound } from "lucide-react";
 import { cn, normalizeOwner, isOwnerMe } from "@/lib/utils";
+import { fimDoDiaBR, hojeBR, inicioDoDiaBR, maisDiasBR, paraCampoBR, proximoDiaDaSemanaBR } from "@/lib/data-br";
 import { useTaskMutations } from "@/lib/task-mutations";
 import { TaskAnexos } from "./task-anexos";
 import { OwnerPicker } from "./inline-edit-chips";
@@ -11,20 +12,8 @@ import type { Tarefa, TarefaPessoa } from "@/lib/queries";
 // Campos que NÃO cabem na linha compacta (a linha já edita título, prazo,
 // prioridade, ação/dono e área inline). Aqui fica o resto: descrição, pessoas,
 // início+plano, status e remover. Tudo auto-salva via `mut`.
-function toDateInput(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-    d.getDate(),
-  ).padStart(2, "0")}`;
-}
-function dateInputToIsoStart(value: string): string | null {
-  if (!value) return null;
-  const [y, m, d] = value.split("-").map((s) => parseInt(s, 10));
-  if (!y || !m || !d) return null;
-  return new Date(y, m - 1, d, 0, 0, 0, 0).toISOString();
-}
+const toDateInput = paraCampoBR;
+const dateInputToIsoStart = inicioDoDiaBR;
 
 // As mesmas 4 etapas do quadro, pra tarefa não ter uma situação aqui e outra lá.
 const STATUS: { v: Tarefa["status"]; label: string }[] = [

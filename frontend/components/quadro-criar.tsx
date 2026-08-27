@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useTaskMutations } from "@/lib/task-mutations";
+import { diasAteBR, fimDoDiaBR, hojeBR, maisDiasBR, proximoDiaDaSemanaBR } from "@/lib/data-br";
 import { SITUACOES, corDaPessoa, iniciais } from "@/lib/quadro-v2";
 import type { Tarefa } from "@/lib/queries";
 
@@ -16,8 +17,7 @@ const DIAS: Record<string, number> = {
 const semAcento = (s: string) =>
   s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
-const iso = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
 
 /** Lê data, dono e tema de dentro do título — e devolve o título já limpo. */
 export function lerPedido(texto: string, pessoas: string[], temas: string[]) {
@@ -46,35 +46,37 @@ export function lerPedido(texto: string, pessoas: string[], temas: string[]) {
     if (achou) lido.dono = achou;
   }
 
-  const hoje = new Date();
   const t = semAcento(resto);
   let achado = "";
-  let data: Date | null = null;
+  let data: string | null = null;   // sempre "yyyy-MM-dd" de Brasília
 
   const mData = t.match(/(\d{1,2})\/(\d{1,2})/);
   if (mData) {
     achado = mData[0];
-    data = new Date(hoje.getFullYear(), Number(mData[2]) - 1, Number(mData[1]));
-    if (data.getTime() < hoje.getTime() - 86_400_000 * 180) data.setFullYear(hoje.getFullYear() + 1);
+    const ano = Number(hojeBR().slice(0, 4));
+    const dd = String(Number(mData[1])).padStart(2, "0");
+    const mm = String(Number(mData[2])).padStart(2, "0");
+    data = `${ano}-${mm}-${dd}`;
+    // "03/01" escrito em dezembro é do ano que vem, não do que passou
+    if (diasAteBR(`${data}T12:00:00Z`) < -180) data = `${ano + 1}-${mm}-${dd}`;
   } else if (/\bhoje\b/.test(t)) {
     achado = "hoje";
-    data = hoje;
+    data = hojeBR();
   } else if (/\bamanha\b/.test(t)) {
     achado = "amanha";
-    data = new Date(hoje.getTime() + 86_400_000);
+    data = maisDiasBR(1);
   } else {
     for (const [nome, alvo] of Object.entries(DIAS)) {
       if (new RegExp(`\\b${nome}\\b`).test(t)) {
         achado = nome;
-        const delta = (alvo - hoje.getDay() + 7) % 7 || 7;
-        data = new Date(hoje.getTime() + delta * 86_400_000);
+        data = proximoDiaDaSemanaBR(alvo);
         break;
       }
     }
   }
 
   if (data && achado) {
-    lido.data = iso(data);
+    lido.data = data;
     resto = resto
       .replace(new RegExp(`(pra|para|até|ate|em|de|do|da|no|na)?\\s*${achado.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "i"), " ")
       .trim();
@@ -156,9 +158,7 @@ export function QuadroCriar({
         titulo: nome,
         descricao: resumo.trim() || null,
         ...(donoFinal ? { owner: donoFinal, acao: "cobrar" as const } : {}),
-        ...(prazoFinal
-          ? { prazo: new Date(`${prazoFinal}T23:59:00`).toISOString() }
-          : {}),
+        ...(prazoFinal ? { prazo: fimDoDiaBR(prazoFinal) } : {}),
       });
 
       if (tarefa) {
