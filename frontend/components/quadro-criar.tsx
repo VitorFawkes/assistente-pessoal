@@ -4,6 +4,8 @@
 // prazo, situação, resumo e tema. Escrevendo "sexta @Giordana #Google Ads" no
 // título, os campos se preenchem sozinhos — é o que o rascunho prometia.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useTaskMutations } from "@/lib/task-mutations";
 import { diasAteBR, fimDoDiaBR, hojeBR, maisDiasBR, proximoDiaDaSemanaBR } from "@/lib/data-br";
@@ -89,12 +91,18 @@ export function lerPedido(texto: string, pessoas: string[], temas: string[]) {
 
 export function QuadroCriar({
   tarefas,
+  /** Sem isto a tarefa nasce solta: pelo login do dono, criar tarefa e prender
+   *  no quadro são duas coisas separadas. Pelo link do convidado a rota já é
+   *  a do quadro, então lá não precisa. */
+  quadroId,
   onCriada,
 }: {
   tarefas: Tarefa[];
+  quadroId?: string;
   onCriada?: () => void;
 }) {
   const mut = useTaskMutations();
+  const router = useRouter();
   const [aberto, setAberto] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [titulo, setTitulo] = useState("");
@@ -162,11 +170,29 @@ export function QuadroCriar({
       });
 
       if (tarefa) {
+        // Prende no quadro. Pelo login do dono a criação nasce fora de
+        // qualquer quadro; sem este passo a tarefa some da tela em que ela
+        // acabou de ser escrita.
+        if (quadroId && mut.scope === "owner") {
+          const preso = await fetch(`/api/quadros/${quadroId}/tarefas`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tarefaIds: [tarefa.id] }),
+          });
+          if (!preso.ok) {
+            toast.error("Criei a tarefa, mas não consegui prender neste quadro");
+          }
+        }
+
         const ajustes: Record<string, unknown> = {};
         if (situacao !== "aberta") ajustes.status = situacao;
         if (frenteId) ajustes.frente_id = frenteId;
         if (donoFinal) ajustes.pessoas = [{ nome: donoFinal, principal: true }];
         if (Object.keys(ajustes).length) await mut.patch(tarefa.id, ajustes, { silent: true });
+        // Pelo login do dono a lista vem do servidor: sem recarregar aqui, a
+        // tarefa só aparecia depois de a pessoa atualizar a página na mão — e
+        // parecia que tinha sumido.
+        if (quadroId && mut.scope === "owner") router.refresh();
         limpar();
         campoRef.current?.focus();
         onCriada?.();

@@ -397,7 +397,7 @@ export function TaskBoardView({
       ) : (
         <>
           <div ref={criarRef}>
-            <QuadroCriar tarefas={tarefas} />
+            <QuadroCriar tarefas={tarefas} quadroId={quadroId} />
           </div>
 
           {visiveis.length === 0 ? (
