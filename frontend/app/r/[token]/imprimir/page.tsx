@@ -1,24 +1,30 @@
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
-import { requireUserOrRedirect } from "@/lib/auth";
+import { clientIp } from "@/lib/rate-limit";
+import { acessoPorTokenOuNull } from "@/lib/reuniao-guest";
 import { meetingsFor } from "@/lib/queries";
 import { MeetingPrintSheet, parsePrintParams } from "@/components/meeting-print";
 import type { MeetingExportRow } from "@/lib/meeting-export";
-import { PrintTrigger } from "./print-trigger";
+import { PrintTrigger } from "@/app/reunioes/[id]/imprimir/print-trigger";
 
 export const dynamic = "force-dynamic";
 
-export default async function ImprimirPage({
+export default async function ImprimirCompartilhadaPage({
   params,
   searchParams,
 }: {
-  params: Promise<{ id: string }>;
+  params: Promise<{ token: string }>;
   searchParams: Promise<{ content?: string; scope?: string; section?: string }>;
 }) {
-  const { id } = await params;
+  const { token } = await params;
   const { content, section } = parsePrintParams(await searchParams);
 
-  const user = await requireUserOrRedirect();
-  const m = (await meetingsFor(user.id).forExport(id)) as MeetingExportRow | null;
+  const acesso = await acessoPorTokenOuNull(token, clientIp(await headers()));
+  if (!acesso) notFound();
+
+  const m = (await meetingsFor(acesso.ownerId).forExport(
+    acesso.meetingId,
+  )) as MeetingExportRow | null;
   if (!m) notFound();
 
   return (

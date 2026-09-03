@@ -1,4 +1,5 @@
 import { withTenant } from "./db";
+import { randomBytes } from "node:crypto";
 
 // ─── Tipos (espelham o schema atual) ──────────────────────────────────
 
@@ -245,9 +246,10 @@ export const meetingsFor = (userId: string) => ({
         speaker_labels_proposed: Record<string, unknown> | null;
         sections: unknown;
         segments_removidos_count: number;
+        share_token: string | null;
       }>(
         `SELECT
-           id, source, meeting_type, original_filename,
+           id, source, meeting_type, original_filename, share_token,
            to_char(coalesce(recorded_at, created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
            to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
            status, status_error, transcription, summary,
@@ -281,6 +283,34 @@ export const meetingsFor = (userId: string) => ({
         [id],
       );
       return r.rows[0] ?? null;
+    }),
+
+  /**
+   * Liga o link de leitura da reunião (/r/[token]). Idempotente: se já existe,
+   * devolve o mesmo token — gerar um novo a cada clique mataria em silêncio o
+   * link que ele já mandou pra alguém.
+   */
+  criarLink: (id: string) =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<{ share_token: string }>(
+        `UPDATE meetings
+            SET share_token = COALESCE(share_token, $2),
+                share_created_at = COALESCE(share_created_at, now())
+          WHERE id = $1
+          RETURNING share_token`,
+        [id, randomBytes(16).toString("base64url")],
+      );
+      return r.rows[0]?.share_token ?? null;
+    }),
+
+  /** Desliga o link: quem tiver a URL passa a ver "link não vale mais". */
+  revogarLink: (id: string) =>
+    withTenant(userId, async (db) => {
+      const r = await db.query(
+        `UPDATE meetings SET share_token = NULL, share_created_at = NULL WHERE id = $1`,
+        [id],
+      );
+      return (r.rowCount ?? 0) > 0;
     }),
 
   /** Salva o array completo de seções (replace). Retorna a linha atualizada ou null. */

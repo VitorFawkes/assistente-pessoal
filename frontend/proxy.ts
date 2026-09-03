@@ -19,6 +19,8 @@ const PUBLIC_PREFIXES = [
   "/api/internal/",       // service-to-service (ingest-svc valida session com INTERNAL_SVC_TOKEN)
   "/q/",                  // página pública do quadro por token (guest)
   "/api/q/",              // APIs públicas do quadro por token (guest, rate-limit + token validation)
+  "/r/",                  // página pública da reunião por token (leitura + download)
+  "/api/r/",              // download da reunião por token (rate-limit + token validation)
   // atalho de login só em dev (rota é NODE_ENV-gated; em prod nem entra aqui)
   ...(process.env.NODE_ENV !== "production" ? ["/api/dev-login"] : []),
 ];

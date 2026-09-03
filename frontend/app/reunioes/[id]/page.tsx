@@ -19,6 +19,7 @@ import { ExecutiveSummary } from "./executive-summary";
 import { AutoLabelByContent } from "./auto-label-by-content";
 import { DeleteMeetingButton } from "@/components/delete-meeting-button";
 import { MeetingExportMenu } from "@/components/meeting-export-menu";
+import { MeetingShareButton } from "@/components/meeting-share-button";
 import { RegenerateButton } from "@/components/regenerate-button";
 import { OwnerTaskProvider } from "@/lib/task-mutations";
 
@@ -42,6 +43,7 @@ type Meeting = {
   speaker_labels_proposed: Record<string, ProposedLabel | null> | null;
   sections: { start_seconds: number; title: string }[] | null;
   segments_removidos_count: number;
+  share_token: string | null;
 };
 
 function MeetingTypeIcon({ type }: { type: string | null }) {
@@ -99,7 +101,23 @@ export default async function ReuniaoDetalhePage({
         >
           <ArrowLeft size={14} /> reuniões
         </Link>
-        <DeleteMeetingButton meetingId={meeting.id} redirectTo="/reunioes" label="deletar" />
+        {/* Um botão de baixar pra reunião inteira. Antes eram dois — um ao lado
+            do resumo, outro ao lado da transcrição — e cada um abria a lista
+            completa: dava pra clicar em "baixar resumo" e sair com a
+            transcrição. Escolher O QUE baixar virou pergunta dentro do menu. */}
+        <div className="flex items-center gap-2">
+          <MeetingExportMenu
+            segments={meeting.segments || []}
+            labels={meeting.speaker_labels || {}}
+            sections={meeting.sections || []}
+            summaryMd={meeting.executive_summary}
+            duracao={meeting.duration_seconds || 0}
+            exportBase={`/api/meetings/${meeting.id}/export`}
+            printBase={`/reunioes/${meeting.id}/imprimir`}
+          />
+          <MeetingShareButton meetingId={meeting.id} tokenInicial={meeting.share_token} />
+          <DeleteMeetingButton meetingId={meeting.id} redirectTo="/reunioes" label="deletar" />
+        </div>
       </div>
 
       {/* HEADER da reunião */}
@@ -183,17 +201,7 @@ export default async function ReuniaoDetalhePage({
             <h2 className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
               Resumo executivo
             </h2>
-            <div className="flex items-center gap-2">
-              <RegenerateButton meetingId={meeting.id} tarefasCount={tarefas.length} />
-              <MeetingExportMenu
-                meetingId={meeting.id}
-                segments={meeting.segments || []}
-                labels={meeting.speaker_labels || {}}
-                sections={meeting.sections || []}
-                summaryMd={meeting.executive_summary}
-                label="baixar resumo"
-              />
-            </div>
+            <RegenerateButton meetingId={meeting.id} tarefasCount={tarefas.length} />
           </div>
           <div className="paper-card rounded-2xl border border-[color:var(--border)] p-5 sm:p-6">
             <ExecutiveSummary md={meeting.executive_summary} meetingId={meeting.id} />
@@ -261,22 +269,13 @@ export default async function ReuniaoDetalhePage({
               Transcrição
             </h2>
             {meeting.segments && meeting.segments.length > 0 && (
-              <div className="flex items-center gap-2">
-                <Link
-                  href={`/reunioes/${meeting.id}/identificar`}
-                  className="press-feedback inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-full bg-[color:var(--calm-bg)] text-[color:var(--calm)] hover:ring-1 hover:ring-[color:var(--foreground)]/30"
-                  title="Tela dedicada pra ouvir trechos curtos e rotular speakers"
-                >
-                  <UsersRound size={13} /> identificar speakers
-                </Link>
-                <MeetingExportMenu
-                  meetingId={meeting.id}
-                  segments={meeting.segments}
-                  labels={meeting.speaker_labels || {}}
-                  sections={meeting.sections || []}
-                  summaryMd={meeting.executive_summary}
-                />
-              </div>
+              <Link
+                href={`/reunioes/${meeting.id}/identificar`}
+                className="press-feedback inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-full bg-[color:var(--calm-bg)] text-[color:var(--calm)] hover:ring-1 hover:ring-[color:var(--foreground)]/30"
+                title="Tela dedicada pra ouvir trechos curtos e rotular speakers"
+              >
+                <UsersRound size={13} /> identificar speakers
+              </Link>
             )}
           </div>
           <div className="paper-card rounded-2xl border border-[color:var(--border)] p-5">
