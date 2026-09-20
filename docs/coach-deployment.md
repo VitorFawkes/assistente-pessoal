@@ -1,6 +1,6 @@
 # Coach — publicação e operação privada
 
-Versão publicada em 2026-09-20: `ba2d498b4fcfc8e50bfd0d0a18932ad6fe206dd4`, integrada pelo PR #2. A imagem imutável está no serviço frontend, com réplica `1/1`, e a migration `0028` foi aplicada. O processamento do histórico e o agendamento ainda não foram iniciados.
+Versão inicial publicada em 2026-09-20: `ba2d498b4fcfc8e50bfd0d0a18932ad6fe206dd4`, integrada pelo PR #2. A imagem imutável está no serviço frontend, com réplica `1/1`, e a migration `0028` foi aplicada. A rotina está instalada e o processamento inicial autorizado do histórico está em andamento.
 
 ## Verificação em produção
 
@@ -9,7 +9,12 @@ Versão publicada em 2026-09-20: `ba2d498b4fcfc8e50bfd0d0a18932ad6fe206dd4`, int
 - Cinco tabelas com RLS forçada. 41 verificações passaram com o papel real `app_tenant`, incluindo SELECT/UPDATE cruzado, contexto vazio e FK de reunião/usuário. Transação de teste revertida e ausência das fixtures confirmada.
 - Navegador de produção: memória criada, corrigida e preservada após recarga; histórico da edição visível. Layout de 390px sem rolagem horizontal.
 - Configuração persistente do Easypanel e imagem efetiva alinhadas. Token dedicado configurado, sem modificar variáveis não relacionadas. Runner instalado e `--check` passou; configuração e logs têm permissão `0600`.
-- Rotina e backfill ainda não executados: a confirmação específica de envio do contexto selecionado à API da OpenAI está pendente. A preferência semanal salva não comprova que o agendamento está instalado.
+- Após confirmação explícita do envio à API da OpenAI, conversa real e primeira rodada do runner retornaram `200` e persistiram os resultados. Citações conferidas contra transcrição, chunk, hash e autoria confirmada; memórias automáticas permaneceram como hipóteses.
+- Cron instalado a cada 15 minutos, daemon ativo, log e configuração privados. Um disparo real encontrou o backfill em andamento e respeitou o lock compartilhado. Backfill sequencial limitado a quatro horas e 250 rodadas; progresso salvo permite retomada.
+- O ciclo semanal fecha na sexta-feira às 17h de São Paulo; a revisão depende da análise completa daquele período. Horário de fechamento não promete entrega instantânea: o runner e o provedor acrescentam latência.
+- A primeira revisão automática foi persistida somente após completar seu período. Evidências e versão do perfil conferidas; uma rodada posterior preservou a identidade e a data da revisão, comprovando idempotência.
+
+A validação da conversa real motivou uma correção: o servidor agora preserva na mensagem os campos de observação, hipótese e outra explicação já fundamentados pelo modelo, em vez de exibir somente sua prosa livre. O contexto consultado e a data da contagem de cobertura também ficam explícitos. A correção passou em 215 testes unitários, build e um ciclo real com o provedor usando somente dados fictícios (28 verificações). A revisão semanal deixa de gravar contagens globais transitórias do acervo, limita as observações ao foco escolhido e preserva um único experimento principal. O título propõe um foco sem inferir ausência de hábito a partir da falta de evidência.
 
 Resultados e capturas que contêm contexto pessoal ficam somente em arquivos temporários privados, fora deste repositório público. Identificação de participantes e consistência entre segmentos/transcrição limitam as observações pessoais; o coach não deve inventar autoria para completar cobertura.
 

@@ -9,12 +9,14 @@ export const conversationSchema=object({answer:str,observations:array(observatio
 export const reviewSchema=object({headline:str,focus:str,observations:array(observation),progress:str,experiment:str,question:str,limitations:array(str)});
 export function withoutObservations(schema: typeof reviewSchema){return {...schema,properties:{...schema.properties,observations:{...array(observation),maxItems:0}}};}
 export function reviewSchemaWithSources(ids:string[]){
- if(!ids.length)return withoutObservations(reviewSchema);
- return object({headline:str,focus:str,observations:array(object({competency:observation.properties.competency,observation:str,hypothesis:str,alternative:str,experiment:str,evidence_ids:array({type:"string",enum:ids})})),progress:str,experiment:str,question:str,limitations:array(str)});
+ const headline={type:"string",minLength:1,maxLength:100};
+ if(!ids.length)return withoutObservations({...reviewSchema,properties:{...reviewSchema.properties,headline}});
+ return object({headline,focus:str,observations:{...array(object({competency:observation.properties.competency,observation:str,hypothesis:str,alternative:str,experiment:{type:"string",enum:[""]},evidence_ids:array({type:"string",enum:ids})})),maxItems:2},progress:str,experiment:str,question:str,limitations:array(str)});
 }
 export function conversationSchemaWithSources(ids:string[]){
  if(!ids.length)return withoutObservations(conversationSchema);
- return object({answer:str,observations:array(object({competency:observation.properties.competency,observation:str,hypothesis:str,alternative:str,experiment:str,evidence_ids:array({type:"string",enum:ids})})),memories:conversationSchema.properties.memories});
+ const concise={type:"string",minLength:1,maxLength:400};
+ return object({answer:{type:"string",minLength:1,maxLength:1800},observations:{...array(object({competency:observation.properties.competency,observation:concise,hypothesis:concise,alternative:concise,experiment:concise,evidence_ids:{...array({type:"string",enum:ids}),minItems:1,maxItems:4}})),maxItems:2},memories:{...(conversationSchema.properties.memories as object),maxItems:2}});
 }
 export function analysisSchemaWithSources(ids:string[]){
  if(!ids.length)return withoutObservations(analysisSchema);

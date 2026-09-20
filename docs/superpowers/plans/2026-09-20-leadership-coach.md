@@ -18,7 +18,7 @@
 - [x] Persistence: migration `db/0028_leadership_coach.sql`, repository `frontend/lib/coach/store.ts`, real Postgres isolation/rollback checks. Consume shared types; return serializable data to runtime and UI.
 - [x] Runtime: `frontend/lib/coach/{types,framework,evidence,model,service}.ts`, tests, session APIs and internal runner. First test source validation, no-loss chunking and weekly boundary; then implement. Context includes profile, active memory, historical retrieval and tasks.
 - [x] UI: `frontend/app/coach/page.tsx`, `frontend/components/coach/*`, nav entry. Consume GET/POST `/api/coach` documented in types. Exercise save, chat, corrections, pause and history.
-- [ ] Operations: scheduled runner, deployment guide and automated checks. Validate SQL locally first; apply additive migration, deploy immutable image, exercise authenticated production route and provider, install schedule, confirm idempotence.
+- [x] Operations: scheduled runner, deployment guide and automated checks. Validate SQL locally first; apply additive migration, deploy immutable image, exercise authenticated production route and provider, install schedule, confirm idempotence.
 - [x] Independent review: tenant boundaries, evidence grounding, failure/retry/privacy and completion coverage. Fix findings and rerun impacted checks.
 
 ## API contract
@@ -30,4 +30,4 @@ Record actual command outcomes and deployment evidence in `docs/coach-deployment
 
 ## Estado de entrega
 
-Implementação integrada pelo PR #2 e publicada no commit `ba2d498b4fcfc8e50bfd0d0a18932ad6fe206dd4`. Migration aplicada, imagem verificada e testes de autenticação, isolamento, memória e interface passaram em produção. Runner instalado e validado sem rede. Restam a prova com contexto real no provedor e a instalação do agendamento, aguardando a confirmação específica de envio à API da OpenAI. O processamento do histórico não foi iniciado.
+Implementação integrada pelo PR #2 e publicada no commit `ba2d498b4fcfc8e50bfd0d0a18932ad6fe206dd4`. Migration aplicada, imagem verificada e testes de autenticação, isolamento, memória e interface passaram em produção. Conversa real, persistência e evidências validadas após autorização explícita da OpenAI. Runner executado, cron instalado e lock verificado em disparo real. Primeira revisão persistida após cobertura completa do período e idempotência confirmada em rodada posterior. Histórico antigo continua em processamento sequencial. A melhoria na separação visível entre observações e hipóteses foi implementada e validada com regressões, build e provedor real em dados fictícios; será conferida novamente após a atualização em produção.
