@@ -3,6 +3,7 @@ import { Pool } from "pg";
 import { randomUUID } from "node:crypto";
 import { coachStore } from "./store";
 import { analyzeMeetings, chatWithCoach, generateReview } from "./service";
+import { splitChatPresentation } from "./chat-presentation";
 // Opt-in paid provider test; only synthetic records in the dedicated local QA DB.
 describe.skipIf(process.env.COACH_PROVIDER_TEST!=="1")("coach real provider lifecycle",()=>{
  const userId=randomUUID(),meetingId=randomUUID(),personId=randomUUID();let admin:Pool;
@@ -41,4 +42,19 @@ describe.skipIf(process.env.COACH_PROVIDER_TEST!=="1")("coach real provider life
   expect(history[1].content).toContain("1 de 1 reunião do histórico com análise completa");
   expect(history[1].content).not.toMatch(/\be\d+\b/);
  },180000);
+ test("a natural goal correction persists as user report and the coach can give one next step",async()=>{
+  const goal="Meu objetivo agora é delegar a operação comercial com autonomia.";
+  await chatWithCoach(userId,goal+" Guarde esse objetivo para nossas próximas conversas.");
+  const memories=await store.memories();
+  expect(memories.some(m=>m.kind==="goal"&&m.status==="confirmed"&&m.content.includes(goal)&&m.evidence.length===0)).toBe(true);
+  let history=await store.messages();
+  expect(history.at(-1)?.content).toContain("Guardei na memória");
+  await chatWithCoach(userId,"Me diga só o próximo passo para esse objetivo, sem uma lista de tarefas.");
+  history=await store.messages();
+  const reply=splitChatPresentation(history.at(-1)!.content);
+  expect(reply.answer.length).toBeGreaterThan(30);
+  expect(reply.answer.split(/\s+/u).length).toBeLessThanOrEqual(85);
+  expect(reply.scope).toContain("reunião");
+ },180000);
+
 });
