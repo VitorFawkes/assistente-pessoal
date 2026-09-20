@@ -2,6 +2,21 @@
 
 Procedimento preparado em 2026-09-20. Esta preparação não aplica migration, não publica imagem, não ativa perfil de usuário e não chama o modelo.
 
+## Validação executada em 2026-09-20
+
+- Build de produção, TypeScript e lint dos arquivos alterados passaram.
+- 210 testes unitários passaram; testes de banco/provedor rodam separadamente, por opção explícita.
+- 11 testes com Postgres real passaram, com 99 verificações de isolamento, concorrência, repetição, cobertura acima de 100 registros, correções e exclusão.
+- 9 testes dos runners passaram, sem acessar produção.
+- Uma prova com o provedor real passou: análise de reunião fictícia, revisão com evidências, conversa contextual e persistência (20 verificações). Nenhuma transcrição pessoal foi usada nessa prova.
+- Navegador: desktop e 390px, edição/correção/rejeição de memória, configurações, pausa/retomada, recarga, chat, revisão e links de evidência verificados. Sem rolagem horizontal no celular.
+- HTTP local: acesso sem sessão redireciona; cron sem token retorna 401; origem indevida retorna 403; escrita em memória de outro usuário retorna 404.
+- Backup privado anterior à publicação criado no próprio VPS com permissão 0600. Conteúdo e credenciais ficam fora deste repositório.
+
+Revisão de código: corrigidos publicação de revisão incompleta, atribuição de fala sem identificação, remapeamento incorreto de evidências, contexto antigo após edição da fonte, corrida ao desativar rotina semanal e orçamento de tempo do runner. Citações de análises, chat e revisão são selecionadas por IDs de fontes previamente verificadas.
+
+Estes testes comprovam os fluxos técnicos exercitados, não eficácia longitudinal de desenvolvimento profissional. A publicação e a análise do histórico real são etapas distintas.
+
 ## Estado verificado em leitura
 
 - Repositório `VitorFawkes/assistente-pessoal`, público, branch padrão `main`; credencial GitHub existente com permissão de leitura e push.
