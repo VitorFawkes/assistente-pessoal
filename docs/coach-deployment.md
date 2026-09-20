@@ -1,6 +1,6 @@
 # Coach — publicação e operação privada
 
-Versão atual publicada em 2026-09-20: `e79b36d16c6fc9b7bd79c3f40e738adb50a2d25f`, integrada pelo PR #3, após a entrega inicial do PR #2. [Build da imagem atual](https://github.com/VitorFawkes/assistente-pessoal/actions/runs/35526230430) concluído com sucesso. A imagem imutável está no serviço frontend, com réplica `1/1`, e a migration `0028` foi aplicada. A rotina está instalada e o processamento inicial autorizado do histórico está em andamento.
+Versão atual publicada em 2026-09-20: `37c00ef61b6d2997e22d07339ac2e511de955b0c`, integrada pelo PR #4, após as entregas dos PRs #2 e #3. [Build da imagem atual](https://github.com/VitorFawkes/assistente-pessoal/actions/runs/35532785508) concluído com sucesso. Imagem persistente do Easypanel e serviço efetivo conferidos; rollout concluído com réplica `1/1`. A cobertura do material elegível estava completa na verificação final; novas reuniões e correções continuam sendo processadas pela rotina existente.
 
 ## Verificação em produção
 
@@ -43,9 +43,13 @@ O comportamento conversacional pede uma direção útil por vez, cobrança respe
 
 A recuperação considera o panorama agregado de todas as tarefas/frentes e uma seleção limitada de prioridades, prazos, relevância e atividade. A carga de execução usa `acao`, preservando a distinção entre executar, cobrar e aguardar. Perguntas sobre hoje, ontem ou esta semana usam o fuso do perfil; reuniões anteriores ficam separadas. Data de cadastro/importação não comprova quando uma reunião aconteceu. Continua sem integração com agenda externa ou atividade dos agentes fora do Ações.
 
-Não há migration ou novo agendamento nesta mudança. A referência técnica de personalidade, concisão e avaliação é o [GPT-5.1 Prompting Guide da OpenAI](https://developers.openai.com/cookbook/examples/gpt-5/gpt-5-1_prompting_guide); o método de liderança e as distinções entre fontes Stanford e adaptações do Ações permanecem documentados em `docs/research/2026-09-20-leadership-coach-sources.md`.
+Nenhuma migration nova ou novo agendamento foi criado. A conferência do schema real detectou que a migration existente `0015_tarefa_frentes.sql`, necessária à seleção de frentes, ainda estava pendente. Ela foi aplicada antes do rollout, após backup privado validado pelo `pg_restore` da mesma versão do servidor. Backfill, constraints, grants, ausência de referências cruzadas e isolamento com o papel real `app_tenant` passaram; a conferência foi somente leitura. A referência técnica de personalidade, concisão e avaliação é o [GPT-5.1 Prompting Guide da OpenAI](https://developers.openai.com/cookbook/examples/gpt-5/gpt-5-1_prompting_guide); o método de liderança e as distinções entre fontes Stanford e adaptações do Ações permanecem documentados em `docs/research/2026-09-20-leadership-coach-sources.md`.
 
 Validações locais: 230 testes unitários, 20 testes de persistência/isolamento e seleção em Postgres (147 verificações), seis cenários fictícios com o provedor real mais uma regressão de linguagem (123 verificações), TypeScript, lint e build. A prova com o provedor cobre sobrecarga, cobrança fundamentada, avanço específico, correção/meta, ausência de dados do dia e próximo passo curto. Relatórios ficam em arquivos temporários privados; nenhum dado de produção faz parte das fixtures. Esses casos não garantem resposta perfeita em todas as conversas.
+
+Dois testes adicionais com provedor real e banco local passaram (33 verificações): ciclo análise/revisão/conversa, objetivo declarado persistido como autorrelato e orientação curta na pergunta seguinte. A CI do commit final passou em testes unitários, Postgres, runner, TypeScript, lint e build. No navegador local, 22 verificações desktop e 10 mobile passaram; respostas ao próprio envio entram na área visível sem deslocar quem subiu para ler mensagens anteriores.
+
+Após publicar, duas conversas reais autorizadas responderam `200`, com evidências verificadas contra a transcrição atual e persistência após recarga. A pergunta de acompanhamento recebeu uma orientação de 52 palavras, com fundamentos recolhidos em detalhes. Entrada em Conversa, atalhos sem envio automático, preservação de rascunhos entre abas, fontes, revisão, memória, referenciais e ausência de overflow passaram em desktop e celular. Cobertura preservada, revisão semanal mantida e `last_error` vazio. Conteúdo e capturas pessoais permanecem fora do repositório público.
 
 ## Estado verificado em leitura
 
