@@ -44,22 +44,27 @@ describe.skipIf(!connection)("coach store: real Postgres isolation and lifecycle
       CREATE TABLE IF NOT EXISTS frentes (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,nome text);
       CREATE TABLE IF NOT EXISTS tarefa_eventos (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),tarefa_id uuid NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
         evento text,payload jsonb,created_at timestamptz DEFAULT now());
+      CREATE TABLE IF NOT EXISTS tarefa_frentes (tarefa_id uuid NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
+        frente_id uuid NOT NULL REFERENCES frentes(id) ON DELETE CASCADE,principal boolean DEFAULT false,PRIMARY KEY(tarefa_id,frente_id));
       CREATE TABLE IF NOT EXISTS pessoas (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE, is_vitor boolean);
       ALTER TABLE meetings ENABLE ROW LEVEL SECURITY;
       ALTER TABLE tarefas ENABLE ROW LEVEL SECURITY;
       ALTER TABLE pessoas ENABLE ROW LEVEL SECURITY;
       ALTER TABLE frentes ENABLE ROW LEVEL SECURITY;
       ALTER TABLE tarefa_eventos ENABLE ROW LEVEL SECURITY;
+      ALTER TABLE tarefa_frentes ENABLE ROW LEVEL SECURITY;
       DROP POLICY IF EXISTS fixture_tenant ON meetings;
       DROP POLICY IF EXISTS fixture_tenant ON tarefas;
       DROP POLICY IF EXISTS fixture_tenant ON pessoas;
       DROP POLICY IF EXISTS fixture_tenant ON frentes;
       DROP POLICY IF EXISTS fixture_tenant ON tarefa_eventos;
+      DROP POLICY IF EXISTS fixture_tenant ON tarefa_frentes;
       CREATE POLICY fixture_tenant ON meetings USING(user_id::text = current_setting('app.current_user_id',true));
       CREATE POLICY fixture_tenant ON tarefas USING(user_id::text = current_setting('app.current_user_id',true));
       CREATE POLICY fixture_tenant ON pessoas USING(user_id::text = current_setting('app.current_user_id',true));
       CREATE POLICY fixture_tenant ON frentes USING(user_id::text = current_setting('app.current_user_id',true));
       CREATE POLICY fixture_tenant ON tarefa_eventos USING(EXISTS(SELECT 1 FROM tarefas WHERE tarefas.id=tarefa_eventos.tarefa_id));
+      CREATE POLICY fixture_tenant ON tarefa_frentes USING(EXISTS(SELECT 1 FROM tarefas WHERE tarefas.id=tarefa_frentes.tarefa_id));
       GRANT USAGE ON SCHEMA public TO app_tenant,app_writer;
       GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO app_tenant,app_writer;
     `);
@@ -152,6 +157,69 @@ describe.skipIf(!connection)("coach store: real Postgres isolation and lifecycle
     expect(past.events[0].tarefa_titulo).toBe("Entrega delegada concluída");
     expect(JSON.stringify(past)).not.toContain("Segredo B");
     expect(JSON.stringify(past)).not.toContain("Tarefa confidencial B");
+  });
+
+  test("today respects local midnight and never relabels historical meetings as today's evidence", async () => {
+    const ids = [randomUUID(),randomUUID(),randomUUID()];
+    try {
+      await admin.query(`INSERT INTO meetings(id,user_id,nome,original_filename,recorded_at,transcription,status)
+        VALUES($1,$4,'Dentro do domingo','today.mp3','2026-09-21T02:59:59Z','Uma reunião dentro do dia local.','done'),
+          ($2,$4,'Segunda fora do domingo','tomorrow.mp3','2026-09-21T03:00:00Z','Uma reunião fora do dia local.','done'),
+          ($3,$5,'Reunião privada B hoje','private.mp3','2026-09-20T15:00:00Z','Reunião de outro usuário.','done')`,[...ids,userA,userB]);
+      const current = await a.context("Como foi meu dia hoje?",{now:new Date("2026-09-21T02:00:00Z"),timezone:"America/Sao_Paulo"});
+      expect(current.meetings.map(m=>m.id)).toEqual([ids[0]]);
+      expect(current.selection.period).toMatchObject({kind:"today",from:"2026-09-20T03:00:00.000Z",to:"2026-09-21T03:00:00.000Z"});
+      expect(current.selection.meetings).toEqual({selected:1,total:1});
+      expect(current.historical_meetings.every(m=>m.id!==ids[0]&&m.id!==ids[2])).toBe(true);
+      expect(JSON.stringify(current)).not.toContain("privada B");
+      const empty = await a.context("Revise hoje",{now:new Date("2030-09-20T15:00:00Z"),timezone:"America/Sao_Paulo"});
+      expect(empty.meetings).toEqual([]); expect(empty.analyses).toEqual([]);
+      expect(empty.selection.meetings).toEqual({selected:0,total:0});
+      expect(empty.historical_meetings.length).toBeGreaterThan(0);
+      expect(empty.selection.fallback).toBe(false);
+      expect(empty.events).toEqual([]);
+      const weekly = await a.context("",{period:{from:"2026-09-14T03:00:00Z",to:"2026-09-21T03:00:00Z",label:"revisão"}});
+      expect(new Set(weekly.meetings.map(m=>m.id))).toEqual(new Set([meetingA,ids[0]]));
+      expect(weekly.selection.period?.kind).toBe("explicit");
+    } finally { await admin.query("DELETE FROM meetings WHERE id=ANY($1::uuid[])",[ids]); }
+  });
+
+  test("a missing recording date is identified as registration date, never asserted as recorded today", async () => {
+    const id = randomUUID();
+    try {
+      await admin.query(`INSERT INTO meetings(id,user_id,nome,original_filename,recorded_at,created_at,transcription,status)
+        VALUES($1,$2,'Importação sem data','imported.mp3',NULL,'2080-09-20T15:00:00Z','Uma reunião antiga importada sem data original.','done')`,[id,userA]);
+      const context = await a.context("Como foi hoje?",{now:new Date("2080-09-20T18:00:00Z")});
+      expect(context.meetings).toHaveLength(1);
+      expect(context.meetings[0]).toMatchObject({id,recorded_at:null,context_at:'2080-09-20T15:00:00.000Z',date_basis:'registered'});
+      expect(context.historical_meetings.find(m=>m.id===meetingA)?.date_basis).toBe('recorded');
+      const general = await a.context("Importação sem data");
+      expect(general.meetings.find(m=>m.id===id)?.date_basis).toBe('registered');
+    } finally { await admin.query("DELETE FROM meetings WHERE id=$1",[id]); }
+  });
+
+  test("explicit reaffirmation restores a confirmed note's recency without overriding rejected or hypothetical memories", async () => {
+    const input = {kind:'goal' as const,content:'Meu objetivo declarado A',status:'confirmed' as const,evidence:[]};
+    let revision = (await a.profile()).revision;
+    const first = await a.rememberUserNote(input,revision);
+    await admin.query("UPDATE coach_memories SET updated_at='2000-01-01' WHERE id=$1",[first.id]);
+    const second = await a.rememberUserNote({...input,content:'Meu objetivo declarado B'},revision);
+    const again = await a.rememberUserNote(input,revision);
+    expect(again.id).toBe(first.id);
+    expect((await a.memories())[0].id).toBe(first.id);
+    expect(Date.parse(again.updated_at)).toBeGreaterThanOrEqual(Date.parse(second.updated_at));
+    expect(again.history.at(-1)).toMatchObject({content:input.content,status:'confirmed'});
+    await a.correctMemory(first.id,input.content,'rejected');
+    revision = (await a.profile()).revision;
+    expect((await a.rememberUserNote(input,revision)).status).toBe('rejected');
+    const hypothesis = await a.addMemory({...input,content:'Contexto ainda hipotético',kind:'context',status:'hypothesis'},revision);
+    expect((await a.rememberUserNote({...input,content:hypothesis.content,kind:'context'},revision)).status).toBe('hypothesis');
+    const foreign = await b.rememberUserNote(input,(await b.profile()).revision);
+    expect(foreign.id).not.toBe(first.id); expect(foreign.user_id).toBe(userB);
+    expect((await a.memories()).find(m=>m.id===first.id)?.status).toBe('rejected');
+    await expect(a.rememberUserNote({...input,kind:'pattern'},revision)).rejects.toThrow();
+    await expect(a.rememberUserNote({...input,status:'hypothesis'},revision)).rejects.toThrow();
+    await expect(a.rememberUserNote(input,revision-1)).rejects.toBeInstanceOf(StaleCoachRunError);
   });
 
   test("memory de-duplicates; rejection preserved; user correction invalidates generated writes", async () => {

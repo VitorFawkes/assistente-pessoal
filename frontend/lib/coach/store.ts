@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { PoolClient, QueryResultRow } from "pg";
 import { query, withTenant } from "../db";
 import { sourceHash } from "./evidence";
-import { loadTaskContext, type CoachTask, type CoachTaskEvent } from "./task-context";
+import { loadTaskContext, type CoachTask, type CoachTaskEvent, type TaskSummary, type TaskSelection } from "./task-context";
+import { contextSearchTerms, resolveContextPeriod, type ContextOptions, type ContextPeriod } from "./context-selection";
 import type {
   CoachAnalysis, CoachMeeting, CoachMemory, CoachMessage, CoachProfile,
   CoachReview, Coverage, Evidence, ReviewContent,
@@ -12,10 +13,14 @@ export type CoachProfilePatch = Partial<Pick<CoachProfile,
   "enabled" | "weekly_enabled" | "goals" | "context" | "timezone" | "review_day" | "review_hour"
 >>;
 export type { CoachTask, CoachTaskEvent } from "./task-context";
-export type CoachMeetingContext = CoachMeeting & { summary: string | null };
+export type CoachMeetingContext = CoachMeeting & { summary: string | null; context_at?:string;date_basis?:"recorded"|"registered" };
 export type CoachContext = {
   tasks: CoachTask[]; meetings: CoachMeetingContext[];
   analyses: CoachAnalysis[]; messages: CoachMessage[]; events: CoachTaskEvent[]; limitations: string[];
+  historical_meetings:CoachMeetingContext[]; historical_analyses:CoachAnalysis[];
+  task_summary:TaskSummary;task_selection:TaskSelection;
+  selection:{period:ContextPeriod|null;meetings:{selected:number;total:number};historical_meetings:{selected:number;total:number};
+    analyses:{selected:number;total:number};messages:{selected:number};fallback:boolean};
 };
 export type AnalysisInput = Omit<CoachAnalysis, "id" | "created_at">;
 export type MemoryInput = Pick<CoachMemory, "kind" | "content" | "status" | "evidence">;
@@ -27,6 +32,8 @@ export class StaleCoachRunError extends Error {
 const PROFILE_COLUMNS = "user_id, enabled, weekly_enabled, goals, context, timezone, review_day, review_hour, revision, last_run_at, last_error, created_at, updated_at";
 const REVIEW_COLUMNS = "id, week_start::text, content, model, profile_revision, created_at";
 const MEETING_COLUMNS = "id, nome, original_filename, recorded_at, transcription, segments, speaker_labels, speaker_pessoas";
+const contextDateColumns = (alias = "") => `coalesce(${alias}recorded_at,${alias}created_at) AS context_at,
+  CASE WHEN ${alias}recorded_at IS NOT NULL THEN 'recorded' ELSE 'registered' END AS date_basis`;
 const ELIGIBLE = "status = 'done' AND transcription IS NOT NULL AND length(btrim(transcription)) > 0";
 const serial = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const bounded = (value: number, min: number, max: number) => Math.min(max, Math.max(min, Math.trunc(value) || min));
@@ -119,6 +126,26 @@ export function coachStore(userId: string) {
         [userId, input.kind, input.content]))[0];
     }),
 
+    // Only the service's literal, explicit current-user statements may reach this path.
+    // Reaffirmation refreshes a confirmed note; it never silently reverses a correction/rejection.
+    rememberUserNote: (input:MemoryInput, revision:number) => tenant(async (db):Promise<CoachMemory> => {
+      if (!["goal","context","experiment"].includes(input.kind) || input.status !== "confirmed"
+        || !Array.isArray(input.evidence) || input.evidence.length !== 0 || typeof input.content !== "string"
+        || input.content.trim().length < 1 || input.content.trim().length > 12000)
+        throw new Error("A memória precisa ser uma declaração explícita de objetivo, contexto ou experimento.");
+      await assertRevision(db,userId,revision);
+      const saved = await rows<CoachMemory>(db,
+        `INSERT INTO coach_memories(user_id,kind,content,status,evidence) VALUES($1,$2,$3,'confirmed','[]'::jsonb)
+         ON CONFLICT(user_id,kind,content_hash) DO UPDATE SET
+           history=coach_memories.history || jsonb_build_array(jsonb_build_object(
+             'content',coach_memories.content,'status',coach_memories.status,'at',now())),updated_at=now()
+         WHERE coach_memories.user_id=$1 AND coach_memories.status='confirmed'
+         RETURNING *`,[userId,input.kind,input.content.trim()]);
+      return saved[0] ?? (await rows<CoachMemory>(db,
+        "SELECT * FROM coach_memories WHERE user_id=$1 AND kind=$2 AND content_hash=md5(lower(btrim($3)))",
+        [userId,input.kind,input.content]))[0];
+    }),
+
     correctMemory: (id: string, content: string, status: CoachMemory["status"]) => tenant(async (db) => {
       // Lock profile first, the same order used by generated writes and reset.
       await bumpRevision(db, userId);
@@ -167,7 +194,7 @@ export function coachStore(userId: string) {
        ORDER BY recorded_at DESC NULLS LAST, id LIMIT $2 OFFSET $3`, [userId, bounded(limit, 1, 100), bounded(offset, 0, Number.MAX_SAFE_INTEGER)])),
 
     meetingById: (id: string) => tenant(async (db) => (await rows<CoachMeetingContext>(db,
-      `SELECT ${MEETING_COLUMNS}, summary FROM meetings WHERE user_id = $1 AND id = $2 AND ${ELIGIBLE}`, [userId, id]))[0] ?? null),
+      `SELECT ${MEETING_COLUMNS}, summary,${contextDateColumns()} FROM meetings WHERE user_id = $1 AND id = $2 AND ${ELIGIBLE}`, [userId, id]))[0] ?? null),
 
     analyses: (meetingId?: string) => tenant((db) => rows<CoachAnalysis>(db,
       `SELECT id, meeting_id, source_hash, chunk_index, chunk_count, observations, summary, model, created_at
@@ -241,15 +268,19 @@ export function coachStore(userId: string) {
       return coverage;
     }),
 
-    context: (queryText = "") => tenant(async (db): Promise<CoachContext> => {
-      const terms = queryText.trim().slice(0, 5000);
+    context: (queryText = "", options:ContextOptions = {}) => tenant(async (db): Promise<CoachContext> => {
+      const now = options.now ?? new Date();
+      const timezone = options.timezone ?? (await rows<{timezone:string}>(db,"SELECT timezone FROM coach_profiles WHERE user_id=$1",[userId]))[0]?.timezone ?? "America/Sao_Paulo";
+      const period = resolveContextPeriod(queryText,{...options,now,timezone});
+      const terms = contextSearchTerms(queryText);
       let meetings: CoachMeetingContext[] = [];
       let patternMeetings: CoachMeetingContext[] = [];
-      if (terms) {
+      let historicalMeetings:CoachMeetingContext[] = [];
+      if (terms && !period) {
         // Search learned patterns across all meetings, not only the recent/retrieved transcript subset.
         const candidates = await rows<CoachMeetingContext & { analysis_source_hash: string }>(db,
           `WITH search AS (SELECT array_to_string(tsvector_to_array(to_tsvector('portuguese', $2)), ' | ')::tsquery AS q)
-           SELECT ${MEETING_COLUMNS.split(", ").map((c) => `m.${c}`).join(", ")},m.summary,a.source_hash AS analysis_source_hash
+           SELECT ${MEETING_COLUMNS.split(", ").map((c) => `m.${c}`).join(", ")},m.summary,${contextDateColumns("m.")},a.source_hash AS analysis_source_hash
            FROM coach_analyses a JOIN meetings m ON m.id = a.meeting_id AND m.user_id = a.user_id, search
            WHERE a.user_id = $1 AND m.user_id = $1 AND m.status = 'done'
              AND m.transcription IS NOT NULL AND length(btrim(m.transcription)) > 0
@@ -266,32 +297,64 @@ export function coachStore(userId: string) {
           return meeting;
         });
       }
-      if (terms) meetings = await rows<CoachMeetingContext>(db,
+      if (terms && !period) meetings = await rows<CoachMeetingContext>(db,
         `WITH search AS (SELECT array_to_string(tsvector_to_array(to_tsvector('portuguese', $2)), ' | ')::tsquery AS q)
-         SELECT ${MEETING_COLUMNS}, summary FROM meetings, search
+         SELECT ${MEETING_COLUMNS}, summary,${contextDateColumns()} FROM meetings, search
          WHERE user_id = $1 AND ${ELIGIBLE}
            AND to_tsvector('portuguese', coalesce(nome,'') || ' ' || coalesce(summary,'') || ' ' || transcription) @@ search.q
          ORDER BY ts_rank_cd(to_tsvector('portuguese', coalesce(nome,'') || ' ' || coalesce(summary,'') || ' ' || transcription), search.q) DESC,
            recorded_at DESC NULLS LAST, id LIMIT 8`, [userId, terms]);
       meetings = [...patternMeetings, ...meetings.filter((m) => !patternMeetings.some((p) => p.id === m.id))].slice(0, 8);
-      const fallback = terms.length > 0 && meetings.length === 0;
-      if (!meetings.length) meetings = await rows<CoachMeetingContext>(db,
-        `SELECT ${MEETING_COLUMNS}, summary FROM meetings WHERE user_id = $1 AND ${ELIGIBLE}
+      const fallback = !period && terms.length > 0 && meetings.length === 0;
+      if (period) {
+        meetings = await rows<CoachMeetingContext>(db,
+          `SELECT ${MEETING_COLUMNS},summary,${contextDateColumns()} FROM meetings
+           WHERE user_id=$1 AND ${ELIGIBLE} AND coalesce(recorded_at,created_at)>=$2::timestamptz
+             AND coalesce(recorded_at,created_at)<$3::timestamptz
+           ORDER BY coalesce(recorded_at,created_at) DESC,id LIMIT 8`,[userId,period.from,period.to]);
+        // Historical material remains a separate field, never a replacement for an empty requested day.
+        historicalMeetings = await rows<CoachMeetingContext>(db,
+          `SELECT ${MEETING_COLUMNS},summary,${contextDateColumns()} FROM meetings
+           WHERE user_id=$1 AND ${ELIGIBLE} AND coalesce(recorded_at,created_at)<$2::timestamptz
+           ORDER BY CASE WHEN $3::text='' THEN 0 ELSE ts_rank_cd(
+             to_tsvector('portuguese',coalesce(nome,'')||' '||coalesce(summary,'')||' '||transcription),
+             array_to_string(tsvector_to_array(to_tsvector('portuguese',$3)), ' | ')::tsquery) END DESC,
+             coalesce(recorded_at,created_at) DESC,id LIMIT 4`,[userId,period.from,terms]);
+      } else if (!meetings.length) meetings = await rows<CoachMeetingContext>(db,
+        `SELECT ${MEETING_COLUMNS}, summary,${contextDateColumns()} FROM meetings WHERE user_id = $1 AND ${ELIGIBLE}
          ORDER BY recorded_at DESC NULLS LAST, id LIMIT 8`, [userId]);
-      const hashes = new Map(meetings.map((m) => [m.id, sourceHash(m)]));
-      const analyses = (await rows<CoachAnalysis>(db,
+      const allMeetings = [...meetings,...historicalMeetings];
+      const hashes = new Map(allMeetings.map((m) => [m.id, sourceHash(m)]));
+      const allAnalyses = (await rows<CoachAnalysis>(db,
         `SELECT id,meeting_id,source_hash,chunk_index,chunk_count,observations,summary,model,created_at
          FROM coach_analyses WHERE user_id = $1 AND meeting_id = ANY($2::uuid[])
-         ORDER BY created_at DESC, chunk_index`, [userId, meetings.map((m) => m.id)]))
-        .filter((a) => hashes.get(a.meeting_id) === a.source_hash).slice(0, 40);
-      const {tasks,events} = await loadTaskContext(db,userId);
+         ORDER BY created_at DESC, chunk_index`, [userId, allMeetings.map((m) => m.id)]))
+        .filter((a) => hashes.get(a.meeting_id) === a.source_hash);
+      const currentIds = new Set(meetings.map(m=>m.id));
+      const currentAnalyses = allAnalyses.filter(a=>currentIds.has(a.meeting_id));
+      const analyses = currentAnalyses.slice(0,40);
+      const historicalAnalyses = allAnalyses.filter(a=>!currentIds.has(a.meeting_id)).slice(0,20);
+      const taskContext = await loadTaskContext(db,userId,{now,period,search:terms});
+      const counts = (await rows<{total:number;historical:number}>(db,
+        `SELECT count(*) FILTER(WHERE $2::timestamptz IS NULL OR (coalesce(recorded_at,created_at)>=$2 AND coalesce(recorded_at,created_at)<$3::timestamptz))::int AS total,
+           count(*) FILTER(WHERE $2::timestamptz IS NOT NULL AND coalesce(recorded_at,created_at)<$2)::int AS historical
+         FROM meetings WHERE user_id=$1 AND ${ELIGIBLE}`,[userId,period?.from??null,period?.to??null]))[0];
       const messages = terms ? await rows<CoachMessage>(db,
         `WITH search AS (SELECT array_to_string(tsvector_to_array(to_tsvector('portuguese', $2)), ' | ')::tsquery AS q)
          SELECT id,role,content,evidence,created_at FROM coach_messages, search
          WHERE user_id = $1 AND to_tsvector('portuguese', content) @@ search.q
          ORDER BY ts_rank_cd(to_tsvector('portuguese', content), search.q) DESC, created_at DESC LIMIT 12`, [userId, terms]) : [];
-      return { tasks, events, meetings, analyses, messages: await messageFreshness(db,userId,messages), limitations: [
-        "Contexto desta resposta: até 8 reuniões recuperadas no histórico completo, 40 análises atuais, 40 tarefas e 40 eventos de tarefas; não é uma leitura simultânea de todo o histórico.",
+      return { ...taskContext, meetings, analyses, historical_meetings:historicalMeetings,historical_analyses:historicalAnalyses,
+        selection:{period,meetings:{selected:meetings.length,total:counts.total},historical_meetings:{selected:historicalMeetings.length,total:counts.historical},
+          analyses:{selected:analyses.length,total:currentAnalyses.length},messages:{selected:messages.length},fallback},
+        messages: await messageFreshness(db,userId,messages), limitations: [
+        period ? `Período solicitado: ${period.label}, fuso ${timezone}. ${meetings.length} de ${counts.total} reuniões disponíveis selecionadas; ${analyses.length} partes analisadas recuperadas. Sem registros no período não é evidência de inatividade.`
+          : `Contexto desta resposta: ${meetings.length} de ${counts.total} reuniões recuperadas no histórico completo e ${analyses.length} análises atuais; não é uma leitura simultânea de todo o histórico.`,
+        ...(period ? [`${historicalMeetings.length} reuniões anteriores ao período e ${historicalAnalyses.length} análises históricas servem apenas como referência de padrões; não mostram o que ocorreu no período solicitado.`] : []),
+        ...(allMeetings.some(m=>m.date_basis==='registered') ? ["Reuniões com date_basis=registered não têm data de gravação: context_at é a data de cadastro/importação, que não comprova quando a reunião aconteceu."] : []),
+        `Panorama agregado de todas as ${taskContext.task_summary.total} tarefas: ${taskContext.task_summary.open} abertas. Detalhes de ${taskContext.tasks.length} tarefas selecionados por prioridade registrada, prazo, relevância e atividade; prioridade registrada não comprova impacto de negócio.`,
+        "Carga de execução (mine_open) usa ação executar; carga de acompanhamento (delegated_open) usa cobrar/aguardar. O campo legado is_mine não define o papel atual do usuário.",
+        `${taskContext.events.length} de ${taskContext.task_selection.events_total} eventos de tarefas ${period ? "do período" : "do histórico"} recuperados. Tarefas abertas são carga atual, não prova de trabalho realizado; edição do registro não comprova execução. Contagens por frente podem se sobrepor.`,
         "Até 12 mensagens anteriores recuperadas por relevância em todo o histórico da conversa.",
         ...(fallback ? ["A busca textual não encontrou correspondências; contexto de reuniões recentes usado como apoio."] : []),
         "Agenda externa e conversas do agente de tarefas não estão conectadas ao coach.",
