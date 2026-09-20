@@ -1,0 +1,12 @@
+export type Competency = "focus" | "judgment" | "communication" | "delegation" | "commitments" | "self_awareness";
+export type Evidence = { meeting_id: string; meeting_title: string; recorded_at: string | null; quote: string; start: number | null; speaker: string | null; self_attributed: boolean; chunk_index: number; source_hash: string };
+export type Observation = { competency: Competency; observation: string; hypothesis: string; alternative: string; experiment: string; evidence: Evidence[] };
+export type CoachProfile = { user_id: string; enabled: boolean; weekly_enabled: boolean; goals: string; context: string; timezone: string; review_day: number; review_hour: number; revision: number; last_run_at: string | null; last_error: string | null; created_at: string; updated_at: string };
+export type CoachMemory = { id: string; user_id: string; kind: "goal" | "context" | "pattern" | "experiment"; content: string; status: "hypothesis" | "confirmed" | "rejected"; stale?: boolean; evidence: Evidence[]; history: { content: string; status: string; at: string }[]; created_at: string; updated_at: string };
+export type CoachMessage = { id: string; role: "user" | "assistant"; content: string; evidence: Evidence[]; stale?: boolean; created_at: string };
+export type ReviewContent = { headline: string; focus: string; observations: Observation[]; progress: string; experiment: string; question: string; limitations: string[] };
+export type CoachReview = { id: string; week_start: string; content: ReviewContent; model: string; profile_revision?: number; stale?: boolean; created_at: string };
+export type CoachAnalysis = { id: string; meeting_id: string; source_hash: string; chunk_index: number; chunk_count: number; observations: Observation[]; summary: string; model: string; created_at: string };
+export type CoachMeeting = { id: string; nome: string | null; original_filename: string; recorded_at: string | null; transcription: string; segments: { speaker: string; start: number; end: number; text: string }[] | null; speaker_labels: Record<string,string> | null; speaker_pessoas: Record<string,string> | null };
+export type Coverage = { total_meetings: number; analyzed_meetings: number; analyzed_chunks: number; pending_meetings: number };
+export type CoachState = { profile: CoachProfile; memories: CoachMemory[]; messages: CoachMessage[]; reviews: CoachReview[]; coverage: Coverage; model_available: boolean };

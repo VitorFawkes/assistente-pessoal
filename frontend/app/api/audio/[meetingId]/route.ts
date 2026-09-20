@@ -121,7 +121,7 @@ async function serveAudio(userId: string, meetingId: string, req: NextRequest) {
         });
       }
       const stream = createReadStream(filePath, { start, end });
-      return new NextResponse(Readable.toWeb(stream) as ReadableStream, {
+      return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
         status: 206,
         headers: {
           "Content-Type": ct,
@@ -133,7 +133,7 @@ async function serveAudio(userId: string, meetingId: string, req: NextRequest) {
     }
 
     const stream = createReadStream(filePath);
-    return new NextResponse(Readable.toWeb(stream) as ReadableStream, {
+    return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
       status: 200,
       headers: {
         "Content-Type": ct,

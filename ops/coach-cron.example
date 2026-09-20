@@ -1,0 +1,6 @@
+# Install as /etc/cron.d/acoes-coach (root:root, 0644).
+# Requires /opt/acoes-coach/coach-run.py and private runner.json.
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=""
+*/15 * * * * root /usr/bin/python3 /opt/acoes-coach/coach-run.py >> /var/log/acoes-coach.log 2>&1

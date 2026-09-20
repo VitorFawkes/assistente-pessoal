@@ -19,6 +19,7 @@ const NAV = [
   { href: "/pessoas", label: "Pessoas" },
   { href: "/quadros", label: "Quadros" },
   { href: "/assistente", label: "Assistente" },
+  { href: "/coach", label: "Coach" },
 ];
 
 function isCurrent(pathname: string, href: string): boolean {
@@ -68,7 +69,7 @@ export function SiteHeader({
         </Link>
         <div className="flex items-center gap-2 sm:gap-3">
           {user && (
-            <nav className="hidden sm:flex items-center gap-1 text-sm">
+            <nav className="hidden lg:flex items-center gap-0.5 text-[13px]">
               {NAV.map((item) => {
                 const current = isCurrent(pathname, item.href);
                 return (
@@ -77,7 +78,7 @@ export function SiteHeader({
                     href={item.href}
                     aria-current={current ? "page" : undefined}
                     className={cn(
-                      "px-3 py-1.5 rounded-full transition",
+                      "px-2 py-1.5 rounded-full transition",
                       current
                         ? "bg-[color:var(--accent)] text-[color:var(--foreground)] font-medium"
                         : "text-[color:var(--muted-strong)] hover:bg-[color:var(--accent)] hover:text-[color:var(--foreground)]",
@@ -91,7 +92,7 @@ export function SiteHeader({
           )}
           {/* No celular a barra some — sem isto não havia como sair da tela atual. */}
           {user && (
-            <div className="relative sm:hidden" ref={ref}>
+            <div className="relative lg:hidden" ref={ref}>
               <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}

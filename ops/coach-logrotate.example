@@ -1,0 +1,10 @@
+# Install as /etc/logrotate.d/acoes-coach (root:root, 0644).
+/var/log/acoes-coach.log {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0600 root root
+}
