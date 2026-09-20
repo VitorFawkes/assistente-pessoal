@@ -1,6 +1,6 @@
 # Coach — publicação e operação privada
 
-Versão inicial publicada em 2026-09-20: `ba2d498b4fcfc8e50bfd0d0a18932ad6fe206dd4`, integrada pelo PR #2. A imagem imutável está no serviço frontend, com réplica `1/1`, e a migration `0028` foi aplicada. A rotina está instalada e o processamento inicial autorizado do histórico está em andamento.
+Versão atual publicada em 2026-09-20: `e79b36d16c6fc9b7bd79c3f40e738adb50a2d25f`, integrada pelo PR #3, após a entrega inicial do PR #2. [Build da imagem atual](https://github.com/VitorFawkes/assistente-pessoal/actions/runs/35526230430) concluído com sucesso. A imagem imutável está no serviço frontend, com réplica `1/1`, e a migration `0028` foi aplicada. A rotina está instalada e o processamento inicial autorizado do histórico está em andamento.
 
 ## Verificação em produção
 
@@ -15,6 +15,8 @@ Versão inicial publicada em 2026-09-20: `ba2d498b4fcfc8e50bfd0d0a18932ad6fe206d
 - A primeira revisão automática foi persistida somente após completar seu período. Evidências e versão do perfil conferidas; uma rodada posterior preservou a identidade e a data da revisão, comprovando idempotência.
 
 A validação da conversa real motivou uma correção: o servidor agora preserva na mensagem os campos de observação, hipótese e outra explicação já fundamentados pelo modelo, em vez de exibir somente sua prosa livre. O contexto consultado e a data da contagem de cobertura também ficam explícitos. A correção passou em 215 testes unitários, build e um ciclo real com o provedor usando somente dados fictícios (28 verificações). A revisão semanal deixa de gravar contagens globais transitórias do acervo, limita as observações ao foco escolhido e preserva um único experimento principal. O título propõe um foco sem inferir ausência de hábito a partir da falta de evidência.
+
+Conferência da imagem final em produção: nova conversa com evidência e caminho sem evidência testados; distinções e limites preservados após recarga. Revisão regenerada com a mesma identidade semanal, um experimento principal e fontes atuais. Navegação de ida e volta para fontes, desktop e celular passaram, sem erros no console ou rolagem horizontal. As chamadas anteriores foram concluídas antes do rollout; cron e backfill retomados, com progresso preservado e uma nova rodada concluída na imagem atual.
 
 Resultados e capturas que contêm contexto pessoal ficam somente em arquivos temporários privados, fora deste repositório público. Identificação de participantes e consistência entre segmentos/transcrição limitam as observações pessoais; o coach não deve inventar autoria para completar cobertura.
 
