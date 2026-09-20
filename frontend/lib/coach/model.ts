@@ -9,8 +9,9 @@ export const conversationSchema=object({answer:str,observations:array(observatio
 export const reviewSchema=object({headline:str,focus:str,observations:array(observation),progress:str,experiment:str,question:str,limitations:array(str)});
 export function withoutObservations(schema: typeof reviewSchema){return {...schema,properties:{...schema.properties,observations:{...array(observation),maxItems:0}}};}
 export function reviewSchemaWithSources(ids:string[]){
- if(!ids.length)return withoutObservations(reviewSchema);
- return object({headline:str,focus:str,observations:array(object({competency:observation.properties.competency,observation:str,hypothesis:str,alternative:str,experiment:str,evidence_ids:array({type:"string",enum:ids})})),progress:str,experiment:str,question:str,limitations:array(str)});
+ const headline={type:"string",minLength:1,maxLength:100};
+ if(!ids.length)return withoutObservations({...reviewSchema,properties:{...reviewSchema.properties,headline}});
+ return object({headline,focus:str,observations:{...array(object({competency:observation.properties.competency,observation:str,hypothesis:str,alternative:str,experiment:{type:"string",enum:[""]},evidence_ids:array({type:"string",enum:ids})})),maxItems:2},progress:str,experiment:str,question:str,limitations:array(str)});
 }
 export function conversationSchemaWithSources(ids:string[]){
  if(!ids.length)return withoutObservations(conversationSchema);

@@ -28,6 +28,10 @@ describe.skipIf(process.env.COACH_PROVIDER_TEST!=="1")("coach real provider life
   const review=await generateReview(userId,new Date("2026-09-20T20:00:00Z"));
   if(!review)throw new Error("manual review must be generated");
   expect(review.content.observations.length).toBeGreaterThan(0);
+  expect(review.content.observations.length).toBeLessThanOrEqual(2);
+  expect(review.content.observations.every(o=>o.experiment==="")).toBe(true);
+  expect(review.content.experiment.length).toBeGreaterThan(0);
+  expect(review.content.headline.length).toBeLessThanOrEqual(100);
   for(const o of review.content.observations)for(const e of o.evidence){expect(e.meeting_id).toBe(meetingId);expect(e.self_attributed).toBe(true);}
   expect((await generateReview(userId,new Date("2026-09-20T20:00:00Z")))?.id).toBe(review.id);
   await chatWithCoach(userId,"Qual comportamento meu merece acompanhamento nesta reunião? Use uma evidência e sugira um experimento.");
