@@ -35,6 +35,18 @@ Revisão de código: corrigidos publicação de revisão incompleta, atribuiçã
 
 Estes testes comprovam os fluxos técnicos exercitados, não eficácia longitudinal de desenvolvimento profissional. A publicação e a análise do histórico real são etapas distintas.
 
+## Conversa como entrada principal — 2026-09-20
+
+A melhoria mantém o coach dentro do Ações e a revisão semanal existente. A tela abre em Conversa, com o campo de mensagem antes do histórico e atalhos que apenas preenchem um rascunho. Orientação aparece primeiro; leituras, alternativas, fontes e limites continuam acessíveis por expansão.
+
+O comportamento conversacional pede uma direção útil por vez, cobrança respeitosa sustentada pelos registros e reconhecimento específico. Consequências não observadas são riscos, não fatos. Declarações explícitas do usuário podem virar memórias identificadas como autorrelato: quotes são limitadas pelo schema às frases declarativas da mensagem atual e novamente conferidas no servidor. Reafirmar uma nota confirmada atualiza sua recência e histórico; rejeições anteriores não são sobrescritas. Essa memória complementa o perfil, sem modificar silenciosamente as configurações.
+
+A recuperação considera o panorama agregado de todas as tarefas/frentes e uma seleção limitada de prioridades, prazos, relevância e atividade. A carga de execução usa `acao`, preservando a distinção entre executar, cobrar e aguardar. Perguntas sobre hoje, ontem ou esta semana usam o fuso do perfil; reuniões anteriores ficam separadas. Data de cadastro/importação não comprova quando uma reunião aconteceu. Continua sem integração com agenda externa ou atividade dos agentes fora do Ações.
+
+Não há migration ou novo agendamento nesta mudança. A referência técnica de personalidade, concisão e avaliação é o [GPT-5.1 Prompting Guide da OpenAI](https://developers.openai.com/cookbook/examples/gpt-5/gpt-5-1_prompting_guide); o método de liderança e as distinções entre fontes Stanford e adaptações do Ações permanecem documentados em `docs/research/2026-09-20-leadership-coach-sources.md`.
+
+Validações locais: 230 testes unitários, 20 testes de persistência/isolamento e seleção em Postgres (147 verificações), seis cenários fictícios com o provedor real mais uma regressão de linguagem (123 verificações), TypeScript, lint e build. A prova com o provedor cobre sobrecarga, cobrança fundamentada, avanço específico, correção/meta, ausência de dados do dia e próximo passo curto. Relatórios ficam em arquivos temporários privados; nenhum dado de produção faz parte das fixtures. Esses casos não garantem resposta perfeita em todas as conversas.
+
 ## Estado verificado em leitura
 
 - Repositório `VitorFawkes/assistente-pessoal`, público, branch padrão `main`; credencial GitHub existente com permissão de leitura e push.

@@ -11,8 +11,8 @@ import { days, SettingsView } from "./settings";
 import { buttonClass, dateLabel, primaryClass } from "./shared";
 
 const tabs = [
-  { id: "week", label: "Sua semana" },
   { id: "chat", label: "Conversa" },
+  { id: "week", label: "Sua semana" },
   { id: "memory", label: "Memória" },
   { id: "references", label: "Referenciais" },
 ] as const;
@@ -37,7 +37,7 @@ export function CoachDashboard() {
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("week");
+  const [tab, setTab] = useState<Tab>("chat");
   const [settings, setSettings] = useState(false);
   const [draft, setDraft] = useState("");
   const tabButtons = useRef<(HTMLButtonElement | null)[]>([]);
@@ -67,7 +67,11 @@ export function CoachDashboard() {
     finally { running.current = false; setBusy(null); }
   }, []);
 
-  const discuss = (text: string) => { setDraft(text); setTab("chat"); requestAnimationFrame(() => panel.current?.scrollIntoView({ block: "start" })); };
+  const discuss = (text: string) => {
+    setDraft((previous) => previous.trim() ? `${previous.trimEnd()}\n\n${text}` : text);
+    setTab("chat");
+    requestAnimationFrame(() => document.getElementById("coach-message")?.focus());
+  };
 
   if (!state) return (
     <div className="space-y-6"><header><h1 className="font-display text-4xl">Seu coach de liderança</h1><p className="mt-3 text-sm text-muted-strong">Perspectiva sobre sua atuação. Um próximo passo de cada vez.</p></header>{loading ? <div className="flex min-h-48 items-center justify-center gap-2 text-sm text-muted-strong" role="status"><LoaderCircle size={18} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> Carregando seu contexto…</div> : <div className="rounded-xl border border-border bg-card p-5"><p role="alert" className="text-sm text-[var(--urgent)]">{error}</p><button type="button" className={`${buttonClass} mt-4`} onClick={() => { setLoading(true); setError(null); void load(); }}><RefreshCw size={15} aria-hidden="true" /> Tentar novamente</button></div>}</div>
@@ -83,7 +87,7 @@ export function CoachDashboard() {
       <header className="space-y-3">
         <div className="flex items-center justify-between gap-3"><span className="flex items-center gap-1.5 text-xs text-muted-strong"><ShieldCheck size={14} aria-hidden="true" /> Seu espaço privado</span><button type="button" className={`${buttonClass} !min-h-9 !px-2.5 !py-1.5 !text-xs`} aria-expanded={settings} aria-controls="coach-settings" onClick={() => setSettings(!settings)} disabled={!!busy}><Settings2 size={14} aria-hidden="true" /> Ajustes</button></div>
         <h1 className="font-display text-[2.25rem] sm:text-[2.75rem] leading-[1.1] tracking-tight">Seu coach de liderança</h1>
-        <p className="max-w-lg text-sm leading-relaxed text-muted-strong">Perspectiva sobre sua atuação real. Feedback franco, memória revisável e uma mudança importante de cada vez.</p>
+        <p className="max-w-lg text-sm leading-relaxed text-muted-strong">Um lugar para pensar com clareza, ouvir uma leitura franca e escolher seu próximo passo.</p>
       </header>
 
       {error && <div className="flex items-start gap-2 rounded-xl border border-[var(--urgent)]/30 bg-[var(--urgent-bg)] p-4" role="alert"><CircleAlert size={17} className="mt-0.5 shrink-0 text-[var(--urgent)]" aria-hidden="true" /><p className="break-words text-sm leading-relaxed">{error}</p></div>}
@@ -105,7 +109,14 @@ export function CoachDashboard() {
             {current ? <ReviewView review={current} onDiscuss={discuss} /> : <section className="rounded-xl border border-dashed border-border px-5 py-7"><BookOpen size={23} className="mb-3 text-[var(--calm)]" aria-hidden="true" /><h2 className="font-display text-2xl">Sua primeira revisão começa com evidências</h2><p className="mt-3 text-sm leading-relaxed text-muted-strong">{coverage.total_meetings === 0 ? "Quando houver reuniões finalizadas, o coach poderá analisá-las. Enquanto isso, conte seus objetivos na conversa." : coverage.analyzed_chunks === 0 ? "Analise os primeiros trechos das reuniões. Depois, prepare uma revisão para escolher um ponto importante e uma ação concreta." : "Já há trechos analisados. Prepare a revisão para refletir sobre esse material; a cobertura abaixo mostra o que ainda falta."}</p>{coverage.total_meetings > 0 && coverage.analyzed_chunks === 0 && <button className={`${primaryClass} mt-5`} type="button" disabled={!!busy || !operational} onClick={() => void mutate({ action: "analyze" }, "Cobertura atualizada.")}>Analisar primeiras reuniões <ArrowRight size={15} aria-hidden="true" /></button>}</section>}
             {reviews.length > 1 && <section className="border-t border-border pt-5"><h2 className="mb-2 text-sm font-semibold">Revisões anteriores</h2>{reviews.slice(1).map((review) => <details key={review.id} className="border-b border-border py-3"><summary className="cursor-pointer text-sm leading-relaxed"><span className="text-xs text-muted-strong">Semana de {dateLabel(review.week_start)}</span><span className="mt-1 block font-medium">{review.content.headline}</span></summary><div className="pt-6"><ReviewView review={review} historical onDiscuss={discuss} /></div></details>)}</section>}
           </div>}
-          {tab === "chat" && <ChatView messages={state.messages} busy={!!busy} enabled={profile.enabled} available={state.model_available} draft={draft} onDraft={setDraft} mutate={mutate} />}
+          {tab === "chat" && <div className="space-y-6">
+            <ChatView messages={state.messages} busy={!!busy} enabled={profile.enabled} available={state.model_available} draft={draft} onDraft={setDraft} mutate={mutate} />
+            {current && <button type="button" onClick={() => { setTab("week"); requestAnimationFrame(() => panel.current?.scrollIntoView({ block: "start" })); }} className="flex w-full items-center gap-3 rounded-xl border border-border bg-accent p-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--calm)]">
+              <BookOpen size={20} className="shrink-0 text-[var(--calm)]" aria-hidden="true" />
+              <span className="min-w-0 flex-1"><span className="block text-xs text-muted-strong">Sua revisão · semana de {dateLabel(current.week_start)}</span><span className="mt-1 block text-sm font-medium leading-relaxed">{current.content.headline}</span></span>
+              <ArrowRight size={18} className="shrink-0" aria-hidden="true" />
+            </button>}
+          </div>}
           {tab === "memory" && <MemoryView memories={state.memories} busy={!!busy} mutate={mutate} />}
           {tab === "references" && <ReferencesView />}
         </div>

@@ -32,14 +32,16 @@ function fixture(meetings:CoachMeeting[],result:Record<string,unknown>,periodObs
  const memories:unknown[]=[];
  const reviews:ReviewContent[]=[];
  let modelInput:Record<string,unknown>={};
+ let contextRequest:unknown;
  const fake={
   profile:async()=>({enabled:true,weekly_enabled:true,revision:1,timezone:"America/Sao_Paulo",review_day:5,review_hour:17}),
   claimLease:async()=>"lease",releaseLease:async()=>{},
-  context:async()=>({meetings,messages:[],tasks:[],events:[],analyses:[],limitations:[]}),
+  context:async(search?:string,options?:unknown)=>{contextRequest={search,options};return {meetings,messages:[],tasks:[],events:[],analyses:[],limitations:[]};},
   memories:async()=>[],messages:async()=>[],selfPersonIds:async()=>["self"],reviews:async()=>[],
   coverage:async()=>({total_meetings:137,analyzed_meetings:2,analyzed_chunks:3,pending_meetings:135}),
   addMessage:async(role:string,content:string,evidence:unknown[])=>{saved.push({role,content,evidence});},
-  addMemory:async(value:unknown)=>{memories.push(value);},
+  addMemory:async(value:unknown)=>{memories.push(value);return value;},
+  rememberUserNote:async(value:unknown)=>{memories.push(value);return value;},
   analysesInPeriod:async()=>({analyses:periodObservations.length?[{observations:periodObservations,created_at:"2026-09-18T12:00:00Z"}]:[],meetings,complete:true,limitations:[],total_meetings:meetings.length}),
   saveReview:async(_week:string,content:ReviewContent)=>{reviews.push(content);return {content};},
  } as unknown as ReturnType<typeof stores.coachStore>;
@@ -50,7 +52,7 @@ function fixture(meetings:CoachMeeting[],result:Record<string,unknown>,periodObs
   modelInput=JSON.parse(request.messages[1].content);
   return Response.json({choices:[{finish_reason:"stop",message:{content:JSON.stringify(result)}}]});
  }) as unknown as typeof fetch;
- return {saved,memories,reviews,input:()=>modelInput,restore:()=>storeSpy.mockRestore()};
+ return {saved,memories,reviews,input:()=>modelInput,contextRequest:()=>contextRequest,restore:()=>storeSpy.mockRestore()};
 }
 
 test("saved chat preserves grounded hypothesis and alternative, with actual selected coverage",async()=>{
@@ -109,5 +111,31 @@ test("weekly review saves only the principal experiment, even if the provider pr
   expect(run.reviews[0].observations[0].experiment).toBe("");
   expect(run.reviews[0].experiment).toBe("Escolha uma entrega e confira o resultado na sexta.");
   expect(run.reviews[0].observations[0].evidence[0].meeting_id).toBe("owned");
+ }finally{run.restore();}
+});
+
+
+test("today questions use the user's timezone and include dates on retrieved transcripts",async()=>{
+ const dated={...meeting,recorded_at:"2026-09-19T12:00:00Z"};
+ const run=fixture([dated],{answer:"Vamos olhar apenas os registros de hoje.",observations:[],memories:[]});
+ const now=new Date("2026-09-20T01:00:00Z");
+ try{
+  await chatWithCoach("synthetic-user","Como foi meu dia hoje?",now);
+  expect(run.contextRequest()).toEqual({search:"Como foi meu dia hoje?",options:{timezone:"America/Sao_Paulo",now}});
+  expect(run.input().current_time).toBe(now.toISOString());
+  expect(run.input().timezone).toBe("America/Sao_Paulo");
+  expect(run.input().transcripts).toMatchObject([{recorded_at:dated.recorded_at}]);
+ }finally{run.restore();}
+});
+
+test("explicit user goals become literal self-report memories without fabricated notes",async()=>{
+ const message="Meu objetivo agora é delegar a operação comercial.";
+ const run=fixture([],{answer:"Vamos usar esse objetivo para escolher o próximo passo.",observations:[],memories:[],user_memories:[{kind:"goal",quote:message},{kind:"goal",quote:"Quero abandonar os clientes."}]});
+ try{
+  await chatWithCoach("synthetic-user",message);
+  expect(run.memories).toHaveLength(1);
+  expect(run.memories[0]).toMatchObject({kind:"goal",status:"confirmed",content:"Informado por você na conversa: "+message,evidence:[]});
+  expect(run.saved[1].content).toContain("Guardei na memória");
+  expect(run.saved[1].content).not.toContain("abandonar");
  }finally{run.restore();}
 });

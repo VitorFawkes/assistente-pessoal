@@ -22,3 +22,15 @@ export function presentChat(answer:string,observations:Observation[],selectedMee
   `*${retrieval} ${coverageAtCreation}*`,
  ].join("\n\n");
 }
+
+export function splitChatPresentation(content:string):{answer:string;reading:string;scope:string}{
+ const prefix="**Orientação**\n\n";
+ if(!content.startsWith(prefix))return {answer:content,reading:"",scope:""};
+ const body=content.slice(prefix.length);
+ // Only split the server-generated envelope. Ordinary/older Markdown stays intact.
+ const scopeStart=body.search(/\n\n\*(?:Consultei \d+|Não consultei trechos de reuniões nesta resposta\.)/u);
+ const main=scopeStart>=0?body.slice(0,scopeStart):body;
+ const scope=scopeStart>=0?body.slice(scopeStart).trim():"";
+ const readingStart=main.search(/\n\n(?:\*\*Observação:\*\*|Sem observações verificadas sobre sua conduta nas reuniões\.)/u);
+ return {answer:(readingStart>=0?main.slice(0,readingStart):main).trim(),reading:readingStart>=0?main.slice(readingStart).trim():"",scope};
+}

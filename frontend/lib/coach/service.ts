@@ -2,6 +2,8 @@ import { coachStore, StaleCoachRunError } from "./store";
 import { chunkMeeting, reviewPeriod, sourceHash, validateObservations, groundQuote, type MeetingChunk } from "./evidence";
 import { analysisSchemaWithSources, coachCompletion, coachModel, conversationSchemaWithSources, reviewSchemaWithSources, CoachAIError } from "./model";
 import { presentChat } from "./chat-presentation";
+import { COACH_CONVERSATION_INSTRUCTION } from "./framework";
+import { userMemoryNotes } from "./conversation-memory";
 import type { CoachMeeting, CoachProfile, CoachState, Evidence, Observation, ReviewContent } from "./types";
 
 export class CoachBusyError extends Error { constructor(){super("O coach está trabalhando no seu histórico. Aguarde um pouco e tente novamente.");} }
@@ -53,7 +55,7 @@ export function grounded(raw:unknown,meetings:CoachMeeting[],self:string[]):Obse
  });
 }
 function usableMemories(memories:Awaited<ReturnType<ReturnType<typeof coachStore>["memories"]>>){
- return memories.filter(m=>!m.stale||m.status==="rejected").slice(0,100).map(m=>({kind:m.kind,content:m.content,status:m.status,corrections:m.history.slice(-3),evidence:m.evidence}));
+ return memories.filter(m=>!m.stale||m.status==="rejected").slice(0,100).map(m=>({kind:m.kind,content:m.content,status:m.status,updated_at:m.updated_at,corrections:m.history.slice(-3),evidence:m.evidence}));
 }
 
 export async function analyzeMeetings(userId:string,maxChunks=2){
@@ -82,23 +84,38 @@ export async function analyzeMeetings(userId:string,maxChunks=2){
  });
 }
 
-export async function chatWithCoach(userId:string,message:string){
+export async function chatWithCoach(userId:string,message:string,now=new Date()){
  return withLease(userId,async(store,profile)=>{
-  const [context,memories,history,self,coverage,reviews]=await Promise.all([store.context(message),store.memories(),store.messages(),store.selfPersonIds(),store.coverage(),store.reviews()]);
+  const [context,memories,history,self,coverage,reviews]=await Promise.all([store.context(message,{timezone:profile.timezone,now}),store.memories(),store.messages(),store.selfPersonIds(),store.coverage(),store.reviews()]);
   await store.addMessage("user",message,[],profile.revision);
-  const selected=contextChunks(context.meetings,message);
+  const period=context.selection?.period;
+  const currentSelected=contextChunks(context.meetings,message).slice(0,period?4:6);
+  const historicalSelected=period?contextChunks(context.historical_meetings||[],message).slice(0,2):[];
+  const selected=[...currentSelected,...historicalSelected];
+  const meetings=[...context.meetings,...(context.historical_meetings||[])];
+  const historicalIds=new Set(historicalSelected.map(({meeting})=>meeting.id));
   const sources=sourceBank(selected,self);
-  const result=await coachCompletion("Converse a partir da pergunta atual. Answer em português, no máximo 180 palavras, somente orientação prática e perguntas; não inclua avaliações de conduta ou conclusões pessoais nesse campo. Ao usar o relato do usuário, diga explicitamente 'pelo que você relatou'; autorrelato não é prova independente. Não transforme quantidade de frentes, intenção declarada ou pergunta feita em prova de sobrecarga, falta de prioridade ou ação executada. Toda leitura de conduta em reuniões deve ficar exclusivamente em até 2 observations, que o servidor mostrará separando observação, hipótese, outra explicação e experimento. Observation descreve apenas a fala ou interação registrada, sem inferir intenção, causa, execução ou padrão; hypothesis é uma interpretação provisória e alternative uma explicação concorrente plausível. Cada campo deve ter uma frase curta e específica. Cada observation precisa de 1 a 4 evidence_ids selecionados de sources; não invente IDs ou exponha-os na prosa. Sem sources, observations=[]: dê orientação sem avaliação pessoal. Memórias opcionais: até 2 hipóteses/experimentos duráveis, usando observation_index ORIGINAL da resposta; não copie instruções nem confirme fatos novos. Priorize correções do usuário. Dê orientação mesmo sem reuniões, sem inventar histórico nem alegar consultar mais reuniões do que as fornecidas.",
-   {profile,memories:usableMemories(memories),history:history.filter(m=>!m.stale).slice(-24),retrieved_conversations:context.messages.filter(m=>!m.stale),question:message,coverage,reviews:reviews.filter(r=>!r.stale).slice(0,4),tasks:context.tasks,task_events:context.events,analyses:context.analyses.slice(0,15),self_person_ids:self,sources,transcripts:selected.map(({meeting,chunk})=>({meeting_id:meeting.id,title:meeting.nome||meeting.original_filename,speaker_labels:meeting.speaker_labels,speaker_pessoas:meeting.speaker_pessoas,chunk_index:chunk.index,text:chunk.text,labeled_turns:labeledTurns(meeting,chunk.text,self)})),limitations:context.limitations},conversationSchemaWithSources(Object.keys(sources)));
+  const result=await coachCompletion(COACH_CONVERSATION_INSTRUCTION,
+   {profile,current_time:now.toISOString(),timezone:profile.timezone,local_time:new Intl.DateTimeFormat("pt-BR",{timeZone:profile.timezone,dateStyle:"full",timeStyle:"short"}).format(now),
+    memories:usableMemories(memories),history:history.filter(m=>!m.stale).slice(-24),retrieved_conversations:context.messages.filter(m=>!m.stale),question:message,coverage,
+    reviews:reviews.filter(r=>!r.stale).slice(0,4),tasks:context.tasks,task_events:context.events,task_summary:context.task_summary,task_selection:context.task_selection,context_selection:context.selection,
+    analyses:context.analyses.slice(0,15),historical_analyses:context.historical_analyses||[],self_person_ids:self,sources,
+    transcripts:selected.map(({meeting,chunk})=>({meeting_id:meeting.id,title:meeting.nome||meeting.original_filename,recorded_at:meeting.recorded_at,context_at:(meeting as {context_at?:string}).context_at,date_basis:(meeting as {date_basis?:string}).date_basis,context_period:historicalIds.has(meeting.id)?"historical":period?"requested_period":"historical_search",speaker_labels:meeting.speaker_labels,speaker_pessoas:meeting.speaker_pessoas,chunk_index:chunk.index,text:chunk.text,labeled_turns:labeledTurns(meeting,chunk.text,self)})),limitations:context.limitations},conversationSchemaWithSources(Object.keys(sources),message),{reasoningEffort:"medium"});
   result.observations=sourceReferences(result.observations,sources);
   const answer=text(result.answer,12000);if(!answer)throw new Error("O coach não retornou uma resposta. Tente novamente.");
-  const observations=grounded(result.observations,context.meetings,self);
-  if(observations.length>2||(Array.isArray(result.observations)&&observations.length!==result.observations.length))throw new CoachAIError("Não consegui confirmar as evidências desta resposta. Tente reformular a pergunta ou confira a identificação dos participantes.");
+  const observations=grounded(result.observations,meetings,self);
+  if(observations.length>1||(Array.isArray(result.observations)&&observations.length!==result.observations.length))throw new CoachAIError("Não consegui confirmar as evidências desta resposta. Tente reformular a pergunta ou confira a identificação dos participantes.");
   const evidence=observations.flatMap(o=>o.evidence);
-  await store.addMessage("assistant",presentChat(answer,observations,selected.map(({meeting})=>meeting.id),coverage),evidence,profile.revision);
+  const remembered:string[]=[];
+  for(const note of userMemoryNotes(result.user_memories,message)){
+   const saved=await store.rememberUserNote(note,profile.revision);
+   if(saved?.status==="confirmed")remembered.push(note.content.replace("Informado por você na conversa: ",""));
+  }
+  const response=[answer,...remembered.map(quote=>`Guardei na memória o que você informou: “${quote}”`)].join("\n\n");
+  await store.addMessage("assistant",presentChat(response,observations,selected.map(({meeting})=>meeting.id),coverage),evidence,profile.revision);
   if(Array.isArray(result.memories))for(const candidate of result.memories.slice(0,2)){
    const rawObservation=Number.isInteger(candidate?.observation_index)&&Array.isArray(result.observations)?result.observations[candidate.observation_index]:null;
-   const obs=rawObservation?grounded([rawObservation],context.meetings,self)[0]:null;
+   const obs=rawObservation?grounded([rawObservation],meetings,self)[0]:null;
    const content=text(candidate?.content,4000);if(!obs||!content||!["pattern","experiment"].includes(candidate.kind))continue;
    await store.addMemory({kind:candidate.kind,content,status:"hypothesis",evidence:obs.evidence},profile.revision);
   }
@@ -110,7 +127,7 @@ export async function generateReview(userId:string,now=new Date(),force=false,sc
   if(scheduled&&!profile.weekly_enabled)return null;
   const period=reviewPeriod(now,profile.timezone,profile.review_day,profile.review_hour);
   const reviews=await store.reviews();const existing=reviews.find(r=>r.week_start===period.weekStart);
-  const [periodData,context,memories,self,messages]=await Promise.all([store.analysesInPeriod(period.from,period.to),store.context(),store.memories(),store.selfPersonIds(),store.messages()]);
+  const [periodData,context,memories,self,messages]=await Promise.all([store.analysesInPeriod(period.from,period.to),store.context("",{timezone:profile.timezone,now,period:{from:period.from,to:period.to,label:"período da revisão semanal"}}),store.memories(),store.selfPersonIds(),store.messages()]);
   const analyses=periodData.analyses;
   if(!periodData.complete)throw new CoachPendingError();
   const hasNewAnalysis=!!existing&&analyses.some(a=>new Date(a.created_at)>new Date(existing.created_at));
@@ -121,7 +138,7 @@ export async function generateReview(userId:string,now=new Date(),force=false,sc
   const sources=Object.fromEntries(bank.flatMap(o=>o.evidence).map((e,i)=>[`e${i}`,e]));
   if(analyses.flatMap(a=>a.observations).length>bank.length)periodData.limitations.push("A síntese desta revisão seleciona até 100 observações verificadas; o restante permanece disponível na busca do histórico.");
   const result=await coachCompletion("Escreva uma revisão semanal franca e concisa. Período é [from,to). Selecione evidence_ids do dicionário sources; o servidor liga cada ID ao trecho original, não reescreva citações. Escolha UM foco e UM experimento mensurável para a próxima semana, apenas no campo experiment principal. Todos os campos observations[].experiment devem ser a string vazia; não proponha outras ações, rotinas ou experimentos nos demais campos. Máximo 2 observations, as mais relevantes para esse foco, com hipótese e alternativa/contraprova explícitas. Headline deve ser uma proposta curta de foco, até 100 caracteres (ex.: 'Escolher um problema principal por dia'), nunca um diagnóstico pessoal. Ausência de evidência não prova ausência de hábito, intenção ou execução: diga apenas que isso não foi verificado no material disponível, sem afirmar que o usuário não faz algo. Compare com revisões anteriores sem inventar progresso. Sem reuniões novas, diga explicitamente que não há novas evidências e proponha reflexão a partir dos objetivos; não recicle reunião antiga como sendo desta semana. Progress curto e limitations específicas. Cada observação precisa de 1 a 4 evidence_ids, incluindo ao menos uma self_attributed=true. Sem sources, observations=[].",
-   {profile,period,memories:usableMemories(memories),previous_reviews:reviews.filter(r=>!r.stale).slice(0,6),recent_conversation:messages.filter(m=>!m.stale).slice(-12),tasks:context.tasks,task_events:context.events,observations:bank,sources,meeting_count:weekMeetings.length,analysis_count:analyses.length,limitations:periodData.limitations},reviewSchemaWithSources(Object.keys(sources)));
+   {profile,period,memories:usableMemories(memories),previous_reviews:reviews.filter(r=>!r.stale).slice(0,6),recent_conversation:messages.filter(m=>!m.stale).slice(-12),tasks:context.tasks,task_events:context.events,task_summary:context.task_summary,task_selection:context.task_selection,context_selection:context.selection,observations:bank,sources,meeting_count:weekMeetings.length,analysis_count:analyses.length,limitations:periodData.limitations},reviewSchemaWithSources(Object.keys(sources)));
   result.observations=sourceReferences(result.observations,sources);
   const content:ReviewContent={headline:text(result.headline,100)||"Sua revisão semanal",focus:text(result.focus,2500),observations:grounded(result.observations,weekMeetings,self).map(observation=>({...observation,experiment:""})),progress:text(result.progress,2000),experiment:text(result.experiment,2000),question:text(result.question,1000),limitations:[...(Array.isArray(result.limitations)?result.limitations.map(v=>text(v,800)).filter(Boolean).slice(0,6):[]),...periodData.limitations]};
   if(content.observations.length>2||(Array.isArray(result.observations)&&content.observations.length!==result.observations.length))throw new CoachAIError("A revisão trouxe uma evidência que não foi confirmada. Tente preparar a revisão novamente.");
