@@ -1,0 +1,49 @@
+name: coach checks
+on:
+  pull_request:
+    paths: ["frontend/**", "db/0028_leadership_coach.sql", "ops/coach-*", ".github/workflows/coach-checks.yml"]
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: coach_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d coach_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.11"
+      - run: bun install --frozen-lockfile
+        working-directory: frontend
+      - name: Typecheck and focused lint
+        working-directory: frontend
+        run: |
+          bunx tsc --noEmit
+          bunx eslint lib/coach app/api/coach app/api/internal/coach app/coach components/coach components/site-header.tsx
+      - name: Unit tests
+        working-directory: frontend
+        run: bun test
+      - name: Isolated Postgres roles
+        run: psql -h localhost -p 55432 -U postgres -d coach_test -v ON_ERROR_STOP=1 -c 'CREATE ROLE app_tenant LOGIN NOBYPASSRLS; CREATE ROLE app_writer LOGIN BYPASSRLS;'
+      - name: Real tenant isolation and persistence
+        working-directory: frontend
+        env:
+          COACH_TEST_DATABASE_URL: postgresql://postgres@localhost:55432/coach_test
+        run: bun test lib/coach/store.integration.test.ts lib/coach/task-context.test.ts
+      - name: Private runner checks
+        run: |
+          python3 ops/coach-run.test.py
+          python3 ops/coach-backfill.test.py
+      - name: Production build without deployment
+        working-directory: frontend
+        run: bun run build
