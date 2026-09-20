@@ -32,5 +32,9 @@ describe.skipIf(process.env.COACH_PROVIDER_TEST!=="1")("coach real provider life
   expect((await generateReview(userId,new Date("2026-09-20T20:00:00Z")))?.id).toBe(review.id);
   await chatWithCoach(userId,"Qual comportamento meu merece acompanhamento nesta reunião? Use uma evidência e sugira um experimento.");
   const history=await store.messages();expect(history).toHaveLength(2);expect(history[1].role).toBe("assistant");expect(history[1].content.length).toBeGreaterThan(50);expect(history[1].evidence.length).toBeGreaterThan(0);
+  for(const label of ["**Observação:**","**Hipótese:**","**Outra explicação:**"])expect(history[1].content).toContain(label);
+  expect(history[1].content).toContain("1 trecho de 1 reunião");
+  expect(history[1].content).toContain("1 de 1 reunião do histórico com análise completa");
+  expect(history[1].content).not.toMatch(/\be\d+\b/);
  },180000);
 });

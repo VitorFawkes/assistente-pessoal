@@ -14,7 +14,8 @@ export function reviewSchemaWithSources(ids:string[]){
 }
 export function conversationSchemaWithSources(ids:string[]){
  if(!ids.length)return withoutObservations(conversationSchema);
- return object({answer:str,observations:array(object({competency:observation.properties.competency,observation:str,hypothesis:str,alternative:str,experiment:str,evidence_ids:array({type:"string",enum:ids})})),memories:conversationSchema.properties.memories});
+ const concise={type:"string",minLength:1,maxLength:400};
+ return object({answer:{type:"string",minLength:1,maxLength:1800},observations:{...array(object({competency:observation.properties.competency,observation:concise,hypothesis:concise,alternative:concise,experiment:concise,evidence_ids:{...array({type:"string",enum:ids}),minItems:1,maxItems:4}})),maxItems:2},memories:{...(conversationSchema.properties.memories as object),maxItems:2}});
 }
 export function analysisSchemaWithSources(ids:string[]){
  if(!ids.length)return withoutObservations(analysisSchema);
