@@ -30,4 +30,4 @@ Record actual command outcomes and deployment evidence in `docs/coach-deployment
 
 ## Estado de entrega
 
-Implementação e validação local concluídas; PR #2 contém a versão revisável. Publicação em produção e ativação do histórico aguardam a liberação da etapa final. A revisão automática bloqueou o push direto à branch principal; o trabalho segue em branch própria com CI sem deploy.
+Implementação integrada pelo PR #2 e publicada no commit `ba2d498b4fcfc8e50bfd0d0a18932ad6fe206dd4`. Migration aplicada, imagem verificada e testes de autenticação, isolamento, memória e interface passaram em produção. Runner instalado e validado sem rede. Restam a prova com contexto real no provedor e a instalação do agendamento, aguardando a confirmação específica de envio à API da OpenAI. O processamento do histórico não foi iniciado.

@@ -1,6 +1,17 @@
 # Coach — publicação e operação privada
 
-Procedimento preparado em 2026-09-20. Esta preparação não aplica migration, não publica imagem, não ativa perfil de usuário e não chama o modelo.
+Versão publicada em 2026-09-20: `ba2d498b4fcfc8e50bfd0d0a18932ad6fe206dd4`, integrada pelo PR #2. A imagem imutável está no serviço frontend, com réplica `1/1`, e a migration `0028` foi aplicada. O processamento do histórico e o agendamento ainda não foram iniciados.
+
+## Verificação em produção
+
+- Build da imagem: [GitHub Actions](https://github.com/VitorFawkes/assistente-pessoal/actions/runs/35524229530), concluído com sucesso.
+- [Coach publicado](https://acoes.vitorgambetti.com.br/coach): leitura autenticada `200`; sem sessão, redirecionamento `307` para acesso; origem indevida `403`; memória inexistente `404`; rotina sem token `401`.
+- Cinco tabelas com RLS forçada. 41 verificações passaram com o papel real `app_tenant`, incluindo SELECT/UPDATE cruzado, contexto vazio e FK de reunião/usuário. Transação de teste revertida e ausência das fixtures confirmada.
+- Navegador de produção: memória criada, corrigida e preservada após recarga; histórico da edição visível. Layout de 390px sem rolagem horizontal.
+- Configuração persistente do Easypanel e imagem efetiva alinhadas. Token dedicado configurado, sem modificar variáveis não relacionadas. Runner instalado e `--check` passou; configuração e logs têm permissão `0600`.
+- Rotina e backfill ainda não executados: a confirmação específica de envio do contexto selecionado à API da OpenAI está pendente. A preferência semanal salva não comprova que o agendamento está instalado.
+
+Resultados e capturas que contêm contexto pessoal ficam somente em arquivos temporários privados, fora deste repositório público. Identificação de participantes e consistência entre segmentos/transcrição limitam as observações pessoais; o coach não deve inventar autoria para completar cobertura.
 
 ## Validação executada em 2026-09-20
 
