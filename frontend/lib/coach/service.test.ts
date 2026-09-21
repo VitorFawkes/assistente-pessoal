@@ -60,7 +60,7 @@ function fixture(meetings:CoachMeeting[],result:Record<string,unknown>,periodObs
  const createSpy=spyOn(commitments,"createCommitment").mockImplementation(async()=>{commitmentWrites++;throw new Error("Unexpected commitment write in this fixture");});
  const trackSpy=spyOn(commitments,"trackCommitment").mockImplementation(async(_user,input)=>{if(!options.allowCommitmentWrites)throw new Error("Unexpected tracked agreement");tracked.push(input);return {id:"tracked",...input,tarefa_id:null,status:"open",profile_revision:2} as unknown as CoachCommitmentReceipt;});
  const outcomeSpy=spyOn(commitments,"recordCommitmentOutcome").mockImplementation(async(_user,id,input)=>{if(!options.allowCommitmentWrites)throw new Error("Unexpected outcome write");outcomes.push({id,...input});return {...options.storedCommitments?.find(c=>c.id===id),outcome:input.outcome,outcome_source:"user_report",profile_revision:2} as CoachCommitmentReceipt;});
- const updateSpy=spyOn(commitments,"updateCommitment").mockImplementation(async(_user,id,patch)=>{if(!options.allowCommitmentWrites)throw new Error("Unexpected commitment update");commitmentUpdates.push({id,...patch});return {...options.storedCommitments?.find(c=>c.id===id),...patch,profile_revision:2} as CoachCommitmentReceipt;});
+ const updateSpy=spyOn(commitments,"updateCommitment").mockImplementation(async(_user,id,patch)=>{if(!options.allowCommitmentWrites)throw new Error("Unexpected commitment update");commitmentUpdates.push({id,...patch});if(options.nullMutation)return null;return {...options.storedCommitments?.find(c=>c.id===id),...patch,profile_revision:2} as CoachCommitmentReceipt;});
  process.env.OPENAI_API_KEY="synthetic-key";process.env.COACH_PROVIDER="openai";process.env.COACH_MODEL="gpt-5.1";
  delete process.env.COACH_REVIEW_PROVIDER;delete process.env.COACH_REVIEW_MODEL;delete process.env.COACH_AUDIT_ENABLED;delete process.env.COACH_SEMANTIC_ENABLED;
  globalThis.fetch=(async(_url:unknown,init?:RequestInit)=>{
@@ -670,5 +670,26 @@ test("forwarded task and memory reads survive weekly correction resynthesis and 
   expect(run.reviews[0].observations).toHaveLength(1);
   expect(run.reviews[0].observations[0].evidence[0].quote).toBe("Agora combinei com Clara o resultado esperado e um ponto de acompanhamento.");
   expect(run.reviews[0].limitations.join(" ")).toContain("descartada");
+ }finally{run.restore();}
+});
+
+
+for(const unavailable of [false,true])test(unavailable?"completion never publishes a success receipt when persistence finds no agreement":"completion with empty guidance publishes an explicit completion receipt and discards the model answer",async()=>{
+ const message="Concluí a proposta.";
+ const commitment:CoachCommitment={id:"proposal",user_id:"synthetic-user",tarefa_id:null,source_message_id:"old-message",idempotency_key:"old:track:0",title:"Enviar proposta",status:"open",outcome:null,outcome_source:"unknown",due_at:null,history:[],created_at:"2026-09-20T10:00:00Z",updated_at:"2026-09-20T10:00:00Z"};
+ const run=fixture([],{answer:"Você já ganhou o cliente. Comece agora um projeto novo.",observations:[],memories:[],actions:[{type:"complete_commitment",quote:message,commitment_id:"proposal",due_at:null,guidance:""}]},[],{storedCommitments:[commitment],allowCommitmentWrites:true,nullMutation:unavailable});
+ try{
+  const completion=chatWithCoach("synthetic-user",message,new Date("2026-09-21T12:00:00Z"),"completion-receipt-run");
+  if(unavailable){await expect(completion).rejects.toBeInstanceOf(CoachAIError);expect(run.saved.map(saved=>saved.role)).toEqual(["user"]);}
+  else{
+   await completion;
+   expect(run.saved.map(saved=>saved.role)).toEqual(["user","assistant"]);
+   expect(run.saved[1].content).toContain("Registrei esse combinado como concluído conforme seu relato.");
+   expect(run.saved[1].content).not.toContain("ganhou o cliente");
+   expect(run.saved[1].content).not.toContain("projeto novo");
+  }
+  expect(run.commitmentUpdates).toEqual([{id:"proposal",status:"completed",outcome:"Concluí a proposta."}]);
+  expect(run.checkerInput()).toMatchObject({proposed:{answer:""}});
+  expect(run.memories).toEqual([]);expect(run.commitmentWrites()).toBe(0);
  }finally{run.restore();}
 });

@@ -5,7 +5,7 @@ import { COACH_CONVERSATION_INSTRUCTION, COACH_INVESTIGATION_INSTRUCTION } from 
 import { actionSchema, validateAction, type UserAction } from "./conversation-actions";
 import { needsDeepInvestigation } from "./investigation";
 import { coachCompletion, conversationSchemaWithSources } from "./model";
-import { coachCheckinQuestion, VERIFICATION_REPAIR_INSTRUCTION } from "./service";
+import { coachCheckinQuestion, commitmentUpdateConfirmation, VERIFICATION_REPAIR_INSTRUCTION } from "./service";
 import type { CoachCommitment } from "./types";
 
 // The original RED used a relative report deadline without a timestamp.
@@ -241,10 +241,10 @@ describe.skipIf(process.env.COACH_GUIDED_TEST !== "1")("guided coaching generate
       agreement.status = "renegotiated"; agreement.due_at = action.due_at || null;
       agreement.outcome = action.quote; agreement.outcome_source = "user_report";
       expect(agreement.due_at).toBe("2026-09-22T15:00:00.000Z");
-      receipts.push("Atualizei o compromisso conforme seu relato.");
+      receipts.push(commitmentUpdateConfirmation("renegotiated"));
      } else if (action.type === "complete_commitment") {
       agreement.status = "completed"; agreement.outcome = action.quote; agreement.outcome_source = "user_report";
-      receipts.push("Atualizei o compromisso conforme seu relato.");
+      receipts.push(commitmentUpdateConfirmation("completed"));
      }
     }
    }
