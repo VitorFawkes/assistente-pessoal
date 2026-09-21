@@ -111,7 +111,7 @@ export function CoachDashboard() {
       <header className="space-y-3">
         <div className="flex items-center justify-between gap-3"><span className="flex items-center gap-1.5 text-xs text-muted-strong"><ShieldCheck size={14} aria-hidden="true" /> Seu espaço privado</span><button type="button" className={`${buttonClass} !min-h-9 !px-2.5 !py-1.5 !text-xs`} aria-expanded={settings} aria-controls="coach-settings" onClick={() => setSettings(!settings)} disabled={!!busy}><Settings2 size={14} aria-hidden="true" /> Ajustes</button></div>
         <h1 className="font-display text-[2.25rem] sm:text-[2.75rem] leading-[1.1] tracking-tight">Seu coach de liderança</h1>
-        <p className="max-w-lg text-sm leading-relaxed text-muted-strong">Um lugar para pensar com clareza, ouvir uma leitura franca e escolher seu próximo passo.</p>
+        <p className={`max-w-lg text-sm leading-relaxed text-muted-strong ${state.messages.length ? "hidden sm:block" : ""}`}>Um lugar para pensar com clareza, ouvir uma leitura franca e escolher seu próximo passo.</p>
       </header>
 
       {error && <div className="flex items-start gap-2 rounded-xl border border-[var(--urgent)]/30 bg-[var(--urgent-bg)] p-4" role="alert"><CircleAlert size={17} className="mt-0.5 shrink-0 text-[var(--urgent)]" aria-hidden="true" /><p className="break-words text-sm leading-relaxed">{error}</p></div>}
@@ -137,7 +137,7 @@ export function CoachDashboard() {
           </div>}
           {tab === "chat" && <div className="space-y-6">
             {(activeGoal||profile.goals)&&<aside className="border-l-2 border-[var(--calm)] pl-4"><p className="text-xs font-medium text-muted-strong">O que importa agora</p><p className="mt-1 max-w-xl whitespace-pre-wrap break-words text-sm leading-relaxed">{activeGoal?.content||profile.goals}</p><button type="button" className="mt-1 min-h-9 text-xs underline underline-offset-4" onClick={()=>discuss("Quero rever meu objetivo atual. O que mudou foi: ")}>Conversar sobre este objetivo</button></aside>}
-            <ChatView messages={state.messages} busy={!!busy||pendingJobs.some(job=>job.kind==="chat")} enabled={profile.enabled} available={state.model_available} draft={draft} onDraft={setDraft} mutate={mutate} />
+            <ChatView messages={state.messages} busy={!!busy||pendingJobs.some(job=>job.kind==="chat")} replyPending={pendingJobs.some(job=>job.kind==="chat")} enabled={profile.enabled} available={state.model_available} draft={draft} onDraft={setDraft} mutate={mutate} />
             <div className="flex flex-wrap gap-2"><button type="button" className={`${buttonClass} !text-xs`} disabled={!!busy||!operational||pendingJobs.some(job=>job.kind==="checkin")} onClick={()=>void mutate({action:"checkin",checkin:"morning"})}>Escolher o foco do dia</button><button type="button" className={`${buttonClass} !text-xs`} disabled={!!busy||!operational||pendingJobs.some(job=>job.kind==="checkin")} onClick={()=>void mutate({action:"checkin",checkin:"evening"})}>Rever meu dia</button></div>
             {current && <button type="button" onClick={() => { setTab("week"); requestAnimationFrame(() => panel.current?.scrollIntoView({ block: "start" })); }} className="flex w-full items-center gap-3 rounded-xl border border-border bg-accent p-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--calm)]">
               <BookOpen size={20} className="shrink-0 text-[var(--calm)]" aria-hidden="true" />

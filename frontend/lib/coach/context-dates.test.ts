@@ -6,3 +6,9 @@ test("server formats timezone and DST without changing original timestamps, date
  expect((localContextDates({recorded_at:"2026-03-08T07:00:00.000Z"},"America/New_York") as Record<string,unknown>).recorded_at_local).toBe("08/03/2026, 03:00:00 (America/New_York)");
  expect(data).not.toHaveProperty("current_time_local");expect(contextTimezone({profile:{timezone:"Pacific/Kiritimati"}})).toBe("Pacific/Kiritimati");
 });
+test("evidence reviewer keeps the same timezone as the context it wraps",()=>{
+ const wrapped={data:{profile:{timezone:"Asia/Tokyo"},current_time:"2026-09-20T18:00:00.000Z"},proposed:{answer:"amanhã"}};
+ expect(contextTimezone(wrapped)).toBe("Asia/Tokyo");
+ expect((localContextDates(wrapped,contextTimezone(wrapped)) as {data:{current_time_local:string}}).data.current_time_local).toBe("21/09/2026, 03:00:00 (Asia/Tokyo)");
+ expect(contextTimezone({data:{timezone:"Pacific/Kiritimati"}})).toBe("Pacific/Kiritimati");
+});

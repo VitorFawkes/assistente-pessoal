@@ -14,7 +14,7 @@ export async function POST(req:Request){
  let processed=0,failed=0,completed=0;const deadline=Date.now()+450000;
  for(const user of users){
   if(Date.now()+240000>deadline||processed>=3)break;
-  try{await scheduleCoachJobs(user.id);const result=await drainJobs(user.id,{maxJobs:1,deadline});completed+=result.completed;failed+=result.failed;processed++;}catch{failed++;}
+  try{await scheduleCoachJobs(user.id);const result=await drainJobs(user.id,{maxJobs:1,deadline});completed+=result.completed;failed+=result.failed;if(result.attempted>0)processed++;}catch{failed++;}
  }
  let remainingMeetings=0;for(const user of users)remainingMeetings+=(await coachStore(user.id).coverage()).pending_meetings;
  return NextResponse.json({ok:failed===0,processed,completed,failed,remaining_meetings:remainingMeetings,enabled:enabled.length},{status:failed?503:200,headers:{"Cache-Control":"no-store"}});

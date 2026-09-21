@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { CoachMessage } from "@/lib/coach/types";
 import { splitChatPresentation } from "@/lib/coach/chat-presentation";
 import { ArrowUp } from "lucide-react";
@@ -28,23 +28,23 @@ function Message({ message }: { message: CoachMessage }) {
   );
 }
 
-export function ChatView({ messages, busy, enabled, available, draft, onDraft, mutate }: { messages: CoachMessage[]; busy: boolean; enabled: boolean; available: boolean; draft: string; onDraft: (value: string) => void; mutate: CoachMutation }) {
+export function ChatView({ messages, busy, replyPending, enabled, available, draft, onDraft, mutate }: { messages: CoachMessage[]; busy: boolean; replyPending: boolean; enabled: boolean; available: boolean; draft: string; onDraft: (value: string) => void; mutate: CoachMutation }) {
   const [pending, setPending] = useState("");
   const history = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const followLatest = useRef(true);
   const revealReply = useRef(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (followLatest.current && history.current) {
       history.current.scrollTop = history.current.scrollHeight;
-      if (!pending && revealReply.current) history.current.scrollIntoView({ block: "nearest" });
+      if (!pending && !replyPending && revealReply.current) history.current.scrollIntoView({ block: "nearest" });
     }
-    if (!pending) { followLatest.current = false; revealReply.current = false; }
-  }, [messages.length, pending]);
+    if (!pending && !replyPending) { followLatest.current = false; revealReply.current = false; }
+  }, [messages.length, pending, replyPending]);
   const canSend = enabled && available && !busy;
   return (
     <div className="space-y-5">
-      <header><h2 className="font-display text-2xl">Vamos olhar para o que está acontecendo?</h2><p className="mt-2 text-sm leading-relaxed text-muted-strong">Conte do seu jeito. Podemos pensar numa decisão, rever seu dia ou entender o que está te sobrecarregando.</p></header>
+      {messages.length === 0 && <header><h2 className="font-display text-xl sm:text-2xl">Vamos olhar para o que está acontecendo?</h2><p className="mt-2 text-sm leading-relaxed text-muted-strong">Conte uma decisão, como foi seu dia ou o que está te sobrecarregando.</p></header>}
       <form className="space-y-3" onSubmit={async (event) => { event.preventDefault(); const message = draft.trim(); if (!canSend || !message) return; followLatest.current = true; setPending(message); const ok = await mutate({ action: "chat", message }); revealReply.current = ok; setPending(""); if (ok) onDraft(""); }}>
         <div className="flex flex-wrap gap-2" aria-label="Sugestões para começar a conversar">{suggestions.map(({ label, prompt }) => <button type="button" key={label} className={`${buttonClass} !min-h-10 !px-3 !text-xs`} disabled={!canSend || draft.length + prompt.length + 2 > 6000} onClick={() => { onDraft(draft.trim() ? `${draft.trimEnd()}\n\n${prompt}` : prompt); input.current?.focus(); }}>{label}</button>)}</div>
         <label htmlFor="coach-message" className="sr-only">Mensagem para o coach</label><textarea ref={input} id="coach-message" className={`${fieldClass} min-h-28 resize-y`} value={draft} onChange={(event) => onDraft(event.target.value)} maxLength={6000} placeholder={enabled ? "O que está passando pela sua cabeça?" : "Ative o coach para começar a conversar."} disabled={!canSend} />

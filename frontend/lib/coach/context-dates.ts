@@ -21,7 +21,9 @@ export function localContextDates(data:unknown,timezone:string):unknown{
 }
 export function contextTimezone(data:unknown):string{
  const row=data&&typeof data==="object"?data as Record<string,unknown>:{};
- const profile=row.profile&&typeof row.profile==="object"?row.profile as Record<string,unknown>:{};
- const value=typeof row.timezone==="string"?row.timezone:typeof profile.timezone==="string"?profile.timezone:"America/Sao_Paulo";
+ const wrapped=row.data&&typeof row.data==="object"?row.data as Record<string,unknown>:{};
+ const evidence=typeof row.timezone==="string"||row.profile?row:wrapped;
+ const profile=evidence.profile&&typeof evidence.profile==="object"?evidence.profile as Record<string,unknown>:{};
+ const value=typeof evidence.timezone==="string"?evidence.timezone:typeof profile.timezone==="string"?profile.timezone:"America/Sao_Paulo";
  try{new Intl.DateTimeFormat("pt-BR",{timeZone:value});return value;}catch{return "America/Sao_Paulo";}
 }

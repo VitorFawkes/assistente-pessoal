@@ -1,5 +1,5 @@
 # Coach quality v2 — execução
-Status: em implementação; proposta aprovada pelo usuário, Astra/Fable excluídos.
+Status: implementação concluída, validação final e publicação em andamento; proposta aprovada pelo usuário, Astra/Fable excluídos.
 Checkout: /Users/vitorgambetti/.codex/worktrees/coach-quality-v2/AssistentePessoal
 Branch: codex/coach-quality-v2
 
@@ -45,3 +45,14 @@ Branch: codex/coach-quality-v2
 - QA navegador: 25 verificações sem IA passaram em desktop/mobile; conversas reais em validação.
 - Avaliação sintética encontrou falhas de horário/verbosidade. Horários locais agora são calculados no servidor; regex de interrogação removida. Atribuição indevida é bloqueada no servidor. Relatório de falhas e nova rodada preservados separadamente.
 - Backup privado de banco e configuração criado. Publicação e checks de produção ainda pendentes nesta versão do documento.
+
+## Ajustes encontrados no uso real
+- Meta nova fica separada da frase de autorização: "substitua por esse" nunca vira objetivo. Uma meta ativa correta e histórico anterior preservado foram conferidos no banco e na interface.
+- Pedidos de alteração com aconselhamento preservam a orientação verificada e acrescentam a confirmação escrita pelo servidor somente depois de persistir.
+- Conversa de priorização, tarefa com responsável/prazo, correção de memória e meta com próximo passo passaram com Sol real em banco sintético.
+- UI compactada no celular; resposta de job assíncrono acompanha o scroll sem arrastar quem está lendo o histórico.
+- Scheduler ignora usuários sem trabalho ao contar seu limite de workers.
+- Migrations0029–0031 aplicadas em produção após backup validado; RLS forçada e isolamento real conferidos. A imagem antiga permanece até terminar a validação desta entrega.
+- Correção de memória passa a invalidar o trecho citado e a interpretação, sem inutilizar outras falas da reunião. Revisão semanal admite uma ressíntese completa e limitada, seguida de nova verificação.
+- Suíte final:330 testes unitários passaram,49 opt-in ignorados,zero falhas; banco31/31 integrações na entrega (20 delas repetidas após ajuste de memória),runners10/10,TypeScript e lint limpos.
+- QA adicional:9/9 verificações em conversa real com troca de meta e orientação; autoscroll assíncrono2/2 sem IA.

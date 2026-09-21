@@ -7,9 +7,10 @@ import { claimJob,dueCheckins,enqueueJob,finishJob,localJobDay,renewJob,type Cad
 export async function drainJobs(userId:string,options:{maxJobs?:number;deadline?:number}={}){
  const service=await import("./service");
  const maxJobs=Math.max(1,Math.min(5,options.maxJobs??1));const deadline=options.deadline??Date.now()+480000;
- let completed=0,failed=0;
+ let attempted=0,completed=0,failed=0;
  for(let index=0;index<maxJobs&&Date.now()+30000<deadline;index++){
   const job=await claimJob(userId);if(!job)break;
+  attempted++;
   const heartbeat=setInterval(()=>{void renewJob(userId,job.id,job.lease_token).catch(()=>{});},45000);
   try{
    if(job.kind==="chat")await service.chatWithCoach(userId,String(job.payload.message),new Date(),job.id);
@@ -24,7 +25,7 @@ export async function drainJobs(userId:string,options:{maxJobs?:number;deadline?
    if(!retry)failed++;
   }finally{clearInterval(heartbeat);}
  }
- return {completed,failed};
+ return {attempted,completed,failed};
 }
 
 /** Existing 15-minute runner calls this. Daily jobs never backfill an obsolete day. */

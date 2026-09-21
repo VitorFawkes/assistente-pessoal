@@ -1,6 +1,6 @@
 # Coach Ações: proposta de evolução orientada à qualidade
 
-Data: 20/09/2026. Estado: **proposta arquitetural; não implementada nem validada em produção**. Nenhuma comparação entre modelos com reuniões pessoais foi executada nesta avaliação.
+Data da proposta: 20/09/2026. **Aprovada e implementada no PR #5; publicação e evidências verificadas são registradas em [operação](../../coach-quality-v2-operations.md) e [deploy](../../coach-deployment.md).** A proposta abaixo preserva as decisões e hipóteses originais; a comparação de modelos usou somente casos sintéticos, conforme [avaliação realizada](../../research/2026-09-20-coach-paid-eval-attempt.md).
 
 ## Decisão recomendada
 

@@ -28,16 +28,29 @@ export function memoryContext(memories:CoachMemory[],legacyGoals:string,at?:stri
 }
 
 const normalize=(value:string)=>value.normalize("NFD").replace(/\p{M}/gu,"").toLowerCase().replace(/[^\p{L}\p{N}]+/gu," ").trim();
-/** Conservative veto: a corrected source cannot support the same inference under a new wording. */
+/** Match the corrected passage, not every unrelated statement in its meeting. */
+export function sameEvidencePassage(left:Evidence,right:Evidence):boolean{
+ if(left.meeting_id!==right.meeting_id||(left.source_hash&&right.source_hash&&left.source_hash!==right.source_hash))return false;
+ const a=normalize(left.quote||""),b=normalize(right.quote||"");
+ if(!a||!b)return false;
+ if(a.includes(b)||b.includes(a))return true;
+ // A partial citation may overlap without containing the other complete citation.
+ const words=a.split(" ");
+ for(let index=0;index+4<=words.length;index++){
+  const phrase=words.slice(index,index+4).join(" ");
+  if(phrase.length>=16&&(" "+b+" ").includes(" "+phrase+" "))return true;
+ }
+ return false;
+}
+/** Corrections veto overlapping evidence or equivalent old interpretations, including paraphrases. */
 export function inferenceBlocked(input:{kind:string;content:string;evidence:Evidence[]},memories:CoachMemory[]):boolean{
  if(!["pattern","experiment"].includes(input.kind))return false;
- const sourceIds=new Set(input.evidence.map(source=>source.meeting_id));
  const candidate=normalize(input.content);
  return memories.some(memory=>{
   const invalidated=memory.history.filter(version=>version.status==="rejected"||version.content!==memory.content);
   const texts=[...(memory.status==="rejected"?[memory.content]:[]),...invalidated.map(version=>version.content)];
   const sources=[...(memory.status==="rejected"?memory.evidence:[]),...invalidated.flatMap(version=>version.evidence||[])];
-  return sources.some(source=>sourceIds.has(source.meeting_id))||texts.some(content=>{
+  return sources.some(source=>input.evidence.some(candidate=>sameEvidencePassage(source,candidate)))||texts.some(content=>{
    const old=normalize(content);if(candidate===old)return true;
    const words=new Set(old.split(" ").filter(word=>word.length>3));
    const other=new Set(candidate.split(" ").filter(word=>word.length>3));

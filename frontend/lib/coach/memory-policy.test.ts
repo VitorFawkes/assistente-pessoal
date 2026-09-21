@@ -24,7 +24,7 @@ test("paused and superseded goals do not become current priorities",()=>{
 });
 test("rephrasing a rejected interpretation on the same sources is blocked",()=>{
  const rejected=memory("rejected",{kind:"pattern",status:"rejected",evidence:[evidence]});
- expect(inferenceBlocked({kind:"pattern",content:"Nova redação",evidence:[{...evidence,quote:"Outra fala"}]},[rejected])).toBe(true);
+ expect(inferenceBlocked({kind:"pattern",content:"Nova redação",evidence:[evidence]},[rejected])).toBe(true);
  expect(inferenceBlocked({kind:"pattern",content:"Outra situação",evidence:[{...evidence,meeting_id:"other"}]},[rejected])).toBe(false);
 });
 test("corrected interpretation keeps the previous source as a veto",()=>{
@@ -45,4 +45,20 @@ test("legacy correction snapshots retain the old text without inventing evidence
  const corrected=memory("old",{content:"Corrected today",updated_at:"2026-09-10T00:00:00Z",history:[{content:"Original text",status:"hypothesis",at:"2026-09-10T00:00:00Z"}]});
  const historical=memoriesAt([corrected],"2026-09-05T00:00:00Z")[0];
  expect(historical.content).toBe("Original text");expect(historical.status).toBe("hypothesis");expect(historical.evidence).toEqual([]);
+});
+
+
+test("a different quote in the same meeting remains available after an interpretation is corrected",()=>{
+ const rejected=memory("rejected",{kind:"pattern",status:"rejected",content:"Uma hipótese descartada",evidence:[evidence]});
+ expect(inferenceBlocked({kind:"pattern",content:"Uma observação independente",evidence:[{...evidence,quote:"A entrega foi concluída no prazo combinado.",start:90}]},[rejected])).toBe(false);
+});
+test("overlapping corrected quotes are blocked in the same source version",()=>{
+ const original={...evidence,quote:"Eu vou revisar todos os detalhes da proposta antes de entregar."};
+ const rejected=memory("rejected",{status:"rejected",evidence:[original]});
+ expect(inferenceBlocked({kind:"pattern",content:"Uma nova redação",evidence:[{...original,quote:"todos os detalhes da proposta antes de entregar hoje."}]},[rejected])).toBe(true);
+ expect(inferenceBlocked({kind:"pattern",content:"Uma outra leitura",evidence:[{...original,source_hash:"corrected-source-version"}]},[rejected])).toBe(false);
+});
+test("a correction without quoted evidence still blocks equivalent old interpretation text",()=>{
+ const corrected=memory("corrected",{content:"O escopo é somente a revisão visual",history:[{content:"Você centraliza todas as decisões comerciais",status:"hypothesis",at:"2026-09-10T00:00:00Z"}]});
+ expect(inferenceBlocked({kind:"pattern",content:"Você centraliza as decisões comerciais",evidence:[]},[corrected])).toBe(true);
 });

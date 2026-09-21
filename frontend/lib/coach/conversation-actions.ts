@@ -1,7 +1,8 @@
 import type {CoachMemory,CoachCommitment} from "./types";
+import { userMemoryCandidates, userMemoryKind } from "./conversation-memory";
 const object=(properties:Record<string,unknown>)=>({type:"object",properties,required:Object.keys(properties),additionalProperties:false});
 const str={type:"string",minLength:1,maxLength:900};
-export type UserAction={type:string;quote:string;memory_id?:string;commitment_id?:string;title?:string;due_at?:string|null;kind?:string;enabled?:boolean};
+export type UserAction={type:string;quote:string;guidance:string;memory_id?:string;commitment_id?:string;title?:string;content?:string;due_at?:string|null;kind?:string;enabled?:boolean};
 const normalized=(message:string)=>message.normalize("NFD").replace(/\p{M}/gu,"").toLowerCase().trim();
 const quotedText=/"[^"\n]*"|“[^”\n]*”|«[^»\n]*»|‘[^’\n]*’|(?<!\S)'[^'\n]*'/gu;
 const withoutQuotedText=(message:string)=>message.replace(quotedText,"TITULO_CITADO");
@@ -50,22 +51,37 @@ export function allowedActions(message:string):string[]{
  return [...a];
 }
 
+/** A replacement stores a literal new goal, not an anaphoric command such as "por esse". */
+export function replacementGoalCandidates(message:string):string[]{
+ if(!hasDirectUserIntentContext(message))return [];
+ const candidates=userMemoryCandidates(message).filter(value=>userMemoryKind(value)==="goal");
+ for(const clause of message.split(/(?<=[.!?;])\s+|\n+/u).map(value=>value.trim())){
+  if(!allowedActions(clause).includes("replace_goal"))continue;
+  const match=clause.match(/\b(?:substitua|troque)\b[^.!?;\n]{0,90}?\b(?:objetivo|meta)\b[^.!?;\n]{0,60}?\bpor\s+(.+)$/iu);
+  const content=match?.[1].trim();
+  if(content&&content.length>=8&&content.length<=900&&!content.endsWith("?")&&!/^(?:esse|essa|isso|isto|este|esta|aquele|aquela|ele|ela|o mesmo|a mesma)\b/iu.test(content))candidates.push(content);
+ }
+ return [...new Set(candidates)].slice(0,12);
+}
+
 export function actionSchema(message:string,memories:CoachMemory[],commitments:CoachCommitment[]){
- const allowed=allowedActions(message);const variants:unknown[]=[];
+ const allowed=allowedActions(message);const variants:unknown[]=[];const goals=replacementGoalCandidates(message);
  const memoryIds=memories.filter(m=>m.status!=="rejected").map(m=>m.id);
  const goalIds=memories.filter(m=>m.kind==="goal"&&(m.lifecycle||"active")==="active").map(m=>m.id);
  for(const type of allowed){
-  const base={type:{type:"string",enum:[type]},quote:str};
+  const base={type:{type:"string",enum:[type]},quote:str,guidance:{type:"string",maxLength:600,description:"Orientação ou próximo passo solicitado junto desta ação. Conselho curto, sem afirmar que algo foi salvo, alterado ou executado. Vazio quando o pedido é somente uma alteração. A confirmação será escrita pelo servidor após persistir."}};
   if(type==="create_commitment")variants.push(object({...base,title:{type:"string",minLength:1,maxLength:300},due_at:{anyOf:[{type:"string"},{type:"null"}]}}));
   else if(type==="cadence")variants.push(object({...base,kind:{type:"string",enum:["morning","evening","nudges","weekly"]},enabled:{type:"boolean"}}));
   else if(type.endsWith("commitment")){if(commitments.length)variants.push(object({...base,commitment_id:{type:"string",enum:commitments.map(c=>c.id)},due_at:{anyOf:[{type:"string"},{type:"null"}]}}));}
-  else {const ids=type==="correct_memory"?memoryIds:goalIds;if(ids.length)variants.push(object({...base,memory_id:{type:"string",enum:ids}}));}
+  else {const ids=type==="correct_memory"?memoryIds:goalIds;if(ids.length&&(type!=="replace_goal"||goals.length))variants.push(object({...base,memory_id:{type:"string",enum:ids},...(type==="replace_goal"?{content:{type:"string",enum:goals}}:{})}));}
  }
  return {type:"array",items:variants.length?{anyOf:variants}:object({}),maxItems:variants.length?2:0};
 }
 export function validateAction(raw:unknown,message:string):UserAction|null{
  if(!raw||typeof raw!=="object")return null;const a=raw as UserAction;
+ if(typeof a.guidance!=="string"||a.guidance.length>600)return null;
  if(typeof a.quote!=="string"||a.quote.length<8||!message.includes(a.quote)||!allowedActions(message).includes(a.type)||!allowedActions(a.quote).includes(a.type))return null;
+ if(a.type==="replace_goal"&&(typeof a.content!=="string"||!replacementGoalCandidates(message).includes(a.content)))return null;
  const start=message.indexOf(a.quote);
  if([...message.matchAll(quotedText)].some(span=>start>=span.index&&start<span.index+span[0].length))return null;
  if(a.due_at && (!/^\d{4}-\d{2}-\d{2}/.test(a.due_at)||!message.includes(a.due_at.slice(0,10))))return null;
