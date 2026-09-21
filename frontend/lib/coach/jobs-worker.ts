@@ -1,4 +1,7 @@
 import { withTenant } from "../db";
+import { listCommitments } from "./coach-commitments";
+import { createHash } from "node:crypto";
+import { accountabilityFingerprint, commitmentsDueForFollowup } from "./follow-up";
 import { coachStore } from "./store";
 import { reviewPeriod } from "./evidence";
 import { claimJob,dueCheckins,enqueueJob,finishJob,localJobDay,renewJob,type CadenceProfile,type CheckinKind } from "./jobs";
@@ -33,20 +36,23 @@ export async function scheduleCoachJobs(userId:string,now=new Date()){
  const store=coachStore(userId);const profile=await store.profile();if(!profile.enabled)return;
  const coverage=await store.coverage();
  if(coverage.pending_meetings>0)await enqueueJob(userId,{kind:"analyze",key:`scheduled:analyze:${Math.floor(now.getTime()/900000)}:${coverage.analyzed_chunks}:${coverage.pending_meetings}`});
+ const commitments=profile.weekly_enabled||profile.nudges_enabled?await listCommitments(userId):[];
  if(profile.weekly_enabled){
   const period=reviewPeriod(now,profile.timezone,profile.review_day,profile.review_hour);
   const week=await store.analysesInPeriod(period.from,period.to);
   const newest=week.analyses.reduce((last,item)=>item.created_at>last?item.created_at:last,"")||"empty";
-  if(week.complete)await enqueueJob(userId,{kind:"review",key:`scheduled:review:${period.weekStart}:${profile.revision}:${newest}`});
+  const [memories,messages]=await Promise.all([store.memories(),store.userMessages()]);
+  const fingerprint=createHash("sha256").update(JSON.stringify([week.report_fingerprint||"legacy",newest,accountabilityFingerprint(commitments,memories,messages)])).digest("hex");
+  await enqueueJob(userId,{kind:"review",key:`scheduled:review:${period.weekStart}:${profile.revision}:${fingerprint}`});
  }
  const cadence=profile as typeof profile & CadenceProfile;
  if(!cadence.morning_enabled&&!cadence.evening_enabled&&!cadence.nudges_enabled)return;
- const trigger=await withTenant(userId,async db=>{
-  const row=(await db.query(`SELECT
-   EXISTS(SELECT 1 FROM meetings WHERE user_id=$1 AND status='done' AND recorded_at>$2::timestamptz-interval '4 hours' AND recorded_at<=$2) AS meeting,
-   EXISTS(SELECT 1 FROM tarefas WHERE user_id=$1 AND status NOT IN ('concluida','cancelada') AND prazo<$2::timestamptz AND acao='executar') AS overdue,
-   EXISTS(SELECT 1 FROM coach_jobs WHERE user_id=$1 AND kind='checkin' AND status IN ('running','succeeded') AND updated_at>$2::timestamptz-interval '4 hours') AS recent`,[userId,now.toISOString()])).rows[0];
-  return !!row.meeting&&!!row.overdue&&!row.recent;
- });
+ const due=commitmentsDueForFollowup(commitments,now);
+ const recent=due.length?await withTenant(userId,async db=>{
+  const row=(await db.query(`SELECT EXISTS(SELECT 1 FROM coach_jobs WHERE user_id=$1 AND kind='checkin'
+   AND status IN ('queued','running','succeeded') AND updated_at>$2::timestamptz-interval '4 hours') AS recent`,[userId,now.toISOString()])).rows[0];
+  return !!row.recent;
+ }):false;
+ const trigger=due.length>0&&!recent;
  for(const kind of dueCheckins(cadence,now,trigger))await enqueueJob(userId,{kind:"checkin",key:`scheduled:${kind}:${localJobDay(profile.timezone,now)}`,payload:{checkin:kind}});
 }

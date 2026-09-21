@@ -39,7 +39,7 @@ jobs:
         working-directory: frontend
         env:
           COACH_TEST_DATABASE_URL: postgresql://postgres@localhost:55432/coach_test
-        run: bun test lib/coach/store.integration.test.ts lib/coach/task-context.test.ts lib/coach/jobs.integration.test.ts
+        run: bun test lib/coach/store.integration.test.ts lib/coach/task-context.test.ts lib/coach/jobs.integration.test.ts lib/coach/calendar.integration.test.ts lib/coach/coach-commitments.integration.test.ts
       - name: Private runner checks
         run: |
           python3 ops/coach-run.test.py
@@ -47,3 +47,38 @@ jobs:
       - name: Production build without deployment
         working-directory: frontend
         run: bun run build
+
+  offline-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: bun install --frozen-lockfile
+        working-directory: frontend
+      - name: Install pinned Playwright and Chromium for synthetic browser checks
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/coach-browser-binaries
+        run: |
+          npm install --prefix "$RUNNER_TEMP/coach-browser" --no-save --package-lock=false --ignore-scripts playwright@1.62.1
+          node "$RUNNER_TEMP/coach-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Real dashboard with an offline synthetic API
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/coach-browser-binaries
+          COACH_PLAYWRIGHT_MODULE: ${{ runner.temp }}/coach-browser/node_modules/playwright
+          TMPDIR: ${{ runner.temp }}
+        working-directory: frontend
+        run: node scripts/coach-offline-browser-qa.cjs
+      - name: Synthetic browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coach-offline-browser
+          path: ${{ runner.temp }}/coach-offline-qa-*/
+          if-no-files-found: warn
+          retention-days: 7

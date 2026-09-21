@@ -1,7 +1,7 @@
 import type { Coverage, Observation } from "./types";
 
 /** Persist the evidence distinction, independently of the model's prose. */
-export function presentChat(answer:string,observations:Observation[],selectedMeetingIds:string[],coverage:Coverage){
+export function presentChat(answer:string,observations:Observation[],selectedMeetingIds:string[],coverage:Coverage,reportCount=0){
  const meetingCount=new Set(selectedMeetingIds).size;
  const chunkCount=selectedMeetingIds.length;
  const readings=observations.map(observation=>[
@@ -13,13 +13,14 @@ export function presentChat(answer:string,observations:Observation[],selectedMee
  const retrieval=chunkCount
   ? `Consultei ${chunkCount} ${chunkCount===1?"trecho":"trechos"} de ${meetingCount} ${meetingCount===1?"reunião":"reuniões"} nesta resposta; essa seleção não representa todo o histórico.`
   : "Não consultei trechos de reuniões nesta resposta.";
- const coverageAtCreation=`Na geração desta resposta: ${coverage.analyzed_meetings} de ${coverage.total_meetings} ${coverage.total_meetings===1?"reunião":"reuniões"} do histórico com análise completa.`;
+ const reportReading=reportCount?` Consultei relatórios/resumos de ${reportCount} ${reportCount===1?"reunião":"reuniões"}; contexto gerado não equivale a evidência comportamental.`:"";
+ const coverageAtCreation=coverage.report_ready_meetings!==undefined?`Na geração desta resposta: ${coverage.report_ready_meetings} de ${coverage.total_meetings} reuniões do histórico com relatório/resumo disponível; ${coverage.analyzed_meetings} com análise comportamental integral anterior.`:`Na geração desta resposta: ${coverage.analyzed_meetings} de ${coverage.total_meetings} ${coverage.total_meetings===1?"reunião":"reuniões"} do histórico com análise completa.`;
  return [
   `**Orientação**\n\n${answer}`,
   ...(readings.length
    ? [...readings,"Uma fala registrada não comprova execução. Hipóteses e explicações alternativas podem ser corrigidas por você."]
    : ["Sem observações verificadas sobre sua conduta nas reuniões. A orientação parte do contexto disponível e do que você relatou."]),
-  `*${retrieval} ${coverageAtCreation}*`,
+  `*${retrieval}${reportReading} ${coverageAtCreation}*`,
  ].join("\n\n");
 }
 
