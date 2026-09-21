@@ -1,6 +1,9 @@
+import {localContextDates,contextTimezone} from "./context-dates";
 import { COACH_SYSTEM } from "./framework";
 import { userMemoryCandidates, userMemoryKind } from "./conversation-memory";
-export const coachModel=()=>process.env.COACH_MODEL||"gpt-5.1";
+import { providerCompletion, type CoachCompletionOptions } from "./provider";
+export { CoachAIError, coachModel, coachModelAvailable, coachModelConfig } from "./provider";
+export type { CoachReadTool, CoachCompletionOptions, CoachTelemetry, CoachRole, CoachProvider, CoachReasoningEffort } from "./provider";
 const str={type:"string"};
 const object=(properties:Record<string,unknown>)=>({type:"object",properties,required:Object.keys(properties),additionalProperties:false});
 const array=(items:unknown)=>({type:"array",items});
@@ -15,7 +18,7 @@ export function reviewSchemaWithSources(ids:string[]){
  if(!ids.length)return withoutObservations({...reviewSchema,properties:{...reviewSchema.properties,headline}});
  return object({headline,focus:str,observations:{...array(object({competency:observation.properties.competency,observation:str,hypothesis:str,alternative:str,experiment:{type:"string",enum:[""]},evidence_ids:array({type:"string",enum:ids})})),maxItems:2},progress:str,experiment:str,question:str,limitations:array(str)});
 }
-export function conversationSchemaWithSources(ids:string[],message=""){
+export function conversationSchemaWithSources(ids:string[],message="",options:{actions?:unknown;detailed?:boolean}={}){
  const concise={type:"string",minLength:1,maxLength:400};
  const quotes=userMemoryCandidates(message);
  const noteVariants=(["goal","context","experiment"] as const).flatMap(kind=>{
@@ -27,19 +30,14 @@ export function conversationSchemaWithSources(ids:string[],message=""){
  const observations=ids.length
   ? {...array(object({competency:observation.properties.competency,observation:concise,hypothesis:concise,alternative:concise,experiment:{type:"string",maxLength:400},evidence_ids:{...array({type:"string",enum:ids}),minItems:1,maxItems:4}})),maxItems:1}
   : {...array(observation),maxItems:0};
- return object({answer:{type:"string",minLength:1,maxLength:2000,pattern:"^[^?]*\\??[^?]*$"},observations,memories:groundedMemories,user_memories:userNotes});
+ return object({answer:{type:"string",minLength:1,maxLength:options.detailed?10000:1000},observations,memories:groundedMemories,user_memories:userNotes,...(options.actions?{actions:options.actions}:{})});
 }
 export function analysisSchemaWithSources(ids:string[]){
  if(!ids.length)return withoutObservations(analysisSchema);
  return object({summary:str,observations:array(object({competency:observation.properties.competency,observation:str,hypothesis:str,alternative:str,experiment:str,evidence_ids:array({type:"string",enum:ids})}))});
 }
-export class CoachAIError extends Error {}
-export async function coachCompletion(instruction:string,data:unknown,schema:unknown,options:{reasoningEffort?:"low"|"medium"}={}):Promise<Record<string,unknown>>{
- const key=process.env.OPENAI_API_KEY; if(!key)throw new CoachAIError("A IA do coach ainda não está configurada no servidor.");
- let res:Response;
- try {res=await fetch("https://api.openai.com/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${key}`},body:JSON.stringify({model:coachModel(),store:false,max_completion_tokens:7000,reasoning_effort:options.reasoningEffort||"low",response_format:{type:"json_schema",json_schema:{name:"coach_result",strict:true,schema}},messages:[{role:"system",content:COACH_SYSTEM+"\n"+instruction},{role:"user",content:JSON.stringify(data)}]}),signal:AbortSignal.timeout(100000)});}catch{throw new CoachAIError("A IA não respondeu a tempo. Tente novamente; seu histórico está preservado.");}
- if(!res.ok)throw new CoachAIError(res.status===429?"A IA está no limite de uso. Tente novamente em alguns minutos.":"Não foi possível consultar a IA do coach. Tente novamente.");
- const body=await res.json(); const message=body.choices?.[0]?.message;
- if(body.choices?.[0]?.finish_reason!=="stop"||message?.refusal)throw new CoachAIError("A IA não concluiu uma resposta válida. Tente uma pergunta mais específica.");
- try{const parsed=JSON.parse(message.content); if(!parsed||typeof parsed!=="object"||Array.isArray(parsed))throw new Error(); return parsed;}catch{throw new CoachAIError("A resposta da IA veio em formato inválido. Tente novamente.");}
+export async function coachCompletion(instruction:string,data:unknown,schema:unknown,options:CoachCompletionOptions={}):Promise<Record<string,unknown>>{
+ const timezone=contextTimezone(data);
+ const tools=options.tools?.map(tool=>({...tool,execute:async(args:Record<string,unknown>,context:{signal:AbortSignal})=>localContextDates(await tool.execute(args,context),timezone)}));
+ return providerCompletion(COACH_SYSTEM+"\n"+instruction,localContextDates(data,timezone),schema,{...options,tools});
 }

@@ -23,3 +23,10 @@ describe("coach requested period", () => {
     expect(contextSearchTerms("Como posso revisar meu dia hoje?")).toBe("");
   });
 });
+
+test("previous calendar week and month use the user's timezone, including a year boundary",()=>{
+ const options={now:new Date("2026-01-05T12:00:00Z"),timezone:"America/Sao_Paulo"};
+ expect(resolveContextPeriod("Como foi a semana passada?",options)).toMatchObject({kind:"last_week",from:"2025-12-29T03:00:00.000Z",to:"2026-01-05T03:00:00.000Z"});
+ expect(resolveContextPeriod("Revise o mês passado",options)).toMatchObject({kind:"last_month",from:"2025-12-01T03:00:00.000Z",to:"2026-01-01T03:00:00.000Z"});
+ expect(resolveContextPeriod("Neste mês, progredi?",options)).toMatchObject({kind:"month",from:"2026-01-01T03:00:00.000Z",to:"2026-02-01T03:00:00.000Z"});
+});

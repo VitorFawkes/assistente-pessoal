@@ -1,3 +1,4 @@
+import { memoryContext as buildMemoryContext, memoriesAt as memoryVersionsAt, inferenceBlocked } from "./memory-policy";
 import { randomUUID } from "node:crypto";
 import type { PoolClient, QueryResultRow } from "pg";
 import { query, withTenant } from "../db";
@@ -10,7 +11,7 @@ import type {
 } from "./types";
 
 export type CoachProfilePatch = Partial<Pick<CoachProfile,
-  "enabled" | "weekly_enabled" | "goals" | "context" | "timezone" | "review_day" | "review_hour"
+  "enabled" | "weekly_enabled" | "morning_enabled" | "evening_enabled" | "nudges_enabled" | "morning_hour" | "evening_hour" | "goals" | "context" | "timezone" | "review_day" | "review_hour"
 >>;
 export type { CoachTask, CoachTaskEvent } from "./task-context";
 export type CoachMeetingContext = CoachMeeting & { summary: string | null; context_at?:string;date_basis?:"recorded"|"registered" };
@@ -25,11 +26,12 @@ export type CoachContext = {
 export type AnalysisInput = Omit<CoachAnalysis, "id" | "created_at">;
 export type MemoryInput = Pick<CoachMemory, "kind" | "content" | "status" | "evidence">;
 
+export class MemoryPolicyError extends Error { constructor(){ super("Essa interpretação foi corrigida ou descartada por você e não pode ser recriada a partir das mesmas fontes."); this.name="MemoryPolicyError"; } }
 export class StaleCoachRunError extends Error {
   constructor() { super("O contexto do coach mudou durante a geração. Tente novamente."); this.name = "StaleCoachRunError"; }
 }
 
-const PROFILE_COLUMNS = "user_id, enabled, weekly_enabled, goals, context, timezone, review_day, review_hour, revision, last_run_at, last_error, created_at, updated_at";
+const PROFILE_COLUMNS = "user_id, enabled, weekly_enabled, morning_enabled, evening_enabled, nudges_enabled, morning_hour, evening_hour, goals, context, timezone, review_day, review_hour, revision, last_run_at, last_error, created_at, updated_at";
 const REVIEW_COLUMNS = "id, week_start::text, content, model, profile_revision, created_at";
 const MEETING_COLUMNS = "id, nome, original_filename, recorded_at, transcription, segments, speaker_labels, speaker_pessoas";
 const contextDateColumns = (alias = "") => `coalesce(${alias}recorded_at,${alias}created_at) AS context_at,
@@ -53,6 +55,20 @@ async function assertRevision(db: PoolClient, userId: string, revision: number) 
 async function bumpRevision(db: PoolClient, userId: string) {
   await ensureProfile(db, userId);
   await db.query("UPDATE coach_profiles SET revision = revision + 1, updated_at = now() WHERE user_id = $1", [userId]);
+}
+async function advanceOwnJob(db:PoolClient,userId:string,runId?:string,receipt?:string){
+ if(!runId)return;
+ const exists=(await db.query<{present:boolean}>("SELECT to_regclass('public.coach_jobs') IS NOT NULL AS present")).rows[0].present;
+ if(!exists)return;
+ const updated=await db.query(`UPDATE coach_jobs j SET profile_revision=p.revision,updated_at=now(),
+   payload=CASE WHEN $3::text IS NULL THEN j.payload ELSE jsonb_set(j.payload,'{profile_change_receipt}',to_jsonb(concat_ws(E'\n',nullif(j.payload->>'profile_change_receipt',''),$3::text))) END
+   FROM coach_profiles p
+   WHERE j.user_id=$1 AND j.id=$2 AND j.status='running' AND p.user_id=j.user_id AND p.enabled AND j.profile_revision=p.revision-1`,[userId,runId,receipt||null]);
+ if(!updated.rowCount)throw new StaleCoachRunError();
+}
+const memorySnapshot = `jsonb_build_array(jsonb_build_object('content',content,'status',status,'lifecycle',lifecycle,'valid_from',valid_from,'valid_until',now(),'evidence',evidence,'origin',origin,'supersedes_id',supersedes_id,'at',now()))`;
+async function syncProfileGoals(db:PoolClient,userId:string){
+ await db.query(`UPDATE coach_profiles SET goals=coalesce((SELECT string_agg(content,E'\\n' ORDER BY created_at,id) FROM coach_memories WHERE user_id=$1 AND kind='goal' AND status='confirmed' AND lifecycle='active' AND valid_until IS NULL),'') WHERE user_id=$1`,[userId]);
 }
 async function evidenceHashes(db: PoolClient, userId: string, evidence: Evidence[], lock = false) {
   const ids = [...new Set(evidence.map((e) => e.meeting_id))].sort();
@@ -93,16 +109,26 @@ export function coachStore(userId: string) {
       return (await rows<CoachProfile>(db, `SELECT ${PROFILE_COLUMNS} FROM coach_profiles WHERE user_id = $1`, [userId]))[0];
     }),
 
-    saveProfile: (patch: CoachProfilePatch) => tenant(async (db) => {
+    saveProfile: (patch: CoachProfilePatch,expectedRevision?:number,runId?:string) => tenant(async (db) => {
+      if(expectedRevision!==undefined)await assertRevision(db,userId,expectedRevision);
       await ensureProfile(db, userId);
       // Whitelist identifiers; never interpolate caller-provided column names.
-      const keys = (["enabled", "weekly_enabled", "goals", "context", "timezone", "review_day", "review_hour"] as const)
+      const keys = (["enabled", "weekly_enabled", "morning_enabled", "evening_enabled", "nudges_enabled", "morning_hour", "evening_hour", "goals", "context", "timezone", "review_day", "review_hour"] as const)
         .filter((key) => patch[key] !== undefined);
       if (!keys.length) return (await rows<CoachProfile>(db, `SELECT ${PROFILE_COLUMNS} FROM coach_profiles WHERE user_id = $1`, [userId]))[0];
-      return (await rows<CoachProfile>(db,
+      if(patch.goals!==undefined){
+        const previous=(await db.query<{goals:string}>("SELECT goals FROM coach_profiles WHERE user_id=$1 FOR UPDATE",[userId])).rows[0];
+        if(previous.goals!==patch.goals){
+          await db.query(`UPDATE coach_memories SET history=history||${memorySnapshot},lifecycle='superseded',valid_until=now(),updated_at=now() WHERE user_id=$1 AND kind='goal' AND lifecycle='active'`,[userId]);
+          if(patch.goals.trim())await db.query(`INSERT INTO coach_memories(user_id,kind,content,status,origin) VALUES($1,'goal',$2,'confirmed','user') ON CONFLICT(user_id,kind,content_hash) DO UPDATE SET history=coach_memories.history||jsonb_build_array(jsonb_build_object('content',coach_memories.content,'status',coach_memories.status,'lifecycle',coach_memories.lifecycle,'valid_from',coach_memories.valid_from,'valid_until',now(),'at',now())),status='confirmed',origin='user',lifecycle='active',valid_from=now(),valid_until=NULL,evidence='[]',updated_at=now()`,[userId,patch.goals.trim()]);
+        }
+      }
+      const saved=(await rows<CoachProfile>(db,
         `UPDATE coach_profiles SET ${keys.map((key, i) => `${key} = $${i + 2}`).join(", ")},
          revision = revision + 1, updated_at = now(), last_error = NULL
          WHERE user_id = $1 RETURNING ${PROFILE_COLUMNS}`, [userId, ...keys.map((key) => patch[key])]))[0];
+      await advanceOwnJob(db,userId,runId,"Atualizei suas preferências de acompanhamento e configurações do coach.");
+      return saved;
     }),
 
     memories: () => tenant(async (db) => {
@@ -112,15 +138,26 @@ export function coachStore(userId: string) {
       return memories.map((m) => ({...m, stale: m.evidence.some((e) => hashes.get(e.meeting_id) !== e.source_hash)}));
     }),
 
+    memoriesAt: async(at:string):Promise<CoachMemory[]> => memoryVersionsAt(await store.memories(),at),
+    memoryContext: async(at?:string):Promise<ReturnType<typeof buildMemoryContext>> => {
+      const [memories,profile]=await Promise.all([store.memories(),store.profile()]);
+      return buildMemoryContext(memories,profile.goals,at);
+    },
+
     // Supplying revision marks a model write; it cannot override a user's prior rejection.
     addMemory: (input: MemoryInput, revision?: number) => tenant(async (db) => {
       if (revision !== undefined) await assertRevision(db, userId, revision);
       else await bumpRevision(db, userId);
       await assertEvidenceCurrent(db,userId,input.evidence);
+      const existing=(await rows<CoachMemory>(db,"SELECT * FROM coach_memories WHERE user_id=$1 AND kind=$2 AND content_hash=md5(lower(btrim($3)))",[userId,input.kind,input.content]))[0];
+      if(existing)return existing;
+      if(revision!==undefined&&["pattern","experiment"].includes(input.kind)&&input.status!=="hypothesis")throw new MemoryPolicyError();
+      if(revision!==undefined && inferenceBlocked(input,await rows<CoachMemory>(db,"SELECT * FROM coach_memories WHERE user_id=$1",[userId])))throw new MemoryPolicyError();
       const result = await rows<CoachMemory>(db,
-        `INSERT INTO coach_memories (user_id, kind, content, status, evidence) VALUES ($1,$2,$3,$4,$5::jsonb)
+        `INSERT INTO coach_memories (user_id, kind, content, status, evidence,origin) VALUES ($1,$2,$3,$4,$5::jsonb,$6)
          ON CONFLICT (user_id, kind, content_hash) DO NOTHING RETURNING *`,
-        [userId, input.kind, input.content.trim(), input.status, JSON.stringify(input.evidence)]);
+        [userId, input.kind, input.content.trim(), input.status, JSON.stringify(input.evidence),revision===undefined?"user":"inferred"]);
+      if(input.kind==="goal")await syncProfileGoals(db,userId);
       return result[0] ?? (await rows<CoachMemory>(db,
         "SELECT * FROM coach_memories WHERE user_id = $1 AND kind = $2 AND content_hash = md5(lower(btrim($3)))",
         [userId, input.kind, input.content]))[0];
@@ -135,27 +172,54 @@ export function coachStore(userId: string) {
         throw new Error("A memória precisa ser uma declaração explícita de objetivo, contexto ou experimento.");
       await assertRevision(db,userId,revision);
       const saved = await rows<CoachMemory>(db,
-        `INSERT INTO coach_memories(user_id,kind,content,status,evidence) VALUES($1,$2,$3,'confirmed','[]'::jsonb)
+        `INSERT INTO coach_memories(user_id,kind,content,status,evidence,origin) VALUES($1,$2,$3,'confirmed','[]'::jsonb,'user')
          ON CONFLICT(user_id,kind,content_hash) DO UPDATE SET
            history=coach_memories.history || jsonb_build_array(jsonb_build_object(
              'content',coach_memories.content,'status',coach_memories.status,'at',now())),updated_at=now()
-         WHERE coach_memories.user_id=$1 AND coach_memories.status='confirmed'
+         WHERE coach_memories.user_id=$1 AND coach_memories.status='confirmed' AND coach_memories.lifecycle='active'
          RETURNING *`,[userId,input.kind,input.content.trim()]);
+      if(input.kind==="goal")await syncProfileGoals(db,userId);
       return saved[0] ?? (await rows<CoachMemory>(db,
         "SELECT * FROM coach_memories WHERE user_id=$1 AND kind=$2 AND content_hash=md5(lower(btrim($3)))",
         [userId,input.kind,input.content]))[0];
     }),
 
-    correctMemory: (id: string, content: string, status: CoachMemory["status"]) => tenant(async (db) => {
+    correctMemory: (id: string, content: string, status: CoachMemory["status"], expectedRevision?:number,runId?:string) => tenant(async (db) => {
       // Lock profile first, the same order used by generated writes and reset.
+      if(expectedRevision!==undefined)await assertRevision(db,userId,expectedRevision);
       await bumpRevision(db, userId);
       const result = await rows<CoachMemory>(db,
-        `UPDATE coach_memories SET history = history || jsonb_build_array(jsonb_build_object(
-          'content', content, 'status', status, 'at', now())),
+        `UPDATE coach_memories SET history = history || ${memorySnapshot},
          evidence = CASE WHEN content IS DISTINCT FROM $3 OR $4 = 'confirmed' THEN '[]'::jsonb ELSE evidence END,
-         content = $3, status = $4, updated_at = now()
+         content = $3, status = $4, origin='user', valid_from=now(), valid_until=CASE WHEN lifecycle='active' THEN NULL ELSE now() END, updated_at = now()
          WHERE user_id = $1 AND id = $2 RETURNING *`, [userId, id, content.trim(), status]);
+      if(result[0]?.kind==="goal")await syncProfileGoals(db,userId);
+      await advanceOwnJob(db,userId,runId,result[0]?"Corrigi uma memória conforme seu pedido.":undefined);
       return result[0] ?? null;
+    }),
+
+    transitionMemory: (id:string,input:{lifecycle:NonNullable<CoachMemory["lifecycle"]>;replacement?:{content:string;kind?:CoachMemory["kind"]}},expectedRevision?:number,runId?:string) => tenant(async(db)=>{
+      if(!["active","paused","completed","superseded"].includes(input.lifecycle)||((input.lifecycle==="superseded")!==!!input.replacement))throw new Error("invalid_input");
+      if(input.replacement && (!input.replacement.content.trim()||input.replacement.content.length>12000))throw new Error("invalid_input");
+      if(expectedRevision!==undefined)await assertRevision(db,userId,expectedRevision);
+      await bumpRevision(db,userId);
+      const previous=(await rows<CoachMemory>(db,"SELECT * FROM coach_memories WHERE user_id=$1 AND id=$2 FOR UPDATE",[userId,id]))[0];
+      if(!previous)return null;
+      if(input.lifecycle==="active"&&previous.lifecycle==="superseded")throw new Error("Um objetivo substituído precisa de uma nova decisão explícita para voltar a ser vigente.");
+      let current:CoachMemory;
+      if(input.replacement){
+        const kind=input.replacement.kind||previous.kind;
+        if(!["goal","context","pattern","experiment"].includes(kind))throw new Error("invalid_input");
+        const exists=(await rows<CoachMemory>(db,"SELECT * FROM coach_memories WHERE user_id=$1 AND kind=$2 AND content_hash=md5(lower(btrim($3)))",[userId,kind,input.replacement.content]))[0];
+        if(exists)throw new Error("Já existe uma memória com esse conteúdo; revise a memória existente.");
+        current=(await rows<CoachMemory>(db,"INSERT INTO coach_memories(user_id,kind,content,status,origin,supersedes_id) VALUES($1,$2,$3,'confirmed','user',$4) RETURNING *",[userId,kind,input.replacement.content.trim(),id]))[0];
+      } else current=previous;
+      const updated=(await rows<CoachMemory>(db,`UPDATE coach_memories SET history=history||${memorySnapshot},lifecycle=$3,valid_from=CASE WHEN $3='active' THEN now() ELSE valid_from END,valid_until=CASE WHEN $3='active' THEN NULL ELSE now() END,updated_at=now() WHERE user_id=$1 AND id=$2 RETURNING *`,[userId,id,input.lifecycle]))[0];
+      if(previous.kind==="goal"||current.kind==="goal")await syncProfileGoals(db,userId);
+      const revision=(await db.query<{revision:number}>("SELECT revision FROM coach_profiles WHERE user_id=$1",[userId])).rows[0].revision;
+      const action=input.lifecycle==="paused"?"Pausei":input.lifecycle==="completed"?"Marquei como concluído":input.lifecycle==="superseded"?"Substituí":"Reativei";
+      await advanceOwnJob(db,userId,runId,action+(previous.kind==="goal"?" um objetivo":" uma memória")+" e preservei o histórico.");
+      return {previous:updated,current:input.replacement?current:updated,revision};
     }),
 
     messages: () => tenant(async (db) => messageFreshness(db,userId,await rows<CoachMessage>(db,
@@ -163,12 +227,24 @@ export function coachStore(userId: string) {
         (SELECT * FROM coach_messages WHERE user_id = $1 ORDER BY created_at DESC, id DESC LIMIT 100) recent
        ORDER BY created_at, id`, [userId]))),
 
-    addMessage: (role: CoachMessage["role"], content: string, evidence: Evidence[] = [], revision?: number) => tenant(async (db) => {
+    runReceipt:(runId:string)=>tenant(async(db)=>{
+      const exists=(await db.query<{present:boolean}>("SELECT to_regclass('public.coach_jobs') IS NOT NULL AS present")).rows[0].present;
+      if(!exists)return null;
+      const result=(await db.query<{receipt:string|null}>("SELECT payload->>'profile_change_receipt' AS receipt FROM coach_jobs WHERE user_id=$1 AND id=$2",[userId,runId])).rows[0];
+      return result?.receipt||null;
+    }),
+    messageByKey:(key:string)=>tenant(async(db)=>(await rows<CoachMessage>(db,"SELECT id,role,content,evidence,idempotency_key,created_at FROM coach_messages WHERE user_id=$1 AND idempotency_key=$2",[userId,key]))[0]??null),
+    addMessage: (role: CoachMessage["role"], content: string, evidence: Evidence[] = [], revision?: number,idempotencyKey?:string) => tenant(async (db) => {
       if (revision !== undefined) await assertRevision(db, userId, revision);
       await assertEvidenceCurrent(db,userId,evidence);
-      return (await rows<CoachMessage>(db,
-        `INSERT INTO coach_messages (user_id, role, content, evidence) VALUES ($1,$2,$3,$4::jsonb)
-         RETURNING id, role, content, evidence, created_at`, [userId, role, content, JSON.stringify(evidence)]))[0];
+      if(idempotencyKey!==undefined&&(!idempotencyKey||idempotencyKey.length>200))throw new Error("invalid_input");
+      const inserted=(await rows<CoachMessage>(db,
+        `INSERT INTO coach_messages (user_id, role, content, evidence,idempotency_key) VALUES ($1,$2,$3,$4::jsonb,$5)
+         ON CONFLICT(user_id,idempotency_key) DO NOTHING RETURNING id, role, content, evidence, idempotency_key,created_at`, [userId, role, content, JSON.stringify(evidence),idempotencyKey??null]))[0];
+      if(inserted)return inserted;
+      const existing=(await rows<CoachMessage>(db,"SELECT id,role,content,evidence,idempotency_key,created_at FROM coach_messages WHERE user_id=$1 AND idempotency_key=$2",[userId,idempotencyKey]))[0];
+      if(!existing||existing.role!==role||existing.content!==content)throw new Error("Chave de mensagem já usada para outro conteúdo.");
+      return existing;
     }),
 
     reviews: () => tenant(async (db) => reviewFreshness(db, userId, await rows<StoredReview>(db,
@@ -386,10 +462,10 @@ export function coachStore(userId: string) {
     reset: () => tenant(async (db) => {
       await ensureProfile(db, userId);
       // Retain/increment revision to prevent in-flight calls repopulating erased history.
-      await db.query(`UPDATE coach_profiles SET enabled=false, weekly_enabled=false, goals='', context='',
+      await db.query(`UPDATE coach_profiles SET enabled=false, weekly_enabled=false, morning_enabled=false,evening_enabled=false,nudges_enabled=false,morning_hour=8,evening_hour=18,goals='', context='',
         timezone='America/Sao_Paulo', review_day=5, review_hour=17, revision=revision+1,
         lease_token=NULL, lease_until=NULL, last_run_at=NULL, last_error=NULL, updated_at=now() WHERE user_id=$1`, [userId]);
-      for (const table of ["coach_memories", "coach_messages", "coach_analyses", "coach_reviews"] as const)
+      for (const table of ["coach_jobs", "coach_semantic_chunks", "coach_model_runs", "coach_commitments", "coach_memories", "coach_messages", "coach_analyses", "coach_reviews"] as const)
         await db.query(`DELETE FROM ${table} WHERE user_id = $1`, [userId]);
     }),
   };

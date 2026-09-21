@@ -51,14 +51,14 @@ class RunnerTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     runner.read_config(self.config)
 
-    def test_sends_empty_post_and_does_not_read_private_response(self):
+    def test_sends_empty_post_and_reads_only_aggregate_progress(self):
         captured = []
 
         class Response:
             status = 200
             def __enter__(self): return self
             def __exit__(self, *_): return False
-            def read(self): raise AssertionError("response body must not be read")
+            def read(self, limit): return b'{"ok":true,"failed":0,"processed":1,"remaining_meetings":2,"secret":"private body"}'
 
         class Client:
             def open(self, request, timeout):
@@ -74,6 +74,21 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(request.get_header("Authorization"), "Bearer " + self.token)
         self.assertEqual(timeout, 600)
         self.assertIn("http=200", output)
+        self.assertIn("remaining=2", output)
+        self.assertNotIn("private body", output)
+
+    def test_http_success_with_failed_or_invalid_progress_is_failure(self):
+        for body in [{"ok":False,"failed":1,"processed":0,"remaining_meetings":2}, {"ok":True,"failed":0}, {"ok":True,"failed":False,"processed":0,"remaining_meetings":0}]:
+            class Response:
+                status=200
+                def __enter__(self): return self
+                def __exit__(self,*_): return False
+                def read(self,limit): return json.dumps(body).encode()
+            with patch.object(runner.urllib.request,"build_opener") as client:
+                client.return_value.open.return_value=Response()
+                result,output=self.run_main()
+                self.assertEqual(result,1)
+                self.assertNotIn(self.token,output)
 
     def test_rejects_redirect_and_does_not_forward_token(self):
         self.assertIsNone(runner.NoRedirects().redirect_request(None, None, 302, "", {}, "https://elsewhere.test/"))

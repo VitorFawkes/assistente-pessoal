@@ -1,7 +1,7 @@
 name: coach checks
 on:
   pull_request:
-    paths: ["frontend/**", "db/0028_leadership_coach.sql", "ops/coach-*", ".github/workflows/coach-checks.yml"]
+    paths: ["frontend/**", "db/00*_coach*.sql", "db/0028_leadership_coach.sql", "ops/coach-*", ".github/workflows/coach-checks.yml"]
   workflow_dispatch: {}
 permissions:
   contents: read
@@ -39,7 +39,7 @@ jobs:
         working-directory: frontend
         env:
           COACH_TEST_DATABASE_URL: postgresql://postgres@localhost:55432/coach_test
-        run: bun test lib/coach/store.integration.test.ts lib/coach/task-context.test.ts
+        run: bun test lib/coach/store.integration.test.ts lib/coach/task-context.test.ts lib/coach/jobs.integration.test.ts
       - name: Private runner checks
         run: |
           python3 ops/coach-run.test.py
