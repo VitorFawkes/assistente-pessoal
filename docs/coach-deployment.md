@@ -1,6 +1,24 @@
 # Coach — publicação e operação privada
 
-## Coach v2 publicado — 20/09/2026
+## Coach pessoal publicado e rotinas ativas — 21/09/2026
+
+Estado confirmado às 17h53 de São Paulo: [coach em produção](https://acoes.vitorgambetti.com.br/coach), imagem `329535b2d4bf970cd59ef3ff251f35abbeab6369`, integrada pelo [PR #6](https://github.com/VitorFawkes/assistente-pessoal/pull/6). A [CI final](https://github.com/VitorFawkes/assistente-pessoal/actions/runs/35652838207) e o [build da imagem integrada](https://github.com/VitorFawkes/assistente-pessoal/actions/runs/35653060736) passaram. Source persistente do Easypanel e imagem efetiva coincidem; rollout concluído, réplica `1/1`.
+
+Escopo publicado: conhecer objetivos e dificuldades declarados, ajudar a priorizar, orientar um próximo passo e acompanhar acordos concretos aceitos, inclusive sem tarefa ou reunião. O acompanhamento registra conclusão, avanço parcial, obstáculo e renegociação; não presume descumprimento pela ausência de registro. Uma proposta do coach ainda depende do aceite do usuário. Quando uma renegociação não informa data estruturada, o prazo anterior é removido e o relato permanece disponível para a retomada diária.
+
+Treinamento de reuniões/1:1, avaliação da percepção do time, monitoramento de agentes e criação de eventos não fazem parte da rotina. A agenda principal Microsoft e os relatórios existentes acrescentam contexto; não comprovam execução ou comportamento. O referencial público Stanford de 2026 está separado dos eixos e das funções próprias do Ações.
+
+- Migrations `0032`–`0034` aplicadas após backup privado validado e testes em Postgres isolado. Colunas, constraints, grants e RLS forçada foram conferidos em produção com `app_tenant`.
+- Ponte TTARS integrada pelo [PR #1612](https://github.com/WelcomeTrips/ttars/pull/1612): sincronizador v4 e leitor v3 ativos. Vínculo dedicado configurado somente para a conta autorizada; demais variáveis do serviço preservadas. Sincronização e leitura reais retornaram `200`, com a mesma geração; bearer indevido retornou `401`. A CI do TTARS não iniciou por billing da organização; os comandos equivalentes passaram localmente.
+- Modelo efetivo `openai/gpt-5.6-sol`, verificação semântica e objetivos/contexto existentes preservados. A delimitação pessoal mais recente foi salva no perfil autorizado.
+- Validação: 396 testes unitários, 48 integrações Postgres, 10 testes dos runners, TypeScript, lint e build; 24 verificações de navegador com dados fictícios; Sol real em 17 cenários pessoais, quatro cenários de agenda mais um caso adversarial, dois casos de ações e dois ciclos com Postgres. Fixtures removidas após os testes.
+- Produção: atualização autenticada da agenda conectada; conversa real concluída na primeira tentativa, resposta persistida após recarga; 22 verificações no navegador, com inspeção visual desktop/mobile. Origem indevida `403`, API sem sessão redirecionada a `/sem-acesso` sem dados privados e runner sem token `401`.
+- Rodada autenticada do runner concluída em `2026-09-21T20:52:11Z`: HTTP `200`, `processed=1`, `failed=0`, `remaining=0`; revisão semanal persistida com o perfil atual e `last_error` vazio. A cobertura refere-se aos relatórios/resumos disponíveis, não a análise comportamental integral de todas as transcrições.
+- Cron exclusivo restaurado após essa prova, a cada 15 minutos; daemon ativo, configuração privada e `--check` válido. Manhã às 8h, fechamento às 18h, retomadas pontuais e revisão semanal sexta às 17h, em São Paulo. Os acompanhamentos aparecem no próprio Ações; o horário configurado inicia a janela de preparação e não garante entrega instantânea.
+
+A pendência de inferência real e cron pausado registrada abaixo pertence à versão anterior e foi encerrada nesta publicação. Conteúdo pessoal, capturas, sessão, token e snapshots de configuração permanecem em arquivos privados fora do repositório público. A validação comprova os fluxos exercitados, não eficácia longitudinal do coaching.
+
+## Histórico: Coach v2 publicado — 20/09/2026
 
 Imagem atual:`1346cb838f3c6f79b990691b2a1428165c4351be`, integrada pelo [PR#5](https://github.com/VitorFawkes/assistente-pessoal/pull/5). [CI final](https://github.com/VitorFawkes/assistente-pessoal/actions/runs/35549544911) e [build/publicação da imagem](https://github.com/VitorFawkes/assistente-pessoal/actions/runs/35549694573) concluídos. Source persistente do Easypanel e imagem efetiva alinhadas; rollout convergiu em1/1 réplica.
 
