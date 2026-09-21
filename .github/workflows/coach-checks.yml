@@ -51,10 +51,6 @@ jobs:
   offline-browser:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/coach-browser-binaries
-      COACH_PLAYWRIGHT_MODULE: ${{ runner.temp }}/coach-browser/node_modules/playwright
-      TMPDIR: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -66,10 +62,16 @@ jobs:
       - run: bun install --frozen-lockfile
         working-directory: frontend
       - name: Install pinned Playwright and Chromium for synthetic browser checks
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/coach-browser-binaries
         run: |
           npm install --prefix "$RUNNER_TEMP/coach-browser" --no-save --package-lock=false --ignore-scripts playwright@1.62.1
           node "$RUNNER_TEMP/coach-browser/node_modules/playwright/cli.js" install --with-deps chromium
       - name: Real dashboard with an offline synthetic API
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/coach-browser-binaries
+          COACH_PLAYWRIGHT_MODULE: ${{ runner.temp }}/coach-browser/node_modules/playwright
+          TMPDIR: ${{ runner.temp }}
         working-directory: frontend
         run: node scripts/coach-offline-browser-qa.cjs
       - name: Synthetic browser evidence
