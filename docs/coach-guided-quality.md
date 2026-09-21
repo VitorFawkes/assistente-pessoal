@@ -11,7 +11,7 @@ Recomendação não é aceite. Prazo não comprova pessoa aguardando. Acompanham
 ## Implementação
 
 - Instruções de conversa, revisão semanal e acompanhamentos pedem contribuição concreta e progressão em relação ao histórico. Perguntas sobre rotina, planejamento e escolha usam raciocínio aprofundado.
-- Verificação e uma tentativa limitada de reparo tratam utilidade, evidências, continuidade e escopo. Uma paráfrase da mesma orientação rejeitada não resolve uma falha de utilidade.
+- Verificação e uma tentativa limitada de reparo tratam utilidade, evidências, continuidade e escopo. O limite existente de uma pergunta, incluindo citações, é conferido antes da análise semântica no texto que será efetivamente publicado; uma lista de perguntas aciona esse mesmo reparo antes de qualquer ação ser salva. Uma paráfrase da mesma orientação rejeitada não resolve uma falha de utilidade.
 - As leituras adicionais de tarefas e memória ficam disponíveis à verificação, ao reparo e à ressíntese semanal após correções. Datas, limitações e vetos permanecem associados aos resultados.
 - Não há migration, mudança de modelo, novo agendamento nem alteração de permissões. Agenda continua somente leitura.
 

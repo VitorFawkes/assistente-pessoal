@@ -38,7 +38,7 @@ function fixture(meetings:CoachMeeting[],result:Record<string,unknown>,periodObs
  let modelInput:Record<string,unknown>={};
  let checkerInput:Record<string,unknown>={};const checkerInputs:Record<string,unknown>[]=[];
  let resynthesisInput:Record<string,unknown>={};
- let contextRequest:unknown;let repairInput:Record<string,unknown>={};let repairTools:unknown;
+ let contextRequest:unknown;let repairInput:Record<string,unknown>={};let repairTools:unknown;const repairOutcomeWrites:number[]=[];
  let requests=0,checks=0,commitmentWrites=0;const goalWrites:unknown[]=[];const tracked:unknown[]=[];const outcomes:unknown[]=[];const commitmentUpdates:unknown[]=[];
  const fake={
   profile:async()=>({enabled:true,weekly_enabled:true,revision:tracked.length&&options.concurrentProfileRevision?options.concurrentProfileRevision:1,goals:"",context:"",timezone:"America/Sao_Paulo",review_day:5,review_hour:17}),
@@ -70,7 +70,7 @@ function fixture(meetings:CoachMeeting[],result:Record<string,unknown>,periodObs
   if(request.messages[0].content.includes("VERIFICADOR DE EVIDÊNCIAS")){
    checks++;checkerInput=input;checkerInputs.push(input);const supported=(options.verificationResults?.[checks-1]??options.supported!==false)&&(!options.verifyContext||options.verifyContext(input.data));output={supported,issues:supported?[]:["A conclusão excede o registro original."]};
   }else if(request.messages[0].content.includes("REPARO APÓS VERIFICAÇÃO")){
-   repairInput=input;repairTools=request.tools;const candidate=options.verificationRepair||options.resynthesis||result;output="answer" in candidate?{actions:[],user_memories:[],...candidate}:candidate;
+   repairInput=input;repairTools=request.tools;repairOutcomeWrites.push(outcomes.length);const candidate=options.verificationRepair||options.resynthesis||result;output="answer" in candidate?{actions:[],user_memories:[],...candidate}:candidate;
   }else if(request.messages[0].content.includes("RESSÍNTESE APÓS CORREÇÃO")){
    resynthesisInput=input;output=options.resynthesis||result;
   }else{
@@ -85,7 +85,7 @@ function fixture(meetings:CoachMeeting[],result:Record<string,unknown>,periodObs
   }
   return Response.json({choices:[{finish_reason:"stop",message:{content:JSON.stringify(output)}}],usage:{prompt_tokens:100,completion_tokens:30}});
  }) as unknown as typeof fetch;
- return {saved,memories,reviews,goalWrites,tracked,outcomes,commitmentUpdates,input:()=>modelInput,checkerInput:()=>checkerInput,checkerInputs:()=>checkerInputs,resynthesisInput:()=>resynthesisInput,repairInput:()=>repairInput,repairTools:()=>repairTools,requests:()=>requests,checks:()=>checks,commitmentWrites:()=>commitmentWrites,contextRequest:()=>contextRequest,restore:()=>{storeSpy.mockRestore();commitmentsSpy.mockRestore();createSpy.mockRestore();trackSpy.mockRestore();outcomeSpy.mockRestore();updateSpy.mockRestore();}};
+ return {saved,memories,reviews,goalWrites,tracked,outcomes,commitmentUpdates,input:()=>modelInput,checkerInput:()=>checkerInput,checkerInputs:()=>checkerInputs,resynthesisInput:()=>resynthesisInput,repairInput:()=>repairInput,repairTools:()=>repairTools,repairOutcomeWrites,requests:()=>requests,checks:()=>checks,commitmentWrites:()=>commitmentWrites,contextRequest:()=>contextRequest,restore:()=>{storeSpy.mockRestore();commitmentsSpy.mockRestore();createSpy.mockRestore();trackSpy.mockRestore();outcomeSpy.mockRestore();updateSpy.mockRestore();}};
 }
 
 test("saved chat preserves grounded hypothesis and alternative, with actual selected coverage",async()=>{
@@ -691,5 +691,32 @@ for(const unavailable of [false,true])test(unavailable?"completion never publish
   expect(run.commitmentUpdates).toEqual([{id:"proposal",status:"completed",outcome:"Concluí a proposta."}]);
   expect(run.checkerInput()).toMatchObject({proposed:{answer:""}});
   expect(run.memories).toEqual([]);expect(run.commitmentWrites()).toBe(0);
+ }finally{run.restore();}
+});
+
+
+test("two quoted questions in action guidance receive one repair before persisting the reported obstacle",async()=>{
+ const message="Não consegui enviar a proposta porque faltou o preço.";
+ const commitment:CoachCommitment={id:"proposal",user_id:"synthetic-user",tarefa_id:null,source_message_id:"old-message",idempotency_key:"old:track:0",title:"Enviar proposta",status:"open",outcome:null,outcome_source:"unknown",due_at:null,history:[],created_at:"2026-09-20T10:00:00Z",updated_at:"2026-09-20T10:00:00Z"};
+ const guidance='Peça ao fornecedor: "Qual é o preço?" e "Quando consegue me enviar?"';
+ const corrected='Peça ao fornecedor o preço pendente antes de retomar a proposta. Qual dado falta para fazer esse pedido?';
+ const action={type:"report_commitment_outcome",quote:message,outcome:message,commitment_id:"proposal",guidance};
+ const candidate={answer:"Quer ajuda para pedir o preço?",observations:[],memories:[],actions:[action]};
+ const repaired={...candidate,actions:[{...action,guidance:corrected}]};
+ const run=fixture([],candidate,[],{storedCommitments:[commitment],allowCommitmentWrites:true,verificationRepair:repaired});
+ try{
+  await chatWithCoach("synthetic-user",message,new Date("2026-09-21T12:00:00Z"),"one-question-repair-run");
+  expect(run.repairOutcomeWrites).toEqual([0]);
+  expect(run.requests()).toBe(3);expect(run.checks()).toBe(1);
+  expect(run.repairTools()).toBeUndefined();
+  expect(run.repairInput()).toMatchObject({previous_candidate:{answer:guidance}});
+  expect(run.checkerInput()).toMatchObject({proposed:{answer:corrected}});
+  expect(run.outcomes).toEqual([{id:"proposal",outcome:"Não consegui enviar a proposta porque faltou o preço.",source_message_id:"message-0"}]);
+  expect(run.saved).toHaveLength(2);
+  expect(run.saved[1].content).toContain("Peça ao fornecedor o preço pendente antes de retomar a proposta.");
+  expect(run.saved[1].content.match(/\?/g)).toHaveLength(1);
+  expect(run.saved[1].content).not.toContain("Quando consegue me enviar");
+  expect(run.saved[1].content).not.toContain("Quer ajuda para pedir o preço");
+  expect(run.commitmentWrites()).toBe(0);expect(run.memories).toEqual([]);
  }finally{run.restore();}
 });
