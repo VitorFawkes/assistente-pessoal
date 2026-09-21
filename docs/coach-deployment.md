@@ -1,5 +1,15 @@
 # Coach — publicação e operação privada
 
+## Orientação guiada — primeira publicação em 21/09/2026
+
+Imagem `690f93f8f179b0e49a05334041b7caf351b04abd`, integrada pelo [PR #7](https://github.com/VitorFawkes/assistente-pessoal/pull/7) e confirmada em execução às 19h14 de São Paulo. Source persistente e container foram alinhados; ambiente e credenciais preservados por comparação com snapshot privado. O propósito de um bloco estratégico, explicitamente confirmado pelo usuário, foi acrescentado ao seu contexto sem alterar os demais campos do perfil. Modelo Sol e rotinas existentes preservados.
+
+Validação desta primeira versão: 404 testes unitários, 48 testes de Postgres, 10 de runners, TypeScript, lint, build e 24 verificações de navegador sintético na [CI](https://github.com/VitorFawkes/assistente-pessoal/actions/runs/35661250813). A [imagem](https://github.com/VitorFawkes/assistente-pessoal/actions/runs/35661410832) foi gerada a partir do SHA integrado. Com Sol, passaram as 22 regressões existentes, 12 casos novos e a sequência cumulativa de cinco turnos reexecutada após corrigir recibo de conclusão e limite de perguntas; não se trata de uma única rodada com todos os cenários.
+
+Em produção, a conversa original concluiu e persistiu em uma tentativa. Passaram 23 verificações de autenticação, configurações, persistência, navegação e interface. A leitura humana, porém, encontrou contribuição ainda genérica: o coach explicou melhor seu papel, mas adiou a comparação concreta. Portanto, esse resultado **não comprova a resolução completa do problema de qualidade**.
+
+O refinamento descrito em `docs/coach-guided-quality.md` está preparado e ainda não publicado. Seu teste negativo passou; a geração do cenário novo precisa ser concluída antes da liberação. Logs, respostas, consultas e capturas com contexto pessoal ficam em arquivos privados fora do repositório.
+
 ## Coach pessoal publicado e rotinas ativas — 21/09/2026
 
 Estado confirmado às 17h53 de São Paulo: [coach em produção](https://acoes.vitorgambetti.com.br/coach), imagem `329535b2d4bf970cd59ef3ff251f35abbeab6369`, integrada pelo [PR #6](https://github.com/VitorFawkes/assistente-pessoal/pull/6). A [CI final](https://github.com/VitorFawkes/assistente-pessoal/actions/runs/35652838207) e o [build da imagem integrada](https://github.com/VitorFawkes/assistente-pessoal/actions/runs/35653060736) passaram. Source persistente do Easypanel e imagem efetiva coincidem; rollout concluído, réplica `1/1`.

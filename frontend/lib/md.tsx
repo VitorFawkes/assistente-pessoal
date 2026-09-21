@@ -76,6 +76,9 @@ export function Markdown({ text }: { text: string }) {
           <li key={items.length}>{renderInline(lines[i].replace(/^\s*\d+[.)]\s+/, ""), `o${k}-${items.length}`)}</li>,
         );
         i++;
+        let nextItem = i;
+        while (nextItem < lines.length && !lines[nextItem].trim()) nextItem++;
+        if (nextItem < lines.length && isOl(lines[nextItem])) i = nextItem;
       }
       blocks.push(
         <ol key={k++} className="list-decimal pl-5 space-y-0.5 my-1">
