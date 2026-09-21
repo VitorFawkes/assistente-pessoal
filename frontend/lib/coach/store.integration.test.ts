@@ -2,6 +2,7 @@ import { beforeAll, afterAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
+import { reportSources, reportPeriodFingerprint } from "./meeting-reports";
 import { chunkMeeting, sourceHash } from "./evidence";
 import { coachStore, enabledUserIds, StaleCoachRunError } from "./store";
 import { createCommitment, updateCommitment, listCommitments } from "./coach-commitments";
@@ -39,6 +40,7 @@ describe.skipIf(!connection)("coach store: real Postgres isolation and lifecycle
       CREATE TABLE IF NOT EXISTS tarefas (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         titulo text, descricao text, owner text, status text, prioridade text, prazo timestamptz, meeting_id uuid,
         created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now());
+      ALTER TABLE meetings ADD COLUMN IF NOT EXISTS raw_ai_response jsonb;
       ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS is_mine boolean DEFAULT false;
       ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS acao text DEFAULT 'executar';
       ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS concluida_em timestamptz;
@@ -79,6 +81,10 @@ describe.skipIf(!connection)("coach store: real Postgres isolation and lifecycle
     await admin.query(await readFile(new URL("../../../db/0030_coach_jobs.sql",import.meta.url),"utf8"));
     const retrievalMigration=await readFile(new URL("../../../db/0031_coach_retrieval.sql",import.meta.url),"utf8");
     await admin.query(retrievalMigration);await admin.query(retrievalMigration);
+    await admin.query(await readFile(new URL("../../../db/0032_coach_calendar_cache.sql",import.meta.url),"utf8"));
+    await admin.query(await readFile(new URL("../../../db/0033_coach_report_context.sql",import.meta.url),"utf8"));
+    const lineageMigration=await readFile(new URL("../../../db/0034_coach_context_lineage.sql",import.meta.url),"utf8");
+    await admin.query(lineageMigration);await admin.query(lineageMigration);
     await admin.query("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS situacao_desde timestamptz");
     await admin.query("INSERT INTO users (id,nome,consent_terms_at) VALUES ($1,'Fixture A',now()),($2,'Fixture B',now())", [userA,userB]);
     await admin.query(`INSERT INTO meetings (id,user_id,nome,original_filename,recorded_at,transcription,segments,speaker_labels,speaker_pessoas,status,summary)
@@ -139,16 +145,16 @@ describe.skipIf(!connection)("coach store: real Postgres isolation and lifecycle
     const input = {meeting_id:meetingA,source_hash:sourceHash(source),chunk_index:0,chunk_count:2,observations:[],summary:"Escuta e empatia",model:"fixture"};
     const one = await a.saveAnalysis(input,revision);
     expect((await a.saveAnalysis(input,revision)).id).toBe(one.id);
-    expect(await a.coverage()).toEqual({total_meetings:105,analyzed_meetings:0,analyzed_chunks:1,pending_meetings:105});
+    expect(await a.coverage()).toMatchObject({total_meetings:105,analyzed_meetings:0,analyzed_chunks:1,pending_meetings:103,report_ready_meetings:2,summary_only_meetings:2});
     await a.saveAnalysis({...input,chunk_index:1},revision);
-    expect(await a.coverage()).toEqual({total_meetings:105,analyzed_meetings:1,analyzed_chunks:2,pending_meetings:104});
+    expect(await a.coverage()).toMatchObject({total_meetings:105,analyzed_meetings:1,analyzed_chunks:2,pending_meetings:103,report_ready_meetings:2});
     expect((await a.saveReview("2026-09-14",review,"fixture",revision)).id)
       .toBe((await a.saveReview("2026-09-14",review,"fixture",revision)).id);
     expect((await b.analyses()).length).toBe(0);
     const period = await a.analysesInPeriod("2026-09-14","2026-09-21");
     expect(period.analyses.length).toBe(2); expect(period.meetings[0].id).toBe(meetingA);
     expect(period.complete).toBe(true); expect(period.total_meetings).toBe(1);
-    expect((await a.analysesInPeriod("1990-01-01","2030-01-01")).complete).toBe(false);
+    expect((await a.analysesInPeriod("1990-01-01","2030-01-01")).behavioral_complete).toBe(false);
   });
 
   test("historical transcript, learned patterns and conversation retrieval are tenant scoped", async () => {
@@ -204,6 +210,9 @@ describe.skipIf(!connection)("coach store: real Postgres isolation and lifecycle
       expect(context.historical_meetings.find(m=>m.id===meetingA)?.date_basis).toBe('recorded');
       const general = await a.context("Importação sem data");
       expect(general.meetings.find(m=>m.id===id)?.date_basis).toBe('registered');
+      const weekly=await a.analysesInPeriod('2080-09-20T00:00:00Z','2080-09-21T00:00:00Z');
+      expect(weekly.meetings[0]).toMatchObject({id,recorded_at:null,context_at:'2080-09-20T15:00:00.000Z',date_basis:'registered'});
+      expect(weekly.limitations.join(' ')).toContain('cadastro/importação');
     } finally { await admin.query("DELETE FROM meetings WHERE id=$1",[id]); }
   });
 
@@ -399,28 +408,37 @@ describe.skipIf(!connection)("coach store: real Postgres isolation and lifecycle
     const input={accepted:true as const,idempotency_key:"commitment-fixture-key",source_message_id:message.id,title:"Entregar a proposta",due_at:"2026-09-25T15:00:00Z"};
     const [first,again]=await Promise.all([createCommitment(userA,input,revision),createCommitment(userA,input,revision)]);
     expect(again.id).toBe(first.id);expect(again.tarefa_id).toBe(first.tarefa_id);
+    expect((await a.profile()).revision).toBe(revision+1);
+    await expect(a.saveReview("1998-08-10",review,"fixture",revision)).rejects.toBeInstanceOf(StaleCoachRunError);
     const rows=await admin.query("SELECT count(*)::int AS total FROM tarefa_eventos WHERE tarefa_id=$1 AND evento='criada'",[first.tarefa_id]);
     expect(rows.rows[0].total).toBe(1);
     expect((await listCommitments(userA)).find(c=>c.id===first.id)?.status).toBe("open");
     expect(await listCommitments(userB)).toEqual([]);
-    await expect(createCommitment(userA,{...input,title:"Outro pedido"},revision)).rejects.toThrow();
+    await expect(createCommitment(userA,{...input,title:"Outro pedido"},(await a.profile()).revision)).rejects.toThrow();
     await expect(createCommitment(userB,{...input,idempotency_key:"cross-tenant-key"},(await b.profile()).revision)).rejects.toThrow();
-    const assistant=await a.addMessage("assistant","Você poderia criar uma tarefa",[],revision);
-    await expect(createCommitment(userA,{...input,source_message_id:assistant.id,idempotency_key:"assistant-key"},revision)).rejects.toThrow();
-    await expect(createCommitment(userA,{...input,accepted:false as unknown as true,idempotency_key:"unaccepted-key"},revision)).rejects.toThrow();
-    const complete=await updateCommitment(userA,first.id,{status:"completed",outcome:"Enviei a proposta"},revision);
+    const assistant=await a.addMessage("assistant","Você poderia criar uma tarefa",[],(await a.profile()).revision);
+    await expect(createCommitment(userA,{...input,source_message_id:assistant.id,idempotency_key:"assistant-key"},(await a.profile()).revision)).rejects.toThrow();
+    await expect(createCommitment(userA,{...input,accepted:false as unknown as true,idempotency_key:"unaccepted-key"},(await a.profile()).revision)).rejects.toThrow();
+    const complete=await updateCommitment(userA,first.id,{status:"completed",outcome:"Enviei a proposta"},(await a.profile()).revision);
     expect(complete?.outcome_source).toBe("user_report");
     const task=(await admin.query("SELECT status,concluida_em FROM tarefas WHERE id=$1",[first.tarefa_id])).rows[0];
     expect(task.status).toBe("concluida");expect(task.concluida_em).not.toBeNull();
-    await updateCommitment(userA,first.id,{status:"renegotiated",due_at:"2026-10-01T15:00:00Z",outcome:"Prazo combinado mudou"},revision);
+    await updateCommitment(userA,first.id,{status:"renegotiated",due_at:"2026-10-01T15:00:00Z",outcome:"Prazo combinado mudou"},(await a.profile()).revision);
     await admin.query("UPDATE tarefas SET status='concluida',concluida_em=now() WHERE id=$1",[first.tarefa_id]);
     const external=(await listCommitments(userA)).find(c=>c.id===first.id)!;
     expect(external.status).toBe("completed");expect(external.outcome_source).toBe("task_record");
-    await updateCommitment(userA,first.id,{status:"completed",outcome:"Concluído de novo"},revision);
+    await updateCommitment(userA,first.id,{status:"completed",outcome:"Concluído de novo"},(await a.profile()).revision);
     await admin.query("UPDATE tarefas SET status='aberta',concluida_em=NULL,updated_at=now()+interval '1 second' WHERE id=$1",[first.tarefa_id]);
     const reopened=(await listCommitments(userA)).find(c=>c.id===first.id)!;
     expect(reopened.status).toBe("open");expect(reopened.outcome_source).toBe("task_record");
     expect(await updateCommitment(userB,first.id,{status:"cancelled"})).toBeNull();
+  });
+
+  test("assistant replies do not evict user statements from the accountability history",async()=>{
+    const before=await a.userMessages();expect(before.length).toBeGreaterThan(0);
+    await admin.query(`INSERT INTO coach_messages(user_id,role,content) SELECT $1,'assistant','Synthetic follow-up '||n FROM generate_series(1,105) n`,[userA]);
+    expect((await a.userMessages()).map(m=>m.id)).toEqual(before.map(m=>m.id));
+    expect((await a.userMessages()).every(m=>m.role==="user")).toBe(true);
   });
 
   test("semantic index and usage are isolated, current-source checked, and revision guarded",async()=>{
@@ -449,6 +467,101 @@ describe.skipIf(!connection)("coach store: real Postgres isolation and lifecycle
       expect((await withTenant(userA,db=>db.query("SELECT * FROM coach_model_runs WHERE user_id=$1",[userA]))).rowCount).toBe(1);
       expect((await withTenant(userB,db=>db.query("SELECT * FROM coach_model_runs"))).rowCount).toBe(0);
     }finally{globalThis.fetch=oldFetch;if(oldKey===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=oldKey;if(oldFlag===undefined)delete process.env.COACH_SEMANTIC_ENABLED;else process.env.COACH_SEMANTIC_ENABLED=oldFlag;}
+  });
+
+  test("all period reports come from raw pipeline JSON and remain tenant scoped beyond eight meetings",async()=>{
+    const ids=Array.from({length:12},()=>randomUUID());
+    try{
+      for(const [index,id] of ids.entries())await admin.query(`INSERT INTO meetings(id,user_id,original_filename,recorded_at,transcription,status,summary,raw_ai_response) VALUES($1,$2,'report-fixture.mp3','2035-01-01T12:00:00Z','Fonte original','done','Resumo curto',$3::jsonb)`,[id,userA,JSON.stringify({executive_summary:`Decisão de relatório ${index}`})]);
+      const context=await a.context("como foi hoje",{now:new Date("2035-01-01T23:00:00Z"),timezone:"America/Sao_Paulo"});
+      expect(context.meetings).toHaveLength(12);expect(context.selection.meetings).toEqual({selected:12,total:12});
+      expect(context.meetings.every(meeting=>meeting.executive_summary?.startsWith("Decisão de relatório"))).toBe(true);
+      expect((await b.context("como foi hoje",{now:new Date("2035-01-01T23:00:00Z"),timezone:"America/Sao_Paulo"})).meetings).toEqual([]);
+      const period=await a.analysesInPeriod("2035-01-01","2035-01-02");
+      expect(period.complete).toBe(true);expect(period.behavioral_complete).toBe(false);expect(period.meetings).toHaveLength(12);
+    }finally{await admin.query("DELETE FROM meetings WHERE id=ANY($1::uuid[])",[ids]);}
+  });
+
+  test("changed reports invalidate saved guidance and prevent stale or cross-tenant context writes",async()=>{
+    const revision=(await a.profile()).revision;
+    const meeting=(await a.meetingById(meetingA))!;
+    const sources=reportSources([meeting]);
+    const message=await a.addMessage("assistant","report-context-fixture",[],revision,undefined,sources);
+    await admin.query("UPDATE coach_messages SET created_at=now()+interval '1 day' WHERE id=$1",[message.id]);
+    expect((await a.messages()).find(item=>item.id===message.id)).toMatchObject({stale:false,context_freshness:"current"});
+    const from="2026-09-14T00:00:00Z",to="2026-09-21T00:00:00Z";
+    const period=await a.analysesInPeriod(from,to);
+    const content={...review,report_context:{from,to,fingerprint:reportPeriodFingerprint(period.meetings)}};
+    const saved=await a.saveReview("2026-09-14",content,"fixture",revision,true);
+    const original=(await admin.query("SELECT raw_ai_response FROM meetings WHERE id=$1",[meetingA])).rows[0].raw_ai_response;
+    try{
+      await admin.query(`UPDATE meetings SET raw_ai_response=jsonb_build_object('executive_summary','Relatório corrigido depois da resposta') WHERE id=$1`,[meetingA]);
+      expect((await a.messages()).find(item=>item.id===message.id)).toMatchObject({stale:true,context_freshness:"stale"});
+      expect((await a.reviews()).find(item=>item.id===saved.id)?.stale).toBe(true);
+      await expect(a.addMessage("assistant","Deve falhar",[],revision,undefined,sources)).rejects.toBeInstanceOf(StaleCoachRunError);
+      await expect(a.saveReview("2026-09-14",content,"fixture",revision,true)).rejects.toBeInstanceOf(StaleCoachRunError);
+      await expect(b.addMessage("assistant","Não pode referenciar outro usuário",[],(await b.profile()).revision,undefined,sources)).rejects.toBeInstanceOf(StaleCoachRunError);
+    }finally{await admin.query("UPDATE meetings SET raw_ai_response=$2::jsonb WHERE id=$1",[meetingA,original===null?null:JSON.stringify(original)]);}
+  });
+
+  test("weekly report versions cover historical tool reads outside the review period",async()=>{
+    const revision=(await a.profile()).revision;
+    const from="2026-09-14T00:00:00Z",to="2026-09-21T00:00:00Z";
+    const period=await a.analysesInPeriod(from,to);
+    const historical=(await a.meetingById(oldMeeting))!;
+    const content:ReviewContent&{context_sources:ReturnType<typeof reportSources>}={...review,report_context:{from,to,fingerprint:reportPeriodFingerprint(period.meetings)},context_sources:reportSources([...period.meetings,historical])};
+    const saved=await a.saveReview("2026-09-14",content,"fixture",revision,true);
+    const original=(await admin.query("SELECT raw_ai_response FROM meetings WHERE id=$1",[oldMeeting])).rows[0].raw_ai_response;
+    try{
+      await admin.query(`UPDATE meetings SET raw_ai_response=jsonb_build_object('executive_summary','Histórico corrigido depois da consulta por ferramenta') WHERE id=$1`,[oldMeeting]);
+      expect((await a.analysesInPeriod(from,to)).report_fingerprint).toBe(content.report_context!.fingerprint);
+      expect((await a.reviews()).find(item=>item.id===saved.id)?.stale).toBe(true);
+      await expect(a.saveReview("2026-09-14",content,"fixture",revision,true)).rejects.toBeInstanceOf(StaleCoachRunError);
+      const foreign=(await b.meetingById(meetingB))!;
+      await expect(a.saveReview("2026-09-14",{...content,context_sources:reportSources([foreign])},"fixture",revision,true)).rejects.toBeInstanceOf(StaleCoachRunError);
+    }finally{await admin.query("UPDATE meetings SET raw_ai_response=$2::jsonb WHERE id=$1",[oldMeeting,original===null?null:JSON.stringify(original)]);}
+  });
+
+  test("inherited empty-period membership invalidates descendant guidance and rejects in-flight saves",async()=>{
+    const revision=(await a.profile()).revision;
+    const from="2040-01-01T00:00:00Z",to="2040-01-08T00:00:00Z";
+    const period=await a.analysesInPeriod(from,to);
+    const inherited={from,to,fingerprint:period.report_fingerprint};
+    const message=await a.addMessage("assistant","Descendant of an empty-period review",[],revision,undefined,[],[inherited]);
+    await admin.query("UPDATE coach_messages SET created_at=now()+interval '1 day' WHERE id=$1",[message.id]);
+    const content={...review,context_periods:[inherited]};
+    const saved=await a.saveReview("2040-01-09",content,"fixture",revision,true);
+    const foreign=randomUUID(),own=randomUUID();
+    try{
+      await admin.query(`INSERT INTO meetings(id,user_id,original_filename,recorded_at,transcription,status) VALUES($1,$2,'late-foreign.mp3','2040-01-03','Fonte de outro usuário','done')`,[foreign,userB]);
+      expect((await a.messages()).find(item=>item.id===message.id)).toMatchObject({stale:false,context_periods:[inherited]});
+      expect((await a.reviews()).find(item=>item.id===saved.id)?.stale).toBe(false);
+      await admin.query(`INSERT INTO meetings(id,user_id,original_filename,recorded_at,transcription,status) VALUES($1,$2,'late-own.mp3','2040-01-03','Fonte recebida depois','done')`,[own,userA]);
+      expect((await a.messages()).find(item=>item.id===message.id)).toMatchObject({stale:true,context_freshness:"stale"});
+      expect((await a.reviews()).find(item=>item.id===saved.id)?.stale).toBe(true);
+      await expect(a.addMessage("assistant","Late descendant must fail",[],revision,undefined,[],[inherited])).rejects.toBeInstanceOf(StaleCoachRunError);
+      await expect(a.saveReview("2040-01-09",content,"fixture",revision,true)).rejects.toBeInstanceOf(StaleCoachRunError);
+    }finally{await admin.query("DELETE FROM meetings WHERE id=ANY($1::uuid[])",[[foreign,own]]);}
+  });
+
+  test("new zero-report conversations stay current while legacy zero-report guidance stays unknown",async()=>{
+    const revision=(await a.profile()).revision;
+    const message=await a.addMessage("assistant","Zero reports but meaningful conversational advice",[],revision);
+    await admin.query("UPDATE coach_messages SET created_at=now()+interval '1 day' WHERE id=$1",[message.id]);
+    expect((await a.messages()).find(item=>item.id===message.id)?.context_freshness).toBe("current");
+    await admin.query("UPDATE coach_messages SET context_version=1 WHERE id=$1",[message.id]);
+    expect((await a.messages()).find(item=>item.id===message.id)?.context_freshness).toBe("unknown");
+    await admin.query("UPDATE coach_messages SET context_version=NULL WHERE id=$1",[message.id]);
+    expect((await a.messages()).find(item=>item.id===message.id)?.context_freshness).toBe("unknown");
+  });
+
+  test("pre-lineage reviews remain visible but cannot be reused as current guidance",async()=>{
+    const revision=(await a.profile()).revision;
+    const saved=await a.saveReview("2041-01-01",review,"fixture",revision,true);
+    expect(saved.stale).toBe(false);
+    await admin.query("UPDATE coach_reviews SET content=content-'context_version' WHERE id=$1",[saved.id]);
+    expect((await a.reviews()).find(item=>item.id===saved.id)?.stale).toBe(true);
+    expect((await a.saveReview("2041-01-01",review,"fixture",revision,true)).stale).toBe(false);
   });
 
   test("reset removes private coach data, keeps meetings, and blocks in-flight repopulation", async () => {

@@ -1,148 +1,101 @@
-# Coach de liderança do Ações — fontes e critérios de interpretação
+# Coach pessoal do Ações — fontes e critérios de interpretação
 
-Pesquisa em fontes primárias consultadas em **20 de setembro de 2026**. Versão da adaptação: `acoes-leadership-v1`.
+Pesquisa inicial em fontes primárias em **20 de setembro de 2026**, atualizada em **21 de setembro de 2026**. Recorte do produto: `acoes-personal-coach-v2`.
 
-Este documento fundamenta o produto; não contém avaliações sobre Vitor. Os exemplos são fictícios. Nenhuma transcrição ou informação pessoal foi enviada à pesquisa na web.
+Este documento não contém avaliações sobre Vitor. Os exemplos são fictícios; nenhuma transcrição ou informação pessoal foi enviada à pesquisa na web.
 
-## Conclusão para o produto
+## O que o coach deve fazer
 
-Há programas de liderança, instrumentos de feedback e mapas de competências distintos em Stanford. Não foi encontrada evidência de um único mapa universal de competências de liderança da Stanford GSB que possa ser reproduzido como um teste oficial.
+Ajudar a pessoa a avançar nos objetivos que escolheu: compreender dificuldades, definir prioridades, combinar um próximo passo possível, retomar acordos, cobrar com respeito e reconhecer avanços concretos. A conversa é a entrada principal. Ela pode ser útil mesmo sem reuniões gravadas.
 
-O coach usa uma **adaptação própria do Ações, informada por fontes públicas de Stanford**. Não é um produto Stanford, não oferece certificação, não reproduz questionários proprietários e não constitui uma avaliação psicométrica validada. Observar transcrições não equivale a colher feedback 360 de gestores, pares e liderados.
+Reuniões e relatórios fornecem contexto, decisões e possíveis compromissos. Não tornam melhorar reuniões o objetivo do coaching. A agenda fornece planejamento para leitura; não prova presença, entrega ou tempo livre confirmado. A rotina não oferece espontaneamente treinamento de reuniões ou 1:1, avaliação da percepção do time, feedback 360 ou monitoramento de agentes de IA. Comunicação e delegação podem entrar quando o usuário trouxer uma dificuldade concreta nesses assuntos.
 
-## Fontes e o que cada uma sustenta
+## Correção da referência Stanford
 
-As descrições abaixo são sínteses, não traduções integrais de materiais de cursos. Os títulos em inglês identificam conceitos originais. Indicadores de comportamento, regras de evidência, estados e exercícios propostos nas seções seguintes são elaboração do Ações.
+Em **19 de maio de 2026**, o Stanford Leadership Institute apresentou cinco capacidades: **self-awareness, perspective-taking, holistic communication, decision-making e contextual awareness**. Portanto, a afirmação anterior de que não havia um referencial oficial de capacidades era ampla demais. Há esse referencial; ele não transforma o Ações em teste oficial ou avaliação validada pela universidade. [Apresentação do Stanford Leadership Institute](https://www.gsb.stanford.edu/experience/about/leadership/updates/introducing-stanford-leadership-institute).
 
-| ID | Fonte primária | Material original e escopo | Aplicação no Ações |
+Para este produto, a referência ajuda sobretudo a trabalhar autoconhecimento, decisão e leitura de contexto: o que a pessoa quer, o que está dificultando, quais escolhas são possíveis e o que aprendeu ao tentar. Os seis identificadores internos preservados no código são organização editorial do Ações. Não correspondem, um a um, às cinco capacidades oficiais, não são uma escala de pontuação e não precisam aparecer na conversa.
+
+O produto não é Stanford, não oferece certificação, não reproduz instrumentos proprietários e não constitui avaliação psicométrica ou feedback 360. Transcrições não revelam, sozinhas, o que colegas pensam ou sentem.
+
+## Fontes primárias e alcance
+
+Sínteses abaixo não são traduções integrais de materiais de cursos. A aplicação ao produto é uma escolha do Ações.
+
+| ID | Fonte | O que sustenta | Aplicação e limite |
 |---|---|---|---|
-| S1 | [Stanford LEAD — cursos](https://www.gsb.stanford.edu/exec-ed/programs/stanford-lead/curriculum/courses) | Inclui **Critical Analytical Thinking**, **Strategic Leadership**, **Decision Making** e **Communicating with Impact**. São cursos, não uma escala pública para pontuar transcrições. | Organizar perguntas sobre problemas, escolhas, direção e comunicação. |
-| S2 | [Stanford LEAD — Intentional Leadership: A 360 Approach](https://www.gsb.stanford.edu/exec-ed/programs/stanford-lead/curriculum/courses/intentional-leadership) | Combina avaliação 360, identificação de forças e dificuldades e elaboração de plano de desenvolvimento. | Contrastar intenção declarada com ações observadas e transformar reflexão em experimento. |
-| S3 | [Leadership Labs](https://www.gsb.stanford.edu/experience/learning/leadership/labs) | Exercícios em equipe, urgência e ambiguidade; participantes examinam decisões e comportamentos depois da experiência. | Debrief de reuniões reais: situação, escolha, consequência observável, próxima tentativa. |
-| S4 | [Interpersonal Dynamics](https://www.gsb.stanford.edu/experience/learning/leadership/interpersonal-dynamics) | Aprendizagem experiencial sobre relações, impacto do próprio comportamento, comunicação, influência e diferenças; recebe feedback de outras pessoas. | Examinar escuta e clareza; reconhecer que a transcrição não revela, sozinha, como cada pessoa se sentiu. |
-| S5 | [Arbuckle Leadership Fellows Program](https://www.gsb.stanford.edu/experience/learning/leadership/arbuckle-leadership-fellows-program) | Desenvolvimento de outras pessoas por facilitação, coaching e mentoria, em grupos e individualmente. | Observar delegação e situações em que o líder ajuda alguém a pensar, decidir e desenvolver autonomia. |
-| S6 | [Cardinal at Work — Competencies](https://cardinalatwork.stanford.edu/careers/performance-management/performance-management/competencies) | A universidade publica o **Korn Ferry Leadership Architect**, com 38 competências e quatro fatores: **Thought, Results, People, Self**. A autoria é Korn Ferry; não é um mapa criado pela GSB. | Referência de organização de comportamentos. O Ações usa seis eixos próprios, não os questionários ou as escalas proprietárias. |
-| S7 | [Stanford LEAP — visão geral](https://leap360.stanford.edu/home) | Ciclo de coleta de feedback, interpretação, plano de 100 dias, acompanhamento e reavaliação. | Memória revisável, metas, histórico de experimentos e revisões periódicas. O prazo de 100 dias pode orientar uma meta, sem se tornar obrigação. |
-| S8 | [Stanford LEAP — acompanhamento](https://leap360.stanford.edu/step4) | Diário de progresso e aprendizagem com lembrete semanal. | Revisão semanal privada, curta e vinculada a metas e evidências recentes. |
-| S9 | [Stanford LEAP — avaliação 360](https://leap360.stanford.edu/step1) | Autoavaliação e avaliações anônimas por gestor, pares e liderados. | Delimita o que falta: sem avaliações dessas pessoas, o coach não afirma ter medido reputação ou percepção do time. |
+| S0 | [Stanford Leadership Institute — apresentação, 19/05/2026](https://www.gsb.stanford.edu/experience/about/leadership/updates/introducing-stanford-leadership-institute) | Cinco capacidades de liderança listadas acima. | Referência conceitual; não valida categorias, resultados ou eficácia do Ações. |
+| S1 | [Stanford LEAD — cursos](https://www.gsb.stanford.edu/exec-ed/programs/stanford-lead/curriculum/courses) | Raciocínio analítico, liderança estratégica, decisões e comunicação. | Perguntas sobre escolhas e problemas concretos; não pontuação de transcrições. |
+| S2 | [Intentional Leadership: A 360 Approach](https://www.gsb.stanford.edu/exec-ed/programs/stanford-lead/curriculum/courses/intentional-leadership) | Reflexão sobre forças, dificuldades e desenvolvimento com feedback 360. | Inspira reflexão revisável. O produto não oferece nem simula a coleta 360. |
+| S3 | [Leadership Labs](https://www.gsb.stanford.edu/experience/learning/leadership/labs) | Aprendizagem a partir de experiência, decisões e reflexão. | Aprender com escolhas quando relevante ao objetivo; não impor debrief de reuniões. |
+| S4 | [Interpersonal Dynamics](https://www.gsb.stanford.edu/experience/learning/leadership/interpersonal-dynamics) | Aprendizagem relacional e feedback de outras pessoas. | Delimita a diferença entre relato observado e percepção alheia desconhecida. |
+| S5 | [Arbuckle Leadership Fellows Program](https://www.gsb.stanford.edu/experience/learning/leadership/arbuckle-leadership-fellows-program) | Coaching, facilitação e mentoria. | Apoiar reflexão e autonomia, sem assumir o objetivo ou as decisões da pessoa. |
+| S6 | [Cardinal at Work — Competencies](https://cardinalatwork.stanford.edu/careers/performance-management/performance-management/competencies) | Mapa de autoria Korn Ferry, publicado pela universidade. | Referência histórica dos seis rótulos internos; não é o modelo próprio de cinco capacidades do Institute. |
+| S7 | [Stanford LEAP — visão geral](https://leap360.stanford.edu/home) | Reflexão, plano de desenvolvimento, acompanhamento e reavaliação. | Metas revisáveis e retorno ao combinado, sem impor um prazo ou programa universal. |
+| S8 | [Stanford LEAP — acompanhamento](https://leap360.stanford.edu/step4) | Diário de progresso e aprendizagem com acompanhamento periódico. | Revisão privada curta, retomando dificuldades, acordos e avanços relevantes. |
+| S9 | [Stanford LEAP — avaliação 360](https://leap360.stanford.edu/step1) | Avaliações da própria pessoa, gestor, pares e liderados. | Mostra o que o Ações não coletou e, portanto, não pode afirmar sobre percepção do time. |
 
-**Condições de consulta:** as páginas GSB S1–S5 retornaram conteúdo no índice de busca oficial; algumas aberturas diretas tiveram erro ou 403. S6–S9 tiveram conteúdo disponível em abertura direta. Isso não concede acesso a materiais fechados de cursos. Não foram usados relatos de ex-alunos nem páginas comerciais de terceiros como prova do conteúdo dos programas.
+**Condições de consulta:** S0 e páginas GSB foram consultadas pelo conteúdo indexado de fontes oficiais; algumas aberturas diretas retornaram 403 ou erro. As páginas Cardinal at Work e LEAP estavam disponíveis em abertura direta na pesquisa inicial. Isso não significa acesso a materiais fechados. Não foram usados relatos de ex-alunos nem publicidade de terceiros para atribuir conteúdo a Stanford.
 
-## Correspondência entre referências e adaptação
+## Categorias internas, sem escala de competência
 
-Os nomes na coluna central são títulos originais selecionados, não o mapa inteiro. A última coluna é uma associação editorial do Ações, não uma equivalência validada por Stanford ou Korn Ferry.
+Os identificadores existentes permanecem para compatibilidade com registros e evidências. São opcionais e não formam um roteiro obrigatório da conversa.
 
-| Eixo próprio do Ações | Referência original selecionada | Uso adaptado |
-|---|---|---|
-| Foco e priorização | S6: **Plans and aligns**; S1: curso de estratégia | Conectar escolhas a resultado e explicitar o que deixará de ser feito. |
-| Julgamento e decisões | S6: **Decision quality**; S1: curso de raciocínio analítico | Examinar premissas, alternativas, incerteza e critérios. |
-| Comunicação e escuta | S6: **Communicates effectively**; S4 | Examinar entendimento compartilhado, perguntas e discordâncias. |
-| Delegação e desenvolvimento | S6: **Directs work**; S5 | Examinar objetivo, responsável, autonomia e apoio. |
-| Compromissos e execução | S6: **Ensures accountability**; S3 | Ligar decisões a responsáveis, datas, confirmação e retorno. |
-| Autoconhecimento e aprendizagem | S6: **Demonstrates self-awareness**; S2, S7, S8 | Comparar intenção e ação, aceitar correção e testar mudanças. |
+| Identificador | Uso no recorte pessoal |
+|---|---|
+| `self_awareness` | Entender dificuldades e condições, aceitar correções e aprender com escolhas e tentativas. |
+| `judgment` | Examinar fatos, incertezas, alternativas e consequências de uma decisão relevante. |
+| `focus` | Relacionar a próxima escolha ao objetivo atual e ao que pode esperar. |
+| `commitments` | Distinguir proposta, acordo aceito e resultado conhecido; retomar ou renegociar. |
+| `communication` | Esclarecer pedido ou dificuldade de comunicação quando esse assunto for trazido pelo usuário. |
+| `delegation` | Examinar responsabilidades ou dependências quando isso ajudar o objetivo declarado. |
 
-## Indicadores observáveis — elaboração própria
+## Ciclo de conversa e continuidade
 
-O objetivo é selecionar uma pequena mudança com impacto real. Os eixos não são uma lista para preencher à força em toda semana.
+1. Entender o pedido atual à luz do objetivo vigente e das informações já conhecidas.
+2. Identificar a dificuldade ou decisão que realmente impede avançar.
+3. Oferecer uma direção pequena e útil, ou uma pergunta decisiva se faltar informação.
+4. Distinguir uma sugestão do coach de um acordo aceito pelo usuário.
+5. Retomar o acordo relevante quando fizer sentido. Reconhecer conclusão, avanço parcial, bloqueio, pausa ou renegociação.
 
-| Eixo | Perguntas que o coach pode verificar | Experimento possível |
-|---|---|---|
-| Foco e priorização | O problema foi nomeado antes da solução? Foi escolhido um resultado prioritário? Houve decisão explícita de adiar ou abandonar alguma frente? Uma nova iniciativa recebeu espaço ou apenas foi somada às demais? | Abrir as próximas três reuniões com uma frase sobre a decisão necessária e encerrar com uma escolha de não fazer. |
-| Julgamento e decisões | O participante distinguiu dado, suposição e preferência? Considerou uma alternativa plausível? Explicou o critério? Registrou o que o faria mudar de decisão? | Antes de uma decisão importante, registrar duas opções, a principal incerteza e o sinal que justificaria revisar a escolha. |
-| Comunicação e escuta | Uma pergunta recebeu resposta antes de mudar de assunto? Houve síntese do entendimento? Discordâncias foram exploradas? O pedido teve resultado verificável? | Pedir que o responsável resuma o que entendeu antes de encerrar um acordo. |
-| Delegação e desenvolvimento | Foi nomeado um responsável? Ele recebeu limite de autonomia e critério de conclusão? O líder perguntou pela proposta da pessoa antes de assumir a execução? | Delegar um resultado com responsável, autonomia, limites e um ponto de acompanhamento combinado. |
-| Compromissos e execução | Um compromisso explícito tem responsável e prazo? A reunião posterior ou a tarefa registra conclusão, renegociação ou impedimento? Há divergência entre o acordo e o cadastro? | Reservar os três minutos finais para confirmar quem entrega o quê e quando. |
-| Autoconhecimento e aprendizagem | O usuário declarou uma intenção? O comportamento observado combina com ela? Reconheceu um erro ou revisou uma hipótese? Há contraexemplos ao padrão suspeito? | Escolher um comportamento por semana, registrar uma tentativa e revisar o resultado sem transformar um episódio em traço pessoal. |
+Na interface de ações, `track_commitment` acompanha o aceite concreto literal sem criar tarefa. `report_commitment_outcome` guarda o relato literal de obstáculo ou avanço parcial no acordo inequívoco, preservando status e prazo. Pedidos explícitos de criar tarefa, concluir ou renegociar têm ações separadas; nenhuma dessas decisões é inferida de um resumo.
 
-**Trabalho com agentes de IA:** a existência de nove agentes não prova excesso de frentes nem falta de foco. Examinar objetivos simultâneos, dependências, decisões bloqueadas, revisões e entregas quando esses dados estiverem disponíveis. O número de agentes é contexto; gargalo é uma hipótese que exige evidência. A aplicação desse raciocínio a agentes de IA é própria do Ações.
+Não é necessário executar todos esses passos a cada mensagem. Não impor nova meta, experimento, pergunta ou prestação de contas quando o usuário pede outra coisa. Uma pergunta respondida não deve ser refeita sem motivo novo.
 
-## Contrato de evidência e memória
+Exemplos fictícios:
 
-Uma constatação deve ter uma origem rastreável e ser proporcional ao que essa origem permite concluir:
+- Se o usuário já disse que a proposta é a prioridade e que falta escolher o preço, ajude nessa decisão; não pergunte novamente qual é a prioridade.
+- Se contou que enviou a proposta e recebeu confirmação, reconheça esse passo sem prometer aprovação ou venda. Não pergunte se enviou.
+- Se havia um acordo de envio, mas não há atualização, o resultado é desconhecido. Pergunte como ficou apenas se isso mudar a orientação atual.
+- Se abriu outra frente antes do combinado, confronte essa escolha e seu risco para o objetivo. Não invente atraso, perda de reputação ou traço de personalidade.
+- Se renegociou o prazo ou substituiu a meta, use a decisão mais recente em vez de cobrar o plano antigo.
 
-1. **Observação:** algo diretamente presente no registro. Exemplo: o trecho transcrito contém um pedido sem prazo explícito. Isso não prova que nenhum prazo existia fora daquele trecho.
-2. **Hipótese:** possível significado ou padrão. Deve registrar razões, limites, outra explicação plausível e quais evidências poderiam refutá-la.
-3. **Relato do usuário:** intenção, preferência ou correção que o usuário forneceu. O fato de ele ter relatado algo é verificável; o conteúdo não vira automaticamente fato independente.
-4. **Experimento:** ação proposta para aprender ou mudar um comportamento. Não é uma promessa de resultado.
+## Contrato de evidência, memória e fontes
 
-Metadados recomendados para cada item: `user_id`, tipo, eixo, texto, data do evento, data da análise, origem, trecho literal curto, localização disponível, versão da fonte, motivo da confiança, limitações e estado de revisão. Referências a reuniões devem apontar para registros do mesmo usuário. Um número de segundos só aparece se existir na fonte; a IA não inventa timestamps.
+- **Relato do usuário:** pode informar objetivo, dificuldade, avanço ou correção. Reconhecê-lo não exige gravação; atribuir ao relato quando necessário, sem apresentá-lo como comprovação independente.
+- **Relatório gerado:** ajuda a localizar assuntos e decisões. É contexto secundário, sujeito a erro; não é fala literal nem prova de conduta pessoal.
+- **Fonte original:** necessária para uma interpretação sobre o que o usuário falou ou fez numa interação gravada. A autoria precisa estar confirmada. Usar essa fonte quando a dúvida ou o pedido justificar, sem avaliar reuniões por rotina.
+- **Tarefa e agenda:** mostram estado de registro e planejamento. Não demonstram execução, descumprimento, qualidade da entrega, presença ou todo o trabalho realizado.
+- **Hipótese:** interpretação limitada e corrigível. Um episódio não estabelece recorrência; considerar contexto e contraprovas antes de generalizar.
+- **Sugestão e acordo:** uma ação proposta pelo coach não se torna compromisso por ter sido escrita. Aceitação, resultado e renegociação devem ter origem rastreável.
 
-Uma memória corrigida deve preservar a rastreabilidade da correção e deixar de sustentar respostas como se ainda fosse válida. Reanalisar um registro editado precisa invalidar interpretações desatualizadas. Exclusões e rejeições devem sair da recuperação de contexto; um resumo antigo não pode ressuscitá-las silenciosamente. Detalhes sensíveis de terceiros não devem virar perfil pessoal deles.
+Memórias corrigidas ou rejeitadas não podem voltar por meio de resumos antigos. Edições de relatórios, transcrições e suas dependências invalidam orientações derivadas; o histórico continua reconhecível como um retrato anterior. Referências e consultas permanecem vinculadas ao mesmo usuário. Não criar perfis de terceiros a partir de detalhes pessoais.
 
-## Regras de interpretação — desenho do Ações
+## Verificador da resposta
 
-- **Identidade antes de atribuição:** sem identificação confiável do falante, descrever o que ocorreu na reunião e pedir contexto quando necessário; nunca atribuir automaticamente todas as falas ao usuário. Nome semelhante ou posse do áudio não comprovam autoria da fala.
-- **Uma reunião não estabelece recorrência:** ocorrência isolada, recorrência e generalização entre contextos são conclusões diferentes. Duplicatas, resumos e segmentos do mesmo encontro não contam como fontes independentes.
-- **Cobertura explícita:** mostrar o intervalo, reuniões consideradas, análises concluídas, exclusões e pendências. Não chamar amostra de histórico completo nem ausência de gravação de ausência de comportamento.
-- **Procurar contraexemplos:** antes de repetir um ponto cego, buscar comportamento em sentido contrário e correções recentes. Melhoras reais podem invalidar uma memória antiga.
-- **Qualidade da transcrição:** pontuação automática, diarização, lacunas e silêncio removido limitam conclusões. Não deduzir interrupção, sarcasmo, ansiedade, intenção oculta ou emoção pelo texto como se fossem medidas.
-- **Contexto importa:** atendimento a cliente, diretoria, venda, mentoria e planejamento têm exigências diferentes. Tempo de fala, quantidade de perguntas e rapidez de decisão não são, isoladamente, notas de liderança.
-- **Compromisso precisa de prova posterior:** tarefa aberta ou atrasada é estado no sistema; não prova descumprimento. Conclusão, mudança de escopo e renegociação podem ocorrer fora do sistema.
-- **Sem notas artificiais:** evitar pontuação 0–100, percentis, ranking ou diagnóstico de personalidade. Frequência observada pode ser contada quando o denominador e a cobertura estão claros; ela não vira percentual de competência.
-- **Franqueza proporcional:** desafiar uma escolha específica, com evidência e alternativa viável. Reconhecer uma força somente quando houver exemplo; evitar elogios automáticos, humilhação e rótulos sobre a pessoa.
-- **Privacidade por projeto:** recuperar somente registros autorizados do próprio usuário, minimizar trechos enviados ao provedor de IA, não indexar conteúdo privado na web, não publicar nem compartilhar revisões com colegas. Explicar o processamento externo realmente configurado, sem prometer processamento local ou retenção zero sem comprovação.
-- **Contexto disponível, não imaginado:** agenda, outras plataformas e históricos de conversas só entram se uma integração ou importação real os disponibilizar. A ausência deve ficar explícita.
+Além de evidência e datas, o verificador examina aderência ao pedido e continuidade. Deve rejeitar orientação que:
 
-## Rubrica de revisão sem pontuação
+- Substitua o problema atual por treinamento de reuniões, 360, percepção do time ou monitoramento de agentes sem pedido explícito.
+- Pergunte novamente algo claramente respondido no contexto, sem nova ambiguidade relevante.
+- Ignore meta substituída, correção, conclusão, pausa ou renegociação informada.
+- Trate sugestão como acordo ou andamento desconhecido como fracasso.
+- Exija reunião gravada para reconhecer um avanço relatado, ou invente execução a partir de um evento planejado.
+- Afirme monitoramento, alteração de agenda ou ação persistida que o sistema não realizou.
 
-Estes estados são convenções do Ações, não níveis de proficiência de um instrumento de Stanford:
+Uma crítica firme pode ser válida; a verificação não deve obrigar o coach a concordar com o usuário. A resposta pode orientar sem pergunta final, sem observação comportamental e sem experimento novo.
 
-| Estado | Critério para usar | Linguagem adequada |
-|---|---|---|
-| Evidência insuficiente | Identidade, cobertura, trecho ou contexto não sustentam a afirmação. | “Ainda não tenho base para avaliar.” |
-| Observação pontual | Há um episódio verificável, sem recorrência estabelecida. | “Nesta reunião ocorreu…” |
-| Hipótese em investigação | Há possível relação entre episódios, com alternativa explicativa não resolvida. | “Pode haver um padrão; também pode refletir…” |
-| Padrão sustentado no recorte | Episódios independentes, contexto comparável, atribuição válida e contraevidência examinada. | “Nas reuniões analisadas deste período, observei…” |
-| Mudança observada | Evidência posterior mostra comportamento diferente, com recorte anterior e atual explícitos. | “Nas duas últimas ocasiões registradas, você passou a…” |
-| Corrigido ou descartado | Usuário corrigiu a interpretação ou nova evidência a invalidou. | “Minha leitura anterior foi corrigida por…” |
+## Revisão e critérios de aceitação
 
-Confiança deve explicar a qualidade da base, não a certeza de conhecer a pessoa. Um padrão pode estar bem documentado em vendas e continuar desconhecido em tecnologia.
+A revisão semanal retoma o objetivo vigente, os acordos relevantes, dificuldades e avanços conhecidos. Pode escolher um próximo passo útil. Uma semana sem reuniões ainda pode ter conversa, relato ou compromisso relevante; ausência desses dados exige explicitar a lacuna, sem fabricar crítica, elogio ou melhoria.
 
-## Exemplo estruturado de interpretação
-
-Exemplo **inteiramente fictício**, para contrato e testes; não deve ser mostrado como análise real:
-
-```json
-{
-  "frameworkVersion": "acoes-leadership-v1",
-  "competency": "prioritization",
-  "kind": "hypothesis",
-  "status": "investigating",
-  "observation": "Na reunião de exemplo, foi iniciada uma terceira frente; o trecho fornecido não registra ajuste nas duas anteriores.",
-  "interpretation": "A entrada de trabalho pode estar mais explícita que a escolha de parar ou adiar.",
-  "evidence": [{
-    "meetingId": "example-only",
-    "sourceType": "transcript",
-    "quote": "Vamos começar também a terceira frente.",
-    "timestampSeconds": null,
-    "speakerAttribution": "confirmed-by-user"
-  }],
-  "alternativeExplanation": "A repriorização pode ter sido combinada fora da gravação.",
-  "confidenceReason": "Uma ocorrência em um trecho; insuficiente para afirmar recorrência.",
-  "experiment": "Antes de abrir a próxima frente, explicitar o que ela substitui ou qual capacidade adicional a suporta.",
-  "reviewQuestion": "O que já havia sido adiado ou encerrado naquele momento?"
-}
-```
-
-## Formato da revisão semanal — adaptação do Ações
-
-Uma revisão útil contém, em ordem:
-
-1. O principal ponto da semana em uma frase, relacionado a uma meta do usuário.
-2. Um ou dois exemplos com links de origem e separação entre observação e hipótese.
-3. Uma intenção versus ação quando ambas estiverem documentadas; caso contrário, marcar a lacuna.
-4. Um experimento prioritário para a próxima semana, com comportamento verificável e ocasião de aplicação.
-5. Retorno sobre o experimento anterior: observado, não observado ou ainda desconhecido.
-6. Cobertura e opção de corrigir a interpretação.
-
-Com pouco material novo, a rotina pode registrar a limitação e retomar o experimento anterior. Não deve inventar crítica, elogio, melhoria ou uma reunião nova para preencher a semana. A geração e a entrega devem ser idempotentes por usuário e período, respeitar o estado ativado/pausado e manter os detalhes pessoais dentro do Ações.
-
-## Critérios de aceitação derivados da pesquisa
-
-- Todas as avaliações exibem fonte ou são identificadas como perguntas/hipóteses sem evidência suficiente.
-- Corrigir uma leitura afeta análises posteriores, inclusive resumos já persistidos que seriam usados como contexto.
-- Um usuário não acessa memórias, relatórios, trechos ou conversas de outro, mesmo conhecendo seus IDs.
-- A análise percorre o acervo autorizado com progresso verificável e lida com alteração da transcrição/rotulação.
-- Um relatório antigo permanece reconhecível como retrato de um recorte histórico, sem aparentar avaliação atual.
-- A tela de referenciais identifica separadamente fontes Stanford, o modelo de autoria Korn Ferry e a adaptação Ações.
-- Não há promessa de compreensão completa, avaliação 360, diagnóstico ou eficácia comprovada do coach de IA.
+Os critérios locais verificam schema, rastreabilidade, autorização, isolamento e tratamento dos pareceres do verificador. Cenários sintéticos opt-in exercitam o recorte de conversa e a verificação com o modelo real. Nesta mudança esses cenários foram preparados, mas não executados com provedor; passar testes locais não comprova a qualidade semântica do modelo nem a eficácia longitudinal do coaching.

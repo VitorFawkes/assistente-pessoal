@@ -7,12 +7,13 @@ import { CoachAIError } from "@/lib/coach/model";
 import { cancelJobs,clearJobs,enqueueJob,listJobs,retryJob } from "@/lib/coach/jobs";
 import { drainJobs } from "@/lib/coach/jobs-worker";
 import { coachModelAvailable } from "@/lib/coach/model";
+import { calendarContext,calendarStatus,clearCalendarSnapshot,setCalendarEnabled } from "@/lib/coach/calendar";
 export const dynamic="force-dynamic";
 export const maxDuration=600;
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const noStore={"Cache-Control":"private, no-store"};
 function string(value:unknown,max:number){if(typeof value!=="string"||value.length>max)throw new Error("invalid_input");return value.trim();}
-async function state(userId:string){const [coach,jobs]=await Promise.all([coachState(userId),listJobs(userId)]);return {...coach,jobs};}
+async function state(userId:string){const [coach,jobs,calendar]=await Promise.all([coachState(userId),listJobs(userId),calendarStatus(userId)]);return {...coach,jobs,calendar};}
 function resume(userId:string){after(async()=>{try{await drainJobs(userId,{maxJobs:1,deadline:Date.now()+480000});}catch{console.error("coach worker unavailable");}});}
 export const GET=withAuth(async(user)=>NextResponse.json(await state(user.id),{headers:noStore}));
 export const POST=withAuth(async(user,req)=>{
@@ -29,7 +30,15 @@ export const POST=withAuth(async(user,req)=>{
     for(const key of ["goals","context"] as const)if(body[key]!==undefined)patch[key]=string(body[key],10000);
     if(body.timezone!==undefined){patch.timezone=string(body.timezone,80);new Intl.DateTimeFormat("en-US",{timeZone:patch.timezone}).format();}
     for(const [key,max] of [["review_day",6],["review_hour",23],["morning_hour",23],["evening_hour",23]] as const)if(body[key]!==undefined){if(!Number.isInteger(body[key])||body[key]<0||body[key]>max)throw new Error("invalid_input");patch[key]=body[key];}
-    await store.saveProfile(patch);await cancelJobs(user.id);break;
+    await store.saveProfile(patch);if(patch.enabled===false)await clearCalendarSnapshot(user.id);await cancelJobs(user.id);break;
+   }
+   case "calendar_settings":{
+    if(typeof body.enabled!=="boolean")throw new Error("invalid_input");
+    await setCalendarEnabled(user.id,body.enabled);await cancelJobs(user.id);break;
+   }
+   case "calendar_refresh":{
+    if(!rateLimit(`coach-calendar:${user.id}`,2,60_000))return NextResponse.json({error:"Aguarde um minuto antes de atualizar a agenda novamente."},{status:429,headers:{...noStore,"Retry-After":"60"}});
+    const profile=await store.profile();await calendarContext(user.id,undefined,{force:true,timezone:profile.timezone});break;
    }
    case "memory":{
     const content=string(body.content,4000);if(!content||!["goal","context","pattern","experiment"].includes(body.kind))throw new Error("invalid_input");
@@ -58,6 +67,7 @@ export const POST=withAuth(async(user,req)=>{
   }
   return NextResponse.json(await state(user.id),{headers:noStore});
  }catch(e){
+  if(e instanceof Error&&e.message==="calendar_not_configured")return NextResponse.json({error:"A agenda ainda não está conectada a esta conta."},{status:409,headers:noStore});
   if(e instanceof CoachAIError)return NextResponse.json({error:e.message},{status:503,headers:noStore});
   if(e instanceof CoachBusyError||e instanceof CoachPendingError||e instanceof StaleCoachRunError)return NextResponse.json({error:e.message},{status:409,headers:noStore});
   if(e instanceof SyntaxError||e instanceof RangeError||(e instanceof Error&&e.message==="invalid_input"))return NextResponse.json({error:"Revise os campos e tente novamente."},{status:400,headers:noStore});

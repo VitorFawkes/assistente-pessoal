@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, setSystemTime } from "bun:test";
 import {
   anoBR,
   dataBR,
@@ -96,18 +96,18 @@ describe("mostrar", () => {
     expect(diaDaSemanaBR("2026-08-27T01:00:00Z")).toBe(3);
   });
 
-  test("quandoBR fala como gente", () => {
-    const agora = new Date();
-    const hojeCedo = new Date(agora.getTime() - 3 * 3_600_000);
-    const ontem = new Date(agora.getTime() - 26 * 3_600_000);
-    expect(quandoBR(hojeCedo)).toBe(`hoje ${horaBR(hojeCedo)}`);
-    // "ontem" só vale se de fato virou o dia AQUI (perto da meia-noite pode não ter virado)
-    const rotuloOntem = quandoBR(ontem);
-    expect(
-      rotuloOntem === `ontem ${horaBR(ontem)}` || rotuloOntem === `hoje ${horaBR(ontem)}`,
-    ).toBe(true);
-    // e uma data de outro ano vem com o ano junto
-    expect(quandoBR("2019-03-07T15:00:00Z")).toBe("07/03/2019");
+  test("quandoBR fala como gente, inclusive depois da meia-noite", () => {
+    try {
+      setSystemTime(new Date("2026-09-21T15:00:00Z"));
+      expect(quandoBR("2026-09-21T12:00:00Z")).toBe("hoje 09h00");
+      expect(quandoBR("2026-09-20T13:00:00Z")).toBe("ontem 10h00");
+      expect(quandoBR("2019-03-07T15:00:00Z")).toBe("07/03/2019");
+      setSystemTime(new Date("2026-09-21T03:10:00Z"));
+      expect(quandoBR("2026-09-21T00:10:00Z")).toBe("ontem 21h10");
+      expect(quandoBR("2026-09-21T03:05:00Z")).toBe("hoje 00h05");
+    } finally {
+      setSystemTime();
+    }
   });
 
   test("haQuantoTempoBR: hoje, ontem, há N dias e a data", () => {

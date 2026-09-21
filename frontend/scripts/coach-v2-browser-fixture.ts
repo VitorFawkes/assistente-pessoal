@@ -31,7 +31,7 @@ try{
  }
  await db.query("SET search_path=public");
  await db.query("GRANT USAGE ON SCHEMA public TO app_tenant,app_writer; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO app_tenant,app_writer;");
- for(const name of ["0015_tarefa_frentes.sql","0028_leadership_coach.sql","0029_coach_memory_lifecycle.sql","0030_coach_jobs.sql","0031_coach_retrieval.sql"]){
+ for(const name of ["0015_tarefa_frentes.sql","0028_leadership_coach.sql","0029_coach_memory_lifecycle.sql","0030_coach_jobs.sql","0031_coach_retrieval.sql","0032_coach_calendar_cache.sql","0033_coach_report_context.sql","0034_coach_context_lineage.sql"]){
   await db.query(await readFile(new URL(`../../db/${name}`,import.meta.url),"utf8"));
  }
  await db.query("BEGIN");
