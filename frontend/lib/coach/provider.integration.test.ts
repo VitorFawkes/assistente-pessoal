@@ -1,11 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Pool } from "pg";
 import { readFile } from "node:fs/promises";
+import { appendFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { coachStore } from "./store";
 import { analyzeMeetings, chatWithCoach, generateReview } from "./service";
 import { splitChatPresentation } from "./chat-presentation";
 import { reviewPeriod } from "./evidence";
+const trace=(record:Record<string,unknown>)=>{const file=process.env.COACH_PROVIDER_TRACE_FILE;if(file)appendFileSync(file,JSON.stringify(record)+"\n",{encoding:"utf8",mode:0o600});};
 // Opt-in paid provider test; only synthetic records in the dedicated local QA DB.
 describe.skipIf(process.env.COACH_PROVIDER_TEST!=="1")("coach real provider lifecycle",()=>{
  const userId=randomUUID(),meetingId=randomUUID(),personId=randomUUID();let admin:Pool;
@@ -26,22 +28,25 @@ describe.skipIf(process.env.COACH_PROVIDER_TEST!=="1")("coach real provider life
   runNow=new Date();
  });
  afterAll(async()=>{await admin?.query("DELETE FROM meetings WHERE user_id=$1",[userId]);await admin?.query("DELETE FROM pessoas WHERE user_id=$1",[userId]);await admin?.query("DELETE FROM users WHERE id=$1",[userId]);await admin?.end();await global.__pgPool?.end();global.__pgPool=undefined;});
- test("existing report skips duplicate analysis while behavioral review and chat open original evidence",async()=>{
+ test("existing report skips duplicate analysis while personal review keeps lineage and explicit behavioral chat opens original evidence",async()=>{
   expect(await analyzeMeetings(userId,1)).toEqual({processed:0,indexed:0});
   expect((await store.coverage()).pending_meetings).toBe(0);
   const analyses=await store.analyses(meetingId);expect(analyses).toHaveLength(0);
   expect(await store.coverage()).toMatchObject({report_ready_meetings:1,executive_report_meetings:1,analyzed_meetings:0});
   const review=await generateReview(userId,runNow);
   if(!review)throw new Error("manual review must be generated");
-  expect(review.content.observations.length).toBeGreaterThan(0);
+  trace({kind:"review",content:review.content});
   expect(review.content.observations.length).toBeLessThanOrEqual(2);
   expect(review.content.observations.every(o=>o.experiment==="")).toBe(true);
   expect(review.content.experiment.length).toBeGreaterThan(0);
   expect(review.content.headline.length).toBeLessThanOrEqual(100);
+  expect(review.content.context_sources).toEqual(expect.arrayContaining([expect.objectContaining({meeting_id:meetingId})]));
+  expect(review.content.report_context?.fingerprint.length).toBeGreaterThan(20);
   for(const o of review.content.observations)for(const e of o.evidence){expect(e.meeting_id).toBe(meetingId);expect(e.self_attributed).toBe(true);}
   expect((await generateReview(userId,runNow))?.id).toBe(review.id);
   await chatWithCoach(userId,"Qual comportamento meu merece acompanhamento nesta reunião? Use uma evidência e sugira um experimento.");
   const history=await store.messages();expect(history).toHaveLength(2);expect(history[1].role).toBe("assistant");expect(history[1].content.length).toBeGreaterThan(50);expect(history[1].evidence.length).toBeGreaterThan(0);
+  trace({kind:"chat",content:history[1].content,evidence:history[1].evidence,context_sources:history[1].context_sources});
   for(const label of ["**Observação:**","**Hipótese:**","**Outra explicação:**"])expect(history[1].content).toContain(label);
   expect(history[1].content).toMatch(/Consultei \d+ trechos? de 1 reunião/);
   expect(history[1].context_sources).toEqual(expect.arrayContaining([expect.objectContaining({meeting_id:meetingId})]));

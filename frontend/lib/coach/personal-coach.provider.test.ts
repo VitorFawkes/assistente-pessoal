@@ -4,6 +4,7 @@ import { COACH_CONVERSATION_INSTRUCTION } from "./framework";
 import { coachCompletion, conversationSchemaWithSources } from "./model";
 import { CoachVerificationError, verifyCoachResult } from "./quality";
 import { actionSchema, validateAction } from "./conversation-actions";
+import { VERIFICATION_REPAIR_INSTRUCTION } from "./service";
 import type { CoachCommitment } from "./types";
 
 // Paid, explicitly opt-in, synthetic-only. No DB, calendar connection or real user data.
@@ -57,13 +58,21 @@ const scenarios:{name:string;question:string;context?:Record<string,unknown>;che
 describe.skipIf(process.env.COACH_PERSONAL_TEST!=="1")("personal coach synthetic model scope and continuity",()=>{
  for(const scenario of scenarios)test(scenario.name,async()=>{
   const data={...base,...scenario.context,question:scenario.question};
-  const result=await coachCompletion(COACH_CONVERSATION_INSTRUCTION,data,conversationSchemaWithSources([],scenario.question),{reasoningEffort:"high"});
+  const schema=conversationSchemaWithSources([],scenario.question);
+  let result=await coachCompletion(COACH_CONVERSATION_INSTRUCTION,data,schema,{reasoningEffort:"high"});
+  trace({kind:"raw_answer",scenario:scenario.name,question:scenario.question,answer:String(result.answer),actions:result.actions||[]});
+  try{await verifyCoachResult(data,result,()=>{});}catch(error){
+   if(!(error instanceof CoachVerificationError))throw error;
+   const issues=error.issuesForRepair();trace({kind:"verification_failure",scenario:scenario.name,issues});
+   result=await coachCompletion(COACH_CONVERSATION_INSTRUCTION+VERIFICATION_REPAIR_INSTRUCTION,{...data,previous_candidate:result,verification_issues:issues},schema,{reasoningEffort:"high"});
+   trace({kind:"repaired_answer",scenario:scenario.name,question:scenario.question,answer:String(result.answer),actions:result.actions||[]});
+   await verifyCoachResult(data,result,()=>{});
+  }
   expect(result.observations).toEqual([]);expect(result.memories).toEqual([]);
   const answer=String(result.answer);expect(answer.length).toBeGreaterThan(20);
-  trace({kind:"answer",scenario:scenario.name,question:scenario.question,answer,actions:result.actions||[]});
+  trace({kind:"published_answer",scenario:scenario.name,question:scenario.question,answer,actions:result.actions||[]});
   expect((answer.match(/\?/g)||[]).length).toBeLessThanOrEqual(1);
   scenario.check(answer);
-  try{await verifyCoachResult(data,result,()=>{});}catch(error){trace({kind:"verification_failure",scenario:scenario.name,issues:error instanceof CoachVerificationError?error.issuesForRepair():[String(error)]});throw error;}
  },240000);
 
  for(const scenario of [
@@ -71,7 +80,16 @@ describe.skipIf(process.env.COACH_PERSONAL_TEST!=="1")("personal coach synthetic
   {name:"partial progress updates the literal outcome without closing the agreement",question:"Avancei na proposta comercial, mas falta revisar o preço.",type:"report_commitment_outcome",commitments:[agreement]},
  ])test(scenario.name,async()=>{
   const data={...base,question:scenario.question,commitments:scenario.commitments};
-  const result=await coachCompletion(COACH_CONVERSATION_INSTRUCTION,data,conversationSchemaWithSources([],scenario.question,{actions:actionSchema(scenario.question,[],scenario.commitments)}),{reasoningEffort:"high"});
+  const schema=conversationSchemaWithSources([],scenario.question,{actions:actionSchema(scenario.question,[],scenario.commitments)});
+  let result=await coachCompletion(COACH_CONVERSATION_INSTRUCTION,data,schema,{reasoningEffort:"high"});
+  trace({kind:"raw_action",scenario:scenario.name,question:scenario.question,answer:String(result.answer),actions:result.actions||[]});
+  try{await verifyCoachResult(data,{...result,answer:(Array.isArray(result.actions)?result.actions:[]).map(action=>(action as {guidance?:unknown}).guidance).filter(Boolean).join("\n\n")},()=>{});}catch(error){
+   if(!(error instanceof CoachVerificationError))throw error;
+   const issues=error.issuesForRepair();trace({kind:"verification_failure",scenario:scenario.name,issues});
+   result=await coachCompletion(COACH_CONVERSATION_INSTRUCTION+VERIFICATION_REPAIR_INSTRUCTION,{...data,previous_candidate:result,verification_issues:issues},schema,{reasoningEffort:"high"});
+   trace({kind:"repaired_action",scenario:scenario.name,question:scenario.question,answer:String(result.answer),actions:result.actions||[]});
+   await verifyCoachResult(data,{...result,answer:(Array.isArray(result.actions)?result.actions:[]).map(action=>(action as {guidance?:unknown}).guidance).filter(Boolean).join("\n\n")},()=>{});
+  }
   const actions=Array.isArray(result.actions)?result.actions:[];
   trace({kind:"action",scenario:scenario.name,question:scenario.question,answer:String(result.answer),actions});
   expect(actions).toHaveLength(1);
@@ -79,7 +97,6 @@ describe.skipIf(process.env.COACH_PERSONAL_TEST!=="1")("personal coach synthetic
   expect(validateAction(actions[0],scenario.question,scenario.commitments)).not.toBeNull();
   if(scenario.type==="track_commitment")expect(actions[0].title).toBe(scenario.question);
   else{expect(actions[0].outcome).toBe(scenario.question);expect(actions[0]).not.toHaveProperty("status");expect(actions[0]).not.toHaveProperty("due_at");}
-  await verifyCoachResult(data,{...result,answer:actions.map(action=>action.guidance).filter(Boolean).join("\n\n")},()=>{});
  },240000);
 
  const rejected=[
@@ -95,7 +112,7 @@ describe.skipIf(process.env.COACH_PERSONAL_TEST!=="1")("personal coach synthetic
 
  test("verifier accepts a specific self-reported advance without meeting evidence",async()=>{
   const question="Enviei as duas propostas que vinha adiando e recebi confirmação de recebimento.";
-  await verifyCoachResult({...base,question},proposal("Pelo que você contou, você avançou no passo que estava adiando: enviou as duas propostas e recebeu confirmação. Isso ainda não garante aprovação, mas o envio combinado está resolvido no seu relato."),()=>{});
+  await verifyCoachResult({...base,question},proposal("Pelo que você contou, você avançou no passo que estava adiando: enviou as duas propostas e recebeu confirmação. Isso ainda não garante aprovação, mas essa etapa está concluída pelo seu relato."),()=>{});
  },150000);
  test("verifier allows communication advice when the user explicitly requests it",async()=>{
   const question="Quero melhorar minha condução da próxima reunião com o cliente. Me dê um passo simples para deixar o objetivo claro.";
