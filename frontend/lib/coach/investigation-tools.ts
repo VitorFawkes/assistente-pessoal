@@ -7,11 +7,19 @@ import type { CoachReadTool } from "./model";
 import type { CoachMeeting, Evidence, ReportSource } from "./types";
 const object=(properties:Record<string,unknown>)=>({type:"object",properties,required:Object.keys(properties),additionalProperties:false});
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export type InvestigationContextRead={tool:"read_tasks"|"read_memory";input:Record<string,string>;result:unknown};
 export function investigationTools(userId:string,timezone:string,now:Date,self:string[],initial:SelectedChunk[]){
  const store=coachStore(userId);
  const selected=[...initial];const meetings=new Map(initial.map(({meeting})=>[meeting.id,meeting]));
  const sources:Record<string,Evidence>=buildSourceBank(initial,self);
  const reportReads:Record<string,unknown>[]=[];
+ const contextReads:InvestigationContextRead[]=[];
+ // Keep the exact bounded read for verification and repair, separate from original quotes.
+ // The provider already caps tool calls and serialized result sizes; never truncate only the verifier.
+ const retainContextRead=(tool:InvestigationContextRead["tool"],input:Record<string,string>,result:unknown)=>{
+  contextReads.push({tool,input,result:JSON.parse(JSON.stringify(result))});
+  return result;
+ };
  const contextSources:ReportSource[]=[];
  const track=(meeting:CoachMeeting)=>{
   meetings.set(meeting.id,meeting);
@@ -66,10 +74,12 @@ export function investigationTools(userId:string,timezone:string,now:Date,self:s
   const chunk=chunkMeeting(meeting)[Number(args.chunk_index)];if(!chunk)return {error:"Parte não encontrada."};
   const offset=Number(args.offset);return append(meeting,{...chunk,start_offset:(chunk.start_offset||0)+offset,text:chunk.text.slice(offset,offset+6000)});
  }},
- {name:"read_memory",description:"Consulta objetivos vigentes, correções e memória. Use at vazio para estado atual ou uma data ISO para o estado conhecido na época.",parameters:object({at:{type:"string",maxLength:40}}),execute:async(args)=>store.memoryContext(String(args.at)||undefined)},
+ {name:"read_memory",description:"Consulta objetivos vigentes, correções e memória. Use at vazio para estado atual ou uma data ISO para o estado conhecido na época.",parameters:object({at:{type:"string",maxLength:40}}),execute:async(args)=>{
+  const at=String(args.at);return retainContextRead("read_memory",{at},await store.memoryContext(at||undefined));
+ }},
  {name:"read_tasks",description:"Consulta compromissos e estado das tarefas por assunto, incluindo contagem global e eventos. Alteração de registro não prova execução.",parameters:object({query:{type:"string",maxLength:500}}),execute:async(args)=>{
-  const c=await store.context(String(args.query),{timezone,now});return {tasks:c.tasks,events:c.events,summary:c.task_summary,selection:c.task_selection,limitations:c.limitations.filter(l=>/tarefa|registro|execuç/.test(l))};
+  const query=String(args.query);const c=await store.context(query,{timezone,now});return retainContextRead("read_tasks",{query},{tasks:c.tasks,events:c.events,summary:c.task_summary,selection:c.task_selection,limitations:c.limitations.filter(l=>/tarefa|registro|execuç/.test(l))});
  }},
  ];
- return {tools,sources,selected,meetings,reportReads,contextSources,reads:()=>reads};
+ return {tools,sources,selected,meetings,reportReads,contextReads,contextSources,reads:()=>reads};
 }

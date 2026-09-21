@@ -49,7 +49,7 @@ export function conversationSearch(question:string,history:CoachMessage[]){
  return previous?previous+"\nPergunta atual: "+question:question;
 }
 export function needsDeepInvestigation(message:string){
- return /prioriz|maior problema|ponto cego|padr[aã]o|decid|decis[aã]o|compar|evolu|contradi|bronca|deleg|aprofund|estrat[eé]g|semana|m[eê]s/iu.test(message);
+ return /prioriz|rotina|planej|escolh|maior problema|ponto cego|padr[aã]o|decid|decis[aã]o|compar|evolu|contradi|bronca|deleg|aprofund|estrat[eé]g|semana|m[eê]s/iu.test(message);
 }
 export function memorySafetyContext(memories:CoachMemory[]){
  const restrictions=memories.filter(m=>m.status==="rejected"||m.history.length>0);

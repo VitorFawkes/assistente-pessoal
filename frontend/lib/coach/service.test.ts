@@ -31,20 +31,20 @@ afterEach(()=>{
 
 // Stub only external persistence and HTTP: exercise the real schema, investigation,
 // grounding, verifier, authorization and presentation code together.
-function fixture(meetings:CoachMeeting[],result:Record<string,unknown>,periodObservations:Observation[]=[],options:{storedMessages?:CoachMessage[];retrievedMessages?:CoachMessage[];storedReviews?:CoachReview[];resynthesis?:Record<string,unknown>;supported?:boolean;receipt?:string;existingAssistantKey?:string;existingUserKey?:string;storedMemories?:CoachMemory[];storedCommitments?:CoachCommitment[];nullMutation?:boolean;allowCommitmentWrites?:boolean;concurrentProfileRevision?:number;periodComplete?:boolean;verificationResults?:boolean[];verificationRepair?:Record<string,unknown>}={}){
+function fixture(meetings:CoachMeeting[],result:Record<string,unknown>,periodObservations:Observation[]=[],options:{storedMessages?:CoachMessage[];retrievedMessages?:CoachMessage[];storedReviews?:CoachReview[];resynthesis?:Record<string,unknown>;supported?:boolean;receipt?:string;existingAssistantKey?:string;existingUserKey?:string;storedMemories?:CoachMemory[];storedCommitments?:CoachCommitment[];nullMutation?:boolean;allowCommitmentWrites?:boolean;concurrentProfileRevision?:number;periodComplete?:boolean;verificationResults?:boolean[];verificationRepair?:Record<string,unknown>;toolContext?:{query:string;context:Record<string,unknown>;at:string;memory:Record<string,unknown>};verifyContext?:(data:Record<string,unknown>)=>boolean}={}){
  const saved:{id:string;role:string;content:string;evidence:unknown[];idempotency_key?:string;context_sources:ReportSource[];context_periods:ReportPeriodSource[]}[]=[];
  const memories:unknown[]=[];
  const reviews:ReviewContent[]=[];
  let modelInput:Record<string,unknown>={};
- let checkerInput:Record<string,unknown>={};
+ let checkerInput:Record<string,unknown>={};const checkerInputs:Record<string,unknown>[]=[];
  let resynthesisInput:Record<string,unknown>={};
  let contextRequest:unknown;let repairInput:Record<string,unknown>={};let repairTools:unknown;
  let requests=0,checks=0,commitmentWrites=0;const goalWrites:unknown[]=[];const tracked:unknown[]=[];const outcomes:unknown[]=[];const commitmentUpdates:unknown[]=[];
  const fake={
   profile:async()=>({enabled:true,weekly_enabled:true,revision:tracked.length&&options.concurrentProfileRevision?options.concurrentProfileRevision:1,goals:"",context:"",timezone:"America/Sao_Paulo",review_day:5,review_hour:17}),
   claimLease:async()=>"lease",releaseLease:async()=>{},runReceipt:async()=>options.receipt||null,
-  context:async(search?:string,contextOptions?:unknown)=>{contextRequest={search,options:contextOptions};return {meetings,messages:options.retrievedMessages||[],tasks:[],events:[],analyses:[],limitations:[]};},
-  memories:async()=>options.storedMemories||[],memoryContext:async()=>({active_goals:[],corrections:options.storedMemories||[],memories:[],legacy_goals:null}),messages:async()=>options.storedMessages||[],userMessages:async()=>(options.storedMessages||[]).filter(m=>m.role==="user"),selfPersonIds:async()=>["self"],reviews:async()=>options.storedReviews||[],
+  context:async(search?:string,contextOptions?:unknown)=>{contextRequest={search,options:contextOptions};return {meetings,messages:options.retrievedMessages||[],tasks:[],events:[],analyses:[],limitations:[],...(options.toolContext&&search===options.toolContext.query?options.toolContext.context:{})};},
+  memories:async()=>options.storedMemories||[],memoryContext:async(at?:string)=>(options.toolContext&&at===options.toolContext.at?options.toolContext.memory:{active_goals:[],corrections:options.storedMemories||[],memories:[],legacy_goals:null}),messages:async()=>options.storedMessages||[],userMessages:async()=>(options.storedMessages||[]).filter(m=>m.role==="user"),selfPersonIds:async()=>["self"],reviews:async()=>options.storedReviews||[],
   coverage:async()=>({total_meetings:137,analyzed_meetings:2,analyzed_chunks:3,pending_meetings:135}),
   messageByKey:async(key:string)=>options.existingAssistantKey===key?{id:"existing-assistant",role:"assistant",content:"Resposta já entregue",evidence:[],idempotency_key:key}:saved.find(message=>message.idempotency_key===key)||null,
   addMessage:async(role:string,content:string,evidence:unknown[],_revision?:number,idempotency_key?:string,context_sources:ReportSource[]=[],context_periods:ReportPeriodSource[]=[])=>{if(role==="assistant"&&options.concurrentProfileRevision&&_revision!==options.concurrentProfileRevision)throw new stores.StaleCoachRunError();if(role==="user"&&idempotency_key&&idempotency_key===options.existingUserKey)return {id:"existing-user",role,content,evidence,idempotency_key};const message={id:`message-${saved.length}`,role,content,evidence,idempotency_key,context_sources,context_periods};saved.push(message);return message;},
@@ -68,17 +68,24 @@ function fixture(meetings:CoachMeeting[],result:Record<string,unknown>,periodObs
   const input=JSON.parse(request.messages[1].content);
   let output:Record<string,unknown>;
   if(request.messages[0].content.includes("VERIFICADOR DE EVIDÊNCIAS")){
-   checks++;checkerInput=input;const supported=options.verificationResults?.[checks-1]??options.supported!==false;output={supported,issues:supported?[]:["A conclusão excede o registro original."]};
+   checks++;checkerInput=input;checkerInputs.push(input);const supported=(options.verificationResults?.[checks-1]??options.supported!==false)&&(!options.verifyContext||options.verifyContext(input.data));output={supported,issues:supported?[]:["A conclusão excede o registro original."]};
   }else if(request.messages[0].content.includes("REPARO APÓS VERIFICAÇÃO")){
    repairInput=input;repairTools=request.tools;const candidate=options.verificationRepair||options.resynthesis||result;output="answer" in candidate?{actions:[],user_memories:[],...candidate}:candidate;
   }else if(request.messages[0].content.includes("RESSÍNTESE APÓS CORREÇÃO")){
    resynthesisInput=input;output=options.resynthesis||result;
   }else{
-   modelInput=input;output="answer" in result?{actions:[],user_memories:[],...result}:result;
+   modelInput=input;
+   if(options.toolContext&&!request.messages.some((message:{role:string})=>message.role==="tool")){
+    return Response.json({choices:[{finish_reason:"tool_calls",message:{content:null,tool_calls:[
+     {id:"read-tasks",type:"function",function:{name:"read_tasks",arguments:JSON.stringify({query:options.toolContext.query})}},
+     {id:"read-memory",type:"function",function:{name:"read_memory",arguments:JSON.stringify({at:options.toolContext.at})}},
+    ]}}],usage:{prompt_tokens:100,completion_tokens:30}});
+   }
+   output="answer" in result?{actions:[],user_memories:[],...result}:result;
   }
   return Response.json({choices:[{finish_reason:"stop",message:{content:JSON.stringify(output)}}],usage:{prompt_tokens:100,completion_tokens:30}});
  }) as unknown as typeof fetch;
- return {saved,memories,reviews,goalWrites,tracked,outcomes,commitmentUpdates,input:()=>modelInput,checkerInput:()=>checkerInput,resynthesisInput:()=>resynthesisInput,repairInput:()=>repairInput,repairTools:()=>repairTools,requests:()=>requests,checks:()=>checks,commitmentWrites:()=>commitmentWrites,contextRequest:()=>contextRequest,restore:()=>{storeSpy.mockRestore();commitmentsSpy.mockRestore();createSpy.mockRestore();trackSpy.mockRestore();outcomeSpy.mockRestore();updateSpy.mockRestore();}};
+ return {saved,memories,reviews,goalWrites,tracked,outcomes,commitmentUpdates,input:()=>modelInput,checkerInput:()=>checkerInput,checkerInputs:()=>checkerInputs,resynthesisInput:()=>resynthesisInput,repairInput:()=>repairInput,repairTools:()=>repairTools,requests:()=>requests,checks:()=>checks,commitmentWrites:()=>commitmentWrites,contextRequest:()=>contextRequest,restore:()=>{storeSpy.mockRestore();commitmentsSpy.mockRestore();createSpy.mockRestore();trackSpy.mockRestore();outcomeSpy.mockRestore();updateSpy.mockRestore();}};
 }
 
 test("saved chat preserves grounded hypothesis and alternative, with actual selected coverage",async()=>{
@@ -602,5 +609,66 @@ test("a concurrent context change after tracking cannot be adopted to publish an
  try{
   await expect(chatWithCoach("synthetic-user",quote,new Date("2026-09-21T12:00:00Z"),"revision-race")).rejects.toBeInstanceOf(stores.StaleCoachRunError);
   expect(run.tracked).toHaveLength(1);expect(run.saved.map(message=>message.role)).toEqual(["user"]);
+ }finally{run.restore();}
+});
+
+
+// These facts are deliberately absent from the initial context: only actual read tools reveal them.
+const decisionReadContext={query:"Aurora",at:"2026-09-01T12:00:00Z",context:{
+ tasks:[{id:"aurora-price",titulo:"Definir preço Aurora",descricao:"O envio da proposta depende da decisão de preço do usuário.",prazo:"2026-09-22T14:00:00Z",status:"aberta",acao:"executar"}],
+ events:[],task_summary:{total:80,open:12},task_selection:{tasks_selected:1,tasks_total:80,task_limit:64},limitations:["Seleção parcial de tarefas; registro não comprova execução."],
+},memory:{active_goals:[{content:"Expandir aquisição",status:"confirmed"}],corrections:[],memories:[],legacy_goals:null}};
+function hasDecisionReadFacts(data:Record<string,unknown>):boolean{
+ const reads=(Array.isArray(data.additional_context_reads)?data.additional_context_reads:[]) as {tool:string;input:Record<string,string>;result:{tasks?:{id:string;titulo:string}[];active_goals?:{content:string}[];limitations?:string[]}}[];
+ return reads.some(read=>read.tool==="read_tasks"&&read.input.query==="Aurora"&&read.result.tasks?.some(task=>task.id==="aurora-price"&&task.titulo==="Definir preço Aurora")&&read.result.limitations?.includes("Seleção parcial de tarefas; registro não comprova execução."))
+  &&reads.some(read=>read.tool==="read_memory"&&read.input.at==="2026-09-01T12:00:00Z"&&read.result.active_goals?.some(goal=>goal.content==="Expandir aquisição"));
+}
+
+test("forwarded task and memory reads support chat verification and its bounded repair",async()=>{
+ const initial={answer:"Aurora ainda é sua prioridade atual e você já resolveu o preço.",observations:[],memories:[]};
+ const repaired={answer:"A tarefa Aurora depende da sua decisão de preço. A meta de aquisição é de 1º de setembro; confirme se ainda vale antes de priorizar o envio.",observations:[],memories:[]};
+ const run=fixture([],initial,[],{toolContext:decisionReadContext,verifyContext:hasDecisionReadFacts,verificationResults:[false,true],verificationRepair:repaired});
+ try{
+  await chatWithCoach("synthetic-user","Como deve ser minha rotina amanhã?",new Date("2026-09-21T18:00:00Z"));
+  expect(run.input().tasks).toEqual([]);
+  expect(run.checkerInputs()).toHaveLength(2);
+  for(const check of run.checkerInputs())expect(hasDecisionReadFacts(check.data as Record<string,unknown>)).toBe(true);
+  expect(hasDecisionReadFacts(run.repairInput())).toBe(true);
+  expect(run.repairInput().additional_context_reads).toMatchObject([
+   {tool:"read_tasks",result:{tasks:[{prazo_local:"22/09/2026, 11:00:00 (America/Sao_Paulo)"}],selection:{tasks_selected:1,tasks_total:80}}},
+   {tool:"read_memory",input:{at:"2026-09-01T12:00:00Z",at_local:"01/09/2026, 09:00:00 (America/Sao_Paulo)"}},
+  ]);
+  expect(run.repairTools()).toBeUndefined();
+  expect(run.requests()).toBe(5);expect(run.saved).toHaveLength(2);
+  expect(run.saved[1].content).toContain("A tarefa Aurora depende da sua decisão de preço.");
+  expect(run.saved[1].content).not.toContain("você já resolveu o preço");
+  expect(run.memories).toEqual([]);expect(run.commitmentWrites()).toBe(0);
+ }finally{run.restore();}
+});
+
+test("forwarded task and memory reads survive weekly correction resynthesis and repair without restoring vetoed evidence",async()=>{
+ const first={...independentWeekly,observations:[{...observation,evidence:undefined,evidence_ids:["e0"],experiment:""},...independentWeekly.observations]};
+ const repaired={...independentWeekly,headline:"Destravar preço da proposta Aurora",focus:"A tarefa Aurora depende da decisão de preço.",experiment:"Rever o preço antes de decidir se envia a proposta; a meta de aquisição consultada é histórica."};
+ const run=fixture([twoQuotesMeeting],first,[],{toolContext:decisionReadContext,verifyContext:hasDecisionReadFacts,storedMemories:[rejectedWeeklyMemory()],resynthesis:independentWeekly,verificationResults:[false,true],verificationRepair:repaired});
+ try{
+  await generateReview("synthetic-user",new Date("2026-09-20T20:00:00Z"));
+  expect(run.input().tasks).toEqual([]);
+  expect(hasDecisionReadFacts(run.resynthesisInput())).toBe(true);
+  expect(hasDecisionReadFacts(run.repairInput())).toBe(true);
+  expect(run.checkerInputs()).toHaveLength(2);
+  for(const check of run.checkerInputs()){
+   const data=check.data as Record<string,unknown>;
+   expect(hasDecisionReadFacts(data)).toBe(true);
+   expect(data.sources).not.toHaveProperty("e0");expect(data.sources).toHaveProperty("e1");
+  }
+  expect(run.resynthesisInput().sources).not.toHaveProperty("e0");
+  expect(run.repairInput().sources).not.toHaveProperty("e0");
+  expect(run.repairInput().sources).toMatchObject({e1:{quote:"Agora combinei com Clara o resultado esperado e um ponto de acompanhamento."}});
+  expect(run.repairTools()).toBeUndefined();expect(run.requests()).toBe(6);
+  expect(run.reviews).toHaveLength(1);
+  expect(run.reviews[0].focus).toBe("A tarefa Aurora depende da decisão de preço.");
+  expect(run.reviews[0].observations).toHaveLength(1);
+  expect(run.reviews[0].observations[0].evidence[0].quote).toBe("Agora combinei com Clara o resultado esperado e um ponto de acompanhamento.");
+  expect(run.reviews[0].limitations.join(" ")).toContain("descartada");
  }finally{run.restore();}
 });
