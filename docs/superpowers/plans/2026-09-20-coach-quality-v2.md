@@ -1,5 +1,5 @@
 # Coach quality v2 — execução
-Status: implementação concluída, validação final e publicação em andamento; proposta aprovada pelo usuário, Astra/Fable excluídos.
+Status: publicada no SHA1346cb8; testes locais/CI e interface em produção passaram. Teste real de IA e retomada do cron aguardam a confirmação exigida pela revisão automática de permissões. Astra/Fable excluídos.
 Checkout: /Users/vitorgambetti/.codex/worktrees/coach-quality-v2/AssistentePessoal
 Branch: codex/coach-quality-v2
 
@@ -56,3 +56,8 @@ Branch: codex/coach-quality-v2
 - Correção de memória passa a invalidar o trecho citado e a interpretação, sem inutilizar outras falas da reunião. Revisão semanal admite uma ressíntese completa e limitada, seguida de nova verificação.
 - Suíte final:330 testes unitários passaram,49 opt-in ignorados,zero falhas; banco31/31 integrações na entrega (20 delas repetidas após ajuste de memória),runners10/10,TypeScript e lint limpos.
 - QA adicional:9/9 verificações em conversa real com troca de meta e orientação; autoscroll assíncrono2/2 sem IA.
+
+## Publicação verificada
+- PR#5 integrado; imagem1346cb838f3c6f79b990691b2a1428165c4351be efetiva e persistente no Easypanel.
+- Replay semanal12/12 e smoke produção somente leitura16/16 passaram. Conversa nova com dados reais não foi executada:duas rejeições do controle automático; confirmação pendente.
+- Cron preservado e pausado durante essa pendência; runner atualizado com configuração válida. O histórico precisa ser reprocessado com o hash novo.

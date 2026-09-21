@@ -4,7 +4,7 @@ O coach aparece dentro do Ações, em `/coach`. A conversa continua sendo a entr
 
 ## Provedores e processamento
 
-- `COACH_PROVIDER=openai` e `COACH_MODEL=gpt-5.6-sol`: configuração candidata validada por chamadas reais. Sol usa Responses; decisões complexas e verificação de evidências usam esforço alto. Conversas simples usam esforço médio na geração.
+- `COACH_PROVIDER=openai` e `COACH_MODEL=gpt-5.6-sol`: configuração publicada e validada por chamadas reais com dados sintéticos. Sol usa Responses; decisões complexas e verificação de evidências usam esforço alto. Conversas simples usam esforço médio na geração.
 - `OPENAI_API_KEY`: somente no servidor. `COACH_SEMANTIC_ENABLED=true` habilita embeddings `text-embedding-3-small`; `COACH_AUDIT_ENABLED=true` grava metadados de uso sem prompts/respostas.
 - Sem `COACH_REVIEW_PROVIDER`/`COACH_REVIEW_MODEL`, a segunda revisão usa o mesmo modelo. Para outro revisor, ambos precisam ser explícitos, com a credencial do provedor correspondente. Não existe fallback silencioso.
 - Anthropic/Opus e Kimi possuem adapters e testes de contrato; precisam de chaves próprias e validação real antes de promover. Astra e Fable são bloqueados em todos os papéis e na avaliação.

@@ -1,6 +1,18 @@
 # Coach — publicação e operação privada
 
-Versão atual publicada em 2026-09-20: `37c00ef61b6d2997e22d07339ac2e511de955b0c`, integrada pelo PR #4, após as entregas dos PRs #2 e #3. [Build da imagem atual](https://github.com/VitorFawkes/assistente-pessoal/actions/runs/35532785508) concluído com sucesso. Imagem persistente do Easypanel e serviço efetivo conferidos; rollout concluído com réplica `1/1`. A cobertura do material elegível estava completa na verificação final; novas reuniões e correções continuam sendo processadas pela rotina existente.
+## Coach v2 publicado — 20/09/2026
+
+Imagem atual:`1346cb838f3c6f79b990691b2a1428165c4351be`, integrada pelo [PR#5](https://github.com/VitorFawkes/assistente-pessoal/pull/5). [CI final](https://github.com/VitorFawkes/assistente-pessoal/actions/runs/35549544911) e [build/publicação da imagem](https://github.com/VitorFawkes/assistente-pessoal/actions/runs/35549694573) concluídos. Source persistente do Easypanel e imagem efetiva alinhadas; rollout convergiu em1/1 réplica.
+
+Configuração efetiva:`openai/gpt-5.6-sol`, Responses, busca semântica habilitada e telemetria sem prompts. Astra/Fable bloqueados. Objetivos e mensagens existentes preservados. Migrations0029–0031 aplicadas após backup privado validado; RLS forçada e isolamento com app_tenant conferidos.
+
+Validação desta versão:330 testes unitários,31 integrações Postgres,10 testes dos runners,TypeScript,lint e build. Sol real com fixtures locais cobriu priorização, troca de meta, tarefa, correção, orientação junto da alteração, análise e revisão semanal. O replay semanal passou12/12 verificações. Navegador em produção passou16/16 verificações somente de leitura:desktop/mobile,reload,fontes,referências,modelo e respostas privadas sem cache. Origem indevida403 e cron semtoken401. Artefatos pessoais ficam em arquivos temporários privados.
+
+**Pendente:inferência com contexto real nesta versão e retomada das rotinas.** O controle automático de permissões rejeitou esse envio à OpenAI, inclusive após a localização da autorização anterior explícita no histórico. Uma nova confirmação foi apresentada ao usuário. O cron exclusivo do coach foi preservado e está temporariamente pausado; seu arquivo está em `/root/acoes-coach-backups/cron-before-quality-v2`. O runner atualizado passou em `--check`, mas nenhuma rodada com dados reais desta versão foi iniciada.
+
+As preferências solicitadas foram configuradas na conta autorizada:manhã8h,fechamento18h,alertas pontuais e semanal sexta17h(São Paulo). Elas só voltarão a executar quando o cron for restaurado após a confirmação pendente. Demais contas mantêm os padrões existentes. O novo hash das fontes exige reprocessar o histórico; não apresentar a cobertura completa da versão anterior como cobertura da versão atual. Ver [operação v2](coach-quality-v2-operations.md).
+
+Versão anterior publicada em 2026-09-20: `37c00ef61b6d2997e22d07339ac2e511de955b0c`, integrada pelo PR #4, após as entregas dos PRs #2 e #3. [Build da imagem atual](https://github.com/VitorFawkes/assistente-pessoal/actions/runs/35532785508) concluído com sucesso. Imagem persistente do Easypanel e serviço efetivo conferidos; rollout concluído com réplica `1/1`. A cobertura do material elegível estava completa na verificação final; novas reuniões e correções continuam sendo processadas pela rotina existente.
 
 ## Verificação em produção
 
