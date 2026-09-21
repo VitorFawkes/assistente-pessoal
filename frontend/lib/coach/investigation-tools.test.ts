@@ -50,3 +50,43 @@ test("invalid history date arguments return a recoverable tool result without I/
   expect(reads).toBe(0);expect(JSON.stringify(investigation.sources)).toBe(sources);expect(Object.keys(investigation.sources)).toHaveLength(1);
  }finally{store.mockRestore();semantic.mockRestore();}
 });
+
+test("task reads remain available to verification without losing selection limits or mixing users",async()=>{
+ const byOwner = {
+  owner:{tasks:[{id:"task-owner",titulo:"Definir preço Aurora",descricao:"Decisão necessária antes de enviar",prazo:"2026-09-22T14:00:00Z"}],events:[{tarefa_id:"task-owner",evento:"updated"}],task_summary:{total:80},task_selection:{tasks_selected:1,tasks_total:80,task_limit:64},limitations:["Somente parte das tarefas selecionada; registro não prova execução.","Relatório resumido."]},
+  other:{tasks:[{id:"task-other",titulo:"Contexto de outra pessoa"}],events:[],task_summary:{total:1},task_selection:{tasks_selected:1,tasks_total:1,task_limit:64},limitations:[]},
+ };
+ const store=spyOn(stores,"coachStore").mockImplementation((userId:string)=>({context:async()=>structuredClone(byOwner[userId as keyof typeof byOwner])} as unknown as ReturnType<typeof stores.coachStore>));
+ try{
+  const owner=investigationTools("owner","America/Sao_Paulo",new Date("2026-09-21T18:00:00Z"),[],[]);
+  const other=investigationTools("other","America/Sao_Paulo",new Date("2026-09-21T18:00:00Z"),[],[]);
+  const result=await owner.tools.find(tool=>tool.name==="read_tasks")!.execute({query:"Aurora"},{signal:new AbortController().signal}) as {tasks:{titulo:string}[]};
+  await other.tools.find(tool=>tool.name==="read_tasks")!.execute({query:"outra"},{signal:new AbortController().signal});
+  expect(owner.contextReads).toEqual([{tool:"read_tasks",input:{query:"Aurora"},result:{tasks:[{id:"task-owner",titulo:"Definir preço Aurora",descricao:"Decisão necessária antes de enviar",prazo:"2026-09-22T14:00:00Z"}],events:[{tarefa_id:"task-owner",evento:"updated"}],summary:{total:80},selection:{tasks_selected:1,tasks_total:80,task_limit:64},limitations:["Somente parte das tarefas selecionada; registro não prova execução."]}}]);
+  expect(JSON.stringify(owner.contextReads)).not.toContain("task-other");
+  expect(JSON.stringify(other.contextReads)).not.toContain("task-owner");
+  result.tasks[0].titulo="Alterado depois de lido";
+  expect(JSON.stringify(owner.contextReads)).toContain("Definir preço Aurora");
+  expect(JSON.stringify(owner.contextReads)).not.toContain("Alterado depois de lido");
+  expect(owner.sources).toEqual({});
+ }finally{store.mockRestore();}
+});
+
+test("memory reads preserve historical scope and corrections for verification while failed reads add no invented result",async()=>{
+ const store=spyOn(stores,"coachStore").mockReturnValue({memoryContext:async(at?:string)=>{
+  if(at==="invalid")throw new Error("invalid_input");
+  return {active_goals:[{content:at?"Expandir aquisição":"Estabilizar operação"}],corrections:[{content:"A campanha foi pausada",status:"rejected"}],memories:[],legacy_goals:null};
+ }} as unknown as ReturnType<typeof stores.coachStore>);
+ try{
+  const investigation=investigationTools("owner","America/Sao_Paulo",new Date("2026-09-21T18:00:00Z"),[],[]);
+  const read=investigation.tools.find(tool=>tool.name==="read_memory")!;
+  await read.execute({at:"2026-09-01T00:00:00Z"},{signal:new AbortController().signal});
+  await read.execute({at:""},{signal:new AbortController().signal});
+  await expect(read.execute({at:"invalid"},{signal:new AbortController().signal})).rejects.toThrow("invalid_input");
+  expect(investigation.contextReads).toEqual([
+   {tool:"read_memory",input:{at:"2026-09-01T00:00:00Z"},result:{active_goals:[{content:"Expandir aquisição"}],corrections:[{content:"A campanha foi pausada",status:"rejected"}],memories:[],legacy_goals:null}},
+   {tool:"read_memory",input:{at:""},result:{active_goals:[{content:"Estabilizar operação"}],corrections:[{content:"A campanha foi pausada",status:"rejected"}],memories:[],legacy_goals:null}},
+  ]);
+  expect(investigation.sources).toEqual({});
+ }finally{store.mockRestore();}
+});

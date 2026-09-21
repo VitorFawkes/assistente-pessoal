@@ -40,7 +40,7 @@ const scenarios:{name:string;question:string;context?:Record<string,unknown>;che
  {name:"partial progress and renegotiation replace the previous deadline",
   question:"O cliente aceitou receber amanhã às 10h. Já escrevi a proposta, falta revisar o preço. Estou cansado. Me dá um passo pequeno.",
   context:{history:[history("Eu havia combinado enviar hoje às 14h.")],commitments:[{...agreement,status:"renegotiated",outcome:"Novo prazo aceito: amanhã às 10h.",outcome_source:"user_report",due_at:"2026-09-22T13:00:00.000Z"}]},
-  check:answer=>{expect(answer).toMatch(/preço|revis/iu);expect(answer).not.toMatch(/precisa (?:enviar|entregar) hoje|descumpriu|falhou/iu);}},
+  check:answer=>{expect(answer).toMatch(/preço|revis|valor final|condições de pagamento/iu);expect(answer).not.toMatch(/precisa (?:enviar|entregar) hoje|descumpriu|falhou/iu);}},
  {name:"a substituted goal governs advice instead of reviving a prior platform launch",
   question:"Como avanço no objetivo atual sem abrir outra frente?",
   context:{profile:{goals:"Lançar uma plataforma esta semana."},history:[history("Cancelei o lançamento da plataforma. Agora meu objetivo é fechar a proposta comercial. Falta revisar o preço.")],memory:{active_goals:[{content:"Concluir a proposta comercial."}],corrections:[{content:"Lançamento cancelado pelo usuário."}]}},

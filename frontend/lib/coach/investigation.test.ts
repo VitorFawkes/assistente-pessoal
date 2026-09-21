@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { chunkMeeting, sourceHash } from "./evidence";
-import { chunkTurns, buildSourceBank, selectChunks, conversationSearch } from "./investigation";
+import { chunkTurns, buildSourceBank, selectChunks, conversationSearch, needsDeepInvestigation } from "./investigation";
 import type { CoachMeeting } from "./types";
 const m:CoachMeeting={id:"a",nome:"Teste",original_filename:"a",recorded_at:null,transcription:"",segments:[],speaker_labels:{A:"Eu"},speaker_pessoas:{A:"self"}};
 test("a long speaker turn remains attributable on both sides of a chunk boundary",()=>{
@@ -30,4 +30,10 @@ test("a follow-up carries the user's preceding subject into retrieval",()=>{
 });
 test("changing meeting date invalidates conclusions about the wrong week",()=>{
  expect(sourceHash(m)).not.toBe(sourceHash({...m,recorded_at:"2026-09-19T12:00:00Z"}));
+});
+
+// Planning and choosing require the same reasoning depth as explicit prioritization.
+test("routine and choice requests receive decision-level reasoning",()=>{
+ for(const question of ["Como deve ser minha rotina a partir de amanhã?","Me ajude a planejar meu dia.","Não sei qual frente escolher."])expect(needsDeepInvestigation(question)).toBe(true);
+ for(const question of ["Obrigado.","Só queria desabafar.","Qual é o horário na minha agenda?"])expect(needsDeepInvestigation(question)).toBe(false);
 });
