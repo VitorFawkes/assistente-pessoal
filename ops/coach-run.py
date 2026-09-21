@@ -2,7 +2,7 @@
 """Private cron caller for the Ações coach; Python standard library only.
 
 POSTs an empty request using a dedicated bearer token. Does not send a user ID,
-read the response body, follow redirects, retry, or log personal content.
+follow redirects, retry, or log personal content. Reads bounded aggregate progress only.
 """
 
 import argparse
@@ -80,8 +80,19 @@ def main() -> int:
             try:
                 with client.open(request, timeout=timeout) as response:
                     status = response.status
-                log("complete" if 200 <= status < 300 else "http_error", http=status)
-                return 0 if 200 <= status < 300 else 1
+                    raw = response.read(16385)
+                if len(raw) > 16384:
+                    raise ValueError("progress response too large")
+                progress = json.loads(raw)
+                if not isinstance(progress, dict) or type(progress.get("ok")) is not bool:
+                    raise ValueError("invalid progress")
+                for key in ("failed", "processed", "remaining_meetings"):
+                    if type(progress.get(key)) is not int or progress[key] < 0:
+                        raise ValueError("invalid progress counter")
+                success = 200 <= status < 300 and progress["ok"] and progress["failed"] == 0
+                log("complete" if success else "incomplete", http=status,
+                    processed=progress["processed"], failed=progress["failed"], remaining=progress["remaining_meetings"])
+                return 0 if success else 1
             except urllib.error.HTTPError as error:
                 log("http_error", http=error.code)
                 error.close()

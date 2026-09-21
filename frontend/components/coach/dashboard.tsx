@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { CoachJob } from "@/lib/coach/jobs";
 import type { CoachProfile, CoachState } from "@/lib/coach/types";
 import { ArrowRight, BookOpen, Check, CircleAlert, LoaderCircle, RefreshCw, Settings2, ShieldCheck } from "lucide-react";
 import { ChatView } from "./chat";
@@ -17,22 +18,24 @@ const tabs = [
   { id: "references", label: "Referenciais" },
 ] as const;
 type Tab = (typeof tabs)[number]["id"];
+type ViewState=CoachState & {jobs?:CoachJob[];model?:{provider:string;model:string;reviewer_model?:string|null;semantic_enabled?:boolean}};
+const jobLabels={chat:"Sua conversa",analyze:"Leitura das reuniões",review:"Revisão semanal",checkin:"Acompanhamento do dia"};
 
 function profilePayload(profile: CoachProfile) {
   return { enabled: profile.enabled, weekly_enabled: profile.weekly_enabled, goals: profile.goals, context: profile.context, timezone: profile.timezone, review_day: profile.review_day, review_hour: profile.review_hour };
 }
 
-async function readResponse(response: Response): Promise<CoachState> {
+async function readResponse(response: Response): Promise<ViewState> {
   if (response.redirected || response.status === 401 || response.status === 403) throw new Error("Sua sessão expirou. Entre novamente no Ações e recarregue esta página.");
   if (!response.headers.get("content-type")?.includes("application/json")) throw new Error("Não foi possível concluir a solicitação. Recarregue o coach e tente novamente.");
   const data = await response.json();
   if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "O coach não conseguiu concluir esta etapa. Tente novamente.");
   if (!data.profile || !data.coverage || !Array.isArray(data.messages)) throw new Error("O coach recebeu uma resposta incompleta. Recarregue a página.");
-  return data as CoachState;
+  return data as ViewState;
 }
 
 export function CoachDashboard() {
-  const [state, setState] = useState<CoachState | null>(null);
+  const [state, setState] = useState<ViewState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -43,6 +46,7 @@ export function CoachDashboard() {
   const tabButtons = useRef<(HTMLButtonElement | null)[]>([]);
   const panel = useRef<HTMLDivElement>(null);
   const running = useRef(false);
+  const requestKey=useRef<{signature:string;key:string}|null>(null);
 
   const load = useCallback((signal?: AbortSignal) => fetch("/api/coach", { cache: "no-store", signal })
     .then(readResponse)
@@ -52,6 +56,19 @@ export function CoachDashboard() {
 
   useEffect(() => { const controller = new AbortController(); void load(controller.signal); return () => controller.abort(); }, [load]);
 
+  const hasPending=!!state?.jobs?.some(job=>job.status==="queued"||job.status==="running");
+  useEffect(()=>{
+    if(!hasPending)return;
+    const controller=new AbortController();let ticks=0;
+    const timer=setInterval(()=>{
+      if(document.visibilityState!=="visible"||running.current)return;
+      ticks++;
+      if(ticks%5===0)void fetch("/api/coach",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"resume_jobs"}),signal:controller.signal}).then(readResponse).then(next=>{if(!controller.signal.aborted)setState(next);}).catch(()=>{});
+      else void load(controller.signal);
+    },3000);
+    return ()=>{clearInterval(timer);controller.abort();};
+  },[hasPending,load]);
+
   const mutate = useCallback(async (payload: Record<string, unknown>, successMessage?: string): Promise<boolean> => {
     if (running.current) return false;
     running.current = true;
@@ -59,9 +76,13 @@ export function CoachDashboard() {
     setError(null);
     setNotice(null);
     try {
-      const response = await fetch("/api/coach", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const asynchronous=["chat","analyze","review","checkin"].includes(String(payload.action));
+      const signature=JSON.stringify(payload);
+      if(asynchronous&&requestKey.current?.signature!==signature)requestKey.current={signature,key:crypto.randomUUID()};
+      const response = await fetch("/api/coach", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(asynchronous?{...payload,request_id:requestKey.current!.key}:payload) });
       setState(await readResponse(response));
-      if (successMessage) setNotice(successMessage);
+      requestKey.current=null;
+      if (successMessage&&!asynchronous) setNotice(successMessage);
       return true;
     } catch (err) { setError(err instanceof Error ? err.message : "Não foi possível salvar. Tente novamente."); return false; }
     finally { running.current = false; setBusy(null); }
@@ -81,6 +102,9 @@ export function CoachDashboard() {
   const reviews = [...state.reviews].sort((a, b) => b.week_start.localeCompare(a.week_start));
   const current = reviews[0];
   const operational = profile.enabled && state.model_available;
+  const pendingJobs=(state.jobs||[]).filter(job=>job.status==="queued"||job.status==="running");
+  const failedJobs=(state.jobs||[]).filter(job=>job.status==="failed").slice(0,2);
+  const activeGoal=state.memories.find(item=>item.kind==="goal"&&item.status!=="rejected"&&!item.stale&&(!item.lifecycle||item.lifecycle==="active"));
   const pendingMemories = state.memories.filter((item) => item.status === "hypothesis").length;
   return (
     <div className="min-w-0 space-y-6 sm:space-y-8">
@@ -93,6 +117,8 @@ export function CoachDashboard() {
       {error && <div className="flex items-start gap-2 rounded-xl border border-[var(--urgent)]/30 bg-[var(--urgent-bg)] p-4" role="alert"><CircleAlert size={17} className="mt-0.5 shrink-0 text-[var(--urgent)]" aria-hidden="true" /><p className="break-words text-sm leading-relaxed">{error}</p></div>}
       {notice && <div className="flex items-start gap-2 rounded-xl bg-[var(--calm-bg)] p-3 text-sm text-[var(--calm)]" role="status"><Check size={16} className="mt-0.5 shrink-0" aria-hidden="true" /><p>{notice}</p></div>}
       {busy && <div className="flex items-start gap-3 rounded-xl border border-border bg-card p-4" role="status" aria-live="polite"><LoaderCircle size={17} className="mt-0.5 shrink-0 animate-spin text-[var(--calm)] motion-reduce:animate-none" aria-hidden="true" /><div><p className="text-sm font-medium">{busy === "analyze" ? "Analisando os próximos trechos…" : busy === "review" ? "Preparando sua revisão…" : busy === "chat" ? "O coach está consultando seu contexto…" : "Salvando sua escolha…"}</p>{["analyze", "review", "chat"].includes(busy) && <p className="mt-1 text-xs leading-relaxed text-muted-strong">Esta etapa pode levar alguns minutos. Aguarde para evitar repetir o pedido.</p>}</div></div>}
+      {pendingJobs.length>0&&<section aria-label="Pedidos em andamento" className="rounded-xl border border-border bg-card p-4"><p className="text-sm font-medium" role="status">O coach está trabalhando no seu contexto</p><p className="mt-1 text-xs leading-relaxed text-muted-strong">Você pode sair e voltar. O progresso fica salvo aqui.</p><ul className="mt-3 space-y-2">{pendingJobs.map(job=><li key={job.id} className="flex items-center justify-between gap-3 text-xs"><span>{jobLabels[job.kind]} · {job.status==="running"?"Em andamento":"Na fila"}</span><button type="button" className="min-h-9 underline underline-offset-4" disabled={!!busy} onClick={()=>void mutate({action:"cancel_job",id:job.id},"Pedido interrompido.")}>Cancelar</button></li>)}</ul></section>}
+      {failedJobs.map(job=><div key={job.id} className="rounded-xl border border-[var(--urgent)]/30 p-4"><p className="text-sm font-medium">{jobLabels[job.kind]} não terminou</p><p className="mt-1 text-xs leading-relaxed text-muted-strong">{job.error}</p><button className={`${buttonClass} mt-3 !text-xs`} type="button" disabled={!!busy||!profile.enabled} onClick={()=>void mutate({action:"retry_job",id:job.id})}>Tentar novamente</button><button className={`${buttonClass} mt-3 ml-2 !text-xs`} type="button" disabled={!!busy} onClick={()=>void mutate({action:"cancel_job",id:job.id})}>Dispensar</button></div>)}
       {!state.model_available && <div className="rounded-xl border border-border bg-accent p-4"><p className="text-sm font-semibold">A IA está indisponível neste momento</p><p className="mt-1 text-xs leading-relaxed text-muted-strong">Você pode consultar seu histórico, editar objetivos e corrigir memórias. Novas análises e respostas dependem da configuração do provedor.</p></div>}
 
       {settings && <div id="coach-settings"><SettingsView key={profile.revision} profile={profile} busy={!!busy} mutate={mutate} onClose={() => setSettings(false)} /></div>}
@@ -110,7 +136,9 @@ export function CoachDashboard() {
             {reviews.length > 1 && <section className="border-t border-border pt-5"><h2 className="mb-2 text-sm font-semibold">Revisões anteriores</h2>{reviews.slice(1).map((review) => <details key={review.id} className="border-b border-border py-3"><summary className="cursor-pointer text-sm leading-relaxed"><span className="text-xs text-muted-strong">Semana de {dateLabel(review.week_start)}</span><span className="mt-1 block font-medium">{review.content.headline}</span></summary><div className="pt-6"><ReviewView review={review} historical onDiscuss={discuss} /></div></details>)}</section>}
           </div>}
           {tab === "chat" && <div className="space-y-6">
-            <ChatView messages={state.messages} busy={!!busy} enabled={profile.enabled} available={state.model_available} draft={draft} onDraft={setDraft} mutate={mutate} />
+            {(activeGoal||profile.goals)&&<aside className="border-l-2 border-[var(--calm)] pl-4"><p className="text-xs font-medium text-muted-strong">O que importa agora</p><p className="mt-1 max-w-xl whitespace-pre-wrap break-words text-sm leading-relaxed">{activeGoal?.content||profile.goals}</p><button type="button" className="mt-1 min-h-9 text-xs underline underline-offset-4" onClick={()=>discuss("Quero rever meu objetivo atual. O que mudou foi: ")}>Conversar sobre este objetivo</button></aside>}
+            <ChatView messages={state.messages} busy={!!busy||pendingJobs.some(job=>job.kind==="chat")} enabled={profile.enabled} available={state.model_available} draft={draft} onDraft={setDraft} mutate={mutate} />
+            <div className="flex flex-wrap gap-2"><button type="button" className={`${buttonClass} !text-xs`} disabled={!!busy||!operational||pendingJobs.some(job=>job.kind==="checkin")} onClick={()=>void mutate({action:"checkin",checkin:"morning"})}>Escolher o foco do dia</button><button type="button" className={`${buttonClass} !text-xs`} disabled={!!busy||!operational||pendingJobs.some(job=>job.kind==="checkin")} onClick={()=>void mutate({action:"checkin",checkin:"evening"})}>Rever meu dia</button></div>
             {current && <button type="button" onClick={() => { setTab("week"); requestAnimationFrame(() => panel.current?.scrollIntoView({ block: "start" })); }} className="flex w-full items-center gap-3 rounded-xl border border-border bg-accent p-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--calm)]">
               <BookOpen size={20} className="shrink-0 text-[var(--calm)]" aria-hidden="true" />
               <span className="min-w-0 flex-1"><span className="block text-xs text-muted-strong">Sua revisão · semana de {dateLabel(current.week_start)}</span><span className="mt-1 block text-sm font-medium leading-relaxed">{current.content.headline}</span></span>
@@ -127,6 +155,7 @@ export function CoachDashboard() {
         {coverage.total_meetings > 0 && <div role="progressbar" aria-label="Reuniões completamente analisadas" aria-valuemin={0} aria-valuemax={coverage.total_meetings} aria-valuenow={Math.min(coverage.analyzed_meetings, coverage.total_meetings)} className="my-3 h-1.5 overflow-hidden rounded-full bg-accent"><div className="h-full rounded-full bg-[var(--calm)]" style={{ width: `${Math.min(100, (coverage.analyzed_meetings / coverage.total_meetings) * 100)}%` }} /></div>}
         <p className="mt-2 text-[11px] leading-relaxed text-muted-strong">{coverage.pending_meetings > 0 ? `${coverage.pending_meetings} reuniões ainda têm trechos pendentes. A leitura atual é parcial; cada lote preserva o progresso.` : coverage.total_meetings > 0 ? "Cobertura completa do material elegível neste momento. Novas reuniões e correções podem criar pendências." : "Nenhuma reunião finalizada disponível para análise."}</p>
         {profile.last_run_at && <p className="mt-1 text-[11px] text-muted-strong">Última execução: {dateLabel(profile.last_run_at, { hour: "2-digit", minute: "2-digit" })}.</p>}
+        {state.model&&<details className="mt-3 text-[11px] text-muted-strong"><summary className="min-h-9 cursor-pointer py-2">Modelo e contexto disponíveis</summary><p>Coach: {state.model.model} ({state.model.provider}).{state.model.reviewer_model?` Revisão adicional: ${state.model.reviewer_model}.`:""}</p><p className="mt-1">A disponibilidade depende do acesso configurado ao provedor. Agenda externa e conversas dos agentes fora do Ações não estão conectadas.</p></details>}
         {profile.last_error && <p className="mt-2 text-xs text-[var(--urgent)]">A última execução não terminou. O progresso salvo será retomado na próxima tentativa.</p>}
       </section>
     </div>

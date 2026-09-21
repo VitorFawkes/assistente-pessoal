@@ -6,6 +6,7 @@ import { Check, Pencil, Plus, X } from "lucide-react";
 import { buttonClass, dateLabel, EvidenceList, fieldClass, primaryClass, type CoachMutation } from "./shared";
 
 const kinds: Record<CoachMemory["kind"], string> = { goal: "Objetivo", context: "Contexto", pattern: "Padrão em observação", experiment: "Experimento" };
+const lifecycleLabels:Record<string,string>={active:"Vigente",paused:"Pausado",completed:"Encerrado",superseded:"Substituído",abandoned:"Abandonado"};
 const statuses: Record<CoachMemory["status"], string> = { hypothesis: "Hipótese", confirmed: "Confirmada por você", rejected: "Descartada" };
 
 function MemoryItem({ memory, busy, mutate }: { memory: CoachMemory; busy: boolean; mutate: CoachMutation }) {
@@ -15,7 +16,7 @@ function MemoryItem({ memory, busy, mutate }: { memory: CoachMemory; busy: boole
   const updateStatus = (next: CoachMemory["status"]) => mutate({ action: "correct_memory", id: memory.id, content: memory.content, status: next }, next === "rejected" ? "Interpretação descartada." : "Memória confirmada por você.");
   return (
     <article className="border-b border-border py-5 first:pt-0 last:border-b-0">
-      <div className="mb-2 flex flex-wrap items-center gap-2 text-xs"><span className="font-medium">{kinds[memory.kind]}</span><span className={`rounded-full px-2 py-1 ${memory.status === "confirmed" ? "bg-[var(--calm-bg)] text-[var(--calm)]" : "bg-accent text-muted-strong"}`}>{statuses[memory.status]}</span></div>
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-xs"><span className="font-medium">{kinds[memory.kind]}</span><span className={`rounded-full px-2 py-1 ${memory.status === "confirmed" ? "bg-[var(--calm-bg)] text-[var(--calm)]" : "bg-accent text-muted-strong"}`}>{statuses[memory.status]}</span>{memory.lifecycle&&memory.lifecycle!=="active"&&<span className="text-muted-strong">{lifecycleLabels[memory.lifecycle]}</span>}</div>
       {memory.stale && <p className="mb-3 rounded-lg bg-accent px-3 py-2 text-xs leading-relaxed text-muted-strong">A reunião de origem foi alterada ou removida. Esta memória está desatualizada e não sustenta novas interpretações. Revise o contexto e a evidência.</p>}
       {editing ? (
         <form className="space-y-3" onSubmit={async (event) => { event.preventDefault(); if (await mutate({ action: "correct_memory", id: memory.id, content: content.trim(), status }, "Correção salva. As próximas conversas usarão esta versão.")) setEditing(false); }}>
@@ -28,6 +29,7 @@ function MemoryItem({ memory, busy, mutate }: { memory: CoachMemory; busy: boole
           <button className={buttonClass} type="button" disabled={busy} onClick={() => { setContent(memory.content); setStatus(memory.status); setEditing(true); }}><Pencil size={13} aria-hidden="true" /> Corrigir</button>
           {memory.status !== "confirmed" && <button type="button" className={buttonClass} disabled={busy} onClick={() => void updateStatus("confirmed")}><Check size={14} aria-hidden="true" /> Confirmar</button>}
           {memory.status !== "rejected" && <button type="button" className={buttonClass} disabled={busy} onClick={() => void updateStatus("rejected")}><X size={14} aria-hidden="true" /> Descartar</button>}
+          {memory.status!=="rejected"&&(memory.kind==="goal"||memory.kind==="experiment")&&<label className="flex items-center gap-2 text-xs text-muted-strong">Situação<select aria-label={`Situação de ${memory.content.slice(0,50)}`} className={`${fieldClass} !w-auto !py-1`} value={memory.lifecycle||"active"} disabled={busy||memory.lifecycle==="superseded"} onChange={event=>void mutate({action:"memory_lifecycle",id:memory.id,lifecycle:event.target.value},"Situação atualizada. O coach vai considerar essa mudança.")}><option value="active">Vigente</option><option value="paused">Pausado</option><option value="completed">Encerrado</option>{memory.lifecycle==="superseded"&&<option value="superseded">Substituído</option>}</select></label>}
         </div></>
       )}
       <EvidenceList evidence={memory.evidence} />

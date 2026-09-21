@@ -2,8 +2,11 @@ import { beforeAll, afterAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
-import { sourceHash } from "./evidence";
+import { chunkMeeting, sourceHash } from "./evidence";
 import { coachStore, enabledUserIds, StaleCoachRunError } from "./store";
+import { createCommitment, updateCommitment, listCommitments } from "./coach-commitments";
+import { indexChunk, semanticSearch, recordModelRuns } from "./retrieval";
+import type { CoachTelemetry } from "./model";
 import { getPool, withTenant } from "../db";
 import type { CoachMeeting, Evidence, Observation, ReviewContent } from "./types";
 
@@ -71,6 +74,12 @@ describe.skipIf(!connection)("coach store: real Postgres isolation and lifecycle
     const migration = await readFile(new URL("../../../db/0028_leadership_coach.sql", import.meta.url), "utf8");
     await admin.query(migration);
     await admin.query(migration); // repeatability is part of the contract
+    const lifecycleMigration = await readFile(new URL("../../../db/0029_coach_memory_lifecycle.sql", import.meta.url), "utf8");
+    await admin.query(lifecycleMigration); await admin.query(lifecycleMigration);
+    await admin.query(await readFile(new URL("../../../db/0030_coach_jobs.sql",import.meta.url),"utf8"));
+    const retrievalMigration=await readFile(new URL("../../../db/0031_coach_retrieval.sql",import.meta.url),"utf8");
+    await admin.query(retrievalMigration);await admin.query(retrievalMigration);
+    await admin.query("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS situacao_desde timestamptz");
     await admin.query("INSERT INTO users (id,nome,consent_terms_at) VALUES ($1,'Fixture A',now()),($2,'Fixture B',now())", [userA,userB]);
     await admin.query(`INSERT INTO meetings (id,user_id,nome,original_filename,recorded_at,transcription,segments,speaker_labels,speaker_pessoas,status,summary)
       VALUES ($1,$2,'Reunião A','a.mp3','2026-09-18','Vou delegar esta entrega.','[]','{}','{}','done','Definição de responsáveis'),
@@ -287,11 +296,170 @@ describe.skipIf(!connection)("coach store: real Postgres isolation and lifecycle
     expect(edited?.history.at(-1)?.content).toBe(memory.content);
   });
 
+  test("goal replacement is atomic, revision guarded and preserves historical intent", async () => {
+    const old=await a.addMemory({kind:"goal",content:"Priorizar projeto anterior",status:"confirmed",evidence:[]});
+    const revision=(await a.profile()).revision;
+    const before=new Date().toISOString();
+    await new Promise(resolve=>setTimeout(resolve,5));
+    const result=await a.transitionMemory(old.id,{lifecycle:"superseded",replacement:{content:"Concluir proposta do cliente"}},revision);
+    expect(result?.previous.lifecycle).toBe("superseded");
+    expect(result?.current.supersedes_id).toBe(old.id);
+    expect(result?.revision).toBe(revision+1);
+    expect((await a.memoriesAt(before)).find(m=>m.id===old.id)?.lifecycle).toBe("active");
+    expect((await a.memoryContext()).active_goals.some(m=>m.id===old.id)).toBe(false);
+    expect((await a.memoryContext()).active_goals.some(m=>m.id===result?.current.id)).toBe(true);
+    await expect(a.transitionMemory(old.id,{lifecycle:"paused"},revision)).rejects.toBeInstanceOf(StaleCoachRunError);
+    expect(await b.transitionMemory(old.id,{lifecycle:"paused"})).toBeNull();
+  });
+
+  test("generated paraphrases cannot resurrect corrected sources", async () => {
+    const current=(await a.meetingById(meetingA))!;
+    const evidence:Evidence={meeting_id:meetingA,meeting_title:"A",recorded_at:null,quote:"Vou delegar esta entrega.",start:null,speaker:null,self_attributed:false,chunk_index:0,source_hash:sourceHash(current)};
+    const original=await a.addMemory({kind:"pattern",content:"Hipótese nova para rejeitar",status:"hypothesis",evidence:[evidence]});
+    await a.correctMemory(original.id,"A situação teve outra causa","confirmed");
+    const revision=(await a.profile()).revision;
+    await expect(a.addMemory({kind:"pattern",content:"Outra redação da acusação",status:"hypothesis",evidence:[evidence]},revision)).rejects.toThrow();
+    await expect(a.correctMemory(original.id,"corrida antiga","confirmed",revision-1)).rejects.toBeInstanceOf(StaleCoachRunError);
+  });
+
+  test("retry-safe messages preserve identity and cannot expose another tenant key", async () => {
+    const revision=(await a.profile()).revision;
+    const first=await a.addMessage("user","Pedido de teste",[],revision,"job-fixture:user");
+    const again=await a.addMessage("user","Pedido de teste",[],revision,"job-fixture:user");
+    expect(again.id).toBe(first.id);
+    expect((await a.messageByKey("job-fixture:user"))?.id).toBe(first.id);
+    expect(await b.messageByKey("job-fixture:user")).toBeNull();
+    await expect(a.addMessage("assistant","Outra saída",[],revision,"job-fixture:user")).rejects.toThrow();
+  });
+
+  test("settings goals replace prior priorities and cadence remains opted out by default", async () => {
+    const defaultProfile=await a.profile();
+    expect(defaultProfile.morning_enabled).toBe(false);expect(defaultProfile.evening_enabled).toBe(false);expect(defaultProfile.nudges_enabled).toBe(false);
+    await a.saveProfile({goals:"Prioridade completa vinda dos ajustes",morning_enabled:true,morning_hour:9});
+    const packet=await a.memoryContext();
+    expect(packet.active_goals.map(m=>m.content)).toEqual(["Prioridade completa vinda dos ajustes"]);
+    expect(packet.legacy_goals).toBeNull();
+    expect((await a.profile()).morning_hour).toBe(9);
+    const goal=packet.active_goals[0];
+    await a.transitionMemory(goal.id,{lifecycle:"paused"});
+    expect((await a.profile()).goals).toBe("");
+    expect((await a.memoryContext()).active_goals).toEqual([]);
+    expect((await a.memoryContext()).legacy_goals).toBeNull();
+  });
+
+  test("a generated hypothesis can never mark itself confirmed", async () => {
+    await expect(a.addMemory({kind:"pattern",content:"I certify my own interpretation",status:"confirmed",evidence:[]},(await a.profile()).revision)).rejects.toThrow();
+  });
+
+  test("conversational corrections advance their own running job but external edits invalidate it", async()=>{
+    const memory=await a.addMemory({kind:"context",content:"Antes da correção do job",status:"confirmed",evidence:[]});
+    let revision=(await a.profile()).revision;const jobId=randomUUID();
+    await admin.query("INSERT INTO coach_jobs(id,user_id,kind,idempotency_key,status,profile_revision,lease_token,lease_until) VALUES($1,$2,'chat',$3,'running',$4,$5,now()+interval '5 minutes')",[jobId,userA,jobId,revision,randomUUID()]);
+    await a.correctMemory(memory.id,"Corrigido pelo usuário no job","confirmed",revision,jobId);
+    revision=(await a.profile()).revision;
+    expect((await admin.query("SELECT profile_revision FROM coach_jobs WHERE id=$1",[jobId])).rows[0].profile_revision).toBe(revision);
+    await a.transitionMemory(memory.id,{lifecycle:"paused"},revision,jobId);
+    revision=(await a.profile()).revision;
+    expect((await admin.query("SELECT profile_revision FROM coach_jobs WHERE id=$1",[jobId])).rows[0].profile_revision).toBe(revision);
+    await a.saveProfile({evening_enabled:true},revision,jobId);
+    revision=(await a.profile()).revision;
+    expect((await admin.query("SELECT profile_revision FROM coach_jobs WHERE id=$1",[jobId])).rows[0].profile_revision).toBe(revision);
+    await a.saveProfile({evening_enabled:false});
+    expect((await a.profile()).revision).toBeGreaterThan(revision);
+    expect((await admin.query("SELECT profile_revision FROM coach_jobs WHERE id=$1",[jobId])).rows[0].profile_revision).toBe(revision);
+  });
+
+  test("profile mutations persist an owner-scoped crash receipt atomically and leave a second goal untouched",async()=>{
+    const first=await a.addMemory({kind:"goal",content:"Objetivo A para recibo",status:"confirmed",evidence:[]});
+    const second=await a.addMemory({kind:"goal",content:"Objetivo B que segue ativo",status:"confirmed",evidence:[]});
+    let revision=(await a.profile()).revision;const jobId=randomUUID();
+    await admin.query("INSERT INTO coach_jobs(id,user_id,kind,idempotency_key,status,profile_revision,lease_token,lease_until) VALUES($1,$2,'chat',$3,'running',$4,$5,now()+interval '5 minutes')",[jobId,userA,jobId,revision,randomUUID()]);
+    expect(await a.runReceipt(jobId)).toBeNull();
+    await a.transitionMemory(first.id,{lifecycle:"paused"},revision,jobId);
+    expect(await a.runReceipt(jobId)).toContain("Pausei um objetivo");
+    expect(await b.runReceipt(jobId)).toBeNull();
+    expect((await a.memories()).find(m=>m.id===second.id)?.lifecycle).toBe("active");
+    revision=(await a.profile()).revision;
+    await a.correctMemory(first.id,"Objetivo A corrigido no mesmo job","confirmed",revision,jobId);
+    expect(await a.runReceipt(jobId)).toContain("Corrigi uma memória");
+    revision=(await a.profile()).revision;
+    await a.saveProfile({morning_enabled:true},revision,jobId);
+    expect(await a.runReceipt(jobId)).toContain("preferências de acompanhamento");
+    const before=await a.runReceipt(jobId);
+    revision=(await a.profile()).revision;
+    await expect(a.transitionMemory(second.id,{lifecycle:"paused"},revision,randomUUID())).rejects.toBeInstanceOf(StaleCoachRunError);
+    expect((await a.memories()).find(m=>m.id===second.id)?.lifecycle).toBe("active");
+    expect((await a.profile()).revision).toBe(revision);
+    expect(await a.runReceipt(jobId)).toBe(before);
+  });
+
+  test("accepted commitment and task are atomic and idempotent across retries", async () => {
+    const revision=(await a.profile()).revision;
+    const message=await a.addMessage("user","Crie uma tarefa para entregar a proposta",[],revision);
+    const input={accepted:true as const,idempotency_key:"commitment-fixture-key",source_message_id:message.id,title:"Entregar a proposta",due_at:"2026-09-25T15:00:00Z"};
+    const [first,again]=await Promise.all([createCommitment(userA,input,revision),createCommitment(userA,input,revision)]);
+    expect(again.id).toBe(first.id);expect(again.tarefa_id).toBe(first.tarefa_id);
+    const rows=await admin.query("SELECT count(*)::int AS total FROM tarefa_eventos WHERE tarefa_id=$1 AND evento='criada'",[first.tarefa_id]);
+    expect(rows.rows[0].total).toBe(1);
+    expect((await listCommitments(userA)).find(c=>c.id===first.id)?.status).toBe("open");
+    expect(await listCommitments(userB)).toEqual([]);
+    await expect(createCommitment(userA,{...input,title:"Outro pedido"},revision)).rejects.toThrow();
+    await expect(createCommitment(userB,{...input,idempotency_key:"cross-tenant-key"},(await b.profile()).revision)).rejects.toThrow();
+    const assistant=await a.addMessage("assistant","Você poderia criar uma tarefa",[],revision);
+    await expect(createCommitment(userA,{...input,source_message_id:assistant.id,idempotency_key:"assistant-key"},revision)).rejects.toThrow();
+    await expect(createCommitment(userA,{...input,accepted:false as unknown as true,idempotency_key:"unaccepted-key"},revision)).rejects.toThrow();
+    const complete=await updateCommitment(userA,first.id,{status:"completed",outcome:"Enviei a proposta"},revision);
+    expect(complete?.outcome_source).toBe("user_report");
+    const task=(await admin.query("SELECT status,concluida_em FROM tarefas WHERE id=$1",[first.tarefa_id])).rows[0];
+    expect(task.status).toBe("concluida");expect(task.concluida_em).not.toBeNull();
+    await updateCommitment(userA,first.id,{status:"renegotiated",due_at:"2026-10-01T15:00:00Z",outcome:"Prazo combinado mudou"},revision);
+    await admin.query("UPDATE tarefas SET status='concluida',concluida_em=now() WHERE id=$1",[first.tarefa_id]);
+    const external=(await listCommitments(userA)).find(c=>c.id===first.id)!;
+    expect(external.status).toBe("completed");expect(external.outcome_source).toBe("task_record");
+    await updateCommitment(userA,first.id,{status:"completed",outcome:"Concluído de novo"},revision);
+    await admin.query("UPDATE tarefas SET status='aberta',concluida_em=NULL,updated_at=now()+interval '1 second' WHERE id=$1",[first.tarefa_id]);
+    const reopened=(await listCommitments(userA)).find(c=>c.id===first.id)!;
+    expect(reopened.status).toBe("open");expect(reopened.outcome_source).toBe("task_record");
+    expect(await updateCommitment(userB,first.id,{status:"cancelled"})).toBeNull();
+  });
+
+  test("semantic index and usage are isolated, current-source checked, and revision guarded",async()=>{
+    const oldFetch=globalThis.fetch,oldKey=process.env.OPENAI_API_KEY,oldFlag=process.env.COACH_SEMANTIC_ENABLED;
+    process.env.OPENAI_API_KEY="fixture-not-real";process.env.COACH_SEMANTIC_ENABLED="true";
+    let invalidate=false,calls=0;
+    globalThis.fetch=(async()=>{calls++;if(invalidate)await a.saveProfile({context:"Changed while embedding"});return Response.json({data:[{embedding:Array.from({length:1536},(_,i)=>i===0?1:0)}]});}) as unknown as typeof fetch;
+    try{
+      let revision=(await a.profile()).revision;const meeting=(await a.meetingById(meetingA))!;const chunk=chunkMeeting(meeting)[0];
+      expect(await indexChunk(userA,meeting,chunk,revision)).toBe(true);
+      expect(await indexChunk(userA,meeting,chunk,revision)).toBe(false);expect(calls).toBe(1);
+      expect((await semanticSearch(userA,"delegação")).matches[0].meeting_id).toBe(meetingA);
+      expect((await semanticSearch(userB,"delegação")).matches).toEqual([]);
+      expect((await withTenant(userB,db=>db.query("SELECT * FROM coach_semantic_chunks"))).rowCount).toBe(0);
+      expect((await getPool().query("SELECT * FROM coach_semantic_chunks")).rowCount).toBe(0);
+      await expect(withTenant(userA,db=>db.query("INSERT INTO coach_semantic_chunks(user_id,meeting_id,chunk_index,source_hash,embedding,embedding_model) VALUES($1,$2,0,'hash',$3,'fixture')",[userB,meetingB,Array(1536).fill(0)]))).rejects.toThrow();
+      await withTenant(userA,db=>db.query("DELETE FROM coach_semantic_chunks WHERE user_id=$1",[userA]));invalidate=true;
+      expect(await indexChunk(userA,meeting,chunk,revision)).toBe(false);invalidate=false;
+      expect((await semanticSearch(userA,"delegação")).matches).toEqual([]);
+      revision=(await a.profile()).revision;expect(await indexChunk(userA,meeting,chunk,revision)).toBe(true);
+      const event:CoachTelemetry={provider:"openai",model:"fixture",role:"primary",reasoningEffort:"high",effectiveReasoningEffort:"high",requests:1,toolCalls:0,inputTokens:11,outputTokens:7,cachedInputTokens:3,usageComplete:false,latencyMs:12,success:true};
+      await recordModelRuns(userA,"fixture",null,[event],revision);
+      const recorded=(await withTenant(userA,db=>db.query("SELECT input_tokens,cached_input_tokens,usage_complete FROM coach_model_runs WHERE user_id=$1",[userA]))).rows[0];
+      expect(recorded).toEqual({input_tokens:"11",cached_input_tokens:"3",usage_complete:false});
+      await recordModelRuns(userA,"stale",null,[event],revision-1);
+      expect((await withTenant(userA,db=>db.query("SELECT * FROM coach_model_runs WHERE user_id=$1",[userA]))).rowCount).toBe(1);
+      expect((await withTenant(userB,db=>db.query("SELECT * FROM coach_model_runs"))).rowCount).toBe(0);
+    }finally{globalThis.fetch=oldFetch;if(oldKey===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=oldKey;if(oldFlag===undefined)delete process.env.COACH_SEMANTIC_ENABLED;else process.env.COACH_SEMANTIC_ENABLED=oldFlag;}
+  });
+
   test("reset removes private coach data, keeps meetings, and blocks in-flight repopulation", async () => {
     const revision = (await a.profile()).revision;
     await a.reset();
     expect((await a.profile()).enabled).toBe(false);
     expect((await a.profile()).revision).toBeGreaterThan(revision);
+    expect(await listCommitments(userA)).toEqual([]);
+    for(const table of ["coach_jobs","coach_semantic_chunks","coach_model_runs"]){
+      expect((await withTenant(userA,db=>db.query(`SELECT 1 FROM ${table} WHERE user_id=$1`,[userA]))).rowCount).toBe(0);
+    }
     expect(await a.memories()).toEqual([]); expect(await a.messages()).toEqual([]); expect(await a.reviews()).toEqual([]);
     expect((await a.coverage()).total_meetings).toBe(105);
     await expect(a.addMessage("assistant","Stale reply",[],revision)).rejects.toBeInstanceOf(StaleCoachRunError);

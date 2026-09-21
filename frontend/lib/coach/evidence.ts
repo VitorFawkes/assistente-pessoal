@@ -2,15 +2,15 @@ import { createHash } from "node:crypto";
 import { fromZonedTime } from "date-fns-tz";
 import { COMPETENCIES } from "./framework";
 import type { CoachMeeting, Competency, Observation, Evidence } from "./types";
-export type MeetingChunk = { index: number; count: number; text: string; source_hash: string };
+export type MeetingChunk = { index: number; count: number; text: string; source_hash: string; start_offset?: number; end_offset?: number };
 export function sourceHash(m: CoachMeeting): string {
- return createHash("sha256").update(JSON.stringify([m.transcription,m.segments,m.speaker_labels,m.speaker_pessoas])).digest("hex");
+ return createHash("sha256").update(JSON.stringify([m.transcription,m.segments,m.speaker_labels,m.speaker_pessoas,m.recorded_at,"evidence-v2"])).digest("hex");
 }
 export function chunkMeeting(m: CoachMeeting, size=24000): MeetingChunk[] {
  if (!Number.isInteger(size)||size<100) throw new Error("Tamanho de parte inválido");
  const pieces: string[]=[]; let at=0;
  while(at<m.transcription.length){let end=Math.min(at+size,m.transcription.length); if(end<m.transcription.length){const newline=m.transcription.lastIndexOf("\n",end); if(newline>at+size/2) end=newline+1;} pieces.push(m.transcription.slice(at,end)); at=end;}
- const hash=sourceHash(m); return pieces.map((text,index)=>({index,count:pieces.length,text,source_hash:hash}));
+ const hash=sourceHash(m); let offset=0; return pieces.map((text,index)=>{const start_offset=offset;offset+=text.length;return {index,count:pieces.length,text,source_hash:hash,start_offset,end_offset:offset};});
 }
 const clean=(v:unknown,max=2000)=>typeof v==="string"?v.trim().slice(0,max):"";
 export function groundQuote(quote:unknown,m:CoachMeeting,chunk:MeetingChunk,selfIds:string[]): Evidence|null {
