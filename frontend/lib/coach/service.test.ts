@@ -540,6 +540,15 @@ test("an accepted concrete step is tracked once without creating a task",async()
   expect(run.saved[1].content).not.toContain("Criei a tarefa");
  }finally{run.restore();}
 });
+test("a spoken deadline is saved with the agreement and shown in its confirmation",async()=>{
+ const message="Fechado. Amanhã eu vou destravar a contratação da closer.";const quote="Amanhã eu vou destravar a contratação da closer.";
+ const run=fixture([],{answer:"Combinado",observations:[],memories:[],actions:[{type:"track_commitment",quote,title:quote,due_at:null,guidance:"Comece pela lista de candidatos."}]},[],{allowCommitmentWrites:true});
+ try{
+  await chatWithCoach("synthetic-user",message,new Date("2026-09-22T21:30:00Z"),"spoken-deadline");
+  expect(run.tracked).toMatchObject([{title:quote,due_at:"2026-09-24T02:59:00.000Z"}]);
+  expect(run.saved[1].content).toContain("Registrei nosso combinado: Amanhã eu vou destravar a contratação da closer. Prazo: quarta, 23/09.");
+ }finally{run.restore();}
+});
 test("a reported obstacle is saved against the agreement without completing or reopening its task",async()=>{
  const message="Não consegui enviar a proposta comercial porque faltou o preço.";
  const commitment:CoachCommitment={id:"proposal",user_id:"synthetic-user",tarefa_id:null,source_message_id:"old-message",idempotency_key:"track:old:0",title:"Vou enviar a proposta comercial hoje.",status:"open",outcome:null,outcome_source:"unknown",due_at:null,history:[],created_at:"2026-09-20T10:00:00Z",updated_at:"2026-09-20T10:00:00Z"};

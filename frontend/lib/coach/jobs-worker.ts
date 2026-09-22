@@ -5,6 +5,10 @@ import { accountabilityFingerprint, commitmentsDueForFollowup } from "./follow-u
 import { coachStore } from "./store";
 import { reviewPeriod } from "./evidence";
 import { claimJob,dueCheckins,enqueueJob,finishJob,localJobDay,renewJob,type CadenceProfile,type CheckinKind } from "./jobs";
+import { CoachProviderUnavailableError } from "./model";
+
+/** Scheduled work waits past the next 15-minute runner tick; chat answers stay immediate. */
+export const PROVIDER_RETRY_DELAY_SECONDS=20*60;
 
 /** Each worker holds only a persisted lease while waiting on the model, never a DB transaction. */
 export async function drainJobs(userId:string,options:{maxJobs?:number;deadline?:number}={}){
@@ -22,9 +26,12 @@ export async function drainJobs(userId:string,options:{maxJobs?:number;deadline?
    else await service.generateCheckin(userId,job.payload.checkin as CheckinKind,new Date(),job.id);
    if(await finishJob(userId,job.id,job.lease_token))completed++;
   }catch(error){
-   const retry=error instanceof service.CoachBusyError||error instanceof service.CoachPendingError;
+   const unavailable=job.kind!=="chat"&&error instanceof CoachProviderUnavailableError;
+   const waitProvider=unavailable&&job.attempts<3;
+   const retry=error instanceof service.CoachBusyError||error instanceof service.CoachPendingError||waitProvider;
    const stale=error instanceof service.StaleCoachRunError;
-   await finishJob(userId,job.id,job.lease_token,{error:stale?"Seu contexto mudou durante esta leitura. Faça um novo pedido.":retry?"Aguardando a conclusão das análises em andamento.":"O coach não conseguiu concluir. Seu histórico está preservado; tente novamente.",retry});
+   const message=stale?"Seu contexto mudou durante esta leitura. Faça um novo pedido.":waitProvider?"A IA do coach está indisponível agora. Vou tentar de novo automaticamente.":unavailable?"A IA do coach continuou indisponível. Seu histórico está preservado; tente novamente.":retry?"Aguardando a conclusão das análises em andamento.":"O coach não conseguiu concluir. Seu histórico está preservado; tente novamente.";
+   await finishJob(userId,job.id,job.lease_token,{error:message,retry,...(waitProvider?{delaySeconds:PROVIDER_RETRY_DELAY_SECONDS}:{})});
    if(!retry)failed++;
   }finally{clearInterval(heartbeat);}
  }

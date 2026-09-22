@@ -71,6 +71,15 @@ describe.skipIf(!connection)("durable jobs: real isolation and crash recovery",(
   expect(await cancelJobs(b,job.id)).toBe(1);expect((await listJobs(b)).find(j=>j.id===job.id)?.status).toBe("cancelled");
   expect((await admin.query("SELECT revision FROM coach_profiles WHERE user_id=$1",[b])).rows[0].revision).toBe(revision);
  });
+ test("a provider wait keeps scheduled work queued for its own delay",async()=>{
+  const queued=await enqueueJob(a,{kind:"checkin",key:"provider-wait",payload:{checkin:"morning"}});
+  const job=await claimJob(a);expect(job?.id).toBe(queued.id);
+  expect(await finishJob(a,job!.id,job!.lease_token,{error:"Indisponível",retry:true,delaySeconds:1200})).toBe(true);
+  const row=(await admin.query("SELECT status,attempts,extract(epoch from available_at-now())::int AS wait FROM coach_jobs WHERE id=$1",[queued.id])).rows[0];
+  expect(row.status).toBe("queued");expect(row.attempts).toBe(1);expect(row.wait).toBeGreaterThan(1100);expect(row.wait).toBeLessThanOrEqual(1200);
+  expect(await claimJob(a)).toBeNull();
+  await cancelJobs(a);
+ });
  test("cancelling in-flight work invalidates source revision and pause prevents claiming",async()=>{
   const queued=await enqueueJob(a,{kind:"chat",key:"cancel",payload:{message:"cancel"}});const job=await claimJob(a);expect(job?.id).toBe(queued.id);
   await cancelJobs(a,queued.id);expect(await finishJob(a,job!.id,job!.lease_token)).toBe(false);
