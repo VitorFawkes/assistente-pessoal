@@ -35,6 +35,16 @@ Os testes de serviço exercitam chamadas de ferramentas, duas verificações e r
 
 A abordagem segue a recomendação de [avaliações específicas à tarefa e calibração humana da OpenAI](https://developers.openai.com/api/docs/guides/evaluation-best-practices). Os resultados comprovam os casos exercitados e a publicação da versão testada, não resposta perfeita em toda conversa nem eficácia longitudinal do coaching.
 
+## Conferência da conversa real
+
+A primeira publicação foi validada tecnicamente, mas a repetição da pergunta original ainda produziu uma rotina que prometia comparar frentes depois. A leitura das fontes confirmou o problema de atualidade: tarefas antigas coexistem com relatos recentes, sem que isso confirme uma prioridade vigente. A revisão independente considerou insuficiente a contribuição entregue naquele turno.
+
+O refinamento passa a rejeitar critérios abstratos ou promessa futura como substitutos de ajuda atual. A resposta deve aplicar um critério a uma alternativa ou dúvida concreta, ou conduzir o esclarecimento da lacuna decisiva. Registros antigos podem sustentar uma hipótese de foco com checagem de vigência; não viram urgência ou dívida confirmada.
+
+Dois novos casos inteiramente fictícios reproduzem essa combinação. O candidato genérico foi rejeitado na avaliação do refinamento. A geração do novo caso ainda aguarda validação no provedor; não há aprovação integral desses dois testes. A primeira tentativa foi interrompida antes da análise semântica, portanto não é contada como reprodução RED.
+
+A conferência visual também identificou listas numeradas reiniciando em 1 a cada linha vazia. O renderer agora mantém os itens consecutivos no mesmo bloco, preservando separações por parágrafo e o escape de HTML.
+
 ## Evidências desta entrega
 
 Resultados finais de testes, CI e produção são registrados em `docs/coach-deployment.md` após cada etapa ser verificada.

@@ -259,3 +259,41 @@ describe.skipIf(process.env.COACH_GUIDED_TEST !== "1")("guided coaching generate
   expect(commitments[0].status).toBe("completed");
  }, 1200000);
 });
+
+// Historical fronts have context value but no verified present-day priority.
+// Entirely fictional; the negative keeps only the generic advice, with no live
+// names, private report contents, counts, identifiers or user data copied here.
+const historicalFronts = {
+ ...base,
+ tasks: [
+  { id: "synthetic-old-registration", titulo: "Resolver confirmação duplicada no Portal de Inscrições", status: "aberta", prioridade: "urgente", prazo: "2026-06-05T15:00:00.000Z", created_at: "2026-05-28T12:00:00.000Z", updated_at: "2026-06-01T12:00:00.000Z" },
+  { id: "synthetic-old-catalog", titulo: "Revisar itens do Catálogo Aurora", status: "aberta", prazo: "2026-07-08T15:00:00.000Z", created_at: "2026-07-01T12:00:00.000Z", updated_at: "2026-07-02T12:00:00.000Z" },
+ ],
+ meeting_reports: [
+  { meeting_id: "synthetic-recent-options", recorded_at: "2026-09-19T15:00:00.000Z", context_at: "2026-09-19T15:00:00.000Z", date_basis: "recorded", kind: "executive_summary", generated: true, behavioral_evidence: false, report: "Foram discutidas duas possibilidades: simplificar o fluxo do Portal de Inscrições e revisar o Catálogo Aurora. No portal, a hipótese é reduzir esforço de cadastro, mas ainda faltam incidência atual e impacto. No catálogo, falta confirmar quais itens continuam ativos. Não foi definida prioridade, responsável por uma entrega imediata ou novo prazo." },
+  { meeting_id: "synthetic-older-options", recorded_at: "2026-09-08T15:00:00.000Z", context_at: "2026-09-08T15:00:00.000Z", date_basis: "recorded", kind: "executive_summary", generated: true, behavioral_evidence: false, report: "A equipe levantou o portal e o catálogo como frentes possíveis. Não houve decisão sobre qual deveria avançar primeiro. As tarefas antigas marcadas como urgentes foram mencionadas como histórico a revisar, sem confirmação de que ainda estavam pendentes ou urgentes." },
+ ],
+ history: [
+  { role: "user", content: "Eu me perco ao escolher entre frentes. O Pensar Estratégico já existe para eu trabalhar essa dificuldade com sua ajuda.", created_at: "2026-09-20T15:00:00.000Z" },
+  { role: "assistant", content: "No Ações, vamos comparar as frentes por impacto, dependências e consequência de esperar. Escolha uma prioridade e duas frentes que podem aguardar.", created_at: "2026-09-20T15:05:00.000Z" },
+ ],
+ commitments: [],
+ question: "Como deve ser minha rotina a partir de amanhã?",
+};
+
+describe.skipIf(process.env.COACH_GUIDED_TEST !== "1")("guided coaching contribution now with historical fronts", () => {
+ test("verifier rejects only promising a future comparison when current priority is uncertain", async () => {
+  const answer = "A partir de amanhã, use três momentos curtos:\n\n1. **8h30–9h:** aproveite a parte livre planejada do “Pensar Estratégico”. No Ações, vamos comparar as frentes já registradas por consequência de esperar, capacidade de desbloquear outras entregas e dependências. Saia com um único resultado verificável para sexta e registre o que ficará esperando.\n\n2. **Durante o dia:** antes de aceitar uma demanda nova, verifique se ela protege esse resultado. Se não proteger e não houver consequência imediata conhecida, deixe-a para triagem posterior.\n\n3. **Fim do dia:** registre em 10 minutos o avanço concreto, o bloqueio e a primeira ação de amanhã. Na sexta, conclua, mantenha ou renegocie conscientemente a prioridade.";
+  await expect(verifyCoachResult(historicalFronts, candidate(answer), () => {})).rejects.toBeInstanceOf(CoachVerificationError);
+ }, 150000);
+
+ test("historical fronts get a concrete contribution now without invented current urgency", async () => {
+  const output = await generate("historical-fronts-current-contribution", historicalFronts);
+  expect(output.actions).toHaveLength(0);
+  await judge("historical-fronts-current-contribution", historicalFronts, output.answer, [
+   { id: "contribution_now", requirement: "Contribui AGORA para destravar a decisão: aplica o que se sabe a pelo menos uma frente histórica concreta, propondo um primeiro passo condicional fundamentado, OU identifica a informação decisiva ausente e faz pergunta focal ou propõe verificação concreta que muda a escolha. Não basta prometer 'vamos comparar por impacto/dependências' nem mandar escolher uma prioridade." },
+   { id: "freshness", requirement: "Distingue contexto histórico de prioridade vigente: não transforma as tarefas antigas marcadas urgentes em urgência atual, fracasso ou dívida confirmada; não inventa prazo, cliente aguardando, impacto medido ou escolha já aceita. Se usar portal ou catálogo como candidatos, preserva a incerteza sobre situação atual." },
+   { id: "known_difficulty", requirement: "Usa a dificuldade de priorizar e o propósito já declarado do Pensar Estratégico para avançar a conversa; não reinicia intake sobre qual é a dificuldade nem pede nova lista completa de frentes como se não houvesse histórico." },
+  ]);
+ }, 360000);
+});
