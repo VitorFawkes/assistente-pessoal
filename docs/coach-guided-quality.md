@@ -41,7 +41,9 @@ A primeira publicação foi validada tecnicamente, mas a repetição da pergunta
 
 O refinamento passa a rejeitar critérios abstratos ou promessa futura como substitutos de ajuda atual. A resposta deve aplicar um critério a uma alternativa ou dúvida concreta, ou conduzir o esclarecimento da lacuna decisiva. Registros antigos podem sustentar uma hipótese de foco com checagem de vigência; não viram urgência ou dívida confirmada.
 
-Dois novos casos inteiramente fictícios reproduzem essa combinação. O candidato genérico foi rejeitado na avaliação do refinamento. A geração do novo caso ainda aguarda validação no provedor; não há aprovação integral desses dois testes. A primeira tentativa foi interrompida antes da análise semântica, portanto não é contada como reprodução RED.
+Dois novos casos inteiramente fictícios reproduzem essa combinação. O candidato genérico foi rejeitado na avaliação do refinamento. Em 22/09, com a cota do provedor restabelecida, os dois testes do bloco passaram: o verificador reprovou um primeiro rascunho com mais de uma pergunta, e o reparo foi aprovado pelo juiz nos três critérios (contribuição atual, atualidade e dificuldade conhecida). A primeira tentativa, de 21/09, foi interrompida antes da análise semântica e não é contada como reprodução RED.
+
+Antes da publicação, a versão também foi exercitada contra uma cópia local do banco de produção (papel `app_tenant`, RLS ativa) e a agenda real, sem escrita em produção: seis conversas (rotina em duas amostras, aceite, acompanhamento da manhã, fechamento e relato de desvio). Todas passaram na primeira verificação, com recomendação concreta e justificada a partir do contexto, retomada do combinado pelo nome e confronto respeitoso do desvio. Na mesma cópia, a versão anterior também indicou uma frente concreta, mas deixou a confirmação para depois; a diferença observada é incremental. O conteúdo pessoal dessas conversas fica fora do repositório.
 
 A conferência visual também identificou listas numeradas reiniciando em 1 a cada linha vazia. O renderer agora mantém os itens consecutivos no mesmo bloco, preservando separações por parágrafo e o escape de HTML.
 

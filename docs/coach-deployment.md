@@ -1,5 +1,14 @@
 # Coach — publicação e operação privada
 
+## Orientação guiada — refinamento publicado em 22/09/2026
+
+Imagem `5e543d2680ada63ac28ce5cab70a1323a8f62dc7`, integrada pelo [PR #8](https://github.com/VitorFawkes/assistente-pessoal/pull/8) e gerada pelo [workflow da imagem](https://github.com/VitorFawkes/assistente-pessoal/actions/runs/35788437879). O source persistente do Easypanel e o serviço do swarm apontam para a mesma imagem; o snapshot anterior ficou em arquivo privado fora do repositório. A réplica nova está em execução, `/api/health` respondeu 200 dentro do container e as novas instruções do coach estão no bundle do servidor. Modelo, ambiente, agenda e rotinas preservados. A validação está em `docs/coach-guided-quality.md`.
+
+Limites conhecidos, fora deste refinamento:
+
+- Os jobs de check-in só são reenfileirados em `CoachBusyError` e `CoachPendingError`. Um 429 do provedor falha na primeira tentativa: em 22/09, os check-ins das 8h e das 18h falharam enquanto a cota estava esgotada.
+- A detecção de combinado aceita apenas `(eu) vou`, `decidi` ou `me comprometo a` seguido de um verbo de lista fixa, no início da frase. Um aceite natural como "Amanhã … eu vou destravar …" não gera `track_commitment`. A retomada ainda acontece pelo histórico da conversa, mas o acompanhamento por prazo não.
+
 ## Orientação guiada — primeira publicação em 21/09/2026
 
 Imagem `690f93f8f179b0e49a05334041b7caf351b04abd`, integrada pelo [PR #7](https://github.com/VitorFawkes/assistente-pessoal/pull/7) e confirmada em execução às 19h14 de São Paulo. Source persistente e container foram alinhados; ambiente e credenciais preservados por comparação com snapshot privado. O propósito de um bloco estratégico, explicitamente confirmado pelo usuário, foi acrescentado ao seu contexto sem alterar os demais campos do perfil. Modelo Sol e rotinas existentes preservados.
