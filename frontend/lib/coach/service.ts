@@ -93,7 +93,7 @@ export async function analyzeMeetings(userId:string,maxChunks=2){
  });
 }
 
-export async function chatWithCoach(userId:string,message:string,now=new Date(),runId?:string,proactive?:"morning"|"evening"|"nudge"){
+export async function chatWithCoach(userId:string,message:string,now=new Date(),runId?:string,proactive?:"morning"|"evening"|"nudge"|"meeting"){
  return withLease(userId,async(store,profile)=>{
   if(runId&&await store.messageByKey(runId+":assistant"))return;
   if(runId){
@@ -124,7 +124,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
   const inherited=reportLineage([...data.history,...data.retrieved_conversations,...data.reviews.map(review=>review.content)]);
   const telemetry:CoachTelemetry[]=[];const onTelemetry=(e:CoachTelemetry)=>telemetry.push(e);
   try{
-   let result=await coachCompletion(COACH_CONVERSATION_INSTRUCTION+"\n"+COACH_INVESTIGATION_INSTRUCTION+(proactive?"\nEste é um acompanhamento proativo. A pergunta é do sistema, não uma declaração do usuário. Não crie user_memories nem actions. Seja breve, não repita cobrança já enviada. Para nudge sem novidade útil, answer=SEM_NOVIDADE.":""),data,
+   let result=await coachCompletion(COACH_CONVERSATION_INSTRUCTION+"\n"+COACH_INVESTIGATION_INSTRUCTION+(proactive?"\nEste é um acompanhamento proativo. A pergunta é do sistema, não uma declaração do usuário. Não crie user_memories nem actions. Seja breve, não repita cobrança já enviada. Para nudge ou meeting sem novidade útil, answer=SEM_NOVIDADE.":""),data,
     ()=>conversationSchemaWithSources(Object.keys(sources),message,{actions:actionSchema(proactive?"":message,memories,commitments),detailed:/aprofund|detalh|explique melhor/iu.test(message)}),
     {reasoningEffort:needsDeepInvestigation(message)?"high":"medium",tools:investigation.tools,maxToolRounds:4,maxToolCalls:8,timeoutMs:180000,onTelemetry});
    const validateCandidate=(result:Record<string,unknown>)=>{
@@ -169,7 +169,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
    let candidate=validateCandidate(result);
    const verificationData={...data,sources,additional_reports:investigation.reportReads,additional_context_reads:investigation.contextReads,additional_transcripts:investigation.selected.map(s=>({meeting_id:s.meeting.id,recorded_at:s.meeting.recorded_at,text:s.chunk.text}))};
    const verifyCandidate=async()=>{
-    if(!(proactive==="nudge"&&candidate.answer==="SEM_NOVIDADE"&&!candidate.observations.length))await verifyCoachResult(verificationData,candidate.publishable,onTelemetry);
+    if(!((proactive==="nudge"||proactive==="meeting")&&candidate.answer==="SEM_NOVIDADE"&&!candidate.observations.length))await verifyCoachResult(verificationData,candidate.publishable,onTelemetry);
    };
    try{await verifyCandidate();}catch(error){
     if(!(error instanceof CoachVerificationError))throw error;
@@ -181,7 +181,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
     await verifyCandidate();
    }
    const {requestedActions,observations,answer}=candidate;
-   if(proactive==="nudge"&&answer==="SEM_NOVIDADE")return;
+   if((proactive==="nudge"||proactive==="meeting")&&answer==="SEM_NOVIDADE")return;
    const confirmations:string[]=[];const changedQuotes=new Set<string>();
    let taskOrdinal=0;
    for(const action of requestedActions){
@@ -238,7 +238,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
     if(!obs||!["pattern","experiment"].includes(candidate.kind)||!text(candidate.content))continue;
     try{await store.addMemory({kind:candidate.kind,content:text(candidate.content,4000),status:"hypothesis",evidence:obs.evidence},revision);}catch(e){if(!(e instanceof MemoryPolicyError))throw e;}
    }
-   await store.addMessage("assistant",presentChat([...(proactive?[proactive==="morning"?"Foco do dia":proactive==="evening"?"Fechamento do dia":"Um ponto de atenção"]:[]),answer,...confirmations].filter(Boolean).join("\n\n"),observations,investigation.selected.map(s=>s.meeting.id),coverage,reports.meetings.filter(m=>m.kind!=="missing").length+historicalReports.meetings.filter(m=>m.kind!=="missing").length),observations.flatMap(o=>o.evidence),revision,runId?runId+":assistant":undefined,[...reportSources([...context.meetings,...context.historical_meetings||[],...investigation.meetings.values()]),...investigation.contextSources,...inherited.sources],inherited.periods);
+   await store.addMessage("assistant",presentChat([...(proactive?[proactive==="morning"?"Foco do dia":proactive==="evening"?"Fechamento do dia":proactive==="meeting"?"Depois da reunião":"Um ponto de atenção"]:[]),answer,...confirmations].filter(Boolean).join("\n\n"),observations,investigation.selected.map(s=>s.meeting.id),coverage,reports.meetings.filter(m=>m.kind!=="missing").length+historicalReports.meetings.filter(m=>m.kind!=="missing").length),observations.flatMap(o=>o.evidence),revision,runId?runId+":assistant":undefined,[...reportSources([...context.meetings,...context.historical_meetings||[],...investigation.meetings.values()]),...investigation.contextSources,...inherited.sources],inherited.periods);
   }finally{if(process.env.COACH_AUDIT_ENABLED==="true")await recordModelRuns(userId,"chat",runId||null,telemetry,revision).catch(()=>{});}
  });
 }
@@ -316,12 +316,22 @@ export async function generateReview(userId:string,now=new Date(),force=false,sc
   return saved;
  });
 }
+/** A follow-up tied to one recorded meeting; avoids day words that would narrow the context to a period. */
+export function meetingFollowupQuestion(meetingId:string,localTime:string){
+ return `Uma reunião foi registrada em ${localTime} (meeting_id=${meetingId}). Leia o relatório dela em meeting_reports ou com read_meeting_report. Se ela tratar de um combinado aberto do usuário, retome UM combinado pelo nome, ligado ao que a reunião mostra: se o relatório indicar avanço, reconheça-o como algo a confirmar e pergunte se o combinado pode ser dado como concluído; se indicar obstáculo, ajude com o próximo passo; se não deixar claro, pergunte se a reunião destravou o combinado. Relatório é contexto gerado: não afirme execução que ele não mostra. Se a reunião não tiver relação com um combinado aberto, ou se essa retomada já foi feita sem novidade, answer=SEM_NOVIDADE. No máximo uma pergunta.`;
+}
 export function coachCheckinQuestion(kind:"morning"|"evening"|"nudge"){
  return kind==="morning"?"Ajude a pensar no que merece atenção hoje a partir dos objetivos, dificuldades conhecidas, prazos, dependências e combinados disponíveis. Se a dificuldade é priorizar, compare as alternativas concretas conhecidas e recomende um começo com seu motivo; não devolva apenas a ordem de escolher um foco. Aproveite o propósito declarado dos blocos existentes para propor uma questão útil a explorar na conversa. Se a prioridade já foi definida, prepare o próximo passo em vez de escolhê-la de novo. Se faltar informação decisiva, faça uma pergunta focal. Confira se algum combinado anterior precisa ser retomado antes de abrir outro. Uma proposta sua só vira combinado após aceite do usuário."
   :kind==="evening"?"Retome UM combinado relevante de hoje pelo nome e pergunte se o usuário conseguiu fazê-lo, mesmo sem reuniões ou registros de tarefa. Se ele já informou o resultado, use essa resposta: reconheça avanço específico ou ajude com o obstáculo, sem perguntar novamente o que já sabe. Ausência de registro não é descumprimento. Para combinado sem prazo, confirme a situação sem inventar vencimento. Se só houver conselho seu sem aceite, não pergunte se foi cumprido: ajude a esclarecer a escolha pendente quando ainda for relevante, sem repetir o mesmo conselho. Faça no máximo uma pergunta útil."
   :"Confira UM combinado com prazo atingido e resultado ainda não confirmado. Não precisa ter havido reunião. Pergunte se foi feito; se já houver relato de obstáculo, guie a retomada usando esse contexto sem repetir a pergunta respondida. Prazo no registro não prova descumprimento. Só intervenha com uma retomada concreta e útil ainda não tratada; caso contrário, answer deve ser SEM_NOVIDADE.";
 }
-export async function generateCheckin(userId:string,kind:"morning"|"evening"|"nudge",now=new Date(),runId?:string){
- return chatWithCoach(userId,coachCheckinQuestion(kind),now,runId,kind);
+export async function generateCheckin(userId:string,kind:"morning"|"evening"|"nudge"|"meeting",now=new Date(),runId?:string,meetingId?:string){
+ if(kind!=="meeting")return chatWithCoach(userId,coachCheckinQuestion(kind),now,runId,kind);
+ const store=coachStore(userId);
+ const [profile,meeting]=await Promise.all([store.profile(),meetingId?store.meetingById(meetingId):null]);
+ if(!meeting)return;
+ const at=new Date((meeting as {context_at?:string}).context_at||meeting.recorded_at||now);
+ const localTime=new Intl.DateTimeFormat("pt-BR",{timeZone:profile.timezone,day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}).format(at);
+ return chatWithCoach(userId,meetingFollowupQuestion(meeting.id,localTime),now,runId,"meeting");
 }
 export { StaleCoachRunError };

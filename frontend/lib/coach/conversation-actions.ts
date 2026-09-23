@@ -41,6 +41,15 @@ export function trackingCommitmentCandidates(message:string):string[]{
   });
  });
 }
+/** Words of the step itself ("destravar a contratação da closer"), without its time/place lead-in. */
+export function commitmentTopicWords(title:string):Set<string>{
+ const s=normalized(title);
+ for(const start of s.matchAll(commitmentStart)){
+  const step=s.slice(start.index+start[0].length).match(concreteStep);
+  if(step)return subjectWords(step[1]+" "+step[2]);
+ }
+ return subjectWords(title);
+}
 /** Conservative identity resolution: a common word never chooses between competing steps. */
 export function commitmentActionTargets(quote:string,commitments:CoachCommitment[],type:string):CoachCommitment[]{
  const candidates=commitments.filter(c=>type!=="complete_commitment"||["open","renegotiated","unknown"].includes(c.status));

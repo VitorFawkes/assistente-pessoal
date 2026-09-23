@@ -29,3 +29,11 @@ describe("durable coaching work", () => {
     expect(JSON.stringify(visible)).not.toMatch(/private|secret|lease_token|payload/);
   });
 });
+
+test("a meeting follow-up carries only a valid meeting id", () => {
+  const meeting_id = "33333333-3333-4333-8333-333333333333";
+  expect(validateJobInput({kind:"checkin",key:"scheduled:meeting:x",payload:{checkin:"meeting",meeting_id,extra:"no"}}).payload).toEqual({checkin:"meeting",meeting_id});
+  expect(() => validateJobInput({kind:"checkin",key:"manual:meeting",payload:{checkin:"meeting"}})).toThrow("invalid_input");
+  expect(() => validateJobInput({kind:"checkin",key:"manual:meeting",payload:{checkin:"meeting",meeting_id:"1 OR 1=1"}})).toThrow("invalid_input");
+  expect(validateJobInput({kind:"checkin",key:"scheduled:morning:x",payload:{checkin:"morning",meeting_id}}).payload).toEqual({checkin:"morning"});
+});

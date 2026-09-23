@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { commitmentsDueForFollowup } from "./follow-up";
+import { commitmentsDueForFollowup, meetingMentionsCommitment } from "./follow-up";
 import type { CoachCommitment } from "./types";
 
 const now = new Date("2026-09-21T17:00:00Z");
@@ -37,4 +37,16 @@ test("review context changes for a new obstacle, goal or user reply, but not gen
   expect(accountabilityFingerprint([agreement()],[],[{id:"reply",role:"user",content:"Consegui enviar",created_at:"2026-09-21T16:00:00Z",evidence:[]}])).not.toBe(base);
   expect(accountabilityFingerprint([agreement()],[],[{id:"coach",role:"assistant",content:"Retome a proposta",created_at:"2026-09-21T16:00:00Z",evidence:[]}])).toBe(base);
   expect(accountabilityFingerprint([agreement()],[{id:"goal",kind:"goal",content:"Concluir proposta",status:"confirmed",updated_at:"2026-09-21T12:00:00Z"} as never],[])).not.toBe(base);
+});
+
+test("a meeting relates to an agreement by the step's own words, not its time or place lead-in", () => {
+  const closer = "Amanhã no Pensar Estratégico eu vou destravar a contratação da closer.";
+  expect(meetingMentionsCommitment("Mapeamento de candidatas para a vaga de closer com a consultoria.", closer)).toBe(true);
+  expect(meetingMentionsCommitment("A consultoria enviou a shortlist de closers.", closer)).toBe(true);
+  expect(meetingMentionsCommitment("Decidimos contratar a nova pessoa até outubro.", closer)).toBe(true);
+  expect(meetingMentionsCommitment("Revisamos o orçamento de marketing e a contraproposta do fornecedor.", closer)).toBe(false);
+  expect(meetingMentionsCommitment("Planejamento estratégico de marketing; pensar nas metas do trimestre.", closer)).toBe(false);
+  expect(meetingMentionsCommitment("A contratação da vaga comercial avançou.", closer)).toBe(true);
+  expect(meetingMentionsCommitment("As propostas da Aurora foram aprovadas.", "Vou enviar a proposta da Aurora hoje.")).toBe(true);
+  expect(meetingMentionsCommitment("Reunião geral do time.", "Vou fazer isso.")).toBe(false);
 });

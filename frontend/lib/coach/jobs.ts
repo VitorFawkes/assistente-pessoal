@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { withTenant } from "../db";
 
 export type CoachJobKind = "chat" | "analyze" | "review" | "checkin";
-export type CheckinKind = "morning" | "evening" | "nudge";
+export type CheckinKind = "morning" | "evening" | "nudge" | "meeting";
 export type CoachJob = { id:string; kind:CoachJobKind; status:"queued"|"running"|"succeeded"|"failed"|"cancelled"; attempts:number; error:string|null; created_at:string; updated_at:string };
 export type ClaimedCoachJob = CoachJob & { payload:Record<string,unknown>; lease_token:string; profile_revision:number };
 export type JobInput = {kind:CoachJobKind;key:string;payload?:Record<string,unknown>};
@@ -17,8 +17,10 @@ export function validateJobInput(input:JobInput):Required<JobInput>{
  if(!["chat","analyze","review","checkin"].includes(input.kind)||!input.key||input.key.length>160||!/^[\w:.-]+$/.test(input.key))throw new Error("invalid_input");
  const payload=input.payload||{};
  if(input.kind==="chat"&&(typeof payload.message!=="string"||!payload.message.trim()||payload.message.length>6000))throw new Error("invalid_input");
- if(input.kind==="checkin"&&!["morning","evening","nudge"].includes(String(payload.checkin)))throw new Error("invalid_input");
- return {kind:input.kind,key:input.key,payload:input.kind==="chat"?{message:String(payload.message).trim()}:input.kind==="checkin"?{checkin:payload.checkin}:input.kind==="review"?{force:payload.force===true}: {}};
+ if(input.kind==="checkin"&&!["morning","evening","nudge","meeting"].includes(String(payload.checkin)))throw new Error("invalid_input");
+ const meeting=input.kind==="checkin"&&payload.checkin==="meeting";
+ if(meeting&&!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(payload.meeting_id)))throw new Error("invalid_input");
+ return {kind:input.kind,key:input.key,payload:input.kind==="chat"?{message:String(payload.message).trim()}:input.kind==="checkin"?{checkin:payload.checkin,...(meeting?{meeting_id:payload.meeting_id}:{})}:input.kind==="review"?{force:payload.force===true}: {}};
 }
 export function dueCheckins(profile:CadenceProfile,now:Date,concreteTrigger:boolean):CheckinKind[]{
  if(!profile.enabled)return [];

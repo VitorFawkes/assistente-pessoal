@@ -1,7 +1,7 @@
 import { withTenant } from "../db";
 import { listCommitments } from "./coach-commitments";
 import { createHash } from "node:crypto";
-import { accountabilityFingerprint, commitmentsDueForFollowup } from "./follow-up";
+import { accountabilityFingerprint, commitmentsDueForFollowup, meetingMentionsCommitment } from "./follow-up";
 import { coachStore } from "./store";
 import { reviewPeriod } from "./evidence";
 import { claimJob,dueCheckins,enqueueJob,finishJob,localJobDay,renewJob,type CadenceProfile,type CheckinKind } from "./jobs";
@@ -23,7 +23,7 @@ export async function drainJobs(userId:string,options:{maxJobs?:number;deadline?
    if(job.kind==="chat")await service.chatWithCoach(userId,String(job.payload.message),new Date(),job.id);
    else if(job.kind==="analyze")await service.analyzeMeetings(userId,2);
    else if(job.kind==="review")await service.generateReview(userId,new Date(),job.payload.force===true,job.payload.force!==true);
-   else await service.generateCheckin(userId,job.payload.checkin as CheckinKind,new Date(),job.id);
+   else await service.generateCheckin(userId,job.payload.checkin as CheckinKind,new Date(),job.id,typeof job.payload.meeting_id==="string"?job.payload.meeting_id:undefined);
    if(await finishJob(userId,job.id,job.lease_token))completed++;
   }catch(error){
    const unavailable=job.kind!=="chat"&&error instanceof CoachProviderUnavailableError;
@@ -62,4 +62,13 @@ export async function scheduleCoachJobs(userId:string,now=new Date()){
  }):false;
  const trigger=due.length>0&&!recent;
  for(const kind of dueCheckins(cadence,now,trigger))await enqueueJob(userId,{kind:"checkin",key:`scheduled:${kind}:${localJobDay(profile.timezone,now)}`,payload:{checkin:kind}});
+ // A report of a meeting held after an open agreement and touching its topic gets one follow-up in Ações.
+ const open=cadence.nudges_enabled?commitments.filter(c=>["open","renegotiated"].includes(c.status)):[];
+ if(!open.length)return;
+ for(const meeting of await store.recentMeetingReports(new Date(now.getTime()-24*3600_000).toISOString())){
+  const report=meeting.executive_summary||meeting.summary;if(!report)continue;
+  const at=new Date(meeting.at).getTime();
+  if(open.some(c=>new Date(c.created_at).getTime()<at&&meetingMentionsCommitment(`${meeting.nome||meeting.original_filename} ${report}`,c.title)))
+   await enqueueJob(userId,{kind:"checkin",key:`scheduled:meeting:${meeting.id}`,payload:{checkin:"meeting",meeting_id:meeting.id}});
+ }
 }

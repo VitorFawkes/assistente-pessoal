@@ -317,6 +317,11 @@ export function coachStore(userId: string) {
       `SELECT ${MEETING_COLUMNS} FROM meetings WHERE user_id = $1 AND ${ELIGIBLE}
        ORDER BY recorded_at DESC NULLS LAST, id LIMIT $2 OFFSET $3`, [userId, bounded(limit, 1, 100), bounded(offset, 0, Number.MAX_SAFE_INTEGER)])),
 
+    recentMeetingReports: (since: string) => tenant((db) => rows<{ id: string; nome: string | null; original_filename: string; at: Date; summary: string | null; executive_summary: string | null }>(db,
+      `SELECT id, nome, original_filename, coalesce(recorded_at, created_at) AS at, summary, raw_ai_response->>'executive_summary' AS executive_summary
+       FROM meetings WHERE user_id = $1 AND ${ELIGIBLE} AND coalesce(recorded_at, created_at) >= $2::timestamptz
+       ORDER BY coalesce(recorded_at, created_at), id LIMIT 20`, [userId, since])),
+
     meetingById: (id: string) => tenant(async (db) => (await rows<CoachMeetingContext>(db,
       `SELECT ${MEETING_COLUMNS},${contextDateColumns()} FROM meetings WHERE user_id = $1 AND id = $2 AND ${ELIGIBLE}`, [userId, id]))[0] ?? null),
 

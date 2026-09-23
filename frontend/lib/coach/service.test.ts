@@ -43,6 +43,7 @@ function fixture(meetings:CoachMeeting[],result:Record<string,unknown>,periodObs
  const fake={
   profile:async()=>({enabled:true,weekly_enabled:true,revision:tracked.length&&options.concurrentProfileRevision?options.concurrentProfileRevision:1,goals:"",context:"",timezone:"America/Sao_Paulo",review_day:5,review_hour:17}),
   claimLease:async()=>"lease",releaseLease:async()=>{},runReceipt:async()=>options.receipt||null,
+  meetingById:async(id:string)=>{const found=meetings.find(item=>item.id===id);return found?{...found,context_at:found.recorded_at}:null;},
   context:async(search?:string,contextOptions?:unknown)=>{contextRequest={search,options:contextOptions};return {meetings,messages:options.retrievedMessages||[],tasks:[],events:[],analyses:[],limitations:[],...(options.toolContext&&search===options.toolContext.query?options.toolContext.context:{})};},
   memories:async()=>options.storedMemories||[],memoryContext:async(at?:string)=>(options.toolContext&&at===options.toolContext.at?options.toolContext.memory:{active_goals:[],corrections:options.storedMemories||[],memories:[],legacy_goals:null}),messages:async()=>options.storedMessages||[],userMessages:async()=>(options.storedMessages||[]).filter(m=>m.role==="user"),selfPersonIds:async()=>["self"],reviews:async()=>options.storedReviews||[],
   coverage:async()=>({total_meetings:137,analyzed_meetings:2,analyzed_chunks:3,pending_meetings:135}),
@@ -242,6 +243,20 @@ test("weekly verifier rejects an unsupported assessment before review or memory 
   await expect(generateReview("synthetic-user",new Date("2026-09-20T20:00:00Z"))).rejects.toBeInstanceOf(CoachAIError);
   expect(run.checks()).toBe(2);expect(run.requests()).toBe(4);expect(run.reviews).toEqual([]);expect(run.memories).toEqual([]);
  }finally{run.restore();}
+});
+
+test("a meeting follow-up names that meeting, has its own title and stays silent without news",async()=>{
+ const run=fixture([meeting],{answer:"A reunião tratou da proposta. Ela destravou o combinado?",observations:[],memories:[]});
+ try{
+  await generateCheckin("synthetic-user","meeting",new Date("2026-09-20T17:00:00Z"),"meeting-fixture",meeting.id);
+  expect(String(run.input().question)).toContain(`meeting_id=${meeting.id}`);
+  expect(run.input().trigger).toEqual({kind:"meeting",origin:"system_schedule_or_button",not_user_statement:true});
+  expect(run.saved.map(message=>message.role)).toEqual(["assistant"]);expect(run.saved[0].content).toContain("Depois da reunião");
+ }finally{run.restore();}
+ const quiet=fixture([meeting],{answer:"SEM_NOVIDADE",observations:[],memories:[]});
+ try{await generateCheckin("synthetic-user","meeting",new Date("2026-09-20T17:00:00Z"),"meeting-quiet",meeting.id);expect(quiet.saved).toEqual([]);expect(quiet.checks()).toBe(0);}finally{quiet.restore();}
+ const gone=fixture([],{answer:"Não deveria rodar",observations:[],memories:[]});
+ try{await generateCheckin("synthetic-user","meeting",new Date("2026-09-20T17:00:00Z"),"meeting-gone","99999999-9999-4999-8999-999999999999");expect(gone.requests()).toBe(0);expect(gone.saved).toEqual([]);}finally{gone.restore();}
 });
 
 test("a nudge without a meaningful new signal does not publish or fabricate a conversation",async()=>{
