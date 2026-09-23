@@ -45,9 +45,9 @@ describe("decidir — a regra dos 3 votos", () => {
     expect(d[0]).toEqual({ tipo: "duvida", tarefaId: "a", votos: 2 });
   });
 
-  test("1 de 3 → dúvida", () => {
+  test("1 de 3 → nasce normal, sem aviso", () => {
     const d = decidir(1, [votos([0, nova]), votos([0, mesma("C2")]), votos([0, nova])], rotulos, porRotulo);
-    expect(d[0]).toEqual({ tipo: "duvida", tarefaId: "b", votos: 1 });
+    expect(d[0]).toEqual({ tipo: "nova", votos: 0 });
   });
 
   test("0 de 3 → nova", () => {
@@ -86,10 +86,12 @@ describe("decidir — a regra dos 3 votos", () => {
     expect(d[0]).toEqual({ tipo: "duvida", tarefaId: "a", votos: 3 });
   });
 
-  test("só \"talvez\" → dúvida", () => {
+  test("2 \"talvez\" → dúvida; 1 só → nova", () => {
     const talvez: Voto = { decisao: "talvez", candidata: "C2" };
-    const d = decidir(1, [votos([0, talvez]), votos([0, nova]), votos([0, nova])], rotulos, porRotulo);
-    expect(d[0]).toEqual({ tipo: "duvida", tarefaId: "b", votos: 1 });
+    const dois = decidir(1, [votos([0, talvez]), votos([0, talvez]), votos([0, nova])], rotulos, porRotulo);
+    expect(dois[0]).toEqual({ tipo: "duvida", tarefaId: "b", votos: 2 });
+    const um = decidir(1, [votos([0, talvez]), votos([0, nova]), votos([0, nova])], rotulos, porRotulo);
+    expect(um[0]).toEqual({ tipo: "nova", votos: 0 });
   });
 
   test("empate vai pra candidata mais parecida (a primeira da lista)", () => {
@@ -170,7 +172,7 @@ describe("compararComExistentes", () => {
   test("junta com 3 de 3 e mostra as candidatas da mais parecida pra menos", async () => {
     const juiz: Juiz = async () => ({ votos: votos([0, mesma("C1")]), entrada: 10, saida: 2 });
     const r = await compararComExistentes({
-      dataReuniao: null,
+      dataReuniao: "2026-07-05T12:00:00Z",
       novas: [{ titulo: "x" }],
       vetoresNovas: [[0.9, 0.1]],
       candidatas,
@@ -196,6 +198,16 @@ describe("compararComExistentes", () => {
     });
     expect(r.decisoes[0].tipo).toBe("nova");
     expect(r.uso.falhas).toBe(3);
+  });
+
+  test("3 de 3 em card de mais de 3 semanas → aviso, não junta", async () => {
+    const velho = { ...cand("a"), reuniao_em: "2026-07-01T12:00:00Z" };
+    const juiz: Juiz = async () => ({ votos: votos([0, mesma("C1")]), entrada: 1, saida: 1 });
+    const base = { novas: [{ titulo: "x" }], vetoresNovas: [[1, 0]], candidatas: [velho], vetoresCandidatas: new Map([["a", [1, 0]]]), juiz };
+    const r22 = await compararComExistentes({ ...base, dataReuniao: "2026-07-23T12:00:00Z" });
+    expect(r22.decisoes[0]).toEqual({ tipo: "duvida", tarefaId: "a", votos: 3 });
+    const r20 = await compararComExistentes({ ...base, dataReuniao: "2026-07-21T12:00:00Z" });
+    expect(r20.decisoes[0]).toEqual({ tipo: "mesma", tarefaId: "a", votos: 3 });
   });
 
   test("sem candidatas nem chama o juiz", async () => {
