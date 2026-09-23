@@ -3,7 +3,7 @@ import {randomUUID} from "node:crypto";
 import {readFile} from "node:fs/promises";
 import {Pool} from "pg";
 import {getPool,withTenant} from "../db";
-import {enqueueJob,listJobs,claimJob,finishJob,cancelJobs,retryJob} from "./jobs";
+import {enqueueJob,listJobs,claimJob,finishJob,cancelJobs,retryJob,attentionBudget} from "./jobs";
 const connection=process.env.COACH_TEST_DATABASE_URL;
 describe.skipIf(!connection)("durable jobs: real isolation and crash recovery",()=>{
  const a=randomUUID(),b=randomUUID(),schema=`jobs_test_${randomUUID().replaceAll("-","")}`;let admin:Pool;
@@ -13,7 +13,7 @@ describe.skipIf(!connection)("durable jobs: real isolation and crash recovery",(
   await admin.query(`CREATE SCHEMA ${schema};GRANT USAGE ON SCHEMA ${schema} TO app_tenant,app_writer;`);
   await admin.query(`CREATE TABLE IF NOT EXISTS users(id uuid PRIMARY KEY,nome text,deleted_at timestamptz,consent_terms_at timestamptz);
    CREATE TABLE IF NOT EXISTS coach_messages(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,role text,content text,idempotency_key text);
-   ALTER TABLE coach_messages ADD COLUMN IF NOT EXISTS idempotency_key text;GRANT SELECT ON coach_messages TO app_tenant,app_writer;
+   ALTER TABLE coach_messages ADD COLUMN IF NOT EXISTS idempotency_key text;ALTER TABLE coach_messages ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();GRANT SELECT ON coach_messages TO app_tenant,app_writer;
    CREATE TABLE IF NOT EXISTS coach_profiles(user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,enabled boolean NOT NULL DEFAULT false,revision int NOT NULL DEFAULT 1,updated_at timestamptz DEFAULT now());
    ALTER TABLE coach_profiles ENABLE ROW LEVEL SECURITY;ALTER TABLE coach_profiles FORCE ROW LEVEL SECURITY;
    DROP POLICY IF EXISTS jobs_test_tenant ON coach_profiles;
@@ -79,6 +79,23 @@ describe.skipIf(!connection)("durable jobs: real isolation and crash recovery",(
   expect(row.status).toBe("queued");expect(row.attempts).toBe(1);expect(row.wait).toBeGreaterThan(1100);expect(row.wait).toBeLessThanOrEqual(1200);
   expect(await claimJob(a)).toBeNull();
   await cancelJobs(a);
+ });
+ test("the attention budget counts only published check-ins and resets on a reply",async()=>{
+  const publish=async(key:string,payload:Record<string,unknown>)=>{
+   const queued=await enqueueJob(a,{kind:"checkin",key,payload});const job=await claimJob(a);expect(job?.id).toBe(queued.id);
+   await admin.query("INSERT INTO coach_messages(user_id,role,content,idempotency_key) VALUES($1,'assistant','Check-in',$2)",[a,`${queued.id}:assistant`]);
+   expect(await finishJob(a,job!.id,job!.lease_token)).toBe(true);
+  };
+  const now=()=>new Date(Date.now()+1000);
+  await publish("budget-morning",{checkin:"morning"});
+  let budget=await attentionBudget(a,now(),"America/Sao_Paulo");
+  expect(budget.extraToday).toBe(false);expect(budget.unanswered).toBe(1);expect(budget.lastPublished).not.toBeNull();
+  await admin.query("INSERT INTO coach_messages(user_id,role,content) VALUES($1,'user','Respondi')",[a]);
+  expect((await attentionBudget(a,now(),"America/Sao_Paulo")).unanswered).toBe(0);
+  await publish("budget-meeting",{checkin:"meeting",meeting_id:"33333333-3333-4333-8333-333333333333"});
+  budget=await attentionBudget(a,now(),"America/Sao_Paulo");
+  expect(budget.extraToday).toBe(true);expect(budget.unanswered).toBe(1);
+  expect((await attentionBudget(b,now(),"America/Sao_Paulo")).unanswered).toBe(0);
  });
  test("cancelling in-flight work invalidates source revision and pause prevents claiming",async()=>{
   const queued=await enqueueJob(a,{kind:"chat",key:"cancel",payload:{message:"cancel"}});const job=await claimJob(a);expect(job?.id).toBe(queued.id);

@@ -72,12 +72,22 @@ test("a meeting held after an open agreement and touching its topic queues one f
  const store=spyOn(stores,"coachStore").mockReturnValue({profile:async()=>({enabled:true,weekly_enabled:false,nudges_enabled:nudges,revision:1,timezone:"America/Sao_Paulo"}),coverage:async()=>({pending_meetings:0}),recentMeetingReports:async()=>meetings} as unknown as ReturnType<typeof stores.coachStore>);
  const enqueue=spyOn(jobs,"enqueueJob").mockImplementation(async(_user,input)=>{requests.push(input);return {} as jobs.CoachJob;});
  const list=spyOn(commitmentStore,"listCommitments").mockImplementation(async()=>agreements as never);
+ let budget:jobs.AttentionBudget={extraToday:false,lastPublished:null,unanswered:0};
+ const attention=spyOn(jobs,"attentionBudget").mockImplementation(async()=>budget);
  try{
-  const now=new Date("2026-09-23T18:30:00Z");
+  const now=new Date("2026-09-23T17:30:00Z");
   await scheduleCoachJobs("owner",now);
   // Before the agreement, unrelated and report-less meetings are skipped.
   expect(requests).toEqual([{kind:"checkin",key:"scheduled:meeting:33333333-3333-4333-8333-333333333333",payload:{checkin:"meeting",meeting_id:"33333333-3333-4333-8333-333333333333"}}]);
   requests.length=0;agreements=[{...agreement,status:"completed"}];await scheduleCoachJobs("owner",now);expect(requests).toEqual([]);
   agreements=[agreement];nudges=false;await scheduleCoachJobs("owner",now);expect(requests).toEqual([]);
- }finally{store.mockRestore();enqueue.mockRestore();list.mockRestore();}
+  // Attention budget: one optional follow-up per day, spaced, never on top of unanswered check-ins.
+  nudges=true;
+  for(const blocked of [{extraToday:true,lastPublished:null,unanswered:0},{extraToday:false,lastPublished:new Date("2026-09-23T15:00:00Z"),unanswered:0},{extraToday:false,lastPublished:null,unanswered:2}]){
+   budget=blocked;await scheduleCoachJobs("owner",now);expect(requests).toEqual([]);
+  }
+  budget={extraToday:false,lastPublished:null,unanswered:0};
+  await scheduleCoachJobs("owner",new Date("2026-09-23T20:30:00Z"));expect(requests).toEqual([]);
+  await scheduleCoachJobs("owner",now);expect(requests).toHaveLength(1);
+ }finally{store.mockRestore();enqueue.mockRestore();list.mockRestore();attention.mockRestore();}
 });

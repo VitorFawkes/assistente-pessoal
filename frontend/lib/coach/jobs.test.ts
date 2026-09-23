@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { dueCheckins, retryDelaySeconds, publicJob, validateJobInput } from "./jobs";
+import { dueCheckins, extraFollowupAllowed, retryDelaySeconds, publicJob, validateJobInput } from "./jobs";
 
 describe("durable coaching work", () => {
   const profile = { enabled: true, morning_enabled: true, evening_enabled: true, nudges_enabled: true, morning_hour: 8, evening_hour: 18, timezone: "America/Sao_Paulo" };
@@ -36,4 +36,18 @@ test("a meeting follow-up carries only a valid meeting id", () => {
   expect(() => validateJobInput({kind:"checkin",key:"manual:meeting",payload:{checkin:"meeting"}})).toThrow("invalid_input");
   expect(() => validateJobInput({kind:"checkin",key:"manual:meeting",payload:{checkin:"meeting",meeting_id:"1 OR 1=1"}})).toThrow("invalid_input");
   expect(validateJobInput({kind:"checkin",key:"scheduled:morning:x",payload:{checkin:"morning",meeting_id}}).payload).toEqual({checkin:"morning"});
+});
+
+test("optional follow-ups respect the attention budget", () => {
+  const free = { extraToday: false, lastPublished: null, unanswered: 0 };
+  const at = (iso: string) => new Date(iso);
+  // 14:00 in São Paulo.
+  expect(extraFollowupAllowed(free, at("2026-09-23T17:00:00Z"), "America/Sao_Paulo")).toBe(true);
+  expect(extraFollowupAllowed(free, at("2026-09-23T12:59:00Z"), "America/Sao_Paulo")).toBe(false);
+  expect(extraFollowupAllowed(free, at("2026-09-23T19:00:00Z"), "America/Sao_Paulo")).toBe(false);
+  expect(extraFollowupAllowed({ ...free, extraToday: true }, at("2026-09-23T17:00:00Z"), "America/Sao_Paulo")).toBe(false);
+  expect(extraFollowupAllowed({ ...free, unanswered: 2 }, at("2026-09-23T17:00:00Z"), "America/Sao_Paulo")).toBe(false);
+  expect(extraFollowupAllowed({ ...free, unanswered: 1 }, at("2026-09-23T17:00:00Z"), "America/Sao_Paulo")).toBe(true);
+  expect(extraFollowupAllowed({ ...free, lastPublished: at("2026-09-23T14:30:00Z") }, at("2026-09-23T17:00:00Z"), "America/Sao_Paulo")).toBe(false);
+  expect(extraFollowupAllowed({ ...free, lastPublished: at("2026-09-23T14:00:00Z") }, at("2026-09-23T17:00:00Z"), "America/Sao_Paulo")).toBe(true);
 });

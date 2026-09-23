@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { accountabilityFingerprint, commitmentsDueForFollowup, meetingMentionsCommitment } from "./follow-up";
 import { coachStore } from "./store";
 import { reviewPeriod } from "./evidence";
-import { claimJob,dueCheckins,enqueueJob,finishJob,localJobDay,renewJob,type CadenceProfile,type CheckinKind } from "./jobs";
+import { attentionBudget,claimJob,dueCheckins,enqueueJob,extraFollowupAllowed,finishJob,localJobDay,renewJob,type CadenceProfile,type CheckinKind } from "./jobs";
 import { CoachProviderUnavailableError } from "./model";
 
 /** Scheduled work waits past the next 15-minute runner tick; chat answers stay immediate. */
@@ -60,11 +60,12 @@ export async function scheduleCoachJobs(userId:string,now=new Date()){
    AND status IN ('queued','running','succeeded') AND updated_at>$2::timestamptz-interval '4 hours') AS recent`,[userId,now.toISOString()])).rows[0];
   return !!row.recent;
  }):false;
- const trigger=due.length>0&&!recent;
+ const open=cadence.nudges_enabled?commitments.filter(c=>["open","renegotiated"].includes(c.status)):[];
+ const extra=(due.length||open.length)&&cadence.nudges_enabled?extraFollowupAllowed(await attentionBudget(userId,now,profile.timezone),now,profile.timezone):false;
+ const trigger=due.length>0&&!recent&&extra;
  for(const kind of dueCheckins(cadence,now,trigger))await enqueueJob(userId,{kind:"checkin",key:`scheduled:${kind}:${localJobDay(profile.timezone,now)}`,payload:{checkin:kind}});
  // A report of a meeting held after an open agreement and touching its topic gets one follow-up in Ações.
- const open=cadence.nudges_enabled?commitments.filter(c=>["open","renegotiated"].includes(c.status)):[];
- if(!open.length)return;
+ if(!open.length||!extra)return;
  for(const meeting of await store.recentMeetingReports(new Date(now.getTime()-24*3600_000).toISOString())){
   const report=meeting.executive_summary||meeting.summary;if(!report)continue;
   const at=new Date(meeting.at).getTime();
