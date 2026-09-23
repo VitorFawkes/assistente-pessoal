@@ -27,10 +27,11 @@ export function accountabilityFingerprint(commitments: CoachCommitment[], memori
 
 /**
  * Cheap gate before any model call: the meeting report names a distinctive word of the agreement's
- * step. A shared start of up to 7 letters absorbs plural and verb forms (closer/closers, contratação/contratar).
+ * step. A shared start absorbs plural and verb forms (closer/closers, contratação/contratar); long words
+ * keep 8 letters so "contratação" does not match "contrato".
  */
 export function meetingMentionsCommitment(report: string, title: string): boolean {
-  const prefixes = [...commitmentTopicWords(title)].filter(word => word.length >= 5).map(word => word.slice(0, 7));
+  const prefixes = [...commitmentTopicWords(title)].filter(word => word.length >= 5).map(word => word.slice(0, word.length >= 10 ? 8 : 7));
   if (!prefixes.length) return false;
   const words = new Set(report.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().match(/[a-z][a-z0-9]*/gu) || []);
   return [...words].some(word => prefixes.some(prefix => word.startsWith(prefix)));

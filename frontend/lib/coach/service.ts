@@ -10,7 +10,7 @@ import { verifyCoachResult, CoachVerificationError } from "./quality";
 import { coachStore, StaleCoachRunError, MemoryPolicyError } from "./store";
 import { chunkMeeting, reviewPeriod, sourceHash, validateObservations } from "./evidence";
 import { analysisSchemaWithSources, coachCompletion, coachModel, conversationSchemaWithSources, reviewSchemaWithSources, CoachAIError, coachModelAvailable, coachModelConfig, type CoachTelemetry } from "./model";
-import { presentChat } from "./chat-presentation";
+import { presentChat, splitChatPresentation } from "./chat-presentation";
 import { COACH_CONVERSATION_INSTRUCTION, COACH_INVESTIGATION_INSTRUCTION } from "./framework";
 import { userMemoryNotes } from "./conversation-memory";
 import { accountabilityFingerprint } from "./follow-up";
@@ -103,6 +103,10 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
   const history=await store.messages();
   const search=conversationSearch(message,history);
   const [context,memories,self,coverage,reviews,memory,commitments]=await Promise.all([store.context(search,{timezone:profile.timezone,now}),store.memories(),store.selfPersonIds(),store.coverage(),store.reviews(),store.memoryContext(),listCommitments(userId)]);
+  // A bare "Sim." can close the only open agreement right after the coach asked whether it is done.
+  const lastAnswer=splitChatPresentation(history.filter(m=>!m.stale).at(-1)?.role==="assistant"?history.filter(m=>!m.stale).at(-1)!.content:"").answer;
+  const openCommitments=commitments.filter(c=>["open","renegotiated","unknown"].includes(c.status));
+  const actionContext={confirmsCompletion:!proactive&&openCommitments.length===1&&/\b(?:conclu|consegui|fez|feito|destravou|terminou|finalizou)[a-z]*\b[^?]*\?\s*$/u.test(lastAnswer.normalize("NFD").replace(/\p{M}/gu,"").toLowerCase().trim())};
   const userMessage=proactive?null:await store.addMessage("user",message,[],profile.revision,runId?runId+":user":undefined);
   let revision=profile.revision;
   const period=context.selection?.period;
@@ -125,11 +129,11 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
   const telemetry:CoachTelemetry[]=[];const onTelemetry=(e:CoachTelemetry)=>telemetry.push(e);
   try{
    let result=await coachCompletion(COACH_CONVERSATION_INSTRUCTION+"\n"+COACH_INVESTIGATION_INSTRUCTION+(proactive?"\nEste é um acompanhamento proativo. A pergunta é do sistema, não uma declaração do usuário. Não crie user_memories nem actions. Seja breve, não repita cobrança já enviada. Para nudge ou meeting sem novidade útil, answer=SEM_NOVIDADE.":""),data,
-    ()=>conversationSchemaWithSources(Object.keys(sources),message,{actions:actionSchema(proactive?"":message,memories,commitments),detailed:/aprofund|detalh|explique melhor/iu.test(message)}),
+    ()=>conversationSchemaWithSources(Object.keys(sources),message,{actions:actionSchema(proactive?"":message,memories,commitments,actionContext),detailed:/aprofund|detalh|explique melhor/iu.test(message)}),
     {reasoningEffort:needsDeepInvestigation(message)?"high":"medium",tools:investigation.tools,maxToolRounds:4,maxToolCalls:8,timeoutMs:180000,onTelemetry});
    const validateCandidate=(result:Record<string,unknown>)=>{
    const validatedActions=(Array.isArray(result.actions)?[...result.actions]:[]).map(rawAction=>{
-    const action=validateAction(rawAction,message,commitments);if(!action)throw new CoachAIError("Não confirmei a autorização para uma alteração sugerida. Peça a alteração explicitamente.");
+    const action=validateAction(rawAction,message,commitments,actionContext);if(!action)throw new CoachAIError("Não confirmei a autorização para uma alteração sugerida. Peça a alteração explicitamente.");
     if(action.memory_id&&!memories.some(m=>m.id===action.memory_id))throw new CoachAIError("A memória indicada não está disponível.");
     if(action.commitment_id&&!commitments.some(c=>c.id===action.commitment_id))throw new CoachAIError("O compromisso indicado não está disponível.");
     return action;
@@ -148,7 +152,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
     const start=Math.min(...same.map(action=>message.indexOf(action.quote)));
     const end=Math.max(...same.map(action=>message.indexOf(action.quote)+action.quote.length));
     const quote=message.slice(start,end);
-    const combined=validateAction({...first,quote,outcome:quote},message,commitments);
+    const combined=validateAction({...first,quote,outcome:quote},message,commitments,actionContext);
     if(!combined)throw new CoachAIError("Preciso confirmar a qual combinado esse relato se refere.");
     requestedActions[index]=combined;
     for(let other=requestedActions.length-1;other>index;other--)if(same.includes(requestedActions[other]))requestedActions.splice(other,1);
@@ -175,7 +179,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
     if(!(error instanceof CoachVerificationError))throw error;
     result=await coachCompletion(COACH_CONVERSATION_INSTRUCTION+"\n"+COACH_INVESTIGATION_INSTRUCTION+VERIFICATION_REPAIR_INSTRUCTION+(proactive?"\nAcompanhamento proativo: não crie actions ou user_memories; SEM_NOVIDADE continua permitido quando não houver sinal útil.":""),
      {...verificationData,previous_candidate:candidate.publishable,verification_issues:error.issuesForRepair()},
-     conversationSchemaWithSources(Object.keys(sources),message,{actions:actionSchema(proactive?"":message,memories,commitments),detailed:/aprofund|detalh|explique melhor/iu.test(message)}),
+     conversationSchemaWithSources(Object.keys(sources),message,{actions:actionSchema(proactive?"":message,memories,commitments,actionContext),detailed:/aprofund|detalh|explique melhor/iu.test(message)}),
      {reasoningEffort:"high",timeoutMs:120000,onTelemetry});
     candidate=validateCandidate(result);
     await verifyCandidate();

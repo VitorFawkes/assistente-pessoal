@@ -596,6 +596,22 @@ test("completion does not clear an existing deadline as a renegotiation side eff
  }finally{run.restore();}
 });
 
+test("a bare yes closes the single agreement only right after the coach asked whether it is done",async()=>{
+ const commitment:CoachCommitment={id:"closer",user_id:"synthetic-user",tarefa_id:null,source_message_id:"old-message",idempotency_key:"track:old:0",title:"Amanhã eu vou destravar a contratação da closer.",status:"open",outcome:null,outcome_source:"unknown",due_at:null,history:[],created_at:"2026-09-20T10:00:00Z",updated_at:"2026-09-20T10:00:00Z"};
+ const asked=(content:string):CoachMessage=>({id:"asked",role:"assistant",content:"**Orientação**\n\n"+content,evidence:[],created_at:"2026-09-21T11:00:00Z",context_freshness:"current"});
+ const action={type:"complete_commitment",quote:"Sim.",commitment_id:"closer",due_at:null,guidance:""};
+ const run=fixture([],{answer:"Orientação",observations:[],memories:[],actions:[action]},[],{storedCommitments:[commitment],allowCommitmentWrites:true,storedMessages:[asked("Depois da reunião\n\nO relatório mostra avanço na contratação da closer. Esse combinado pode ser considerado concluído?")]});
+ try{
+  await chatWithCoach("synthetic-user","Sim.",new Date("2026-09-21T12:00:00Z"),"confirm-run");
+  expect(run.commitmentUpdates).toEqual([{id:"closer",status:"completed",outcome:"Sim."}]);
+ }finally{run.restore();}
+ const unrelated=fixture([],{answer:"Orientação",observations:[],memories:[],actions:[action]},[],{storedCommitments:[commitment],allowCommitmentWrites:true,storedMessages:[asked("Quer que eu te ajude a preparar a entrevista?")]});
+ try{
+  await expect(chatWithCoach("synthetic-user","Sim.",new Date("2026-09-21T12:00:00Z"),"unrelated-run")).rejects.toBeInstanceOf(CoachAIError);
+  expect(unrelated.commitmentUpdates).toEqual([]);
+ }finally{unrelated.restore();}
+});
+
 test("a new agreement outcome refreshes a cached weekly review without new meetings",async()=>{
  const commitment:CoachCommitment={id:"proposal",user_id:"synthetic-user",tarefa_id:null,source_message_id:"previous",idempotency_key:"track:previous:0",title:"Enviar proposta",status:"open",outcome:null,outcome_source:"unknown",due_at:null,history:[],created_at:"2026-09-20T10:00:00Z",updated_at:"2026-09-20T10:00:00Z"};
  const result={headline:"Retomar proposta",focus:"Concluir proposta",observations:[],progress:"Sem resultado informado",experiment:"Revisar preço",question:"",limitations:[]};

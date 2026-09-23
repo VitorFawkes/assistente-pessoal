@@ -45,6 +45,7 @@ test("a meeting relates to an agreement by the step's own words, not its time or
   expect(meetingMentionsCommitment("A consultoria enviou a shortlist de closers.", closer)).toBe(true);
   expect(meetingMentionsCommitment("Decidimos contratar a nova pessoa até outubro.", closer)).toBe(true);
   expect(meetingMentionsCommitment("Revisamos o orçamento de marketing e a contraproposta do fornecedor.", closer)).toBe(false);
+  expect(meetingMentionsCommitment("O contrato do fornecedor foi renovado.", closer)).toBe(false);
   expect(meetingMentionsCommitment("Planejamento estratégico de marketing; pensar nas metas do trimestre.", closer)).toBe(false);
   expect(meetingMentionsCommitment("A contratação da vaga comercial avançou.", closer)).toBe(true);
   expect(meetingMentionsCommitment("As propostas da Aurora foram aprovadas.", "Vou enviar a proposta da Aurora hoje.")).toBe(true);

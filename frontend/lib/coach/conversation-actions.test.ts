@@ -198,3 +198,14 @@ test("natural replies close or report only the single open agreement",()=>{
  expect(validateAction({type:"complete_commitment",quote:"Fiz.",guidance:"",commitment_id:"closer",due_at:null},"Fiz.",two)).toBeNull();
  expect(validateAction({type:"report_commitment_outcome",quote:blocked,outcome:blocked,guidance:"",commitment_id:"closer"},blocked,two)).toBeNull();
 });
+
+test("a short yes completes only when the coach just asked about the single open agreement",()=>{
+ const agreement=tracked("closer","Amanhã eu vou destravar a contratação da closer.");
+ for(const reply of ["Sim","Sim.","Pode","Sim, pode.","Pode sim!","Sim, pode concluir.","Isso."]){
+  expect(allowedActions(reply)).not.toContain("complete_commitment");
+  expect(allowedActions(reply,{confirmsCompletion:true})).toContain("complete_commitment");
+  expect(validateAction({type:"complete_commitment",quote:reply,guidance:"",commitment_id:"closer",due_at:null},reply,[agreement],{confirmsCompletion:true})?.commitment_id).toBe("closer");
+ }
+ for(const reply of ["Não.","Sim, mas falta marcar a entrevista.","Ainda não, pode esperar."])expect(allowedActions(reply,{confirmsCompletion:true})).not.toContain("complete_commitment");
+ expect(validateAction({type:"complete_commitment",quote:"Sim.",guidance:"",commitment_id:"closer",due_at:null},"Sim.",[agreement,tracked("other","Vou revisar o contrato jurídico.")],{confirmsCompletion:true})).toBeNull();
+});
