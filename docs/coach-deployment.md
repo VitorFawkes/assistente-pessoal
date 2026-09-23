@@ -1,5 +1,15 @@
 # Coach — publicação e operação privada
 
+## Nova tentativa automática e combinados falados — publicado em 22/09/2026
+
+Imagem `ef1dbb1fd4c1421ed7ddf29ce59a7222ae6c7a7d`, integrada pelo [PR #9](https://github.com/VitorFawkes/assistente-pessoal/pull/9) e gerada pelo [workflow da imagem](https://github.com/VitorFawkes/assistente-pessoal/actions/runs/35800270977). O source do Easypanel e o serviço do swarm apontam para a mesma imagem; o snapshot anterior ficou fora do repositório. A réplica nova está em execução, `/api/health` respondeu 200 dentro do container e o bundle do servidor contém a mensagem de nova tentativa, a leitura de prazo e a detecção de combinado. Modelo, ambiente, agenda e rotinas preservados.
+
+Resolve os dois limites registrados na publicação anterior: check-ins, revisões e análises voltam para a fila por 20 minutos quando o provedor responde 408, 429 ou 5xx, estoura o tempo ou a rede falha, dentro das 3 tentativas; o chat continua falhando na hora. Combinados ditos em linguagem natural passam a ser acompanhados, com o prazo dito na mesma frase registrado pelo servidor e mostrado na confirmação.
+
+Validação antes da publicação, contra uma cópia local dos dados de produção (papel `app_tenant`, RLS ativa) e a agenda real, sem escrita em produção: aceite registrado com prazo, fechamento das 18h retomando o combinado pelo nome, "Sim, fiz." concluindo, ausência de resposta gerando o lembrete no dia seguinte e um 429 forçado reenfileirando por 20 minutos com entrega na segunda tentativa. CI com 421 testes unitários e 50 com Postgres.
+
+Limite conhecido: depois de um relato de obstáculo ("Não fiz."), o lembrete do dia seguinte pode responder `SEM_NOVIDADE` e não insistir, porque a retomada já foi orientada no mesmo dia.
+
 ## Orientação guiada — refinamento publicado em 22/09/2026
 
 Imagem `5e543d2680ada63ac28ce5cab70a1323a8f62dc7`, integrada pelo [PR #8](https://github.com/VitorFawkes/assistente-pessoal/pull/8) e gerada pelo [workflow da imagem](https://github.com/VitorFawkes/assistente-pessoal/actions/runs/35788437879). O source persistente do Easypanel e o serviço do swarm apontam para a mesma imagem; o snapshot anterior ficou em arquivo privado fora do repositório. A réplica nova está em execução, `/api/health` respondeu 200 dentro do container e as novas instruções do coach estão no bundle do servidor. Modelo, ambiente, agenda e rotinas preservados. A validação está em `docs/coach-guided-quality.md`.
