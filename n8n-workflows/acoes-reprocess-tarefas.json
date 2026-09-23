@@ -398,17 +398,13 @@
       "parameters": {
         "method": "POST",
         "url": "http://n8n_assistente-frontend:3000/api/admin/tarefas/incorporar",
-        "authentication": "none",
+        "authentication": "genericCredentialType",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Content-Type",
               "value": "application/json"
-            },
-            {
-              "name": "x-admin-token",
-              "value": "={{ $env.WEBHOOK_TOKEN_ACOES }}"
             }
           ]
         },
@@ -417,7 +413,8 @@
         "jsonBody": "={{ JSON.stringify($json) }}",
         "options": {
           "timeout": 300000
-        }
+        },
+        "genericAuthType": "httpHeaderAuth"
       },
       "id": "70000000-0000-0000-0000-12e671a362f7",
       "name": "Incorporar tarefas",
@@ -429,7 +426,13 @@
       ],
       "retryOnFail": true,
       "maxTries": 3,
-      "waitBetweenTries": 5000
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "t3N3pXrGfDMjDsvt",
+          "name": "Ações frontend (x-admin-token)"
+        }
+      }
     }
   ],
   "connections": {

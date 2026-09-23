@@ -23,9 +23,11 @@ import hashlib, json, os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 URL = "http://n8n_assistente-frontend:3000/api/admin/tarefas/incorporar"
-# O segredo vem do ambiente do n8n (WEBHOOK_TOKEN_ACOES = WEBHOOK_TOKEN do
-# frontend). Nunca escrever o valor aqui: o repositório é público.
-TOKEN = "={{ $env.WEBHOOK_TOKEN_ACOES }}"
+# O segredo (= WEBHOOK_TOKEN do frontend) fica numa credencial do próprio n8n,
+# "Ações frontend (x-admin-token)", do tipo Header Auth. O n8n bloqueia $env nas
+# expressões, e o repositório é público: aqui vai só a referência à credencial.
+CREDENCIAL = {"httpHeaderAuth": {"id": "t3N3pXrGfDMjDsvt", "name": "Ações frontend (x-admin-token)"}}
+TOKEN = None  # compat: o cabeçalho x-admin-token não vai mais nos parâmetros
 
 MONTAR_JS = """// Junta as tarefas agregadas numa entrega só. O frontend compara com as que
 // já existem antes de gravar: repetida vira "falada de novo" no card antigo.
@@ -97,6 +99,14 @@ def feedback_so_extracao():
         print("✓ acoes-reprocess-tarefas.json: SELECT feedback só correções/rejeições")
 
 
+def credencial_no_no(no):
+    p = no["parameters"]
+    p["authentication"] = "genericCredentialType"
+    p["genericAuthType"] = "httpHeaderAuth"
+    p["headerParameters"]["parameters"] = [h for h in p["headerParameters"]["parameters"] if h["name"] != "x-admin-token"]
+    no["credentials"] = CREDENCIAL
+
+
 def main():
     feedback_so_extracao()
     for f, insert, origem, destino, meta, reproc, token, wa in WORKFLOWS:
@@ -108,17 +118,15 @@ def main():
         incorporar = f"{prefixo.rstrip('.')}b. Incorporar tarefas" if prefixo else "Incorporar tarefas"
         existentes = {n["name"] for n in d["nodes"]}
         if incorporar in existentes:
-            # já aplicado: só garante que o segredo vem do ambiente
+            # já aplicado: garante que o segredo vem da credencial do n8n
             no = next(n for n in d["nodes"] if n["name"] == incorporar)
-            mudou = False
-            for h in no["parameters"]["headerParameters"]["parameters"]:
-                if h["name"] == "x-admin-token" and h["value"] != token:
-                    h["value"] = token
-                    mudou = True
+            antes = json.dumps(no, sort_keys=True)
+            credencial_no_no(no)
+            mudou = json.dumps(no, sort_keys=True) != antes
             if mudou:
                 out = json.dumps(d, indent=2, ensure_ascii=False) + ("\n" if raw.endswith("\n") else "")
                 open(path, "w", encoding="utf-8").write(out)
-            print(f"= {f}: já aplicado" + (" (segredo agora vem do ambiente)" if mudou else ""))
+            print(f"= {f}: já aplicado" + (" (segredo agora vem da credencial)" if mudou else ""))
             continue
 
         ins = next(n for n in d["nodes"] if n["name"] == insert)
@@ -140,7 +148,6 @@ def main():
                 "sendHeaders": True,
                 "headerParameters": {"parameters": [
                     {"name": "Content-Type", "value": "application/json"},
-                    {"name": "x-admin-token", "value": token},
                 ]},
                 "sendBody": True,
                 "specifyBody": "json",
@@ -156,6 +163,7 @@ def main():
             "maxTries": 3,
             "waitBetweenTries": 5000,
         })
+        credencial_no_no(d["nodes"][-1])
 
         con = d["connections"]
         # tira as ligações do INSERT e do Reemit
