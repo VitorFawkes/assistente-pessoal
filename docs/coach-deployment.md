@@ -1,5 +1,13 @@
 # Coach — publicação e operação privada
 
+## Cobrança depois de reunião, com limite de atenção — publicado em 22/09/2026
+
+Imagem `6184fe00cff8847bde6c9c96758e76bc6153eeff`, integrada pelo [PR #10](https://github.com/VitorFawkes/assistente-pessoal/pull/10) e gerada pelo [workflow da imagem](https://github.com/VitorFawkes/assistente-pessoal/actions/runs/35808594313). Source do Easypanel e serviço do swarm na mesma imagem; snapshot anterior fora do repositório. Réplica em execução, `/api/health` 200 no container e o bundle do servidor contém o título "Depois da reunião", o orçamento de atenção e a confirmação curta.
+
+O que muda: quando uma reunião acontece depois de um combinado aberto e o relatório dela cita o passo combinado, o coach deixa no Ações uma retomada curta (até 60 palavras e uma pergunta) ou fica em silêncio se a reunião não tiver relação. Um "Sim." logo depois de o coach perguntar se o único combinado aberto foi feito passa a concluí-lo. Lembrete de prazo vencido e cobrança pós-reunião dividem um orçamento de atenção: das 10h às 16h, no máximo uma por dia, três horas depois de qualquer outro acompanhamento publicado e nenhuma enquanto dois acompanhamentos esperam resposta. Os acompanhamentos fixos das 8h e das 18h não mudam. A escolha do Vitor foi manter tudo dentro do Ações; o envio por WhatsApp ficou para depois.
+
+Validação antes da publicação, contra uma cópia local dos dados de produção e as reuniões reais de 18/09: a reunião que tratava da contratação gerou uma retomada de 48 palavras com uma pergunta, a reunião sem relação ficou em silêncio e "Sim." concluiu o combinado. CI com 428 testes unitários e 51 com Postgres, incluindo o orçamento de atenção.
+
 ## Nova tentativa automática e combinados falados — publicado em 22/09/2026
 
 Imagem `ef1dbb1fd4c1421ed7ddf29ce59a7222ae6c7a7d`, integrada pelo [PR #9](https://github.com/VitorFawkes/assistente-pessoal/pull/9) e gerada pelo [workflow da imagem](https://github.com/VitorFawkes/assistente-pessoal/actions/runs/35800270977). O source do Easypanel e o serviço do swarm apontam para a mesma imagem; o snapshot anterior ficou fora do repositório. A réplica nova está em execução, `/api/health` respondeu 200 dentro do container e o bundle do servidor contém a mensagem de nova tentativa, a leitura de prazo e a detecção de combinado. Modelo, ambiente, agenda e rotinas preservados.
