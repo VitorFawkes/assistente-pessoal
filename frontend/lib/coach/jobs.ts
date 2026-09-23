@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { withTenant } from "../db";
 
 export type CoachJobKind = "chat" | "analyze" | "review" | "checkin";
-export type CheckinKind = "morning" | "evening" | "nudge";
+export type CheckinKind = "morning" | "evening" | "nudge" | "meeting";
 export type CoachJob = { id:string; kind:CoachJobKind; status:"queued"|"running"|"succeeded"|"failed"|"cancelled"; attempts:number; error:string|null; created_at:string; updated_at:string };
 export type ClaimedCoachJob = CoachJob & { payload:Record<string,unknown>; lease_token:string; profile_revision:number };
 export type JobInput = {kind:CoachJobKind;key:string;payload?:Record<string,unknown>};
@@ -17,8 +17,10 @@ export function validateJobInput(input:JobInput):Required<JobInput>{
  if(!["chat","analyze","review","checkin"].includes(input.kind)||!input.key||input.key.length>160||!/^[\w:.-]+$/.test(input.key))throw new Error("invalid_input");
  const payload=input.payload||{};
  if(input.kind==="chat"&&(typeof payload.message!=="string"||!payload.message.trim()||payload.message.length>6000))throw new Error("invalid_input");
- if(input.kind==="checkin"&&!["morning","evening","nudge"].includes(String(payload.checkin)))throw new Error("invalid_input");
- return {kind:input.kind,key:input.key,payload:input.kind==="chat"?{message:String(payload.message).trim()}:input.kind==="checkin"?{checkin:payload.checkin}:input.kind==="review"?{force:payload.force===true}: {}};
+ if(input.kind==="checkin"&&!["morning","evening","nudge","meeting"].includes(String(payload.checkin)))throw new Error("invalid_input");
+ const meeting=input.kind==="checkin"&&payload.checkin==="meeting";
+ if(meeting&&!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(payload.meeting_id)))throw new Error("invalid_input");
+ return {kind:input.kind,key:input.key,payload:input.kind==="chat"?{message:String(payload.message).trim()}:input.kind==="checkin"?{checkin:payload.checkin,...(meeting?{meeting_id:payload.meeting_id}:{})}:input.kind==="review"?{force:payload.force===true}: {}};
 }
 export function dueCheckins(profile:CadenceProfile,now:Date,concreteTrigger:boolean):CheckinKind[]{
  if(!profile.enabled)return [];
@@ -30,6 +32,29 @@ export function dueCheckins(profile:CadenceProfile,now:Date,concreteTrigger:bool
  return due;
 }
 export const localJobDay=(timezone:string,now:Date)=>new Intl.DateTimeFormat("en-CA",{timeZone:timezone,year:"numeric",month:"2-digit",day:"2-digit"}).format(now);
+export type AttentionBudget={extraToday:boolean;lastPublished:Date|null;unanswered:number};
+/**
+ * Optional follow-ups (overdue reminder, after-meeting) must not turn the coach into noise:
+ * 10h–16h only, at most one per day, three hours after any other check-in, and none while
+ * two check-ins already wait for an answer. The fixed 8h/18h check-ins are not affected.
+ */
+export function extraFollowupAllowed(budget:AttentionBudget,now:Date,timezone:string){
+ const hour=Number(new Intl.DateTimeFormat("en-GB",{timeZone:timezone,hour:"numeric",hourCycle:"h23"}).format(now));
+ return hour>=10&&hour<16&&!budget.extraToday&&budget.unanswered<2&&(!budget.lastPublished||now.getTime()-budget.lastPublished.getTime()>=3*3600_000);
+}
+/** Published check-ins only: a SEM_NOVIDADE run leaves no message and spends no attention. */
+export async function attentionBudget(userId:string,now:Date,timezone:string):Promise<AttentionBudget>{
+ return withTenant(userId,async db=>{
+  const row=(await db.query(`WITH published AS (
+    SELECT j.payload->>'checkin' AS checkin,m.created_at FROM coach_jobs j JOIN coach_messages m ON m.user_id=j.user_id AND m.idempotency_key=j.id::text||':assistant'
+    WHERE j.user_id=$1 AND j.kind='checkin' AND m.created_at<=$2::timestamptz),
+   replied AS (SELECT max(created_at) AS at FROM coach_messages WHERE user_id=$1 AND role='user' AND created_at<=$2::timestamptz)
+   SELECT EXISTS(SELECT 1 FROM published WHERE checkin IN ('nudge','meeting') AND to_char(created_at AT TIME ZONE $3,'YYYY-MM-DD')=$4) AS extra_today,
+    (SELECT max(created_at) FROM published) AS last_published,
+    (SELECT count(*) FROM published,replied WHERE replied.at IS NULL OR published.created_at>replied.at)::int AS unanswered`,[userId,now.toISOString(),timezone,localJobDay(timezone,now)])).rows[0];
+  return {extraToday:row?.extra_today===true,lastPublished:row?.last_published?new Date(row.last_published):null,unanswered:Number(row?.unanswered)||0};
+ });
+}
 export async function listJobs(userId:string):Promise<CoachJob[]>{
  return withTenant(userId,async db=>(await db.query(`SELECT ${columns} FROM coach_jobs WHERE user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 25`,[userId])).rows.map(publicJob));
 }

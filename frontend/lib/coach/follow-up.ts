@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { CoachCommitment, CoachMemory, CoachMessage } from "./types";
+import { commitmentTopicWords } from "./conversation-actions";
 
 /** A due date is a reason to ask, never proof that the person failed to deliver. */
 export function commitmentsDueForFollowup(commitments: CoachCommitment[], now: Date): CoachCommitment[] {
@@ -22,4 +23,16 @@ export function accountabilityFingerprint(commitments: CoachCommitment[], memori
     memories: byId(memories.filter(m => m.origin === "user" || m.status === "confirmed" || m.status === "rejected")).map(m => [m.id, m.content, m.status, m.lifecycle, m.updated_at]),
     replies: byId(messages.filter(m => m.role === "user" && !m.stale)).map(m => [m.id, m.content, m.created_at]),
   })).digest("hex");
+}
+
+/**
+ * Cheap gate before any model call: the meeting report names a distinctive word of the agreement's
+ * step. A shared start absorbs plural and verb forms (closer/closers, contratação/contratar); long words
+ * keep 8 letters so "contratação" does not match "contrato".
+ */
+export function meetingMentionsCommitment(report: string, title: string): boolean {
+  const prefixes = [...commitmentTopicWords(title)].filter(word => word.length >= 5).map(word => word.slice(0, word.length >= 10 ? 8 : 7));
+  if (!prefixes.length) return false;
+  const words = new Set(report.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().match(/[a-z][a-z0-9]*/gu) || []);
+  return [...words].some(word => prefixes.some(prefix => word.startsWith(prefix)));
 }

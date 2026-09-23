@@ -15,13 +15,16 @@ const uncertainLeadIn=/\b(?:nao|nunca|jamais|nem|se|caso|quando|talvez|acho|acre
 const progressReport=/^(?:eu )?(?:(?:ainda )?nao (?:consegui|fiz|avancei|terminei|conclui)|avancei|enviei|revisei|escrevi|comecei|iniciei|testei|liguei|recebi|consegui|cobrei|falei|conversei|mandei|fiquei (?:travado|travada|bloqueado|bloqueada)|estou (?:travado|travada|bloqueado|bloqueada))\b/u;
 const completionReport=/^(?:(?:sim|feito|pronto)[,!.]*\s+)?(?:eu )?(?:ja )?(?:conclui|terminei|fiz|finalizei|consegui|cumpri)\b|^(?:sim[,!.]*\s+)?(?:ja )?(?:feito|pronto|deu certo)[.!]*$/u;
 const clausesOf=(message:string)=>message.split(/(?<=[.!?;])\s+|\n+/u).map(value=>value.trim());
+/** Set by the service when the coach's latest message asked whether the single open agreement is done. */
+export type ActionContext={confirmsCompletion?:boolean};
+const shortConfirmation=/^(?:sim|pode(?: sim)?|isso|claro|exato|ok|beleza|fechado|com certeza)(?:[,!.]*\s+(?:sim|pode(?:\s+(?:concluir|fechar|encerrar|marcar como concluido|considerar concluido|dar como concluido))?|concluido|concluida))?[.!]*$/u;
 function directProgressReport(message:string):boolean{
  const s=normalized(message);
  // A later mention of a client's response may describe an outcome, but never
  // grants permission to execute instructions in that response.
  return progressReport.test(s)&&!s.endsWith("?")&&!/["“”«»‘’`]/u.test(message)&&!/\b(?:por exemplo|hipotetic[oa]|imagine|suponha|se eu|ignore|instrucoes|regras|execute|crie|registre|pause)\b/u.test(s);
 }
-const subjectStop=new Set("eu vou me comprometo a decidi enviar enviei concluir conclui concluido concluida terminar terminei revisar revisei confirmar confirmei ligar liguei escrever escrevi preparar preparei entregar entreguei validar validei testar testei reservar reservei organizar organizei escolher escolhi definir defini conversar falar delegar pausar limitar registrar cobrar finalizar finalizei nao ainda consegui fiz avancei comecei iniciei recebi fiquei estou travado travada bloqueado bloqueada renegociei reagendei renegocie reagende mude prazo marque como ja hoje amanha ontem depois antes agora semana feira segunda terca quarta quinta sexta sabado domingo ate as horas hora de da do das dos o os e um uma uns umas em no na nos nas para por com ao aos meu minha seus suas seu sua isso isto esse essa tarefa compromisso trabalho entrega projeto cliente precisamos preciso falta faltou porque mas tambem sobre sim feito pronto certo deu fechado combinado beleza ok".split(" "));
+const subjectStop=new Set("eu vou me comprometo a decidi enviar enviei concluir conclui concluido concluida terminar terminei revisar revisei confirmar confirmei ligar liguei escrever escrevi preparar preparei entregar entreguei validar validei testar testei reservar reservei organizar organizei escolher escolhi definir defini conversar falar delegar pausar limitar registrar cobrar finalizar finalizei nao ainda consegui fiz avancei comecei iniciei recebi fiquei estou travado travada bloqueado bloqueada renegociei reagendei renegocie reagende mude prazo marque como ja hoje amanha ontem depois antes agora semana feira segunda terca quarta quinta sexta sabado domingo ate as horas hora de da do das dos o os e um uma uns umas em no na nos nas para por com ao aos meu minha seus suas seu sua isso isto esse essa tarefa compromisso trabalho entrega projeto cliente precisamos preciso falta faltou porque mas tambem sobre sim feito pronto certo deu fechado combinado beleza ok pode claro exato certeza".split(" "));
 function subjectWords(value:string):Set<string>{
  const main=normalized(value).split(/\b(?:porque|mas)\b|[,;]/u)[0];
  return new Set((main.match(/[a-z][a-z0-9]*/gu)||[]).filter(word=>word.length>=3&&!subjectStop.has(word)));
@@ -40,6 +43,15 @@ export function trackingCommitmentCandidates(message:string):string[]{
    return leadIn.length<=80&&!uncertainLeadIn.test(qualifier)&&!!step&&!stateVerbs.has(step[1])&&subjectWords(step[2]).size>0&&!/^(?:isso|isto|esse|essa|aquilo|algo|alguma coisa|o mesmo)\b/u.test(step[2]);
   });
  });
+}
+/** Words of the step itself ("destravar a contratação da closer"), without its time/place lead-in. */
+export function commitmentTopicWords(title:string):Set<string>{
+ const s=normalized(title);
+ for(const start of s.matchAll(commitmentStart)){
+  const step=s.slice(start.index+start[0].length).match(concreteStep);
+  if(step)return subjectWords(step[1]+" "+step[2]);
+ }
+ return subjectWords(title);
 }
 /** Conservative identity resolution: a common word never chooses between competing steps. */
 export function commitmentActionTargets(quote:string,commitments:CoachCommitment[],type:string):CoachCommitment[]{
@@ -74,7 +86,7 @@ export function hasDirectUserIntentContext(message:string):boolean{
  if(/(?:^|[.!?;\n]\s*)(?:se|caso|quando)\b/u.test(s))return false;
  return true;
 }
-export function allowedActions(message:string):string[]{
+export function allowedActions(message:string,context:ActionContext={}):string[]{
  const progress=directProgressReport(message)?["report_commitment_outcome"]:[];
  if(!hasDirectUserIntentContext(message))return progress;
  const s=normalized(withoutQuotedText(message));
@@ -91,6 +103,7 @@ export function allowedActions(message:string):string[]{
   if(/^(?:pause)\b.{0,60}\b(?:objetivo|meta|projeto)/u.test(command)||(requested&&/^pausar\b.{0,60}\b(?:objetivo|meta|projeto)/u.test(command)))a.add("pause_goal");
   if(!clause.endsWith("?")&&/^(?:eu )?(?:ja )?(?:conclui|atingi|terminei)\b.{0,60}\b(?:objetivo|meta)/u.test(command))a.add("complete_goal");
   if(/^(?:voce entendeu errado|corrija\b.{0,70}\b(?:memoria|interpretacao)|essa (?:interpretacao|leitura) esta errada)/u.test(command))a.add("correct_memory");
+  if(context.confirmsCompletion&&shortConfirmation.test(clause))a.add("complete_commitment");
   if((!clause.endsWith("?")&&completionReport.test(command)&&!/\b(?:nao|nunca|nem|ainda|falta|faltou|faltam)\b/u.test(command))||/^marque como concluid/u.test(command)||(requested&&/^concluir\b/u.test(command)))a.add("complete_commitment");
   if(/^(?:eu )?(?:renegociei|reagendei|renegocie|reagende|mude o prazo)\b/u.test(command))a.add("renegotiate_commitment");
   if(/^(?:ative|desative|pause|ligue|desligue|quero receber|nao quero receber)\b.{0,90}\b(?:manha|dia|semanal|alerta|aviso|check.?in)/u.test(command))a.add("cadence");
@@ -114,18 +127,18 @@ export function replacementGoalCandidates(message:string):string[]{
 }
 
 /** Restrict generation to literal spans that independently authorize the action. */
-export function actionQuoteCandidates(message:string,type:string):string[]{
- if(!allowedActions(message).includes(type))return [];
+export function actionQuoteCandidates(message:string,type:string,context:ActionContext={}):string[]{
+ if(!allowedActions(message,context).includes(type))return [];
  const candidates=[message.trim(),...message.split(/(?<=[.!?;])\s+|\n+/u).map(value=>value.trim())];
- return [...new Set(candidates)].filter(quote=>quote.length>=(type==="complete_commitment"?4:8)&&quote.length<=900&&allowedActions(quote).includes(type)&&![...message.matchAll(quotedText)].some(span=>{const at=message.indexOf(quote);return at>=span.index&&at<span.index+span[0].length;}));
+ return [...new Set(candidates)].filter(quote=>quote.length>=(type==="complete_commitment"?3:8)&&quote.length<=900&&allowedActions(quote,context).includes(type)&&![...message.matchAll(quotedText)].some(span=>{const at=message.indexOf(quote);return at>=span.index&&at<span.index+span[0].length;}));
 }
 
-export function actionSchema(message:string,memories:CoachMemory[],commitments:CoachCommitment[]){
- const allowed=allowedActions(message);const variants:unknown[]=[];const goals=replacementGoalCandidates(message);
+export function actionSchema(message:string,memories:CoachMemory[],commitments:CoachCommitment[],context:ActionContext={}){
+ const allowed=allowedActions(message,context);const variants:unknown[]=[];const goals=replacementGoalCandidates(message);
  const memoryIds=memories.filter(m=>m.status!=="rejected").map(m=>m.id);
  const goalIds=memories.filter(m=>m.kind==="goal"&&(m.lifecycle||"active")==="active").map(m=>m.id);
  for(const type of allowed){
-  const quotes=actionQuoteCandidates(message,type);if(!quotes.length)continue;
+  const quotes=actionQuoteCandidates(message,type,context);if(!quotes.length)continue;
   const base={type:{type:"string",enum:[type]},quote:{...str,enum:quotes},guidance:{type:"string",maxLength:600,description:"Orientação ou próximo passo solicitado junto desta ação. Conselho curto, sem afirmar que algo foi salvo, alterado ou executado. Vazio quando o pedido é somente uma alteração. A confirmação será escrita pelo servidor após persistir."}};
   if(type==="track_commitment"){
    for(const quote of trackingCommitmentCandidates(message))variants.push(object({...base,quote:{...str,enum:[quote]},title:{type:"string",enum:[quote]},due_at:{anyOf:[{type:"string"},{type:"null"}]}}));
@@ -142,10 +155,10 @@ export function actionSchema(message:string,memories:CoachMemory[],commitments:C
  }
  return {type:"array",items:variants.length?{anyOf:variants}:object({}),maxItems:variants.length?2:0};
 }
-export function validateAction(raw:unknown,message:string,commitments?:CoachCommitment[]):UserAction|null{
+export function validateAction(raw:unknown,message:string,commitments?:CoachCommitment[],context:ActionContext={}):UserAction|null{
  if(!raw||typeof raw!=="object")return null;const a=raw as UserAction;
  if(typeof a.guidance!=="string"||a.guidance.length>600)return null;
- if(typeof a.quote!=="string"||a.quote.length<(a.type==="complete_commitment"?4:8)||!message.includes(a.quote)||!allowedActions(message).includes(a.type)||!allowedActions(a.quote).includes(a.type))return null;
+ if(typeof a.quote!=="string"||a.quote.length<(a.type==="complete_commitment"?3:8)||!message.includes(a.quote)||!allowedActions(message,context).includes(a.type)||!allowedActions(a.quote,context).includes(a.type))return null;
  if(a.type==="track_commitment"&&(a.title!==a.quote||!trackingCommitmentCandidates(message).includes(a.quote)))return null;
  if(a.type==="report_commitment_outcome"&&a.outcome!==a.quote)return null;
  if(a.commitment_id&&(!commitments||!commitmentActionTargets(a.quote,commitments,a.type).some(c=>c.id===a.commitment_id)))return null;

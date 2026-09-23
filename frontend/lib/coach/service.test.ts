@@ -43,6 +43,7 @@ function fixture(meetings:CoachMeeting[],result:Record<string,unknown>,periodObs
  const fake={
   profile:async()=>({enabled:true,weekly_enabled:true,revision:tracked.length&&options.concurrentProfileRevision?options.concurrentProfileRevision:1,goals:"",context:"",timezone:"America/Sao_Paulo",review_day:5,review_hour:17}),
   claimLease:async()=>"lease",releaseLease:async()=>{},runReceipt:async()=>options.receipt||null,
+  meetingById:async(id:string)=>{const found=meetings.find(item=>item.id===id);return found?{...found,context_at:found.recorded_at}:null;},
   context:async(search?:string,contextOptions?:unknown)=>{contextRequest={search,options:contextOptions};return {meetings,messages:options.retrievedMessages||[],tasks:[],events:[],analyses:[],limitations:[],...(options.toolContext&&search===options.toolContext.query?options.toolContext.context:{})};},
   memories:async()=>options.storedMemories||[],memoryContext:async(at?:string)=>(options.toolContext&&at===options.toolContext.at?options.toolContext.memory:{active_goals:[],corrections:options.storedMemories||[],memories:[],legacy_goals:null}),messages:async()=>options.storedMessages||[],userMessages:async()=>(options.storedMessages||[]).filter(m=>m.role==="user"),selfPersonIds:async()=>["self"],reviews:async()=>options.storedReviews||[],
   coverage:async()=>({total_meetings:137,analyzed_meetings:2,analyzed_chunks:3,pending_meetings:135}),
@@ -242,6 +243,20 @@ test("weekly verifier rejects an unsupported assessment before review or memory 
   await expect(generateReview("synthetic-user",new Date("2026-09-20T20:00:00Z"))).rejects.toBeInstanceOf(CoachAIError);
   expect(run.checks()).toBe(2);expect(run.requests()).toBe(4);expect(run.reviews).toEqual([]);expect(run.memories).toEqual([]);
  }finally{run.restore();}
+});
+
+test("a meeting follow-up names that meeting, has its own title and stays silent without news",async()=>{
+ const run=fixture([meeting],{answer:"A reunião tratou da proposta. Ela destravou o combinado?",observations:[],memories:[]});
+ try{
+  await generateCheckin("synthetic-user","meeting",new Date("2026-09-20T17:00:00Z"),"meeting-fixture",meeting.id);
+  expect(String(run.input().question)).toContain(`meeting_id=${meeting.id}`);
+  expect(run.input().trigger).toEqual({kind:"meeting",origin:"system_schedule_or_button",not_user_statement:true});
+  expect(run.saved.map(message=>message.role)).toEqual(["assistant"]);expect(run.saved[0].content).toContain("Depois da reunião");
+ }finally{run.restore();}
+ const quiet=fixture([meeting],{answer:"SEM_NOVIDADE",observations:[],memories:[]});
+ try{await generateCheckin("synthetic-user","meeting",new Date("2026-09-20T17:00:00Z"),"meeting-quiet",meeting.id);expect(quiet.saved).toEqual([]);expect(quiet.checks()).toBe(0);}finally{quiet.restore();}
+ const gone=fixture([],{answer:"Não deveria rodar",observations:[],memories:[]});
+ try{await generateCheckin("synthetic-user","meeting",new Date("2026-09-20T17:00:00Z"),"meeting-gone","99999999-9999-4999-8999-999999999999");expect(gone.requests()).toBe(0);expect(gone.saved).toEqual([]);}finally{gone.restore();}
 });
 
 test("a nudge without a meaningful new signal does not publish or fabricate a conversation",async()=>{
@@ -579,6 +594,22 @@ test("completion does not clear an existing deadline as a renegotiation side eff
   await chatWithCoach("synthetic-user",message,new Date("2026-09-21T12:00:00Z"),"complete-run");
   expect(run.commitmentUpdates).toEqual([{id:"proposal",status:"completed",outcome:message}]);
  }finally{run.restore();}
+});
+
+test("a bare yes closes the single agreement only right after the coach asked whether it is done",async()=>{
+ const commitment:CoachCommitment={id:"closer",user_id:"synthetic-user",tarefa_id:null,source_message_id:"old-message",idempotency_key:"track:old:0",title:"Amanhã eu vou destravar a contratação da closer.",status:"open",outcome:null,outcome_source:"unknown",due_at:null,history:[],created_at:"2026-09-20T10:00:00Z",updated_at:"2026-09-20T10:00:00Z"};
+ const asked=(content:string):CoachMessage=>({id:"asked",role:"assistant",content:"**Orientação**\n\n"+content,evidence:[],created_at:"2026-09-21T11:00:00Z",context_freshness:"current"});
+ const action={type:"complete_commitment",quote:"Sim.",commitment_id:"closer",due_at:null,guidance:""};
+ const run=fixture([],{answer:"Orientação",observations:[],memories:[],actions:[action]},[],{storedCommitments:[commitment],allowCommitmentWrites:true,storedMessages:[asked("Depois da reunião\n\nO relatório mostra avanço na contratação da closer. Esse combinado pode ser considerado concluído?")]});
+ try{
+  await chatWithCoach("synthetic-user","Sim.",new Date("2026-09-21T12:00:00Z"),"confirm-run");
+  expect(run.commitmentUpdates).toEqual([{id:"closer",status:"completed",outcome:"Sim."}]);
+ }finally{run.restore();}
+ const unrelated=fixture([],{answer:"Orientação",observations:[],memories:[],actions:[action]},[],{storedCommitments:[commitment],allowCommitmentWrites:true,storedMessages:[asked("Quer que eu te ajude a preparar a entrevista?")]});
+ try{
+  await expect(chatWithCoach("synthetic-user","Sim.",new Date("2026-09-21T12:00:00Z"),"unrelated-run")).rejects.toBeInstanceOf(CoachAIError);
+  expect(unrelated.commitmentUpdates).toEqual([]);
+ }finally{unrelated.restore();}
 });
 
 test("a new agreement outcome refreshes a cached weekly review without new meetings",async()=>{
