@@ -37,7 +37,7 @@ function allowedModel(provider:CoachProvider,model:string){
  if(/astra|fable/i.test(model))return false;
  if(provider==='kimi')return model==='kimi-k3';
  return provider==='openai'
-  ? /^(?:gpt-5\.1|gpt-5\.5|gpt-5\.6-(?:sol|terra|luna))(?:-\d{4}-\d{2}-\d{2})?$/.test(model)
+  ? /^(?:gpt-5\.1|gpt-5\.5|gpt-5\.6-(?:sol|terra|luna)|gpt-6-(?:sol|luna))(?:-\d{4}-\d{2}-\d{2})?$/.test(model)
   : /^claude-(?:(?:opus|sonnet)-(?:5|4[.-]6))(?:-\d{8})?$/.test(model);
 }
 export function coachModelConfig(role:CoachRole='primary'):{provider:CoachProvider;model:string}{
@@ -88,7 +88,7 @@ function toolResult(value:unknown){
 export async function providerCompletion(system:string,data:unknown,schema:unknown,options:CoachCompletionOptions={}):Promise<Record<string,unknown>>{
  const role=options.role||'primary';const {provider,model}=coachModelConfig(role);
  // Protocol is selected before the first request; there is no downgrade/retry.
- const responses=provider==='openai'&&/^gpt-5\.[56](?:-|$)/.test(model);
+ const responses=provider==='openai'&&/^gpt-(?:5\.[56]|6)(?:-|$)/.test(model);
  const key=process.env[keyName(provider)];
  if(!key)throw new CoachAIError('A IA do coach ainda não está configurada no servidor.');
  const effort=options.reasoningEffort||'low';if(!['low','medium','high'].includes(effort))throw configError();

@@ -53,7 +53,7 @@ ASSEMBLYAI_BASE="https://api.assemblyai.com"
 # se indisponível ou conta sem acesso, cai pro próximo. Universal-3 Pro é
 # o mais accurate pra PT-BR (otimizado especificamente); Universal-2 é
 # o fallback estável e mais barato.
-SPEECH_MODELS_JSON="${SPEECH_MODELS_JSON:-[\"universal-3-pro\",\"universal-2\"]}"
+SPEECH_MODELS_JSON="${SPEECH_MODELS_JSON:-[\"universal-3-5-pro\",\"universal-2\"]}"
 POLL_INTERVAL="${POLL_INTERVAL:-8}"          # seg entre polls de status
 POLL_MAX_SECONDS="${POLL_MAX_SECONDS:-3600}" # 60min limite total (12x margem p/ caso 10h; RTF real ~0.008x)
 

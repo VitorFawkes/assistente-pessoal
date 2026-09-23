@@ -8,10 +8,12 @@ import { cases, DATASET_VERSION } from './dataset';
 import type { EvalCase, EvalMode, EvalOptions } from './types';
 
 export const EVAL_HARNESS_VERSION='synthetic-context-adapter-v2-local-time';
-export const PRICING_DATE='2026-09-20';
+export const PRICING_DATE='2026-09-23';
 const PRICES:Record<string,{input:number;output:number;source:string}>={
  'gpt-5.1':{input:1.25,output:10,source:'https://developers.openai.com/api/docs/models/gpt-5.1'},
  'gpt-5.6-sol':{input:4,output:20,source:'https://developers.openai.com/api/docs/models/gpt-5.6-sol'},
+ 'gpt-6-sol':{input:2,output:10,source:'https://developers.openai.com/api/docs/models/gpt-6-sol'},
+ 'gpt-6-luna':{input:0.1,output:0.5,source:'https://developers.openai.com/api/docs/models/gpt-6-luna'},
  'claude-opus-5':{input:5,output:25,source:'https://platform.claude.com/docs/en/about-claude/pricing'},
  'claude-opus-4-6':{input:5,output:25,source:'https://platform.claude.com/docs/en/about-claude/pricing'},
  'claude-opus-4.6':{input:5,output:25,source:'https://platform.claude.com/docs/en/about-claude/pricing'},
@@ -64,7 +66,7 @@ export function checkContracts(scenario:unknown,output:unknown):string[]{
 export type EvalBudget={calls:number;reservedUsd:number;stopped:boolean};
 /** Exclusive CLI process only: wraps actual provider transport without replacing the adapter. */
 export function budgetedFetch(plan:EvalPlan,base:typeof fetch,budget:EvalBudget):typeof fetch{
- const endpoint=plan.provider==='openai'?(/^gpt-5\.[56](?:-|$)/.test(plan.model)?'https://api.openai.com/v1/responses':'https://api.openai.com/v1/chat/completions'):plan.provider==='anthropic'?'https://api.anthropic.com/v1/messages':'https://api.moonshot.ai/v1/chat/completions';
+ const endpoint=plan.provider==='openai'?(/^gpt-(?:5\.[56]|6)(?:-|$)/.test(plan.model)?'https://api.openai.com/v1/responses':'https://api.openai.com/v1/chat/completions'):plan.provider==='anthropic'?'https://api.anthropic.com/v1/messages':'https://api.moonshot.ai/v1/chat/completions';
  return (async(input:unknown,init?:RequestInit)=>{
   if(String(input)!==endpoint||init?.method!=='POST'||typeof init.body!=='string')throw new Error('Transporte fora do escopo de avaliação.');
   const body=JSON.parse(init.body);if(!object(body)||body.model!==plan.model||/astra|fable/i.test(String(body.model)))throw new Error('Modelo fora do escopo.');

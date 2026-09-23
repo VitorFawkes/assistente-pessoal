@@ -5,7 +5,7 @@ Substitui o trabalho que o `mac-agent` (audio-watcher.sh + transcribe.sh) faz ho
 pro Vitor, mas pra outros usuários que não têm o Mac dele.
 
 - **Stack**: Python 3.11 + FastAPI + ffmpeg + httpx
-- **Modelo de transcrição**: AssemblyAI Universal-2 (com fallback Universal-3-Pro) —
+- **Modelo de transcrição**: AssemblyAI Universal-3.5 Pro (com fallback Universal-2) —
   mesmo do mac-agent desde 2026-05-23. Single-shot até 10h, diarização global.
 - **Contrato pro n8n**: idêntico ao `audio-watcher.sh:243-261` — workflow não muda
 
@@ -39,7 +39,7 @@ Liveness + estado de configuração.
     "n8n_configured": true,
     "assemblyai_configured": true,
     "auth_configured": true,
-    "speech_models": ["universal-3-pro", "universal-2"],
+    "speech_models": ["universal-3-5-pro", "universal-2"],
     "max_upload_mb": 500
   }
 }
@@ -86,7 +86,7 @@ Response (sucesso):
 | `INTERNAL_SVC_TOKEN` | (obrigatório p/ iOS) | Shared secret entre ingest-svc e frontend (`openssl rand -hex 32`). Mesma string no env do frontend. |
 | `FRONTEND_INTERNAL_URL` | (obrigatório p/ iOS) | Base URL interna do frontend (no easypanel: `http://assistente-frontend:3000`). |
 | `N8N_WEBHOOK_URL` | (obrigatório) | URL do webhook n8n acoes-audio-ingest |
-| `SPEECH_MODELS_JSON` | `["universal-3-pro","universal-2"]` | Lista ordenada (AssemblyAI faz fallback automático) |
+| `SPEECH_MODELS_JSON` | `["universal-3-5-pro","universal-2"]` | Lista ordenada (AssemblyAI faz fallback automático) |
 | `POLL_INTERVAL` | `8` | Segundos entre polls de status AssemblyAI |
 | `POLL_MAX_SECONDS` | `1800` | Timeout total de polling (cobre 8h+ de áudio) |
 | `N8N_TIMEOUT_SECONDS` | `300` | Timeout do POST pro n8n |
@@ -147,7 +147,7 @@ Replica o padrão do `voice-svc`:
 ## Troubleshooting
 
 - **`AssemblyAI 401`** → `ASSEMBLYAI_API_KEY` errada ou conta inativa.
-- **`AssemblyAI status inesperado: ...`** → conta sem acesso a `universal-3-pro`? Verifica
+- **`AssemblyAI status inesperado: ...`** → conta sem acesso a `universal-3-5-pro`? Verifica
   dashboard ou ajusta `SPEECH_MODELS_JSON=["universal-2"]`.
 - **`polling timeout`** → áudio enorme (>8h) ou AssemblyAI lento. Aumenta `POLL_MAX_SECONDS`.
 - **`n8n rejected http=401`** → INGEST_TOKEN diferente do WEBHOOK_TOKEN que o n8n

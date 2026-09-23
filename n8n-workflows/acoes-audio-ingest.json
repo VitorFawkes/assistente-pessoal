@@ -743,7 +743,8 @@
           "id": "QSdaVgPRKxfvwcXr",
           "name": "OpenAi account"
         }
-      }
+      },
+      "executeOnce": true
     },
     {
       "parameters": {

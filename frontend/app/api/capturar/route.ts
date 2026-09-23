@@ -13,7 +13,7 @@ async function transcrever(audio: File): Promise<string> {
   if (!apiKey) throw new Error("OPENAI_API_KEY ausente");
   const form = new FormData();
   form.append("file", audio, audio.name || "captura.webm");
-  form.append("model", process.env.TRANSCRIBE_MODEL || "whisper-1");
+  form.append("model", process.env.TRANSCRIBE_MODEL || "gpt-transcribe");
   const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}` },
