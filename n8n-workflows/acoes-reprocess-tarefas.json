@@ -253,7 +253,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT tipo, payload FROM extracao_feedback WHERE user_id = '{{ $('SELECT meeting').first().json.user_id }}'::uuid ORDER BY created_at DESC LIMIT 40",
+        "query": "SELECT tipo, payload FROM extracao_feedback WHERE user_id = '{{ $('SELECT meeting').first().json.user_id }}'::uuid AND tipo IN ('correcao','rejeicao') ORDER BY created_at DESC LIMIT 40",
         "options": {}
       },
       "id": "sc-selfb",

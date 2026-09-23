@@ -13,7 +13,9 @@ Agora o INSERT sai e entram 2 nós:
      repetida (lib/tarefas-repetidas-db.ts). A rota é idempotente (reenvio não
      duplica), então o nó tenta de novo em caso de falha.
 E o WhatsApp pós-reunião passa a listar só o que nasceu, com a linha
-"Já existiam N, anotei nos cards".
+"Já existiam N, anotei nos cards". No reprocess-tarefas, o SELECT do feedback
+passa a trazer só correções e rejeições (os cliques "é a mesma"/"são
+diferentes" alimentam a comparação, não a extração).
 
 Idempotente. Depois: `source .env && ./apply.sh`.
 """
@@ -80,7 +82,23 @@ WORKFLOWS = [
 ]
 
 
+FEEDBACK_OLD = "SELECT tipo, payload FROM extracao_feedback WHERE user_id = '{{ $('SELECT meeting').first().json.user_id }}'::uuid ORDER BY created_at DESC LIMIT 40"
+FEEDBACK_NEW = "SELECT tipo, payload FROM extracao_feedback WHERE user_id = '{{ $('SELECT meeting').first().json.user_id }}'::uuid AND tipo IN ('correcao','rejeicao') ORDER BY created_at DESC LIMIT 40"
+
+
+def feedback_so_extracao():
+    path = os.path.join(HERE, "acoes-reprocess-tarefas.json")
+    raw = open(path, encoding="utf-8").read()
+    d = json.loads(raw)
+    n = next(n for n in d["nodes"] if n["name"] == "SELECT feedback")
+    if n["parameters"]["query"] == FEEDBACK_OLD:
+        n["parameters"]["query"] = FEEDBACK_NEW
+        open(path, "w", encoding="utf-8").write(json.dumps(d, indent=2, ensure_ascii=False) + ("\n" if raw.endswith("\n") else ""))
+        print("✓ acoes-reprocess-tarefas.json: SELECT feedback só correções/rejeições")
+
+
 def main():
+    feedback_so_extracao()
     for f, insert, origem, destino, meta, reproc, token, wa in WORKFLOWS:
         path = os.path.join(HERE, f)
         raw = open(path, encoding="utf-8").read()
