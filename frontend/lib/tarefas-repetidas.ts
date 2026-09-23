@@ -11,12 +11,17 @@
 //   2. uma IA decide 3 vezes, cada vez com as candidatas noutra ordem e sem ver
 //      as outras decisões, se a nova é a mesma que alguma candidata.
 //   3. 3 de 3 → "mesma": não nasce card, vira "falada de novo" no card antigo.
-//      1 ou 2 de 3 → "duvida": nasce o card com o aviso "parece repetida".
-//      0 de 3 → "nova": nasce normal.
+//      2 de 3 (ou 3 com algum "talvez") → "duvida": nasce com o aviso "parece repetida".
+//      0 ou 1 de 3 → "nova": nasce normal.
 //
 // Juntar errado esconde uma tarefa real dentro de outra, e isso é pior que
-// repetir. Por isso a trava é a unanimidade, candidata concluída nunca junta
-// sozinha, e qualquer falha (IA fora do ar, resposta estranha) cai em criar.
+// repetir. Por isso a trava é a unanimidade, só junta sozinho em card das
+// últimas 3 semanas (card mais velho aberto costuma já ter sido feito, e a fala
+// nova é outra ocasião: vira aviso), candidata concluída nunca junta sozinha, e
+// qualquer falha (IA fora do ar, resposta estranha) cai em criar.
+//
+// Calibrado no ensaio de 23/09/2026 com 130 reuniões reais: aviso com 1 voto só
+// quase nunca era repetida de verdade, e as junções erradas eram em card antigo.
 
 import { createHash } from "node:crypto";
 import { dataBR as dataBRFmt, ehDataValida } from "./data-br";
@@ -27,6 +32,10 @@ export const EXECUCOES_JUIZ = 3;
 export const CANDIDATAS_POR_NOVA = 10;
 /** Concluída há mais que isto não entra na comparação. */
 export const DIAS_CONCLUIDA = 30;
+/** Card mais velho que isto (em relação à reunião nova) nunca junta sozinho: vira aviso. */
+export const DIAS_JUNTAR_SOZINHO = 21;
+/** Votos "mesma"/"talvez" necessários pro aviso de repetida (abaixo disso, nasce normal). */
+export const VOTOS_PARA_AVISO = 2;
 
 export type TarefaNova = {
   titulo: string;
@@ -337,7 +346,7 @@ export function decidir(
       if (v.decisao === "mesma") mesmas.set(v.candidata, (mesmas.get(v.candidata) ?? 0) + 1);
     }
     const totalMesma = [...contagem.values()].reduce((a, b) => a + b, 0);
-    if (!totalMesma) {
+    if (totalMesma < VOTOS_PARA_AVISO) {
       out.push({ tipo: "nova", votos: 0 });
       continue;
     }
@@ -437,8 +446,16 @@ export async function compararComExistentes(p: {
     }),
   );
 
+  const reuniaoMs = p.dataReuniao ? Date.parse(p.dataReuniao) : Date.now();
+  const decisoes = decidir(p.novas.length, execucoes, rotulosPorNova, candidataPorRotulo).map((d) => {
+    if (d.tipo !== "mesma") return d;
+    const c = [...candidataPorRotulo.values()].find((x) => x.id === d.tarefaId);
+    const desde = Date.parse(c?.reuniao_em ?? c?.criada_em ?? "");
+    const velha = Number.isFinite(desde) && reuniaoMs - desde > DIAS_JUNTAR_SOZINHO * 86_400_000;
+    return velha ? ({ tipo: "duvida", tarefaId: d.tarefaId, votos: d.votos } as Decisao) : d;
+  });
   return {
-    decisoes: decidir(p.novas.length, execucoes, rotulosPorNova, candidataPorRotulo),
+    decisoes,
     mostradas: mostradas.map((m) => m.map(({ c, similaridade }) => ({ id: c.id, similaridade }))),
     uso,
   };
