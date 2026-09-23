@@ -406,55 +406,6 @@
     },
     {
       "parameters": {
-        "schema": {
-          "__rl": true,
-          "mode": "list",
-          "value": "public"
-        },
-        "table": {
-          "__rl": true,
-          "mode": "list",
-          "value": "tarefas"
-        },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "meeting_id": "={{ $json.meeting_id }}",
-            "titulo": "={{ $json.titulo }}",
-            "descricao": "={{ $json.descricao }}",
-            "owner": "={{ $json.owner }}",
-            "prazo": "={{ $json.prazo }}",
-            "prazo_text": "={{ $json.prazo_text }}",
-            "prioridade": "={{ $json.prioridade }}",
-            "evidencia": "={{ $json.evidencia }}",
-            "user_id": "={{ $('3. Prepare Metadata').first().json.user_id }}",
-            "acao": "={{ $json.acao }}",
-            "pessoas_raw": "={{ $json.pessoas_raw }}",
-            "area_raw": "={{ $json.area_raw }}",
-            "precisa_revisao": "={{ $json.precisa_revisao }}"
-          },
-          "matchingColumns": [],
-          "schema": []
-        },
-        "options": {}
-      },
-      "id": "00000000-0000-0000-0000-000000000012",
-      "name": "11. INSERT tarefas",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [
-        592,
-        0
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "KQJgErf7zPLrLq1t",
-          "name": "Acoes - Postgres"
-        }
-      }
-    },
-    {
-      "parameters": {
         "operation": "update",
         "schema": {
           "__rl": true,
@@ -501,7 +452,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Monta a mensagem do WhatsApp\nconst meetingId = $('3. Prepare Metadata').first().json.meeting_id;\nconst summary = $('Aggregate').first().json.summary;\nconst items = $('Aggregate').all().map(i => i.json).filter(j => !j.no_actions);\n\nconst minhas = items.filter(i => i.owner === 'vitor');\nconst delegadas = items.filter(i => i.owner !== 'vitor');\nconst formatPrazo = (p) => {\n  if (!p) return '';\n  try {\n    const d = new Date(p);\n    return ' _(até ' + d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ')_';\n  } catch { return ''; }\n};\nconst emojiPrio = { urgente: '🔴', alta: '🟠', media: '🟡', baixa: '⚪' };\n\nlet msg = '🎙️ *Reunião processada*\\n\\n';\nmsg += '_' + summary + '_\\n\\n';\n\nif (minhas.length) {\n  msg += '✅ *Minhas ações* (' + minhas.length + ')\\n';\n  minhas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '🟡') + ' ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (delegadas.length) {\n  msg += '👥 *Combinei com outros* (' + delegadas.length + ')\\n';\n  delegadas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '🟡') + ' *' + t.owner + ':* ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (!minhas.length && !delegadas.length) {\n  msg += '_(nenhuma ação concreta extraída desta reunião)_\\n';\n}\n\nconst frontendUrl = 'https://acoes.vitorgambetti.com.br';\nmsg += '🔗 ' + frontendUrl + '/reunioes/' + meetingId;\n\n\n// Aviso de áudio longo aguardando segmentação\nconst needsSeg = $('12c. Mark Needs Segmentation').first().json.needs_segmentation;\nconst dur = $('12c. Mark Needs Segmentation').first().json.duration_seconds;\nif (needsSeg) {\n  msg += '\\n\\n🎙️ Áudio longo (' + (dur/3600).toFixed(1) + 'h) — revisar segmentação:\\n';\n  msg += frontendUrl + '/reunioes/' + meetingId + '/segmentar';\n}\nreturn [{ json: { text: msg, meeting_id: meetingId, n_tarefas: items.length } }];"
+        "jsCode": "// Monta a mensagem do WhatsApp\nconst meetingId = $('3. Prepare Metadata').first().json.meeting_id;\nconst summary = $('Aggregate').first().json.summary;\n// O que NASCEU vem do frontend (que já comparou com as tarefas existentes);\n// o que já existia virou \"falada de novo\" no card antigo e entra numa linha só.\nlet inc = null;\ntry { inc = $('11b. Incorporar tarefas').first().json; } catch (e) { inc = null; }\nconst items = inc && Array.isArray(inc.criadas)\n  ? inc.criadas\n  : $('Aggregate').all().map(i => i.json).filter(j => !j.no_actions);\nconst jaExistiam = inc && Array.isArray(inc.juntadas) ? inc.juntadas.length : 0;\n\nconst minhas = items.filter(i => i.owner === 'vitor');\nconst delegadas = items.filter(i => i.owner !== 'vitor');\nconst formatPrazo = (p) => {\n  if (!p) return '';\n  try {\n    const d = new Date(p);\n    return ' _(até ' + d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ')_';\n  } catch { return ''; }\n};\nconst emojiPrio = { urgente: '🔴', alta: '🟠', media: '🟡', baixa: '⚪' };\n\nlet msg = '🎙️ *Reunião processada*\\n\\n';\nmsg += '_' + summary + '_\\n\\n';\n\nif (minhas.length) {\n  msg += '✅ *Minhas ações* (' + minhas.length + ')\\n';\n  minhas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '🟡') + ' ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (delegadas.length) {\n  msg += '👥 *Combinei com outros* (' + delegadas.length + ')\\n';\n  delegadas.forEach(t => {\n    msg += (emojiPrio[t.prioridade] || '🟡') + ' *' + t.owner + ':* ' + t.titulo + formatPrazo(t.prazo) + '\\n';\n  });\n  msg += '\\n';\n}\n\nif (jaExistiam) {\n  msg += '♻️ Já existiam ' + jaExistiam + ', anotei nos cards\\n\\n';\n}\n\nif (!minhas.length && !delegadas.length && !jaExistiam) {\n  msg += '_(nenhuma ação concreta extraída desta reunião)_\\n';\n}\n\nconst frontendUrl = 'https://acoes.vitorgambetti.com.br';\nmsg += '🔗 ' + frontendUrl + '/reunioes/' + meetingId;\n\n\n// Aviso de áudio longo aguardando segmentação\nconst needsSeg = $('12c. Mark Needs Segmentation').first().json.needs_segmentation;\nconst dur = $('12c. Mark Needs Segmentation').first().json.duration_seconds;\nif (needsSeg) {\n  msg += '\\n\\n🎙️ Áudio longo (' + (dur/3600).toFixed(1) + 'h) — revisar segmentação:\\n';\n  msg += frontendUrl + '/reunioes/' + meetingId + '/segmentar';\n}\nreturn [{ json: { text: msg, meeting_id: meetingId, n_tarefas: items.length } }];"
       },
       "id": "00000000-0000-0000-0000-000000000014",
       "name": "13. Build WhatsApp Message",
@@ -806,6 +757,56 @@
         -244,
         -136
       ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Junta as tarefas agregadas numa entrega só. O frontend compara com as que\n// já existem antes de gravar: repetida vira \"falada de novo\" no card antigo.\nconst aggs = $('Aggregate').all().map(i => i.json).filter(j => !j.no_actions);\nconst meta = $('3. Prepare Metadata').first().json;\nconst tarefas = aggs.map(j => ({\n  titulo: j.titulo, descricao: j.descricao, owner: j.owner, acao: j.acao,\n  prazo: j.prazo, prazo_text: j.prazo_text, prioridade: j.prioridade,\n  evidencia: j.evidencia, area_raw: j.area_raw, pessoas_raw: j.pessoas_raw,\n  precisa_revisao: j.precisa_revisao,\n}));\nreturn [{ json: { user_id: meta.user_id, meeting_id: meta.meeting_id, reprocessar: false, tarefas } }];\n"
+      },
+      "id": "70000000-0000-0000-0000-b88b49392990",
+      "name": "11. Montar tarefas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        592,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://n8n_assistente-frontend:3000/api/admin/tarefas/incorporar",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-admin-token",
+              "value": "={{ $('1. Webhook').first().json.headers['x-auth'] }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "70000000-0000-0000-0000-598f2e9620d4",
+      "name": "11b. Incorporar tarefas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        792,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     }
   ],
   "connections": {
@@ -865,18 +866,7 @@
         ],
         [
           {
-            "node": "11. INSERT tarefas",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "11. INSERT tarefas": {
-      "main": [
-        [
-          {
-            "node": "12. UPDATE meeting (done)",
+            "node": "11. Montar tarefas",
             "type": "main",
             "index": 0
           }
@@ -1124,6 +1114,28 @@
         [
           {
             "node": "Build Judge Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "11. Montar tarefas": {
+      "main": [
+        [
+          {
+            "node": "11b. Incorporar tarefas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "11b. Incorporar tarefas": {
+      "main": [
+        [
+          {
+            "node": "12. UPDATE meeting (done)",
             "type": "main",
             "index": 0
           }

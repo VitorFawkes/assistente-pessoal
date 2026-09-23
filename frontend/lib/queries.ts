@@ -54,6 +54,30 @@ export type TarefaAnexo = {
   created_at: string;
 };
 
+/** "Falada de novo": outra reunião voltou a falar de uma tarefa que já existia. */
+export type TarefaMencao = {
+  id: string;
+  meeting_id: string | null;
+  meeting_recorded_at: string | null;
+  meeting_summary: string | null;
+  meeting_nome: string | null;
+  titulo_falado: string;
+  evidencia: string | null;
+  owner_falado: string | null;
+  prazo_falado: string | null;
+  prazo_anterior: string | null;
+  origem: "reuniao" | "juntada" | "faxina";
+  created_at: string;
+};
+
+/** A tarefa com que um card em dúvida parece repetido. */
+export type TarefaParecida = {
+  id: string;
+  titulo: string;
+  status: Tarefa["status"];
+  meeting_recorded_at: string | null;
+};
+
 export type Tarefa = {
   id: string;
   user_id: string;
@@ -84,6 +108,12 @@ export type Tarefa = {
   precisa_revisao: boolean;
   ordem: number | null;
   no_plano: boolean;
+  /** Dúvida da comparação com reuniões anteriores: parece repetida desta. */
+  parece_com_id: string | null;
+  /** Só na visão do dono (TAREFA_SELECT); o convidado não recebe. */
+  parece_com?: TarefaParecida | null;
+  /** Vezes em que outra reunião voltou a falar desta tarefa. Só na visão do dono. */
+  mencoes?: TarefaMencao[];
   // Ordem POR-QUADRO (quadro_tarefas.ordem) — só vem quando as tarefas são
   // carregadas no contexto de um quadro (visão timeline do quadro).
   quadro_ordem?: number | null;
@@ -145,7 +175,7 @@ export type VoiceSample = {
 
 // SELECT canônico de uma tarefa serializada (frente + pessoas agregadas).
 // Use com um WHERE depois. Mantém o shape idêntico em recentes/criar.
-export const TAREFA_SELECT = `
+const TAREFA_COLUNAS = `
   SELECT t.*,
          to_char(m.recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS meeting_recorded_at,
          m.summary AS meeting_summary,
@@ -166,10 +196,39 @@ export const TAREFA_SELECT = `
                     'size_bytes', a.size_bytes, 'created_at', a.created_at)
                   ORDER BY a.ordem, a.created_at)
            FROM tarefa_anexos a WHERE a.tarefa_id = t.id
-         ), '[]'::jsonb) AS anexos
+         ), '[]'::jsonb) AS anexos`;
+
+// Só o dono vê de que outras reuniões a tarefa voltou a ser falada e com qual
+// card ela parece repetida: isso cita reuniões e tarefas fora do quadro.
+const TAREFA_COLUNAS_DONO = `,
+         COALESCE((
+           SELECT jsonb_agg(jsonb_build_object(
+                    'id', mm.id, 'meeting_id', mm.meeting_id,
+                    'meeting_recorded_at', to_char(COALESCE(mt.recorded_at, mt.created_at, mm.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                    'meeting_summary', left(mt.summary, 400), 'meeting_nome', mt.nome,
+                    'titulo_falado', mm.titulo_falado, 'evidencia', mm.evidencia,
+                    'owner_falado', mm.owner_falado, 'prazo_falado', mm.prazo_falado,
+                    'prazo_anterior', mm.prazo_anterior, 'origem', mm.origem,
+                    'created_at', mm.created_at)
+                  ORDER BY COALESCE(mt.recorded_at, mt.created_at, mm.created_at))
+           FROM tarefa_mencoes mm LEFT JOIN meetings mt ON mt.id = mm.meeting_id
+           WHERE mm.tarefa_id = t.id
+         ), '[]'::jsonb) AS mencoes,
+         (SELECT jsonb_build_object(
+                   'id', pc.id, 'titulo', pc.titulo, 'status', pc.status,
+                   'meeting_recorded_at', to_char(COALESCE(pm.recorded_at, pm.created_at, pc.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))
+            FROM tarefas pc LEFT JOIN meetings pm ON pm.id = pc.meeting_id
+           WHERE pc.id = t.parece_com_id) AS parece_com`;
+
+const TAREFA_FROM = `
     FROM tarefas t
     LEFT JOIN meetings m ON m.id = t.meeting_id
     LEFT JOIN frentes f ON f.id = t.frente_id`;
+
+export const TAREFA_SELECT = `${TAREFA_COLUNAS}${TAREFA_COLUNAS_DONO}${TAREFA_FROM}`;
+
+/** Igual ao TAREFA_SELECT, sem o que cita outras reuniões — pro link de convidado. */
+export const TAREFA_SELECT_CONVIDADO = `${TAREFA_COLUNAS}${TAREFA_FROM}`;
 
 // ─── meetingsFor ──────────────────────────────────────────────────────
 // Queries NÃO precisam de WHERE user_id — RLS filtra automaticamente.
@@ -553,6 +612,19 @@ export const tarefasFor = (userId: string) => ({
         `${TAREFA_SELECT}
          WHERE t.meeting_id = $1
          ORDER BY (t.status NOT IN ('aberta','em_andamento')), (t.acao = 'aguardar'), (t.prazo IS NULL), t.prazo ASC, t.created_at ASC`,
+        [meetingId],
+      );
+      return r.rows;
+    }),
+
+  /** Tarefas que já existiam e que esta reunião voltou a falar (viraram "falada de novo"). */
+  faladasDeNovoNa: (meetingId: string) =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<Tarefa>(
+        `${TAREFA_SELECT}
+         WHERE t.id IN (SELECT tarefa_id FROM tarefa_mencoes WHERE meeting_id = $1)
+           AND (t.meeting_id IS DISTINCT FROM $1)
+         ORDER BY (t.status NOT IN ('aberta','em_andamento')), (t.prazo IS NULL), t.prazo ASC, t.created_at ASC`,
         [meetingId],
       );
       return r.rows;

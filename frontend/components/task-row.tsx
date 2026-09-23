@@ -18,6 +18,7 @@ import {
 import { cn, formatPrazo, normalizeOwner, type Prioridade } from "@/lib/utils";
 import { meetingDateShort, meetingSubject } from "@/lib/meeting-label";
 import { TaskExpandFields } from "./task-expand-fields";
+import { FaladaDeNovoSelo, PareceRepetidaAviso } from "./tarefa-repetida";
 import {
   PrazoInline,
   PrioridadeInline,
@@ -362,8 +363,8 @@ export function TaskRow({
             </div>
           </div>
 
-          {/* Linha 3 (só se existir): reunião + trecho */}
-          {(tarefa.meeting_id || tarefa.evidencia) && (
+          {/* Linha 3 (só se existir): reunião + trecho + "falada de novo" */}
+          {(tarefa.meeting_id || tarefa.evidencia || (tarefa.mencoes?.length ?? 0) > 0) && (
             <div className="mt-1 flex items-center gap-2 text-[11px] min-w-0">
               {tarefa.meeting_id && (
                 <Link
@@ -400,8 +401,11 @@ export function TaskRow({
                   />
                 </button>
               )}
+              <FaladaDeNovoSelo tarefa={tarefa} />
             </div>
           )}
+
+          <PareceRepetidaAviso tarefa={tarefa} />
 
           {showEvidencia && tarefa.evidencia && (
             <p className="mt-1 text-[12px] italic text-[color:var(--muted)] border-l-2 border-[color:var(--border)] pl-3">

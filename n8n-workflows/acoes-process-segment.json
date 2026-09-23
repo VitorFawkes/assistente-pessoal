@@ -220,55 +220,6 @@
     },
     {
       "parameters": {
-        "schema": {
-          "__rl": true,
-          "mode": "list",
-          "value": "public"
-        },
-        "table": {
-          "__rl": true,
-          "mode": "list",
-          "value": "tarefas"
-        },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "meeting_id": "={{ $json.meeting_id }}",
-            "titulo": "={{ $json.titulo }}",
-            "descricao": "={{ $json.descricao }}",
-            "owner": "={{ $json.owner }}",
-            "prazo": "={{ $json.prazo }}",
-            "prazo_text": "={{ $json.prazo_text }}",
-            "prioridade": "={{ $json.prioridade }}",
-            "evidencia": "={{ $json.evidencia }}",
-            "user_id": "={{ $('3. Prepare Metadata').first().json.user_id }}",
-            "acao": "={{ $json.acao }}",
-            "pessoas_raw": "={{ $json.pessoas_raw }}",
-            "area_raw": "={{ $json.area_raw }}",
-            "precisa_revisao": "={{ $json.precisa_revisao }}"
-          },
-          "matchingColumns": [],
-          "schema": []
-        },
-        "options": {}
-      },
-      "id": "cd421962-31e7-4fcf-bb4e-e38e5e95ed11",
-      "name": "11. INSERT tarefas",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [
-        200,
-        100
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "KQJgErf7zPLrLq1t",
-          "name": "Acoes - Postgres"
-        }
-      }
-    },
-    {
-      "parameters": {
         "operation": "update",
         "schema": {
           "__rl": true,
@@ -463,6 +414,56 @@
         -500,
         -40
       ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Junta as tarefas agregadas numa entrega só. O frontend compara com as que\n// já existem antes de gravar: repetida vira \"falada de novo\" no card antigo.\nconst aggs = $('Aggregate').all().map(i => i.json).filter(j => !j.no_actions);\nconst meta = $('3. Prepare Metadata').first().json;\nconst tarefas = aggs.map(j => ({\n  titulo: j.titulo, descricao: j.descricao, owner: j.owner, acao: j.acao,\n  prazo: j.prazo, prazo_text: j.prazo_text, prioridade: j.prioridade,\n  evidencia: j.evidencia, area_raw: j.area_raw, pessoas_raw: j.pessoas_raw,\n  precisa_revisao: j.precisa_revisao,\n}));\nreturn [{ json: { user_id: meta.user_id, meeting_id: meta.meeting_id, reprocessar: false, tarefas } }];\n"
+      },
+      "id": "70000000-0000-0000-0000-6ac14b879c66",
+      "name": "11. Montar tarefas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://n8n_assistente-frontend:3000/api/admin/tarefas/incorporar",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-admin-token",
+              "value": "={{ $('1. Webhook').first().json.headers['x-auth'] }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "70000000-0000-0000-0000-fc65ddb87faf",
+      "name": "11b. Incorporar tarefas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        400,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     }
   ],
   "connections": {
@@ -543,18 +544,7 @@
         ],
         [
           {
-            "node": "11. INSERT tarefas",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "11. INSERT tarefas": {
-      "main": [
-        [
-          {
-            "node": "12. UPDATE meeting (done)",
+            "node": "11. Montar tarefas",
             "type": "main",
             "index": 0
           }
@@ -643,6 +633,28 @@
         [
           {
             "node": "Build Judge Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "11. Montar tarefas": {
+      "main": [
+        [
+          {
+            "node": "11b. Incorporar tarefas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "11b. Incorporar tarefas": {
+      "main": [
+        [
+          {
+            "node": "12. UPDATE meeting (done)",
             "type": "main",
             "index": 0
           }

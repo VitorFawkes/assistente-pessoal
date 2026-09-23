@@ -148,55 +148,6 @@
     },
     {
       "parameters": {
-        "schema": {
-          "__rl": true,
-          "mode": "list",
-          "value": "public"
-        },
-        "table": {
-          "__rl": true,
-          "mode": "list",
-          "value": "tarefas"
-        },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "meeting_id": "={{ $json.meeting_id }}",
-            "titulo": "={{ $json.titulo }}",
-            "descricao": "={{ $json.descricao }}",
-            "owner": "={{ $json.owner }}",
-            "prazo": "={{ $json.prazo }}",
-            "prazo_text": "={{ $json.prazo_text }}",
-            "prioridade": "={{ $json.prioridade }}",
-            "evidencia": "={{ $json.evidencia }}",
-            "user_id": "={{ $json.user_id }}",
-            "acao": "={{ $json.acao }}",
-            "pessoas_raw": "={{ $json.pessoas_raw }}",
-            "area_raw": "={{ $json.area_raw }}",
-            "precisa_revisao": "={{ $json.precisa_revisao }}"
-          },
-          "matchingColumns": [],
-          "schema": []
-        },
-        "options": {}
-      },
-      "id": "ins-1",
-      "name": "INSERT tarefas",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [
-        1840,
-        200
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "KQJgErf7zPLrLq1t",
-          "name": "Acoes - Postgres"
-        }
-      }
-    },
-    {
-      "parameters": {
         "mode": "manual",
         "duplicateItem": false,
         "assignments": {
@@ -224,19 +175,6 @@
       "position": [
         2000,
         300
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "// DELETE já rodou (1x). Re-emite as ações AGREGADAS pro INSERT.\nreturn $('Aggregate').all();\n"
-      },
-      "id": "reemit-actions",
-      "name": "Reemit Actions",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1680,
-        140
       ]
     },
     {
@@ -442,6 +380,56 @@
           "name": "Acoes - Postgres"
         }
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Junta as tarefas agregadas numa entrega só. O frontend compara com as que\n// já existem antes de gravar: repetida vira \"falada de novo\" no card antigo.\nconst aggs = $('Aggregate').all().map(i => i.json).filter(j => !j.no_actions);\nconst meta = { user_id: $('SELECT meeting').first().json.user_id, meeting_id: $('Webhook').first().json.body.meeting_id };\nconst tarefas = aggs.map(j => ({\n  titulo: j.titulo, descricao: j.descricao, owner: j.owner, acao: j.acao,\n  prazo: j.prazo, prazo_text: j.prazo_text, prioridade: j.prioridade,\n  evidencia: j.evidencia, area_raw: j.area_raw, pessoas_raw: j.pessoas_raw,\n  precisa_revisao: j.precisa_revisao,\n}));\nreturn [{ json: { user_id: meta.user_id, meeting_id: meta.meeting_id, reprocessar: true, tarefas } }];\n"
+      },
+      "id": "70000000-0000-0000-0000-ba97500a59e0",
+      "name": "Montar tarefas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1840,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://n8n_assistente-frontend:3000/api/admin/tarefas/incorporar",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-admin-token",
+              "value": "f2d1841992ee2dade251246135f125222554ccf84a0f7a83775441f35ba638fd"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "70000000-0000-0000-0000-12e671a362f7",
+      "name": "Incorporar tarefas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2040,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     }
   ],
   "connections": {
@@ -544,29 +532,7 @@
       "main": [
         [
           {
-            "node": "Reemit Actions",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Reemit Actions": {
-      "main": [
-        [
-          {
-            "node": "INSERT tarefas",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "INSERT tarefas": {
-      "main": [
-        [
-          {
-            "node": "Response",
+            "node": "Montar tarefas",
             "type": "main",
             "index": 0
           }
@@ -633,6 +599,28 @@
         [
           {
             "node": "Has Actions?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar tarefas": {
+      "main": [
+        [
+          {
+            "node": "Incorporar tarefas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Incorporar tarefas": {
+      "main": [
+        [
+          {
+            "node": "Response",
             "type": "main",
             "index": 0
           }

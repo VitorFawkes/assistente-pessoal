@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Sparkles, Flame, Check, Search, X } from "lucide-react";
+import { Sparkles, Flame, Check, Search, X, Copy } from "lucide-react";
 import { TaskRow, type Tarefa } from "./task-row";
 import { TaskCreateModal } from "./task-create-modal";
 import { CaptureComposer } from "./capture-composer";
@@ -292,6 +292,8 @@ export function TasksDashboard({
   const [bucket, setBucket] = useState<DateBucket>("todos");
   const [createdBucket, setCreatedBucket] = useState<CreatedBucket>("todas");
   const [onlyUrgent, setOnlyUrgent] = useState(false);
+  // Só os cards que nasceram com o aviso "parece repetida" (a pessoa decide).
+  const [soRepetidas, setSoRepetidas] = useState(false);
   const [search, setSearch] = useState("");
   const [groupMode, setGroupMode] = useState<GroupMode>("prazo");
   const [sortKey, setSortKey] = useState<SortKey>("prazo");
@@ -348,9 +350,10 @@ export function TasksDashboard({
       l = l.filter((t) => dateInRange(t.created_at, createdRange.from, createdRange.to));
     else l = filterByCreated(l, createdBucket);
     if (onlyUrgent) l = l.filter(isUrgentish);
+    if (soRepetidas) l = l.filter((t) => !!t.parece_com_id && aberta(t));
     if (search.trim()) l = l.filter((t) => matchesSearch(t, search));
     return l;
-  }, [tarefas, bucket, createdBucket, createdRange, onlyUrgent, search]);
+  }, [tarefas, bucket, createdBucket, createdRange, onlyUrgent, soRepetidas, search]);
 
   const facets: Facets = useMemo(
     () => ({
@@ -419,6 +422,10 @@ export function TasksDashboard({
 
   const urgentCount = useMemo(
     () => pendentes.filter(isUrgentish).length,
+    [pendentes],
+  );
+  const repetidaCount = useMemo(
+    () => pendentes.filter((t) => !!t.parece_com_id).length,
     [pendentes],
   );
 
@@ -677,6 +684,25 @@ export function TasksDashboard({
               <span className="hidden sm:inline">urgentes</span>
               <span className={cn("text-[10px]", onlyUrgent ? "opacity-80" : "opacity-60")}>
                 {urgentCount}
+              </span>
+            </button>
+          )}
+          {repetidaCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setSoRepetidas((v) => !v)}
+              title="Só as que parecem repetidas de outro card"
+              className={cn(
+                "press-feedback shrink-0 inline-flex items-center gap-1 text-[12px] px-2.5 py-1.5 rounded-full border transition cursor-pointer",
+                soRepetidas
+                  ? "bg-[color:var(--warm)] text-white border-[color:var(--warm)]"
+                  : "bg-transparent border-[color:var(--warm)]/30 text-[color:var(--warm)] hover:border-[color:var(--warm)]",
+              )}
+            >
+              <Copy size={12} strokeWidth={2.5} />
+              <span className="hidden sm:inline">parece repetida</span>
+              <span className={cn("text-[10px]", soRepetidas ? "opacity-80" : "opacity-60")}>
+                {repetidaCount}
               </span>
             </button>
           )}
