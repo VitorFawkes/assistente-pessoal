@@ -128,7 +128,11 @@ Cada TAREFA NOVA saiu de uma reunião que acabou de acontecer. Para cada uma, vo
 - "Dar feedback para a Vanessa sobre foco" (junho) e "Dar feedback para a Vanessa sobre o novo cargo" (agosto) → nova: outra conversa.
 - "Criar o grupo de WhatsApp do time de mídia" e "Adicionar a nova gestora ao grupo de WhatsApp de mídia" → nova.
 
-Candidata CONCLUÍDA só é a mesma se a reunião nova volta a pedir exatamente a mesma entrega.
+Mais cuidados:
+- Tarefa ampla e contínua ("monitorar os leads toda semana", "acompanhar a integração") NÃO absorve uma ação específica nova ("avaliar os leads falsos do fim de semana", "corrigir o envio de eventos pro Google"): é NOVA.
+- Conversa ou feedback com a mesma pessoa só é a mesma se for sobre o mesmo tema.
+- Candidata CONCLUÍDA só é a mesma se a reunião nova volta a pedir exatamente a mesma entrega.
+- A transcrição erra nomes. Trate como o mesmo nome as variações de escrita de uma pessoa, empresa ou sistema (ex.: Jordana/Giordana, Tiago/Thiago, Fer/Fê/Fernanda, Sara/Sarah, Weds/Edis/Weddings, Wedme/Edme/Edmi, Eko/Echo). Diferença que pode ser só erro de transcrição não torna uma tarefa diferente.
 
 Na dúvida, responda NOVA. Juntar errado esconde uma tarefa real dentro de outra, e isso é pior que deixar repetido.
 

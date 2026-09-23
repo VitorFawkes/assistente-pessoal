@@ -94,14 +94,20 @@ type Registro = {
   similaridade: number | null;
   mais_parecida: number | null;
 };
-const feitas = new Map<string, Registro[]>();
-if (existsSync(arqDecisoes)) {
-  for (const linha of readFileSync(arqDecisoes, "utf8").split("\n").filter(Boolean)) {
+function lerRegistros(arq: string): Map<string, Registro[]> {
+  const m = new Map<string, Registro[]>();
+  if (!existsSync(arq)) return m;
+  for (const linha of readFileSync(arq, "utf8").split("\n").filter(Boolean)) {
     const r = JSON.parse(linha) as Registro;
-    if (!feitas.has(r.reuniao)) feitas.set(r.reuniao, []);
-    feitas.get(r.reuniao)!.push(r);
+    if (!m.has(r.reuniao)) m.set(r.reuniao, []);
+    m.get(r.reuniao)!.push(r);
   }
+  return m;
 }
+const feitas = lerRegistros(arqDecisoes);
+// --base: decisões de outro ensaio, usadas pras reuniões que este não reprocessa
+// (assim a lista simulada de cada reunião escolhida fica igual à daquele ensaio).
+const base = arg("base") ? lerRegistros(arg("base")!) : new Map<string, Registro[]>();
 const arqUso = join(saida, "uso.jsonl");
 
 // ─── simulação ───────────────────────────────────────────────────────
@@ -182,7 +188,7 @@ for (const r of reunioes) {
   }
 
   // O que foi juntado não vira card; o resto entra na lista simulada.
-  const juntadas = new Set((registros ?? []).filter((x) => x.tipo === "mesma").map((x) => x.tarefa));
+  const juntadas = new Set((registros ?? base.get(r.id) ?? []).filter((x) => x.tipo === "mesma").map((x) => x.tarefa));
   for (const t of r.tarefas) if (!juntadas.has(t.id)) naLista.set(t.id, t);
 }
 

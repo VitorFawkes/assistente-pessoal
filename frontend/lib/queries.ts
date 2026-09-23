@@ -75,6 +75,7 @@ export type TarefaParecida = {
   id: string;
   titulo: string;
   status: Tarefa["status"];
+  concluida_em: string | null;
   meeting_recorded_at: string | null;
 };
 
@@ -216,6 +217,7 @@ const TAREFA_COLUNAS_DONO = `,
          ), '[]'::jsonb) AS mencoes,
          (SELECT jsonb_build_object(
                    'id', pc.id, 'titulo', pc.titulo, 'status', pc.status,
+                   'concluida_em', pc.concluida_em,
                    'meeting_recorded_at', to_char(COALESCE(pm.recorded_at, pm.created_at, pc.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))
             FROM tarefas pc LEFT JOIN meetings pm ON pm.id = pc.meeting_id
            WHERE pc.id = t.parece_com_id) AS parece_com`;

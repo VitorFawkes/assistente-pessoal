@@ -121,7 +121,14 @@ async function lerContexto(
   ).rows[0];
   const ligada = !!u?.desde;
 
-  const ja = await c.query<{ titulo: string }>(`SELECT titulo FROM tarefas WHERE meeting_id = $1`, [meetingId]);
+  // O que esta reunião já gravou (card ou "falada de novo"): reenvio não refaz.
+  // Reprocessando, as menções desta reunião são refeitas do zero — não contam.
+  const ja = await c.query<{ titulo: string }>(
+    `SELECT titulo FROM tarefas WHERE meeting_id = $1
+     UNION ALL
+     SELECT titulo_falado FROM tarefa_mencoes WHERE meeting_id = $1 AND origem = 'reuniao' AND NOT $2`,
+    [meetingId, reprocessar],
+  );
   const titulosJaNaReuniao = new Set(ja.rows.map((r) => normalizarTitulo(r.titulo)));
 
   let candidatas: Contexto["candidatas"] = [];

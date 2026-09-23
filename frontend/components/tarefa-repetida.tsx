@@ -81,7 +81,11 @@ export function PareceRepetidaAviso({ tarefa }: { tarefa: Tarefa }) {
       <span className="min-w-0 flex-1 text-[color:var(--foreground)]">
         Parece repetida de: <span className="font-medium">&ldquo;{outra.titulo}&rdquo;</span>
         {quando && <span className="text-[color:var(--muted-strong)]">, de {quando}</span>}
-        {outra.status === "concluida" && <span className="text-[color:var(--muted-strong)]"> (já concluída)</span>}
+        {outra.status === "concluida" && (
+          <span className="text-[color:var(--muted-strong)]">
+            {" "}(concluída{dia(outra.concluida_em) ? ` em ${dia(outra.concluida_em)}` : ""})
+          </span>
+        )}
       </span>
       <span className="flex gap-1.5">
         <button
@@ -152,7 +156,6 @@ function Mencao({ m, podeSeparar }: { m: TarefaMencao; podeSeparar: boolean }) {
             type="button"
             disabled={ocupado}
             onClick={separar}
-            title="A IA errou: isto era outra tarefa"
             className="ml-auto inline-flex items-center gap-1 rounded-full border border-[color:var(--border)] px-2 py-0.5 text-[11px] text-[color:var(--muted-strong)] hover:bg-[color:var(--accent)] disabled:opacity-50"
           >
             <Split size={11} /> Virar tarefa separada
