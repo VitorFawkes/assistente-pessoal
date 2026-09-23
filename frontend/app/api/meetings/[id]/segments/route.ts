@@ -162,6 +162,20 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
              WHERE id = $1::uuid`,
             [id],
           );
+          // Desfazer o fatiamento traz de volta as tarefas da gravação inteira
+          // que tinham saído porque as partes criaram as mesmas.
+          await c.query(
+            `WITH r AS (
+               UPDATE tarefas t SET status = 'aberta', cancelada_em = NULL, situacao_desde = now()
+                WHERE t.meeting_id = $1::uuid AND t.status = 'cancelada'
+                  AND EXISTS (SELECT 1 FROM tarefa_eventos e
+                               WHERE e.tarefa_id = t.id AND e.evento = 'cancelada'
+                                 AND e.payload->>'motivo' = 'gravacao_fatiada')
+               RETURNING t.id)
+             INSERT INTO tarefa_eventos (tarefa_id, evento, payload)
+             SELECT id, 'reaberta', '{"motivo":"fatiamento_desfeito"}'::jsonb FROM r`,
+            [id],
+          );
           return {
             parent,
             children: [] as ChildResult[],

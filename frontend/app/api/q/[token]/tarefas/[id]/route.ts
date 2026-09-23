@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { withGuest, GuestError, membershipDoQuadro, guestErrorResponse } from "@/lib/quadro-guest";
 import { clientIp } from "@/lib/rate-limit";
-import { TAREFA_SELECT } from "@/lib/queries";
+import { TAREFA_SELECT_CONVIDADO as TAREFA_SELECT } from "@/lib/queries";
 
 type Ctx = { params: Promise<{ token: string; id: string }> };
 

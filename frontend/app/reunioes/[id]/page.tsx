@@ -62,9 +62,10 @@ export default async function ReuniaoDetalhePage({
   const meeting = (await meetingsFor(user.id).byIdDetailed(id)) as Meeting | null;
   if (!meeting) notFound();
 
-  const [tarefas, pessoas] = await Promise.all([
+  const [tarefas, pessoas, jaExistiam] = await Promise.all([
     tarefasFor(user.id).byMeeting(id) as Promise<Tarefa[]>,
     pessoasFor(user.id).listMinimal(),
+    tarefasFor(user.id).faladasDeNovoNa(id) as Promise<Tarefa[]>,
   ]);
   const aberta = (t: Tarefa) => t.status !== "concluida" && t.status !== "cancelada";
   const suas = tarefas.filter((t) => aberta(t) && t.acao !== "aguardar");
@@ -218,7 +219,9 @@ export default async function ReuniaoDetalhePage({
         {tarefas.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-[color:var(--border)] p-10 text-center">
             <p className="text-sm text-[color:var(--muted)]">
-              Nenhuma ação foi extraída desta gravação.
+              {jaExistiam.length > 0
+                ? "Nenhuma tarefa nova: tudo o que se combinou aqui já existia (veja abaixo)."
+                : "Nenhuma ação foi extraída desta gravação."}
             </p>
           </div>
         ) : (
@@ -257,6 +260,20 @@ export default async function ReuniaoDetalhePage({
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Falado aqui, mas a tarefa já existia: não virou card novo, entrou no antigo. */}
+        {jaExistiam.length > 0 && (
+          <div className="space-y-2.5">
+            <h3 className="text-[11px] tracking-[0.16em] uppercase text-[color:var(--muted-strong)]">
+              Já existiam, falada de novo aqui ({jaExistiam.length})
+            </h3>
+            <div className="flex flex-col gap-2">
+              {jaExistiam.map((t) => (
+                <TaskRow key={t.id} tarefa={t} />
+              ))}
+            </div>
           </div>
         )}
       </section>
