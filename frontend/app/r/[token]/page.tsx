@@ -45,7 +45,8 @@ export default async function ReuniaoCompartilhadaPage(ctx: Ctx) {
     <MeetingGuestView
       token={token}
       meeting={meeting as unknown as ReuniaoCompartilhada}
-      tarefas={tarefas}
+      // O link é público: nada de citar outras reuniões ou outros cards do dono.
+      tarefas={tarefas.map(({ mencoes: _m, parece_com: _p, ...t }) => t)}
       donoNome={dono[0]?.nome ?? null}
     />
   );

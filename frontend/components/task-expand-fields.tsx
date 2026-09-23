@@ -6,6 +6,7 @@ import { cn, normalizeOwner, isOwnerMe } from "@/lib/utils";
 import { fimDoDiaBR, hojeBR, inicioDoDiaBR, maisDiasBR, paraCampoBR, proximoDiaDaSemanaBR } from "@/lib/data-br";
 import { useTaskMutations } from "@/lib/task-mutations";
 import { TaskAnexos } from "./task-anexos";
+import { MencoesLista } from "./tarefa-repetida";
 import { OwnerPicker } from "./inline-edit-chips";
 import type { Tarefa, TarefaPessoa } from "@/lib/queries";
 
@@ -108,6 +109,8 @@ export function TaskExpandFields({ tarefa }: { tarefa: Tarefa }) {
           className="w-full px-3 py-2 rounded-lg border border-[color:var(--border)] bg-transparent text-[13px] focus:outline-none focus:border-[color:var(--muted)] resize-none"
         />
       </Field>
+
+      <MencoesLista tarefa={tarefa} />
 
       <Field label="Dono da tarefa">
         <OwnerField tarefa={tarefa} />
