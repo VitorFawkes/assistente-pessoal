@@ -2,7 +2,9 @@ import {expect,spyOn,test} from "bun:test";
 import * as stores from "./store";
 import * as jobs from "./jobs";
 import * as commitmentStore from "./coach-commitments";
-import {scheduleCoachJobs} from "./jobs-worker";
+import {drainJobs,PROVIDER_RETRY_DELAY_SECONDS,scheduleCoachJobs} from "./jobs-worker";
+import * as service from "./service";
+import {CoachProviderUnavailableError} from "./model";
 test("backfill can advance twice in one cron slot; weekly uses reports without waiting for behavioral backlog and refreshes versions",async()=>{
  const list=spyOn(commitmentStore,"listCommitments").mockResolvedValue([]);
  let analyzed=2,newest="2026-09-18T10:00:00.000Z",complete=true;
@@ -32,4 +34,27 @@ test("a due agreement without a meeting queues one nudge, while recent check-ins
   recent=true;await scheduleCoachJobs("owner",now);expect(requests).toHaveLength(1);
   recent=false;status="completed";await scheduleCoachJobs("owner",now);expect(requests).toHaveLength(1);
  }finally{store.mockRestore();enqueue.mockRestore();list.mockRestore();db.mockRestore();}
+});
+
+test("scheduled work waits for an unavailable provider, while chat fails at once",async()=>{
+ const finished:unknown[]=[];let next:unknown=null;
+ const claim=spyOn(jobs,"claimJob").mockImplementation(async()=>{const job=next;next=null;return job as jobs.ClaimedCoachJob|null;});
+ const finish=spyOn(jobs,"finishJob").mockImplementation(async(_user,_id,_token,result)=>{finished.push(result);return true;});
+ const checkin=spyOn(service,"generateCheckin").mockRejectedValue(new CoachProviderUnavailableError("A IA está no limite de uso."));
+ const chat=spyOn(service,"chatWithCoach").mockRejectedValue(new CoachProviderUnavailableError("A IA está no limite de uso."));
+ try{
+  next={id:"morning",kind:"checkin",attempts:1,lease_token:"token",payload:{checkin:"morning"}};
+  expect(await drainJobs("owner")).toEqual({attempted:1,completed:0,failed:0});
+  expect(finished.at(-1)).toEqual({error:"A IA do coach está indisponível agora. Vou tentar de novo automaticamente.",retry:true,delaySeconds:PROVIDER_RETRY_DELAY_SECONDS});
+  next={id:"morning",kind:"checkin",attempts:3,lease_token:"token",payload:{checkin:"morning"}};
+  expect(await drainJobs("owner")).toEqual({attempted:1,completed:0,failed:1});
+  expect(finished.at(-1)).toEqual({error:"A IA do coach continuou indisponível. Seu histórico está preservado; tente novamente.",retry:false});
+  next={id:"chat",kind:"chat",attempts:1,lease_token:"token",payload:{message:"Como faço?"}};
+  expect(await drainJobs("owner")).toEqual({attempted:1,completed:0,failed:1});
+  expect(finished.at(-1)).toMatchObject({retry:false});
+  checkin.mockRejectedValue(new Error("unexpected"));
+  next={id:"evening",kind:"checkin",attempts:1,lease_token:"token",payload:{checkin:"evening"}};
+  expect(await drainJobs("owner")).toEqual({attempted:1,completed:0,failed:1});
+  expect(finished.at(-1)).toEqual({error:"O coach não conseguiu concluir. Seu histórico está preservado; tente novamente.",retry:false});
+ }finally{claim.mockRestore();finish.mockRestore();checkin.mockRestore();chat.mockRestore();}
 });

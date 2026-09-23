@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { analysisSchema, coachCompletion, CoachAIError } from './model';
+import { analysisSchema, coachCompletion, CoachAIError, CoachProviderUnavailableError } from './model';
 
 const originalFetch = globalThis.fetch;
 const envKeys = ['COACH_MODEL','COACH_PROVIDER','COACH_REVIEW_MODEL','COACH_REVIEW_PROVIDER','OPENAI_API_KEY','ANTHROPIC_API_KEY','KIMI_API_KEY'];
@@ -170,4 +170,14 @@ test('Responses refuses incomplete output and refusal blocks',async()=>{
   globalThis.fetch=(async()=>Response.json(response)) as unknown as typeof fetch;
   await expect(coachCompletion('',{},analysisSchema)).rejects.toBeInstanceOf(CoachAIError);
  }
+});
+
+test('rate limits, outages and network failures are retryable; request errors are not',async()=>{
+ for(const [status,retryable] of [[429,true],[500,true],[503,true],[408,true],[400,false],[401,false]] as const){
+  globalThis.fetch=(async()=>Response.json({error:{type:'api_error',code:'x'}},{status})) as unknown as typeof fetch;
+  const error=await coachCompletion('',{},analysisSchema).catch(caught=>caught);
+  expect(error).toBeInstanceOf(CoachAIError);expect(error instanceof CoachProviderUnavailableError).toBe(retryable);
+ }
+ globalThis.fetch=(async()=>{throw new TypeError('fetch failed');}) as unknown as typeof fetch;
+ expect(await coachCompletion('',{},analysisSchema).catch(caught=>caught)).toBeInstanceOf(CoachProviderUnavailableError);
 });

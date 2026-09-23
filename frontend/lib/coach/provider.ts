@@ -1,6 +1,8 @@
 import { anthropicSchema, matchesCoachSchema, validCoachSchema, type CoachJsonSchema } from './provider-schema';
 
 export class CoachAIError extends Error {}
+/** Rate limit, outage, timeout or network failure before any result: scheduled work may retry later. */
+export class CoachProviderUnavailableError extends CoachAIError {}
 export type CoachProvider = 'openai'|'anthropic'|'kimi';
 export type CoachRole = 'primary'|'reviewer';
 export type CoachReasoningEffort = 'low'|'medium'|'high';
@@ -22,7 +24,7 @@ export type CoachCompletionOptions = {
 };
 const invalid = ()=>new CoachAIError('A IA não concluiu uma resposta válida. Tente uma pergunta mais específica.');
 const configError = ()=>new CoachAIError('O modelo do coach não está configurado ou autorizado para este papel.');
-const cancelled = ()=>new CoachAIError('A consulta foi interrompida ou demorou demais. Tente novamente; seu histórico está preservado.');
+const cancelled = ()=>new CoachProviderUnavailableError('A consulta foi interrompida ou demorou demais. Tente novamente; seu histórico está preservado.');
 const isObject = (v:unknown):v is Record<string,unknown> => !!v&&typeof v==='object'&&!Array.isArray(v);
 const providerCategories=new Set(['invalid_request_error','authentication_error','permission_error','not_found_error','rate_limit_error','overloaded_error','api_error','model_not_found','invalid_api_key','permission_denied','insufficient_quota','rate_limit_exceeded','billing_hard_limit_reached','unsupported_parameter','unsupported_value','invalid_value','invalid_json_schema','schema_validation_error','context_length_exceeded','request_too_large']);
 const providerParams=new Set(['model','messages','response_format','tools','tool_choice','reasoning_effort','max_completion_tokens','max_tokens','thinking','output_config','reasoning','input','text','max_output_tokens','include']);
@@ -121,14 +123,15 @@ export async function providerCompletion(system:string,data:unknown,schema:unkno
    metrics.requests++;
    const res=await abortable(()=>fetch(responses?'https://api.openai.com/v1/responses':provider==='openai'?'https://api.openai.com/v1/chat/completions':provider==='kimi'?'https://api.moonshot.ai/v1/chat/completions':'https://api.anthropic.com/v1/messages',{
     method:'POST',headers:provider!=='anthropic'?{'Content-Type':'application/json',Authorization:`Bearer ${key}`}:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01'},body:JSON.stringify(body),signal,
-   }),signal);
+   }).catch(()=>{throw new CoachProviderUnavailableError('Não foi possível concluir a consulta do coach. Seu histórico está preservado.');}),signal);
    if(!res.ok){
     metrics.httpStatus=res.status;
     try{const detail:unknown=await abortable(()=>res.json(),signal);const error=isObject(detail)&&isObject(detail.error)?detail.error:{};
      metrics.providerErrorType=safeProviderCategory(error.type);metrics.providerErrorCode=safeProviderCategory(error.code);
      const param=typeof error.param==='string'?error.param.split(/[.\[]/,1)[0]:'';metrics.providerErrorParam=providerParams.has(param)?param:'unknown';
     }catch{/* Never expose remote bodies, including HTML errors or partial JSON. */}
-    throw new CoachAIError(res.status===429?'A IA está no limite de uso. Tente novamente em alguns minutos.':'Não foi possível consultar a IA do coach. Tente novamente.');
+    const unavailable=res.status===408||res.status===429||res.status>=500;
+    throw new (unavailable?CoachProviderUnavailableError:CoachAIError)(res.status===429?'A IA está no limite de uso. Tente novamente em alguns minutos.':'Não foi possível consultar a IA do coach. Tente novamente.');
    }
    const response:unknown=await abortable(()=>res.json(),signal);if(!isObject(response))throw invalid();
    const usage=isObject(response.usage)?response.usage:null;

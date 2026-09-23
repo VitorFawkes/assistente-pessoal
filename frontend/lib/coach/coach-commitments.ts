@@ -5,6 +5,7 @@ import { StaleCoachRunError } from "./store";
 import type { CoachCommitment,CoachCommitmentReceipt } from "./types";
 export type {CoachCommitmentReceipt} from "./types";
 import {trackingCommitmentCandidates,validateAction} from "./conversation-actions";
+import {naturalCommitmentDue} from "./commitment-dates";
 
 export type CommitmentInput = {
  accepted:true; idempotency_key:string; source_message_id:string; title:string;
@@ -124,9 +125,13 @@ export async function trackCommitment(userId:string,input:TrackCommitmentInput,r
   const old=(await db.query<CoachCommitment&{request_hash:string}>("SELECT * FROM coach_commitments WHERE user_id=$1 AND idempotency_key=$2",[userId,input.idempotency_key])).rows[0];
   if(old){if(old.request_hash!==requestHash)throw new Error("Esta chave já corresponde a outro compromisso.");return replayReceipt(db,userId,old,currentRevision,runId);}
   assertExpectedRevision(currentRevision,revision);
-  const source=(await db.query<{role:string;content:string}>("SELECT role,content FROM coach_messages WHERE user_id=$1 AND id=$2 FOR SHARE",[userId,input.source_message_id])).rows[0];
+  const source=(await db.query<{role:string;content:string;created_at:Date}>("SELECT role,content,created_at FROM coach_messages WHERE user_id=$1 AND id=$2 FOR SHARE",[userId,input.source_message_id])).rows[0];
   if(source?.role!=="user"||!trackingCommitmentCandidates(source.content).includes(normalized.title))throw new Error("O acompanhamento precisa de um passo concreto que você tenha assumido.");
-  if(input.due_at&&!source.content.includes(input.due_at))throw new Error("O prazo precisa ter sido informado explicitamente.");
+  if(input.due_at&&!source.content.includes(input.due_at)){
+   // Otherwise only the deadline spoken in the agreement itself ("amanhã", "sexta", "às 10h") is accepted.
+   const timezone=(await db.query<{timezone:string}>("SELECT timezone FROM coach_profiles WHERE user_id=$1",[userId])).rows[0]?.timezone;
+   if(!timezone||deadline(naturalCommitmentDue(normalized.title,new Date(source.created_at),timezone))!==normalized.due_at)throw new Error("O prazo precisa ter sido informado explicitamente.");
+  }
   const saved=(await db.query<CoachCommitment>(`INSERT INTO coach_commitments(user_id,source_message_id,idempotency_key,request_hash,title,due_at)
    VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,[userId,input.source_message_id,input.idempotency_key,requestHash,normalized.title,normalized.due_at])).rows[0];
   const writtenRevision=await bumpCommitmentRevision(db,userId,runId);

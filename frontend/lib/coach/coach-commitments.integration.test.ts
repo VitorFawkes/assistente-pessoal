@@ -5,6 +5,7 @@ import {Pool} from "pg";
 import {withTenant} from "../db";
 import {createCommitment,listCommitments,recordCommitmentOutcome,trackCommitment,updateCommitment} from "./coach-commitments";
 import {StaleCoachRunError} from "./store";
+import {naturalCommitmentDue} from "./commitment-dates";
 
 const connection=process.env.COACH_TEST_DATABASE_URL;
 describe.skipIf(!connection)("accepted steps: real isolated Postgres lifecycle",()=>{
@@ -43,7 +44,15 @@ describe.skipIf(!connection)("accepted steps: real isolated Postgres lifecycle",
   await updateCommitment(user,first.id,{status:"completed",outcome:"Concluí a proposta Aurora."},await revision());
   expect((await listCommitments(user)).find(c=>c.id===first.id)?.status).toBe("completed");
  });
-test("a blocker preserves task state and a replay cannot overwrite a newer result",async()=>{
+test("a deadline spoken in the agreement is kept, any other date is refused",async()=>{
+  const title="Amanhã eu vou destravar a contratação da closer.",source_message_id=await message(title);
+  const said=new Date((await admin.query("SELECT created_at FROM coach_messages WHERE id=$1",[source_message_id])).rows[0].created_at);
+  const due=naturalCommitmentDue(title,said,"America/Sao_Paulo")!;
+  const input={accepted:true as const,title,source_message_id,idempotency_key:"track:spoken-deadline:0",due_at:due};
+  expect(new Date((await trackCommitment(user,input,await revision())).due_at!).toISOString()).toBe(due);
+  await expect(trackCommitment(user,{...input,idempotency_key:"track:spoken-deadline:1",due_at:new Date(Date.parse(due)+86400000).toISOString()},await revision())).rejects.toThrow("O prazo precisa ter sido informado explicitamente.");
+ });
+ test("a blocker preserves task state and a replay cannot overwrite a newer result",async()=>{
   const source_message_id=await message("Crie uma tarefa para revisar o contrato Boreal.");
   const agreement=await createCommitment(user,{accepted:true,source_message_id,idempotency_key:"fixture:boreal:task",title:"Revisar o contrato Boreal"},await revision());
   await admin.query("UPDATE tarefas SET status='em_andamento',situacao_desde='2026-09-20',updated_at='2026-09-20' WHERE id=$1",[agreement.tarefa_id]);

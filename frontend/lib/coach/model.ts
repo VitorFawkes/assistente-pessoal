@@ -2,7 +2,7 @@ import {localContextDates,contextTimezone} from "./context-dates";
 import { COACH_SYSTEM } from "./framework";
 import { userMemoryCandidates, userMemoryKind } from "./conversation-memory";
 import { providerCompletion, type CoachCompletionOptions } from "./provider";
-export { CoachAIError, coachModel, coachModelAvailable, coachModelConfig } from "./provider";
+export { CoachAIError, CoachProviderUnavailableError, coachModel, coachModelAvailable, coachModelConfig } from "./provider";
 export type { CoachReadTool, CoachCompletionOptions, CoachTelemetry, CoachRole, CoachProvider, CoachReasoningEffort } from "./provider";
 const str={type:"string"};
 const object=(properties:Record<string,unknown>)=>({type:"object",properties,required:Object.keys(properties),additionalProperties:false});

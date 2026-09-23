@@ -61,13 +61,13 @@ export async function claimJob(userId:string):Promise<ClaimedCoachJob|null>{
 export async function renewJob(userId:string,id:string,token:string){
  return withTenant(userId,async db=>!!(await db.query(`UPDATE coach_jobs j SET lease_until=now()+interval '15 minutes' WHERE j.user_id=$1 AND j.id=$2 AND j.lease_token=$3 AND j.status='running' AND j.lease_until>now() AND EXISTS(SELECT 1 FROM coach_profiles p WHERE p.user_id=j.user_id AND p.enabled AND p.revision=j.profile_revision)`,[userId,id,token])).rowCount);
 }
-export async function finishJob(userId:string,id:string,token:string,result:{error?:string;retry?:boolean}={}){
+export async function finishJob(userId:string,id:string,token:string,result:{error?:string;retry?:boolean;delaySeconds?:number}={}){
  return withTenant(userId,async db=>!!(await db.query(`UPDATE coach_jobs j SET
   status=CASE WHEN $4::text IS NULL THEN 'succeeded' WHEN $5 AND attempts<3 THEN 'queued' ELSE 'failed' END,
-  available_at=now()+make_interval(secs=>least(120,30*power(2,greatest(0,attempts-1)))::int),
+  available_at=now()+make_interval(secs=>coalesce($6::int,least(120,30*power(2,greatest(0,attempts-1)))::int)),
   error=$4,lease_token=NULL,lease_until=NULL,updated_at=now()
   WHERE j.user_id=$1 AND j.id=$2 AND j.lease_token=$3 AND j.status='running' AND j.lease_until>now()
-   AND EXISTS(SELECT 1 FROM coach_profiles p WHERE p.user_id=j.user_id AND p.enabled AND (p.revision=j.profile_revision OR ($4::text IS NULL AND j.kind IN ('chat','checkin') AND EXISTS(SELECT 1 FROM coach_messages m WHERE m.user_id=j.user_id AND m.role='assistant' AND m.idempotency_key=j.id::text||':assistant'))))`,[userId,id,token,result.error??null,result.retry===true])).rowCount);
+   AND EXISTS(SELECT 1 FROM coach_profiles p WHERE p.user_id=j.user_id AND p.enabled AND (p.revision=j.profile_revision OR ($4::text IS NULL AND j.kind IN ('chat','checkin') AND EXISTS(SELECT 1 FROM coach_messages m WHERE m.user_id=j.user_id AND m.role='assistant' AND m.idempotency_key=j.id::text||':assistant'))))`,[userId,id,token,result.error??null,result.retry===true,result.delaySeconds??null])).rowCount);
 }
 /** Cancellation invalidates in-flight service writes through the profile revision. */
 export async function cancelJobs(userId:string,id?:string){

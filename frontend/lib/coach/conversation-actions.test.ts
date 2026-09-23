@@ -1,5 +1,5 @@
 import {expect,test} from "bun:test";
-import {allowedActions,validateAction,actionSchema,replacementGoalCandidates} from "./conversation-actions";
+import {allowedActions,validateAction,actionSchema,replacementGoalCandidates,trackingCommitmentCandidates} from "./conversation-actions";
 import {validCoachSchema,matchesCoachSchema} from "./provider-schema";
 import type {CoachCommitment} from "./types";
 test("instructions found only in a meeting cannot authorize a task",()=>{
@@ -166,4 +166,35 @@ test("short completion resolves only one pending commitment, never guesses among
 test("a negative progress report never concludes the commitment",()=>{
  const message="Eu não concluí a proposta ainda.";
  expect(allowedActions(message)).toEqual(["report_commitment_outcome"]);
+});
+
+test("a spoken agreement with a time lead-in and any concrete verb is tracked literally",()=>{
+ const message="Fechado. Amanhã no Pensar Estratégico eu vou destravar a contratação da closer.";
+ const quote="Amanhã no Pensar Estratégico eu vou destravar a contratação da closer.";
+ expect(trackingCommitmentCandidates(message)).toEqual([quote]);
+ const action={type:"track_commitment",quote,title:quote,guidance:"",due_at:null};
+ expect(validateAction(action,message)).toEqual(action);
+ expect(matchesCoachSchema([action],actionSchema(message,[],[]))).toBe(true);
+ for(const spoken of ["Hoje à tarde vou mandar a proposta para o Tiago.","Até sexta eu vou fechar a contratação da closer.","Decidi que vou cobrar a consultoria amanhã.","Hoje não deu, amanhã vou cobrar a consultoria."])expect(trackingCommitmentCandidates(spoken)).toEqual([spoken]);
+});
+test("uncertain, stative or negated spoken intentions stay untracked",()=>{
+ for(const message of ["Acho que amanhã vou revisar a proposta.","Amanhã eu vou estar em reunião o dia todo.","Amanhã eu não vou revisar a proposta.","Não sei se amanhã vou revisar a proposta.","Amanhã vou ver isso.","Quando der, vou mandar a proposta.","Talvez amanhã eu vou mandar a proposta.","Amanhã vou precisar de ajuda com a proposta.","Amanhã vou ignorar o que combinamos."]){
+  expect(trackingCommitmentCandidates(message)).toEqual([]);
+ }
+});
+test("natural replies close or report only the single open agreement",()=>{
+ const agreement=tracked("closer","Amanhã no Pensar Estratégico eu vou destravar a contratação da closer.");
+ for(const message of ["Fiz.","Sim, fiz.","Consegui!","Já fiz.","Feito.","Terminei a contratação da closer."]){
+  expect(allowedActions(message)).toContain("complete_commitment");
+  expect(validateAction({type:"complete_commitment",quote:message,guidance:"",commitment_id:"closer",due_at:null},message,[agreement])?.commitment_id).toBe("closer");
+ }
+ const blocked="Não fiz.";
+ expect(allowedActions(blocked)).toEqual(["report_commitment_outcome"]);
+ expect(validateAction({type:"report_commitment_outcome",quote:blocked,outcome:blocked,guidance:"",commitment_id:"closer"},blocked,[agreement])?.commitment_id).toBe("closer");
+ for(const partial of ["Fiz a primeira parte, mas não consegui terminar.","Consegui falar com a consultoria, mas ainda faltam os nomes."]){
+  expect(allowedActions(partial)).not.toContain("complete_commitment");
+ }
+ const two=[agreement,tracked("other","Vou revisar o contrato jurídico.")];
+ expect(validateAction({type:"complete_commitment",quote:"Fiz.",guidance:"",commitment_id:"closer",due_at:null},"Fiz.",two)).toBeNull();
+ expect(validateAction({type:"report_commitment_outcome",quote:blocked,outcome:blocked,guidance:"",commitment_id:"closer"},blocked,two)).toBeNull();
 });

@@ -14,6 +14,7 @@ import { presentChat } from "./chat-presentation";
 import { COACH_CONVERSATION_INSTRUCTION, COACH_INVESTIGATION_INSTRUCTION } from "./framework";
 import { userMemoryNotes } from "./conversation-memory";
 import { accountabilityFingerprint } from "./follow-up";
+import { formatCommitmentDue, naturalCommitmentDue } from "./commitment-dates";
 import type { CoachMeeting, CoachProfile, CoachState, Evidence, Observation, ReviewContent } from "./types";
 
 export class CoachBusyError extends Error { constructor(){super("O coach está trabalhando no seu histórico. Aguarde um pouco e tente novamente.");} }
@@ -198,8 +199,10 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
     }else if(action.type==="track_commitment"){
      if(!userMessage)throw new CoachAIError("O combinado precisa de uma declaração sua.");
      const key="track:"+(runId||userMessage.id)+":"+(taskOrdinal++);
-     const saved=await trackCommitment(userId,{accepted:true,idempotency_key:key,source_message_id:userMessage.id,title:action.title||action.quote,due_at:action.due_at||null},revision,runId);
-     confirmations.push("Registrei nosso combinado: "+saved.title);changedQuotes.add(action.quote);
+     const said=new Date(userMessage.created_at);
+     const due=action.due_at||naturalCommitmentDue(action.quote,Number.isFinite(said.getTime())?said:now,profile.timezone);
+     const saved=await trackCommitment(userId,{accepted:true,idempotency_key:key,source_message_id:userMessage.id,title:action.title||action.quote,due_at:due},revision,runId);
+     confirmations.push("Registrei nosso combinado: "+saved.title+(saved.due_at?`${/[.!?]$/u.test(saved.title)?"":"."} Prazo: ${formatCommitmentDue(saved.due_at,profile.timezone)}.`:""));changedQuotes.add(action.quote);
      revision=saved.profile_revision;
     }else if(action.type==="report_commitment_outcome"){
      if(!userMessage||!action.commitment_id)throw new CoachAIError("O relato precisa estar ligado a um combinado seu.");
