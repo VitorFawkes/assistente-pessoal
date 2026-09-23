@@ -46,7 +46,8 @@ export type Candidata = {
   concluida_em: string | null;
 };
 
-export type Voto = { decisao: "mesma" | "nova"; candidata: string | null };
+/** "talvez" nunca junta sozinho: só faz a tarefa nascer com o aviso de repetida. */
+export type Voto = { decisao: "mesma" | "talvez" | "nova"; candidata: string | null };
 
 export type Decisao =
   | { tipo: "nova"; votos: number }
@@ -114,29 +115,33 @@ export async function vetorizar(textos: string[], signal?: AbortSignal): Promise
 
 const INSTRUCOES = `Você evita que a lista de tarefas de uma pessoa tenha cards repetidos.
 
-Cada TAREFA NOVA saiu de uma reunião que acabou de acontecer. Para cada uma, você recebe as CANDIDATAS: tarefas que já estão na lista dessa pessoa e se parecem com ela. Decida se a tarefa nova é A MESMA que uma das candidatas, ou se é NOVA.
+Cada TAREFA NOVA saiu de uma reunião que acabou de acontecer. Para cada uma, você recebe as CANDIDATAS: tarefas que já estão na lista dessa pessoa e se parecem com ela.
 
-É A MESMA quando pede a mesma entrega ou a mesma ação concreta, ainda que dita com outras palavras, com mais ou menos detalhe, com prazo novo ou com outro dono. Exemplos:
-- "Finalizar o desenho da página de planejamento no sistema" e "Colocar a página de planejamento em uso até sexta" → mesma: a entrega é a página de planejamento funcionando.
-- "Enviar proposta ao João" e "Mandar a proposta revisada pro João" → mesma.
-- "Definir metas de CRM para a Fernanda" e "Estabelecer metas mensais da frente de CRM da Fernanda" → mesma.
+Para cada tarefa nova:
+1. Em "candidata", escolha a candidata que pede a entrega mais próxima (ex.: "C3"), ou null se nenhuma trata da mesma entrega.
+2. Responda duas perguntas sobre essa candidata, olhando a ENTREGA PRINCIPAL de cada uma (o resultado que se quer), não os detalhes da descrição:
+   - "existente_resolve_nova": concluir a candidata entrega o que a tarefa nova pede, no essencial?
+   - "nova_resolve_existente": concluir a tarefa nova entrega o que a candidata pede, no essencial?
+3. "talvez": só quando as duas respostas não são sim E mesmo assim você acha MAIS PROVÁVEL que seja a mesma tarefa dita de outro jeito do que uma tarefa diferente. Aí marque true: ela vai aparecer pra pessoa decidir. Em qualquer outro caso, false.
+4. Em "motivo", uma frase curta.
 
-É NOVA quando é outro passo do mesmo assunto, outra entrega, outra ocasião ou outro objeto. Exemplos:
-- "Ajustar critérios de qualificação de leads" e "Ajustar a nota de corte do score de leads para 58" → nova: é um ajuste específico diferente.
-- "Entregar a página de planejamento" e "Revisar a página de planejamento com o uso real do time" → nova: é o passo seguinte.
-- "Agendar reunião com o Thiago" e "Preparar a apresentação para o Thiago" → nova.
-- "Dar feedback para a Vanessa sobre foco" (junho) e "Dar feedback para a Vanessa sobre o novo cargo" (agosto) → nova: outra conversa.
-- "Criar o grupo de WhatsApp do time de mídia" e "Adicionar a nova gestora ao grupo de WhatsApp de mídia" → nova.
+Só é a mesma tarefa quando as DUAS respostas são sim. Outras palavras, mais ou menos detalhe, um passo a mais dentro da mesma entrega ("finalizar e começar a usar"), prazo novo ou outro dono não mudam isso. Exemplos:
+- "Finalizar o desenho da página de planejamento no sistema" e "Colocar a página de planejamento em uso até sexta" → sim e sim: a entrega é a página de planejamento funcionando.
+- "Deixar a apresentação comercial quase pronta e começar a usar" e "Finalizar a apresentação comercial para usar nas reuniões" → sim e sim.
+- "Enviar proposta ao João" e "Mandar a proposta revisada pro João" → sim e sim.
+- "Definir metas de CRM para a Fernanda" e "Estabelecer metas mensais da frente de CRM da Fernanda" → sim e sim.
+- "Atualizar a apresentação com o slide da cláusula dos 15%" e "Testar e validar a nova estrutura da apresentação" → não e não: testar a estrutura não põe o slide; pôr o slide não testa a estrutura.
+- "Ajustar critérios de qualificação de leads" e "Ajustar a nota de corte do score de leads para 58" → não: um ajuste específico não se resolve pelo outro.
+- "Entregar a página de planejamento" e "Revisar a página de planejamento com o uso real do time" → não: é o passo seguinte.
+- "Monitorar os leads toda semana" e "Avaliar os leads falsos do fim de semana" → não: a ação específica não sai sozinha do acompanhamento contínuo.
+- "Fazer 1:1 com a Vanessa sobre o papel de liderança" e "Dar feedback à Vanessa sobre os materiais e a daily" → não: são conversas sobre temas diferentes.
+- "Agendar reunião com o Thiago" e "Preparar a apresentação para o Thiago" → não.
 
-Mais cuidados:
-- Tarefa ampla e contínua ("monitorar os leads toda semana", "acompanhar a integração") NÃO absorve uma ação específica nova ("avaliar os leads falsos do fim de semana", "corrigir o envio de eventos pro Google"): é NOVA.
-- Conversa ou feedback com a mesma pessoa só é a mesma se for sobre o mesmo tema.
-- Candidata CONCLUÍDA só é a mesma se a reunião nova volta a pedir exatamente a mesma entrega.
-- A transcrição erra nomes. Trate como o mesmo nome as variações de escrita de uma pessoa, empresa ou sistema (ex.: Jordana/Giordana, Tiago/Thiago, Fer/Fê/Fernanda, Sara/Sarah, Weds/Edis/Weddings, Wedme/Edme/Edmi, Eko/Echo). Diferença que pode ser só erro de transcrição não torna uma tarefa diferente.
+Candidata CONCLUÍDA só é a mesma se a reunião nova volta a pedir exatamente a mesma entrega.
 
-Na dúvida, responda NOVA. Juntar errado esconde uma tarefa real dentro de outra, e isso é pior que deixar repetido.
+A transcrição erra nomes: trate como o mesmo nome as variações de escrita de uma pessoa, empresa ou sistema (ex.: Jordana/Giordana, Tiago/Thiago, Fer/Fê/Fernanda, Sara/Sarah, Weds/Edis/Weddings, Wedme/Edme/Edmi, Eko/Echo). Diferença que pode ser só erro de transcrição não torna uma tarefa diferente.
 
-Responda com uma decisão para cada tarefa nova. Em "candidata", o rótulo da candidata (ex.: "C3") quando for a mesma, ou null quando for nova. Em "motivo", uma frase curta.`;
+Na dúvida, responda não. Juntar errado esconde uma tarefa real dentro de outra, e isso é pior que deixar repetido.`;
 
 const SCHEMA = {
   type: "object",
@@ -147,11 +152,13 @@ const SCHEMA = {
         type: "object",
         properties: {
           nova: { type: "integer" },
-          decisao: { type: "string", enum: ["mesma", "nova"] },
           candidata: { type: ["string", "null"] },
+          existente_resolve_nova: { type: "boolean" },
+          nova_resolve_existente: { type: "boolean" },
+          talvez: { type: "boolean" },
           motivo: { type: "string" },
         },
-        required: ["nova", "decisao", "candidata", "motivo"],
+        required: ["nova", "candidata", "existente_resolve_nova", "nova_resolve_existente", "talvez", "motivo"],
         additionalProperties: false,
       },
     },
@@ -208,7 +215,7 @@ export function montarMensagens(
   if (exemplos.length) {
     const linhas = exemplos.slice(0, 12).map(
       (e) =>
-        `- "${corta(e.nova, 140)}" e "${corta(e.existente, 140)}" → ${e.tipo === "repetida" ? "mesma" : "nova"}`,
+        `- "${corta(e.nova, 140)}" e "${corta(e.existente, 140)}" → ${e.tipo === "repetida" ? "a mesma (sim e sim)" : "diferentes (não)"}`,
     );
     system += `\n\nDecisões que esta pessoa já tomou na mão (siga o mesmo critério):\n${linhas.join("\n")}`;
   }
@@ -242,7 +249,7 @@ export function montarMensagens(
 
 /** Juiz de verdade: OpenAI com resposta em formato fixo. */
 export function juizOpenAI(opts?: { modelo?: string; esforco?: string; timeoutMs?: number }): Juiz {
-  const modelo = opts?.modelo ?? process.env.DEDUP_MODEL ?? "gpt-5.1";
+  const modelo = opts?.modelo ?? process.env.DEDUP_MODEL ?? "gpt-5.6-sol";
   const esforco = opts?.esforco ?? process.env.DEDUP_REASONING ?? "low";
   return async (mensagens) => {
     const apiKey = process.env.OPENAI_API_KEY;
@@ -274,25 +281,42 @@ export function juizOpenAI(opts?: { modelo?: string; esforco?: string; timeoutMs
   };
 }
 
-/** Converte a resposta do juiz em votos por tarefa nova (índice 0-based). */
+/**
+ * Converte a resposta do juiz em votos por tarefa nova (índice 0-based).
+ * Só é "mesma" com candidata escolhida E as duas perguntas respondidas sim:
+ * concluir uma resolve a outra, nos dois sentidos.
+ */
 export function lerVotos(content: string): Map<number, Voto> {
-  const parsed = JSON.parse(content) as { decisoes?: { nova?: unknown; decisao?: unknown; candidata?: unknown }[] };
+  const parsed = JSON.parse(content) as {
+    decisoes?: {
+      nova?: unknown;
+      candidata?: unknown;
+      existente_resolve_nova?: unknown;
+      nova_resolve_existente?: unknown;
+      talvez?: unknown;
+    }[];
+  };
   const votos = new Map<number, Voto>();
   for (const d of parsed.decisoes ?? []) {
     const n = typeof d.nova === "number" ? d.nova : Number(d.nova);
     if (!Number.isInteger(n) || n < 1) continue;
-    const decisao = d.decisao === "mesma" ? "mesma" : "nova";
     const candidata = typeof d.candidata === "string" && d.candidata.trim() ? d.candidata.trim().toUpperCase() : null;
-    if (!votos.has(n - 1)) votos.set(n - 1, { decisao, candidata });
+    const mesma = !!candidata && d.existente_resolve_nova === true && d.nova_resolve_existente === true;
+    const talvez = !mesma && !!candidata && d.talvez === true;
+    if (!votos.has(n - 1))
+      votos.set(n - 1, {
+        decisao: mesma ? "mesma" : talvez ? "talvez" : "nova",
+        candidata: mesma || talvez ? candidata : null,
+      });
   }
   return votos;
 }
 
 /**
  * A regra, sem IA: junta só com as 3 execuções dizendo "mesma" e apontando a
- * MESMA candidata aberta. Qualquer "mesma" a menos (ou candidata concluída)
- * vira dúvida; nenhuma, nova. Execução que falhou não conta como voto — então,
- * com menos de 3 execuções de pé, o máximo possível é dúvida.
+ * MESMA candidata aberta. Qualquer "mesma" ou "talvez" a menos (ou candidata
+ * concluída) vira dúvida; nenhum, nova. Execução que falhou não conta como voto
+ * — então, com menos de 3 execuções de pé, o máximo possível é dúvida.
  */
 export function decidir(
   qtdNovas: number,
@@ -305,10 +329,12 @@ export function decidir(
   for (let i = 0; i < qtdNovas; i++) {
     const validos = new Set(rotulosPorNova[i] ?? []);
     const contagem = new Map<string, number>();
+    const mesmas = new Map<string, number>();
     for (const e of ok) {
       const v = e.get(i);
-      if (v?.decisao !== "mesma" || !v.candidata || !validos.has(v.candidata)) continue;
+      if (!v || v.decisao === "nova" || !v.candidata || !validos.has(v.candidata)) continue;
       contagem.set(v.candidata, (contagem.get(v.candidata) ?? 0) + 1);
+      if (v.decisao === "mesma") mesmas.set(v.candidata, (mesmas.get(v.candidata) ?? 0) + 1);
     }
     const totalMesma = [...contagem.values()].reduce((a, b) => a + b, 0);
     if (!totalMesma) {
@@ -326,7 +352,7 @@ export function decidir(
       }
     }
     const cand = candidataPorRotulo.get(melhor)!;
-    const unanime = ok.length === EXECUCOES_JUIZ && melhorN === EXECUCOES_JUIZ;
+    const unanime = ok.length === EXECUCOES_JUIZ && (mesmas.get(melhor) ?? 0) === EXECUCOES_JUIZ;
     if (unanime && cand.status !== "concluida") {
       out.push({ tipo: "mesma", tarefaId: cand.id, votos: melhorN });
     } else {

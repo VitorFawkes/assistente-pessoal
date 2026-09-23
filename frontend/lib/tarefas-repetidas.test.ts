@@ -80,6 +80,18 @@ describe("decidir — a regra dos 3 votos", () => {
     expect(d[0]).toEqual({ tipo: "nova", votos: 0 });
   });
 
+  test("\"talvez\" nunca junta: 2 mesma + 1 talvez → dúvida", () => {
+    const talvez: Voto = { decisao: "talvez", candidata: "C1" };
+    const d = decidir(1, [votos([0, mesma("C1")]), votos([0, mesma("C1")]), votos([0, talvez])], rotulos, porRotulo);
+    expect(d[0]).toEqual({ tipo: "duvida", tarefaId: "a", votos: 3 });
+  });
+
+  test("só \"talvez\" → dúvida", () => {
+    const talvez: Voto = { decisao: "talvez", candidata: "C2" };
+    const d = decidir(1, [votos([0, talvez]), votos([0, nova]), votos([0, nova])], rotulos, porRotulo);
+    expect(d[0]).toEqual({ tipo: "duvida", tarefaId: "b", votos: 1 });
+  });
+
   test("empate vai pra candidata mais parecida (a primeira da lista)", () => {
     const d = decidir(1, [votos([0, mesma("C2")]), votos([0, mesma("C1")]), votos([0, nova])], rotulos, porRotulo);
     expect(d[0]).toEqual({ tipo: "duvida", tarefaId: "a", votos: 2 });
@@ -87,18 +99,36 @@ describe("decidir — a regra dos 3 votos", () => {
 });
 
 describe("lerVotos", () => {
-  test("converte a resposta do juiz (1-based) em votos por índice", () => {
+  const d = (nova: number, candidata: string | null, a: boolean, b: boolean, talvez = false) => ({
+    nova,
+    candidata,
+    existente_resolve_nova: a,
+    nova_resolve_existente: b,
+    talvez,
+    motivo: "x",
+  });
+
+  test("talvez com candidata vira voto de dúvida; sem candidata, nova", () => {
+    const v = lerVotos(JSON.stringify({ decisoes: [d(1, "C1", true, false, true), d(2, null, false, false, true)] }));
+    expect(v.get(0)).toEqual({ decisao: "talvez", candidata: "C1" });
+    expect(v.get(1)).toEqual({ decisao: "nova", candidata: null });
+  });
+
+  test("só é mesma com as duas respostas sim (1-based → índice)", () => {
     const v = lerVotos(
       JSON.stringify({
-        decisoes: [
-          { nova: 1, decisao: "mesma", candidata: "c2", motivo: "x" },
-          { nova: 2, decisao: "nova", candidata: null, motivo: "y" },
-          { nova: 2, decisao: "mesma", candidata: "C1", motivo: "repetido: vale o primeiro" },
-        ],
+        decisoes: [d(1, "c2", true, true), d(2, "C1", true, false), d(3, "C1", false, true), d(4, null, true, true)],
       }),
     );
     expect(v.get(0)).toEqual({ decisao: "mesma", candidata: "C2" });
     expect(v.get(1)).toEqual({ decisao: "nova", candidata: null });
+    expect(v.get(2)).toEqual({ decisao: "nova", candidata: null });
+    expect(v.get(3)).toEqual({ decisao: "nova", candidata: null });
+  });
+
+  test("resposta repetida pra mesma tarefa: vale a primeira", () => {
+    const v = lerVotos(JSON.stringify({ decisoes: [d(1, null, false, false), d(1, "C1", true, true)] }));
+    expect(v.get(0)).toEqual({ decisao: "nova", candidata: null });
   });
 });
 
@@ -126,7 +156,7 @@ describe("montarMensagens", () => {
     expect(user.content).toContain("TAREFA NOVA 1: Nova A");
     expect(user.content).toContain("CONCLUÍDA em 10/07/2026");
     expect(user.content).not.toContain("TAREFA NOVA 2");
-    expect(sys.content).toContain('"X" e "Y" → nova');
+    expect(sys.content).toContain('"X" e "Y" → diferentes (não)');
   });
 });
 
