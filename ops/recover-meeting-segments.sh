@@ -44,7 +44,7 @@ echo "  $(wc -c <"$TMP/audio.mp3") bytes"
 echo "→ AssemblyAI: upload + transcript (diarização)"
 URL=$(curl -sS -X POST "$AAI/v2/upload" -H "Authorization: $ASSEMBLYAI_API_KEY" --data-binary @"$TMP/audio.mp3" | jq -r '.upload_url')
 TID=$(curl -sS -X POST "$AAI/v2/transcript" -H "Authorization: $ASSEMBLYAI_API_KEY" -H "Content-Type: application/json" \
-  -d "$(jq -nc --arg u "$URL" '{audio_url:$u,language_code:"pt",speaker_labels:true,speech_models:["universal-3-pro","universal-2"]}')" | jq -r '.id')
+  -d "$(jq -nc --arg u "$URL" '{audio_url:$u,language_code:"pt",speaker_labels:true,speech_models:["universal-3-5-pro","universal-2"]}')" | jq -r '.id')
 echo "  transcript id=$TID — polling…"
 ST=""
 for i in $(seq 1 120); do

@@ -1,6 +1,6 @@
 """Porting fiel do mac-agent/transcribe.sh pra Python.
 
-Pipeline (AssemblyAI Universal-2 / Universal-3-Pro):
+Pipeline (AssemblyAI Universal-2 / Universal-3.5 Pro):
   1. ffmpeg volumedetect → mean_volume
   2. ffprobe → duração do original
   3. Se silent (mean_volume <= SILENCE_GATE_DB): comprime e retorna sem chamar API
@@ -51,9 +51,9 @@ ASSEMBLYAI_BASE = "https://api.assemblyai.com"
 ASSEMBLYAI_API_KEY = os.environ.get("ASSEMBLYAI_API_KEY", "")
 
 # Lista de fallback ordenada. AssemblyAI tenta o primeiro; se indisponível
-# ou conta sem acesso, cai pro próximo. Universal-3-Pro é mais accurate
+# ou conta sem acesso, cai pro próximo. Universal-3.5 Pro é mais accurate
 # pra PT-BR (otimizado especificamente); Universal-2 é fallback estável.
-_default_models = ["universal-3-pro", "universal-2"]
+_default_models = ["universal-3-5-pro", "universal-2"]
 try:
     SPEECH_MODELS = json.loads(os.environ.get("SPEECH_MODELS_JSON", json.dumps(_default_models)))
     if not isinstance(SPEECH_MODELS, list) or not all(isinstance(m, str) for m in SPEECH_MODELS):

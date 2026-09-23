@@ -57,7 +57,7 @@ async function transcribeAssemblyAI(
       audio_url: upload_url,
       language_code: "pt",
       speaker_labels: true,
-      speech_models: ["universal-3-pro", "universal-2"],
+      speech_models: ["universal-3-5-pro", "universal-2"],
     }),
   });
   if (!tr.ok) throw new Error(`AAI transcript ${tr.status}: ${(await tr.text()).slice(0, 200)}`);

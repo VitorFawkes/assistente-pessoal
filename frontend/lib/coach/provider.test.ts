@@ -164,6 +164,14 @@ test('Sol uses Responses reasoning and preserves encrypted items across tool cal
  expect(await coachCompletion('',{},analysisSchema,{reasoningEffort:'high',tools:[{name:'search_history',description:'Read',parameters,execute:async()=>({found:true})}],onTelemetry:event=>{telemetry=event;}})).toEqual(valid);
  expect(telemetry).toMatchObject({inputTokens:70,outputTokens:25,cachedInputTokens:15,success:true,usageComplete:true});
 });
+test('GPT-6 Sol and Luna are allowed and use Responses',async()=>{
+ for(const model of ['gpt-6-sol','gpt-6-luna']){
+  process.env.COACH_MODEL=model;let url='';
+  globalThis.fetch=(async(u:unknown,init?:RequestInit)=>{url=String(u);expect(JSON.parse(String(init?.body)).model).toBe(model);return Response.json({status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:JSON.stringify(valid)}]}],usage:{input_tokens:1,output_tokens:1}});}) as unknown as typeof fetch;
+  expect(await coachCompletion('',{},analysisSchema)).toEqual(valid);
+  expect(url).toBe('https://api.openai.com/v1/responses');
+ }
+});
 test('Responses refuses incomplete output and refusal blocks',async()=>{
  process.env.COACH_MODEL='gpt-5.6-sol';
  for(const response of [{status:'incomplete',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(valid)}]}]},{status:'completed',output:[{type:'message',content:[{type:'refusal',refusal:'no'}]}]}]){
