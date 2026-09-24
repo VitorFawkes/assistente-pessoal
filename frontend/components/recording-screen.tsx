@@ -104,7 +104,12 @@ export function RecordingScreen({ userId }: { userId: string }) {
       setRecordingState("recording");
       await acquireWakeLock();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Erro ao iniciar gravação";
+      const negado = (err as { name?: string })?.name === "NotAllowedError";
+      const msg = negado
+        ? "Permita o uso do microfone para gravar (toque no cadeado ao lado do endereço)."
+        : err instanceof Error
+          ? err.message
+          : "Não foi possível começar a gravação.";
       toast.error(msg);
     }
   }
@@ -132,13 +137,11 @@ export function RecordingScreen({ userId }: { userId: string }) {
 
   async function startMicAndSystem() {
     if (isFirefox) {
-      toast.error("Use Chrome ou Edge para gravar reunião online");
-      return;
+      throw new Error("Use Chrome ou Edge para gravar reunião online.");
     }
 
     if (isIPhone) {
-      toast.error("No iPhone, use a opção 'Reunião na sala' (grava pela sala)");
-      return;
+      throw new Error("No iPhone, use a opção 'Reunião na sala'.");
     }
 
     try {
@@ -183,14 +186,13 @@ export function RecordingScreen({ userId }: { userId: string }) {
       };
     } catch (err) {
       if ((err as any).name === "NotAllowedError") {
-        toast.error("Permissão negada. Tente novamente.");
+        throw new Error("Você não permitiu o compartilhamento. Toque em Começar de novo e escolha 'Tela inteira' com 'Compartilhar áudio do sistema'.");
       } else {
         const wantsContinue = confirm(
           "Não consegui capturar o som da reunião online. Vou gravar só sua voz. Tem certeza?"
         );
-        if (wantsContinue) {
-          await startMicOnly();
-        }
+        if (!wantsContinue) throw new Error("Gravação não iniciada.");
+        await startMicOnly();
       }
     }
   }
@@ -392,7 +394,7 @@ export function RecordingScreen({ userId }: { userId: string }) {
             <div>
               <p className="font-semibold text-lg">Reunião na sala</p>
               <p className="text-sm text-[color:var(--muted-strong)]">
-                Apenas sua voz
+                Grava a sala pelo microfone
               </p>
             </div>
           </div>
@@ -451,7 +453,7 @@ export function RecordingScreen({ userId }: { userId: string }) {
             <div>
               <p className="font-semibold text-lg">Reunião na sala</p>
               <p className="text-sm text-[color:var(--muted-strong)]">
-                Apenas sua voz
+                Grava a sala pelo microfone
               </p>
             </div>
           </div>

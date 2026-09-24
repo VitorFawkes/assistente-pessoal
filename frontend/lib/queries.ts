@@ -324,7 +324,7 @@ export const meetingsFor = (userId: string) => ({
            m.duration_seconds, m.segments,
            m.speaker_labels, m.speaker_labels_proposed, m.sections,
            jsonb_array_length(coalesce(m.segments_removidos, '[]'::jsonb)) AS segments_removidos_count,
-           m.visibilidade
+           ${isTeamMode() ? "m.visibilidade" : "NULL::text AS visibilidade"}
          FROM meetings m
          LEFT JOIN users u ON m.user_id = u.id
          WHERE m.id = $1`,
@@ -521,7 +521,7 @@ export const meetingsFor = (userId: string) => ({
         n_minhas: number;
         dono_nome: string | null;
       }>(
-        `SELECT DISTINCT ON (m.id)
+        `SELECT
            m.id, m.user_id, (SELECT u.nome FROM users u WHERE u.id = m.user_id) AS dono_nome, m.source, m.meeting_type,
            to_char(coalesce(m.recorded_at, m.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
            to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
@@ -530,16 +530,7 @@ export const meetingsFor = (userId: string) => ({
            (SELECT count(*) FROM tarefas WHERE meeting_id = m.id AND acao IN ('executar','cobrar'))::int AS n_minhas
          FROM meetings m
          WHERE m.status != 'archived_session'
-           AND (
-             m.user_id::text = current_setting('app.current_user_id', true)  -- Próprias
-             OR m.visibilidade = 'todos'  -- Visíveis para todos
-             OR EXISTS (
-               SELECT 1 FROM meeting_acessos
-               WHERE meeting_acessos.meeting_id = m.id
-                 AND meeting_acessos.user_id::text = current_setting('app.current_user_id', true)
-             )
-           )
-         ORDER BY m.id, coalesce(m.recorded_at, m.created_at) DESC
+         ORDER BY coalesce(m.recorded_at, m.created_at) DESC
          LIMIT 100`,
       );
       return r.rows;
@@ -1186,6 +1177,16 @@ export const teamAccessFor = (userId: string) => ({
         [userId],
       );
       return r.rows;
+    }),
+
+  /** Quem já foi escolhido para ver esta reunião (só o dono enxerga). */
+  listAcessos: (meetingId: string) =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<{ user_id: string | null; time_id: string | null }>(
+        `SELECT user_id, time_id FROM meeting_acessos WHERE meeting_id = $1`,
+        [meetingId],
+      );
+      return r.rows.map((a) => (a.user_id ? { user_id: a.user_id } : { time_id: a.time_id! }));
     }),
 
   /** Lista times únicos de todos os usuários liberados. */

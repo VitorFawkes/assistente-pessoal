@@ -1,5 +1,6 @@
 "use client";
 
+import { getOwnerSlug, isOwner } from "@/lib/owner-slug";
 import { isTeamMode } from "@/lib/team-mode";
 import { useEffect, useState } from "react";
 import { UserRound } from "lucide-react";
@@ -13,7 +14,7 @@ export function PraQuemChip({ value, onChange }: { value: PraQuem; onChange: (v:
   const [owners, setOwners] = useState<{ name: string; is_me: boolean }[]>([]);
   const [txt, setTxt] = useState("");
   useEffect(() => { fetch("/api/owners").then((r) => r.json()).then((d) => setOwners(d.owners ?? [])).catch(() => {}); }, []);
-  const isMe = value.owner === "vitor" && value.acao === "executar";
+  const isMe = isOwner(value.owner) && value.acao === "executar";
   const eu = isTeamMode() ? "Você" : "Vitor";
   const label = isMe ? eu : value.owner === "?" ? "alguém" : value.owner;
   const filtered = owners.filter((o) => !o.is_me && o.name.toLowerCase().includes(txt.toLowerCase()));
@@ -28,7 +29,7 @@ export function PraQuemChip({ value, onChange }: { value: PraQuem; onChange: (v:
       {(close) => (
         <div className="flex flex-col">
           <button type="button" className="text-left text-sm px-2 py-1.5 rounded hover:bg-[color:var(--accent)] font-medium"
-            onClick={() => { onChange({ owner: "vitor", acao: "executar" }); close(); }}>eu (executar)</button>
+            onClick={() => { onChange({ owner: getOwnerSlug(), acao: "executar" }); close(); }}>eu (executar)</button>
           <input autoFocus value={txt} onChange={(e) => setTxt(e.target.value)} placeholder="delegar a…"
             onKeyDown={(e) => { if (e.key === "Enter" && txt.trim()) { onChange({ owner: txt.trim(), acao: "cobrar" }); close(); } }}
             className="mx-1 my-1 px-2 py-1 text-sm rounded border border-[color:var(--border)] bg-transparent" />

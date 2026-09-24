@@ -25,8 +25,11 @@ export const POST = withAuth<Ctx>(async (user, req, ctx) => {
   if (existente.length && existente[0].user_id !== user.id) return erro(403, "gravação de outra pessoa");
   if (existente.length && existente[0].finalizada_em) return erro(409, "gravação já encerrada");
 
+  // O enviador manda no máximo 8 MB por vez; folga pro envelope do formulário.
+  if (Number(req.headers.get("content-length") || 0) > 12 * 1024 * 1024) return erro(413, "pedaço grande demais");
   const audio = (await req.formData()).get("audio");
   if (!(audio instanceof Blob)) return erro(400, "sem áudio");
+  if (audio.size > 12 * 1024 * 1024) return erro(413, "pedaço grande demais");
 
   try {
     const pasta = await pastaDaGravacao(user.id, id);

@@ -11,22 +11,24 @@ export function MeetingVisibilitySelector({
   currentVisibilidade,
   pessoas,
   times,
+  acessosIniciais,
   isOwner,
 }: {
   meetingId: string;
   currentVisibilidade: "todos" | "so_eu" | "escolhidos";
   pessoas: Pessoa[];
   times: TimeMember[];
+  acessosIniciais: Array<{ user_id?: string; time_id?: string }>;
   isOwner: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [visibilidade, setVisibilidade] = useState(currentVisibilidade);
-  const [escolhidos, setEscolhidos] = useState<Array<{ user_id?: string; time_id?: string }>>([]);
+  const [escolhidos, setEscolhidos] = useState<Array<{ user_id?: string; time_id?: string }>>(acessosIniciais);
   const [searchQuery, setSearchQuery] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const filteredPessoas = pessoas.filter((p) =>
+  const filteredPessoas = pessoas.filter((p) => !p.is_vitor &&
     p.nome.toLowerCase().includes(searchQuery.toLowerCase())
   );
   const filteredTimes = times.filter((t) =>
@@ -35,9 +37,6 @@ export function MeetingVisibilitySelector({
 
   const handleVisibilidadeChange = (newVis: "todos" | "so_eu" | "escolhidos") => {
     setVisibilidade(newVis);
-    if (newVis !== "escolhidos") {
-      setEscolhidos([]);
-    }
   };
 
   const togglePessoa = (pessoaId: string) => {
@@ -63,6 +62,10 @@ export function MeetingVisibilitySelector({
   };
 
   const handleSave = () => {
+    if (visibilidade === "escolhidos" && escolhidos.length === 0) {
+      alert("Escolha pelo menos uma pessoa ou um time.");
+      return;
+    }
     startTransition(async () => {
       try {
         const res = await fetch(`/api/meetings/${meetingId}/visibilidade`, {
@@ -107,7 +110,9 @@ export function MeetingVisibilitySelector({
       ? "Toda a Welcome pode ver"
       : visibilidade === "so_eu"
         ? "Só eu vejo"
-        : `${escolhidos.length} pessoa${escolhidos.length !== 1 ? "s" : ""} e time${escolhidos.length !== 1 ? "s" : ""} escolhido${escolhidos.length !== 1 ? "s" : ""}`;
+        : escolhidos.length === 1
+          ? "1 escolhido"
+          : `${escolhidos.length} escolhidos`;
 
   return (
     <div className="relative" ref={dropdownRef}>

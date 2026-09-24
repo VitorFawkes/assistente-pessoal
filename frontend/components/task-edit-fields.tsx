@@ -1,5 +1,6 @@
 "use client";
 
+import { getOwnerSlug } from "@/lib/owner-slug";
 import { useEffect, useState } from "react";
 import { Calendar, Trash2 } from "lucide-react";
 import { cn, type Prioridade } from "@/lib/utils";
@@ -93,7 +94,7 @@ export function TaskEditFields({ tarefa }: Props) {
     const old = owner;
     setOwner(newOwner);
     if (newOwner !== tarefa.owner) {
-      const ok = await mut.patch(tarefa.id, { owner: newOwner.trim() || "vitor" });
+      const ok = await mut.patch(tarefa.id, { owner: newOwner.trim() || getOwnerSlug() });
       if (!ok) setOwner(old);
     }
   };
@@ -267,7 +268,7 @@ export function TaskEditFields({ tarefa }: Props) {
             value={owner}
             onChange={(e) => setOwner(e.target.value)}
             onBlur={() => handleOwnerChange(owner)}
-            placeholder="vitor"
+            placeholder={getOwnerSlug()}
             className="w-full px-3 py-2 rounded-md border border-[color:var(--border)] bg-transparent text-sm focus:outline-none focus:border-zinc-400 dark:focus:border-zinc-600"
           />
         </div>

@@ -9,6 +9,7 @@ import {
   quandoBR,
 } from "./data-br";
 import { isOwner } from "./owner-slug";
+import { isTeamMode } from "./team-mode";
 
 export const SP_TZ = "America/Sao_Paulo";
 
@@ -26,12 +27,12 @@ export function toSP(d: Date | string): Date {
 
 // Normaliza o "dono" de uma tarefa pra exibição consistente:
 //  - vazio / "?"           → "A definir"
-//  - dono da conta         → "Você" (ou o slug configurado)
+//  - "vitor" (case-insens) → "Vitor"; na equipe, o dono da conta → "Você"
 //  - outros                → nome como veio (trim)
 export function normalizeOwner(owner: string | null | undefined): string {
   const s = (owner ?? "").trim();
   if (!s || s === "?") return "A definir";
-  if (isOwner(s)) return "Você";
+  if (isOwner(s)) return isTeamMode() ? "Você" : "Vitor";
   return s;
 }
 

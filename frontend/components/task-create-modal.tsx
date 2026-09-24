@@ -1,5 +1,6 @@
 "use client";
 
+import { getOwnerSlug } from "@/lib/owner-slug";
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { X, Calendar } from "lucide-react";
@@ -82,7 +83,7 @@ export function TaskCreateModal({ onClose }: Props) {
         const payload: Record<string, unknown> = {
           titulo: titulo.trim(),
           descricao: descricao.trim() || null,
-          owner: owner.trim() || "vitor",
+          owner: owner.trim() || getOwnerSlug(),
           acao,
           prazo: dateInputToIso(prazo),
           prioridade,
@@ -195,7 +196,7 @@ export function TaskCreateModal({ onClose }: Props) {
                 type="text"
                 value={owner}
                 onChange={(e) => setOwner(e.target.value)}
-                placeholder="vitor"
+                placeholder={getOwnerSlug()}
                 className="w-full px-3 py-2 rounded-md border border-[color:var(--border)] bg-transparent text-sm focus:outline-none focus:border-zinc-400 dark:focus:border-zinc-600"
               />
             </div>

@@ -3,7 +3,7 @@ import { query } from "@/lib/db";
 
 export const GET = withAuth(async (user, req) => {
   try {
-    const result: any = await query(
+    const rows = await query<{ id: string; chunks_count: number; last_chunk_at: string }>(
       `SELECT id, chunks_count, last_chunk_at FROM gravacao_sessoes
        WHERE user_id = $1 AND finalizada_em IS NULL
        AND last_chunk_at > now() - interval '30 minutes'
@@ -11,14 +11,14 @@ export const GET = withAuth(async (user, req) => {
       [user.id]
     );
 
-    if (!result.rows || result.rows.length === 0) {
+    if (rows.length === 0) {
       return new Response(JSON.stringify({ active: null }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
     }
 
-    const session = result.rows[0];
+    const session = rows[0];
     return new Response(
       JSON.stringify({
         active: {

@@ -15,7 +15,7 @@ import {
 } from "@/components/transcription-view";
 import { SpeakersStrip } from "@/components/speakers-strip";
 import { buildSpeakerCards } from "@/lib/speakers";
-import { ArrowLeft, Mic, Video, FileQuestion, UsersRound, Lock } from "lucide-react";
+import { ArrowLeft, Mic, Video, FileQuestion, UsersRound } from "lucide-react";
 import { ExecutiveSummary } from "./executive-summary";
 import { AutoLabelByContent } from "./auto-label-by-content";
 import { DeleteMeetingButton } from "@/components/delete-meeting-button";
@@ -23,6 +23,7 @@ import { MeetingExportMenu } from "@/components/meeting-export-menu";
 import { MeetingShareButton } from "@/components/meeting-share-button";
 import { RegenerateButton } from "@/components/regenerate-button";
 import { MeetingVisibilitySelector } from "@/components/meeting-visibility-selector";
+import { MeetingGuestView, type ReuniaoCompartilhada } from "@/components/meeting-guest-view";
 import { OwnerTaskProvider } from "@/lib/task-mutations";
 
 export const dynamic = "force-dynamic";
@@ -69,12 +70,35 @@ export default async function ReuniaoDetalhePage({
 
   const isOwner = meeting.user_id === user.id;
 
-  const [tarefas, pessoas, jaExistiam, teamPessoas, teamTimes] = await Promise.all([
+  // Reunião de colega (liberada pra mim): só leitura, sem ouvir, editar nem rotular.
+  if (isTeamMode() && !isOwner) {
+    const tarefasColega = (await tarefasFor(user.id).byMeeting(id)) as Tarefa[];
+    return (
+      <div className="space-y-5">
+        <Link
+          href="/reunioes"
+          className="inline-flex items-center gap-1.5 text-[13px] text-[color:var(--muted)] hover:text-[color:var(--foreground)] transition"
+        >
+          <ArrowLeft size={14} /> reuniões
+        </Link>
+        <MeetingGuestView
+          token={null}
+          deColega
+          meeting={meeting as unknown as ReuniaoCompartilhada}
+          tarefas={tarefasColega.map(({ mencoes: _m, parece_com: _p, ...t }) => t as Tarefa)}
+          donoNome={meeting.user_nome}
+        />
+      </div>
+    );
+  }
+
+  const [tarefas, pessoas, jaExistiam, teamPessoas, teamTimes, teamAcessos] = await Promise.all([
     tarefasFor(user.id).byMeeting(id) as Promise<Tarefa[]>,
     pessoasFor(user.id).listMinimal(),
     tarefasFor(user.id).faladasDeNovoNa(id) as Promise<Tarefa[]>,
     isTeamMode() ? teamAccessFor(user.id).listPessoas() : Promise.resolve([]),
     isTeamMode() ? teamAccessFor(user.id).listTimes() : Promise.resolve([]),
+    isTeamMode() && isOwner ? teamAccessFor(user.id).listAcessos(id) : Promise.resolve([]),
   ]);
   const aberta = (t: Tarefa) => t.status !== "concluida" && t.status !== "cancelada";
   const suas = tarefas.filter((t) => aberta(t) && t.acao !== "aguardar");
@@ -104,15 +128,6 @@ export default async function ReuniaoDetalhePage({
   return (
     <OwnerTaskProvider>
     <div className="space-y-7 sm:space-y-9">
-      {isTeamMode() && !isOwner && (
-        <div className="rounded-2xl border border-[color:var(--info)]/30 bg-[color:var(--info-bg)] p-4">
-          <p className="text-[12px] text-[color:var(--info)] flex items-center gap-2">
-            <Lock size={14} />
-            Reunião de {meeting.user_nome || "outro usuário"} — só leitura
-          </p>
-        </div>
-      )}
-
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <Link
           href="/reunioes"
@@ -128,6 +143,7 @@ export default async function ReuniaoDetalhePage({
               currentVisibilidade={(meeting.visibilidade as "todos" | "so_eu" | "escolhidos") || "todos"}
               pessoas={teamPessoas}
               times={teamTimes}
+              acessosIniciais={teamAcessos}
               isOwner={isOwner}
             />
           )}

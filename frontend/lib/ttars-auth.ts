@@ -38,7 +38,8 @@ export async function pessoaDoTtars(token: string): Promise<PessoaTtars | null> 
     )
   )?.[0];
   if (perfil?.active === false) return null;
-  const email = (perfil?.email || u.email || "").toLowerCase();
+  // Só o e-mail do login: o do perfil a própria pessoa pode trocar no TTARS.
+  const email = (u.email || "").toLowerCase();
   if (!email) return null;
   const times =
     (await lerTtars<{ teams: { id: string; name: string } | null }[]>(

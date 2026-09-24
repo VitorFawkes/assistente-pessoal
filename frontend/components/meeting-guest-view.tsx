@@ -1,5 +1,7 @@
 import { Link2, CheckCircle2, Circle, Clock } from "lucide-react";
 import { fmtDate, formatPrazo, formatPrazoColor, normalizeOwner, areaLabel } from "@/lib/utils";
+import { isOwner } from "@/lib/owner-slug";
+import { isTeamMode } from "@/lib/team-mode";
 import { meetingSubject } from "@/lib/meeting-label";
 import { Markdown } from "@/lib/md";
 import {
@@ -32,11 +34,14 @@ export function MeetingGuestView({
   meeting,
   tarefas,
   donoNome,
+  deColega = false,
 }: {
-  token: string;
+  token: string | null;
   meeting: ReuniaoCompartilhada;
   tarefas: Tarefa[];
   donoNome: string | null;
+  /** Colega da equipe lendo dentro do Ações: só leitura, sem baixar. */
+  deColega?: boolean;
 }) {
   const segments: Segment[] = coerceSegments(meeting.segments);
   const labels = meeting.speaker_labels || {};
@@ -51,8 +56,10 @@ export function MeetingGuestView({
       <div className="flex items-center gap-2 text-[12px] text-[color:var(--muted)]">
         <Link2 size={13} className="shrink-0" />
         <span>
-          {donoNome ? `${donoNome} compartilhou esta reunião com você.` : "Reunião compartilhada."}{" "}
-          Você pode ler e baixar.
+          {deColega
+            ? `Reunião de ${donoNome || "um colega"}. Você pode ler.`
+            : <>{donoNome ? `${donoNome} compartilhou esta reunião com você.` : "Reunião compartilhada."}{" "}
+          Você pode ler e baixar.</>}
         </span>
       </div>
 
@@ -82,7 +89,7 @@ export function MeetingGuestView({
             <h2 className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
               Resumo executivo
             </h2>
-            <MeetingExportMenu
+            {token && <MeetingExportMenu
               segments={segments}
               labels={labels}
               sections={meeting.sections || []}
@@ -90,7 +97,7 @@ export function MeetingGuestView({
               duracao={meeting.duration_seconds || 0}
               exportBase={`/api/r/${token}/export`}
               printBase={`/r/${token}/imprimir`}
-            />
+            />}
           </div>
           <div className="paper-card rounded-2xl border border-[color:var(--border)] p-5 sm:p-6">
             <Markdown text={meeting.executive_summary} />
@@ -111,7 +118,7 @@ export function MeetingGuestView({
         ) : (
           <div className="flex flex-col gap-2">
             {tarefas.map((t) => (
-              <TarefaLeitura key={t.id} tarefa={t} />
+              <TarefaLeitura key={t.id} tarefa={t} donoNome={donoNome} />
             ))}
           </div>
         )}
@@ -123,7 +130,7 @@ export function MeetingGuestView({
             <h2 className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
               Transcrição
             </h2>
-            {!meeting.executive_summary && (
+            {token && !meeting.executive_summary && (
               <MeetingExportMenu
                 segments={segments}
                 labels={labels}
@@ -158,11 +165,13 @@ function stripe(p: Tarefa["prioridade"]): string {
   return "bg-[color:var(--muted)] opacity-15";
 }
 
-function TarefaLeitura({ tarefa }: { tarefa: Tarefa }) {
+function TarefaLeitura({ tarefa, donoNome }: { tarefa: Tarefa; donoNome: string | null }) {
   const feita = tarefa.status === "concluida" || tarefa.status === "cancelada";
   const prazo = formatPrazo(tarefa.prazo);
   const principal = tarefa.pessoas.find((p) => p.principal)?.nome;
-  const dono = principal || normalizeOwner(tarefa.owner);
+  // Quem lê não é o dono: na equipe, "eu" vira o nome de quem gravou.
+  const doDono = isTeamMode() && donoNome && isOwner((tarefa.owner ?? "").trim());
+  const dono = principal || (doDono ? donoNome : normalizeOwner(tarefa.owner));
   const area = tarefa.frente ? areaLabel(tarefa.frente) : null;
 
   return (

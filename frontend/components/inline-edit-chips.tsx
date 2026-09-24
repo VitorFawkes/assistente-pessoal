@@ -1,5 +1,6 @@
 "use client";
 
+import { getOwnerSlug } from "@/lib/owner-slug";
 import { isTeamMode } from "@/lib/team-mode";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -495,7 +496,7 @@ export function OwnerPicker({
     // pra rota manter o invariante e recalcular a pessoa principal / agrupamento.
     mut.patch(
       tarefa.id,
-      { owner: owner || "vitor", acao: acaoForOwner(owner) },
+      { owner: owner || getOwnerSlug(), acao: acaoForOwner(owner) },
       { silent: true },
     );
     close();
@@ -523,7 +524,7 @@ export function OwnerPicker({
         autoFocus={autoFocus}
         className="mx-1 mb-1 px-2 py-1.5 rounded border border-[color:var(--border)] bg-transparent text-[13px] outline-none focus:border-[color:var(--muted)]"
       />
-      <MenuItem active={jaSou} onClick={() => setOwner("vitor")}>
+      <MenuItem active={jaSou} onClick={() => setOwner(getOwnerSlug())}>
         <span className="inline-flex items-center gap-2">
           <UserRound size={13} className="text-[color:var(--calm)]" />
           {isTeamMode() ? "Você" : "Vitor (você)"}

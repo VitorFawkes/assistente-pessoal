@@ -114,7 +114,7 @@ export function FileUploader({ onClose, userId }: { onClose: () => void; userId:
                     Clique para escolher
                   </p>
                   <p className="text-xs text-[color:var(--muted)] mt-1">
-                    ou arraste um arquivo
+                    áudio ou vídeo da reunião
                   </p>
                 </div>
               </div>

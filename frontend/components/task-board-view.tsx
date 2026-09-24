@@ -5,6 +5,7 @@
 // MESMA lista, com "Ver por" mandando no agrupamento — a página não é presa à
 // situação. Arrastar funciona pegando o cartão inteiro; soltar em outro grupo
 // muda a situação (ou o dono, ou o tema, conforme o "Ver por").
+import { getOwnerSlug } from "@/lib/owner-slug";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Search, X } from "lucide-react";
@@ -121,7 +122,7 @@ export function TaskBoardView({
             ...(novo ? [{ nome: novo, principal: true }] : []),
             ...tarefa.pessoas.filter((p) => !p.principal && p.nome !== novo).map((p) => ({ nome: p.nome })),
           ];
-          await mut.patch(tarefa.id, { pessoas, owner: novo || "vitor" }, { silent: true });
+          await mut.patch(tarefa.id, { pessoas, owner: novo || getOwnerSlug() }, { silent: true });
         }
       } else if (modo === "tema") {
         const atual = tarefa.frente ?? "";
