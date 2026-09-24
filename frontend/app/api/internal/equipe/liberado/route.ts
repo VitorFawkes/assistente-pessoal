@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
@@ -12,8 +13,9 @@ export async function POST(req: NextRequest) {
   }
 
   // Autenticação: APENAS TTARS_ROSTER_TOKEN (nunca SSO_SECRET)
-  const token = req.headers.get("x-ttars-token");
-  if (token !== TTARS_ROSTER_TOKEN || !TTARS_ROSTER_TOKEN) {
+  const token = Buffer.from(req.headers.get("x-acoes-token") ?? "");
+  const esperado = Buffer.from(TTARS_ROSTER_TOKEN);
+  if (!TTARS_ROSTER_TOKEN || token.length !== esperado.length || !timingSafeEqual(token, esperado)) {
     return new NextResponse("unauthorized", { status: 401 });
   }
 
