@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
 import { reportSources, reportPeriodFingerprint } from "./meeting-reports";
 import { chunkMeeting, sourceHash } from "./evidence";
-import { coachStore, enabledUserIds, StaleCoachRunError } from "./store";
+import { coachStore, enabledUserIds, GoalLimitError, StaleCoachRunError } from "./store";
 import { createCommitment, updateCommitment, listCommitments } from "./coach-commitments";
 import { indexChunk, semanticSearch, recordModelRuns } from "./retrieval";
 import type { CoachTelemetry } from "./model";
@@ -85,6 +85,8 @@ describe.skipIf(!connection)("coach store: real Postgres isolation and lifecycle
     await admin.query(await readFile(new URL("../../../db/0033_coach_report_context.sql",import.meta.url),"utf8"));
     const lineageMigration=await readFile(new URL("../../../db/0034_coach_context_lineage.sql",import.meta.url),"utf8");
     await admin.query(lineageMigration);await admin.query(lineageMigration);
+    const goalsMigration=await readFile(new URL("../../../db/0039_coach_goals_areas.sql",import.meta.url),"utf8");
+    await admin.query(goalsMigration);await admin.query(goalsMigration);
     await admin.query("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS situacao_desde timestamptz");
     await admin.query("INSERT INTO users (id,nome,consent_terms_at) VALUES ($1,'Fixture A',now()),($2,'Fixture B',now())", [userA,userB]);
     await admin.query(`INSERT INTO meetings (id,user_id,nome,original_filename,recorded_at,transcription,segments,speaker_labels,speaker_pessoas,status,summary)
@@ -562,6 +564,29 @@ describe.skipIf(!connection)("coach store: real Postgres isolation and lifecycle
     await admin.query("UPDATE coach_reviews SET content=content-'context_version' WHERE id=$1",[saved.id]);
     expect((await a.reviews()).find(item=>item.id===saved.id)?.stale).toBe(true);
     expect((await a.saveReview("2041-01-01",review,"fixture",revision,true)).stale).toBe(false);
+  });
+
+  test("objetivos: até 3 por área, os de vida fora do perfil e do contexto de trabalho", async () => {
+    const userC = randomUUID();
+    await admin.query("INSERT INTO users (id,nome,consent_terms_at) VALUES ($1,'Fixture C',now())", [userC]);
+    const c = coachStore(userC);
+    await c.saveProfile({ enabled: true });
+    for (const content of ["Produção rodando no TARS", "Contratar a closer", "Fechar o orçamento de 2027"]) await c.saveGoal({ area: "work", content, due: null, measure: null });
+    await expect(c.saveGoal({ area: "work", content: "Quarto objetivo", due: null, measure: null })).rejects.toBeInstanceOf(GoalLimitError);
+    await c.saveGoal({ area: "life", content: "Correr uma meia maratona", due: "2026-12-06", measure: "terminar a prova" });
+    const profile = await c.profile();
+    expect(profile.goals).toContain("Contratar a closer");
+    expect(profile.goals).not.toContain("maratona");
+    expect((await c.memoryContext()).active_goals.map(g => g.content)).not.toContain("Correr uma meia maratona");
+    expect((await c.memoryContext(undefined, true)).active_goals.map(g => g.content)).toContain("Correr uma meia maratona");
+    const goals = await c.goals();
+    expect(goals.find(g => g.area === "life")).toMatchObject({ content: "Correr uma meia maratona", due: "2026-12-06", measure: "terminar a prova", lifecycle: "active" });
+    const first = goals.find(g => g.content === "Produção rodando no TARS")!;
+    await c.transitionMemory(first.id, { lifecycle: "paused" });
+    await c.saveGoal({ area: "work", content: "Quarto objetivo", due: null, measure: null });
+    await expect(c.transitionMemory(first.id, { lifecycle: "active" })).rejects.toBeInstanceOf(GoalLimitError);
+    const note = await c.rememberUserNote({ kind: "goal", content: "Meu objetivo de trabalho é revisar o funil", status: "confirmed", evidence: [] }, (await c.profile()).revision);
+    expect(note).toMatchObject({ lifecycle: "paused", goal_area: "work" });
   });
 
   test("reset removes private coach data, keeps meetings, and blocks in-flight repopulation", async () => {

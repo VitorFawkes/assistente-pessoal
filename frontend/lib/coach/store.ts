@@ -1,4 +1,4 @@
-import { memoryContext as buildMemoryContext, memoriesAt as memoryVersionsAt, inferenceBlocked } from "./memory-policy";
+import { memoryContext as buildMemoryContext, memoriesAt as memoryVersionsAt, inferenceBlocked, hideLifeGoals } from "./memory-policy";
 import { randomUUID } from "node:crypto";
 import type { PoolClient, QueryResultRow } from "pg";
 import { query, withTenant } from "../db";
@@ -70,8 +70,16 @@ async function advanceOwnJob(db:PoolClient,userId:string,runId?:string,receipt?:
 }
 const memorySnapshot = `jsonb_build_array(jsonb_build_object('content',content,'status',status,'lifecycle',lifecycle,'valid_from',valid_from,'valid_until',now(),'evidence',evidence,'origin',origin,'supersedes_id',supersedes_id,'at',now()))`;
 async function syncProfileGoals(db:PoolClient,userId:string){
- await db.query(`UPDATE coach_profiles SET goals=coalesce((SELECT string_agg(content,E'\\n' ORDER BY created_at,id) FROM coach_memories WHERE user_id=$1 AND kind='goal' AND status='confirmed' AND lifecycle='active' AND valid_until IS NULL),'') WHERE user_id=$1`,[userId]);
+ // Work goals only: life goals never ride along in the profile every conversation reads.
+ await db.query(`UPDATE coach_profiles SET goals=coalesce((SELECT string_agg(content,E'\\n' ORDER BY created_at,id) FROM coach_memories WHERE user_id=$1 AND kind='goal' AND status='confirmed' AND lifecycle='active' AND valid_until IS NULL AND goal_area IS DISTINCT FROM 'life'),'') WHERE user_id=$1`,[userId]);
 }
+/** Up to this many active goals per area (work, life). */
+export const GOALS_PER_AREA=3;
+export class GoalLimitError extends Error { constructor(area:"work"|"life"){super(`Você já tem ${GOALS_PER_AREA} objetivos de ${area==="life"?"vida":"trabalho"} ativos. Pause ou conclua um deles antes.`);} }
+async function activeGoals(db:PoolClient,userId:string,area:"work"|"life"){
+ return Number((await db.query<{n:number}>(`SELECT count(*)::int AS n FROM coach_memories WHERE user_id=$1 AND kind='goal' AND status='confirmed' AND lifecycle='active' AND valid_until IS NULL AND coalesce(goal_area,'work')=$2`,[userId,area])).rows[0]?.n)||0;
+}
+export type CoachGoal={id:string;area:"work"|"life";content:string;due:string|null;measure:string|null;lifecycle:"active"|"paused"|"completed";updated_at:string};
 async function evidenceHashes(db: PoolClient, userId: string, evidence: Evidence[], lock = false) {
   const ids = [...new Set(evidence.map((e) => e.meeting_id))].sort();
   if (!ids.length) return new Map<string, string>();
@@ -171,16 +179,37 @@ export function coachStore(userId: string) {
 
     memories: () => tenant(async (db) => {
       const memories = await rows<CoachMemory>(db,
-        "SELECT * FROM coach_memories WHERE user_id = $1 ORDER BY updated_at DESC, id", [userId]);
+        "SELECT *, goal_due::text AS goal_due FROM coach_memories WHERE user_id = $1 ORDER BY updated_at DESC, id", [userId]);
       const hashes = await evidenceHashes(db,userId,memories.flatMap((m) => m.evidence));
       return memories.map((m) => ({...m, stale: m.evidence.some((e) => hashes.get(e.meeting_id) !== e.source_hash)}));
     }),
 
     memoriesAt: async(at:string):Promise<CoachMemory[]> => memoryVersionsAt(await store.memories(),at),
-    memoryContext: async(at?:string):Promise<ReturnType<typeof buildMemoryContext>> => {
+    memoryContext: async(at?:string,includeLife=false):Promise<ReturnType<typeof buildMemoryContext>> => {
       const [memories,profile]=await Promise.all([store.memories(),store.profile()]);
-      return buildMemoryContext(memories,profile.goals,at);
+      return buildMemoryContext(includeLife?memories:hideLifeGoals(memories),profile.goals,at);
     },
+    /** Goals for the settings screen: active and paused, plus those completed in the last 90 days. */
+    goals: () => tenant(async (db) => rows<CoachGoal>(db,
+      `SELECT id,coalesce(goal_area,'work') AS area,content,goal_due::text AS due,goal_measure AS measure,lifecycle,updated_at FROM coach_memories
+       WHERE user_id=$1 AND kind='goal' AND status='confirmed' AND (lifecycle IN ('active','paused') OR (lifecycle='completed' AND updated_at>now()-interval '90 days'))
+       ORDER BY lifecycle='active' DESC,lifecycle='paused' DESC,created_at,id`,[userId])),
+    /** Creates or edits a goal from the settings screen; a new active goal respects GOALS_PER_AREA. */
+    saveGoal: (input:{id?:string;area:"work"|"life";content:string;due:string|null;measure:string|null}) => tenant(async (db) => {
+      await bumpRevision(db,userId);
+      if(input.id){
+        const updated=await rows<CoachMemory>(db,`UPDATE coach_memories SET history=CASE WHEN content IS DISTINCT FROM $3 THEN history||${memorySnapshot} ELSE history END,content=$3,goal_due=$4::date,goal_measure=$5,updated_at=now()
+          WHERE user_id=$1 AND id=$2 AND kind='goal' RETURNING id`,[userId,input.id,input.content.trim(),input.due,input.measure]);
+        if(!updated[0])return null;
+      }else{
+        if(await activeGoals(db,userId,input.area)>=GOALS_PER_AREA)throw new GoalLimitError(input.area);
+        const exists=(await rows<CoachMemory>(db,"SELECT id FROM coach_memories WHERE user_id=$1 AND kind='goal' AND content_hash=md5(lower(btrim($2)))",[userId,input.content]))[0];
+        if(exists)throw new Error("Já existe um objetivo com esse texto.");
+        await db.query("INSERT INTO coach_memories(user_id,kind,content,status,origin,goal_area,goal_due,goal_measure) VALUES($1,'goal',$2,'confirmed','user',$3,$4::date,$5)",[userId,input.content.trim(),input.area,input.due,input.measure]);
+      }
+      await syncProfileGoals(db,userId);
+      return true;
+    }),
 
     // Supplying revision marks a model write; it cannot override a user's prior rejection.
     addMemory: (input: MemoryInput, revision?: number) => tenant(async (db) => {
@@ -209,13 +238,15 @@ export function coachStore(userId: string) {
         || input.content.trim().length < 1 || input.content.trim().length > 12000)
         throw new Error("A memória precisa ser uma declaração explícita de objetivo, contexto ou experimento.");
       await assertRevision(db,userId,revision);
+      const area=input.kind==="goal"&&/\b(?:vida pessoal|objetivos? de vida|pessoal|familia|família|saude|saúde)\b/iu.test(input.content)?"life":"work";
+      const paused=input.kind==="goal"&&await activeGoals(db,userId,area)>=GOALS_PER_AREA;
       const saved = await rows<CoachMemory>(db,
-        `INSERT INTO coach_memories(user_id,kind,content,status,evidence,origin) VALUES($1,$2,$3,'confirmed','[]'::jsonb,'user')
+        `INSERT INTO coach_memories(user_id,kind,content,status,evidence,origin,goal_area,lifecycle,valid_until) VALUES($1,$2,$3,'confirmed','[]'::jsonb,'user',$4,$5,CASE WHEN $5='paused' THEN now() END)
          ON CONFLICT(user_id,kind,content_hash) DO UPDATE SET
            history=coach_memories.history || jsonb_build_array(jsonb_build_object(
              'content',coach_memories.content,'status',coach_memories.status,'at',now())),updated_at=now()
          WHERE coach_memories.user_id=$1 AND coach_memories.status='confirmed' AND coach_memories.lifecycle='active'
-         RETURNING *`,[userId,input.kind,input.content.trim()]);
+         RETURNING *`,[userId,input.kind,input.content.trim(),input.kind==="goal"?area:null,paused?"paused":"active"]);
       if(input.kind==="goal")await syncProfileGoals(db,userId);
       return saved[0] ?? (await rows<CoachMemory>(db,
         "SELECT * FROM coach_memories WHERE user_id=$1 AND kind=$2 AND content_hash=md5(lower(btrim($3)))",
@@ -244,6 +275,7 @@ export function coachStore(userId: string) {
       const previous=(await rows<CoachMemory>(db,"SELECT * FROM coach_memories WHERE user_id=$1 AND id=$2 FOR UPDATE",[userId,id]))[0];
       if(!previous)return null;
       if(input.lifecycle==="active"&&previous.lifecycle==="superseded")throw new Error("Um objetivo substituído precisa de uma nova decisão explícita para voltar a ser vigente.");
+      if(input.lifecycle==="active"&&previous.kind==="goal"&&previous.lifecycle!=="active"&&await activeGoals(db,userId,previous.goal_area==="life"?"life":"work")>=GOALS_PER_AREA)throw new GoalLimitError(previous.goal_area==="life"?"life":"work");
       let current:CoachMemory;
       if(input.replacement){
         const kind=input.replacement.kind||previous.kind;
