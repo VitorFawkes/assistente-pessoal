@@ -157,7 +157,7 @@ export function RecordingControls({
 
             {/* Chunk indicator */}
             <div className="text-sm text-[color:var(--muted-strong)]">
-              {chunkCount} {chunkCount === 1 ? "envio" : "envios"} recebidos
+              {chunkCount === 1 ? "1 parte enviada" : `${chunkCount} partes enviadas`}
             </div>
 
             {/* Recording indicator */}
