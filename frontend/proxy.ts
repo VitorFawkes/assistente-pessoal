@@ -12,6 +12,7 @@ const PUBLIC_PREFIXES = [
   "/c/",                  // página de convite (consume)
   "/sem-acesso",
   "/api/sessao",          // POST consume invite (cria sessão), DELETE logout
+  "/api/auth/",           // login externo (ttars, mobile, etc) — auth própria por rota
   "/api/admin/",          // rotas admin têm auth própria via x-admin-token (WEBHOOK_TOKEN)
   "/api/auth/mobile/",    // app iOS: exchange invite/session → access_token (auth própria via body)
   "/api/mobile/",         // app iOS: rotas autenticadas via Authorization: Bearer (auth própria na rota)
