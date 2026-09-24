@@ -37,8 +37,11 @@ CREATE TABLE IF NOT EXISTS meeting_acessos (
   time_id    TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_by UUID REFERENCES users(id) ON DELETE SET NULL,
-  PRIMARY KEY (meeting_id, COALESCE(user_id, '00000000-0000-0000-0000-000000000000'::UUID), COALESCE(time_id, ''))
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  CHECK (user_id IS NOT NULL OR time_id IS NOT NULL)
 );
+CREATE UNIQUE INDEX IF NOT EXISTS meeting_acessos_unico
+  ON meeting_acessos (meeting_id, COALESCE(user_id, '00000000-0000-0000-0000-000000000000'::UUID), COALESCE(time_id, ''));
 
 CREATE INDEX IF NOT EXISTS idx_meeting_acessos_user
   ON meeting_acessos(user_id) WHERE user_id IS NOT NULL;
@@ -71,83 +74,49 @@ DROP POLICY IF EXISTS meetings_read ON meetings;
 DROP POLICY IF EXISTS meetings_write ON meetings;
 
 -- SELECT: dono OU (visibilidade='todos') OU acesso explícito
+-- Quem pode ler reunião alheia (só com a marca de leitura da equipe).
+-- SECURITY DEFINER: lê meeting_acessos sem passar pela política dela, senão
+-- meetings -> meeting_acessos -> meetings vira recursão infinita.
+CREATE OR REPLACE FUNCTION equipe_pode_ler(p_meeting UUID, p_visibilidade TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT current_setting('app.leitura_equipe', true) = '1'
+    AND (
+      p_visibilidade = 'todos'
+      OR EXISTS (
+        SELECT 1 FROM meeting_acessos ma
+        WHERE ma.meeting_id = p_meeting
+          AND ma.user_id::text = current_setting('app.current_user_id', true)
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM meeting_acessos ma
+        JOIN users u ON u.id::text = current_setting('app.current_user_id', true)
+        CROSS JOIN LATERAL jsonb_array_elements(COALESCE(u.times, '[]'::jsonb)) t
+        WHERE ma.meeting_id = p_meeting
+          AND ma.time_id IS NOT NULL
+          AND ma.time_id = t->>'id'
+      )
+    )
+$$;
+REVOKE ALL ON FUNCTION equipe_pode_ler(UUID, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION equipe_pode_ler(UUID, TEXT) TO app_tenant, app_writer;
+
 CREATE POLICY meetings_read ON meetings
   FOR SELECT
-  USING (
-    current_setting('app.leitura_equipe', true) = '1'
-    AND (
-    visibilidade = 'todos'  -- Visível para todos
-    OR EXISTS (
-      -- Acesso explícito por user_id
-      SELECT 1 FROM meeting_acessos
-      WHERE meeting_acessos.meeting_id = meetings.id
-        AND meeting_acessos.user_id::text = current_setting('app.current_user_id', true)
-    )
-    OR EXISTS (
-      -- Acesso explícito por time (usuário atual tem um desses times)
-      SELECT 1 FROM meeting_acessos ma
-      WHERE ma.meeting_id = meetings.id
-        AND ma.time_id IS NOT NULL
-        AND ma.time_id = ANY(
-          COALESCE(
-            (SELECT array_agg(t->>'id')
-             FROM users u, jsonb_array_elements(u.times) t
-             WHERE u.id::text = current_setting('app.current_user_id', true)),
-            '[]'::TEXT[]
-          )
-        )
-    )
-  )
-  );
-
--- INSERT/UPDATE/DELETE: dono apenas (preserva comportamento atual)
-
--- ─── Políticas NOVAS de leitura (SELECT) em tarefas ────────────────────
+  USING (equipe_pode_ler(id, visibilidade));
 
 DROP POLICY IF EXISTS tarefas_read ON tarefas;
-DROP POLICY IF EXISTS tarefas_write ON tarefas;
-
--- SELECT: dono OU (reunião visível para mim)
 CREATE POLICY tarefas_read ON tarefas
   FOR SELECT
   USING (
-    current_setting('app.leitura_equipe', true) = '1'
-    AND (
-      -- Tarefa herda visibilidade via reunião
-      EXISTS (
-        SELECT 1 FROM meetings m
-        WHERE m.id = tarefas.meeting_id
-          AND (
-            m.user_id::text = current_setting('app.current_user_id', true)  -- Dono da reunião
-            OR m.visibilidade = 'todos'  -- Reunião visível para todos
-            OR EXISTS (
-              -- Acesso explícito à reunião por user_id
-              SELECT 1 FROM meeting_acessos
-              WHERE meeting_acessos.meeting_id = m.id
-                AND meeting_acessos.user_id::text = current_setting('app.current_user_id', true)
-            )
-            OR EXISTS (
-              -- Acesso explícito à reunião por time
-              SELECT 1 FROM meeting_acessos ma
-              WHERE ma.meeting_id = m.id
-                AND ma.time_id IS NOT NULL
-                AND ma.time_id = ANY(
-                  COALESCE(
-                    (SELECT array_agg(t->>'id')
-                     FROM users u, jsonb_array_elements(u.times) t
-                     WHERE u.id::text = current_setting('app.current_user_id', true)),
-                    '[]'::TEXT[]
-                  )
-                )
-            )
-          )
-      )
+    EXISTS (
+      SELECT 1 FROM meetings m
+      WHERE m.id = tarefas.meeting_id
+        AND equipe_pode_ler(m.id, m.visibilidade)
     )
   );
 
--- INSERT/UPDATE/DELETE: dono apenas (preserva comportamento atual)
-
--- ─── Grants para meeting_acessos ───────────────────────────────────────
 GRANT SELECT, INSERT, UPDATE, DELETE ON meeting_acessos TO app_tenant;
 GRANT SELECT, INSERT, UPDATE, DELETE ON meeting_acessos TO app_writer;
 
@@ -164,14 +133,16 @@ BEGIN
   FROM users
   WHERE id = NEW.user_id::uuid;
 
-  -- Se tiver preferência, aplica; senão fica com 'todos' (default da coluna)
-  IF padrao IS NOT NULL AND padrao IN ('todos', 'so_eu') THEN
-    NEW.visibilidade := padrao;
+  -- Só quando ninguém escolheu: usa o padrão da pessoa (ou toda a Welcome)
+  IF NEW.visibilidade IS NULL THEN
+    NEW.visibilidade := COALESCE(padrao, 'todos');
   END IF;
 
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+ALTER TABLE meetings ALTER COLUMN visibilidade DROP DEFAULT;
 
 CREATE TRIGGER apply_default_visibilidade_trigger
 BEFORE INSERT ON meetings
