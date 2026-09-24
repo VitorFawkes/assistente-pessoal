@@ -47,7 +47,7 @@ function camposEditados(payload: Record<string, unknown> | null): string[] {
 
 /**
  * Feed de atividade auditada — quem fez o quê em cada tarefa do quadro.
- * Convidado pelo nome; dono = "Vitor". Verbo claro por evento + campos no "editou".
+ * Convidado pelo nome; mudança feita pelo Coach = "Coach"; dono = "Vitor". Verbo claro por evento + campos no "editou".
  */
 export function ActivityFeed({ items }: ActivityFeedProps) {
   if (items.length === 0) {
@@ -59,7 +59,7 @@ export function ActivityFeed({ items }: ActivityFeedProps) {
   return (
     <ul className="space-y-3.5">
       {items.map((item) => {
-        const author = item.convidado_nome || "Vitor";
+        const author = item.convidado_nome || (item.payload?.origem === "coach" ? "Coach" : "Vitor");
         const avatar = author.charAt(0).toUpperCase();
         const timeAgo = formatDistanceToNowStrict(new Date(item.criado_em), {
           locale: ptBR,

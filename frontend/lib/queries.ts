@@ -143,7 +143,7 @@ export type TarefaDraft = {
 };
 
 export type CriarMeta = {
-  origem: "manual" | "captura_texto" | "captura_voz" | "agente" | "hermes";
+  origem: "manual" | "captura_texto" | "captura_voz" | "agente" | "hermes" | "coach";
   raw?: string;
   confidence?: "high" | "medium" | "low";
 };
