@@ -1,30 +1,36 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Circle, Square, ChevronLeft } from "lucide-react";
+import { Circle, Square, ChevronLeft, AlertCircle } from "lucide-react";
+import { toast } from "sonner";
 
 export function RecordingControls({
   mode,
   recording,
   chunkCount,
   startTime,
+  analyser,
   onStart,
   onStop,
+  onRetry,
   onBack,
 }: {
   mode: "na-sala" | "online";
   recording: boolean;
   chunkCount: number;
   startTime: Date | null;
+  analyser: AnalyserNode | null;
   onStart: () => void;
   onStop: () => void;
+  onRetry: () => void;
   onBack: () => void;
 }) {
   const [elapsed, setElapsed] = useState(0);
   const [levelValue, setLevelValue] = useState(0);
-  const analyserRef = useRef<AnalyserNode | null>(null);
+  const [silenceWarning, setSilenceWarning] = useState(false);
   const dataArrayRef = useRef<Uint8Array | null>(null);
   const animationRef = useRef<number | null>(null);
+  const silenceCounterRef = useRef(0);
 
   // Timer
   useEffect(() => {
@@ -34,6 +40,51 @@ export function RecordingControls({
     }, 100);
     return () => clearInterval(interval);
   }, [recording, startTime]);
+
+  // Level meter with analyser
+  useEffect(() => {
+    if (!recording || !analyser) return;
+
+    if (!dataArrayRef.current) {
+      dataArrayRef.current = new Uint8Array(analyser.frequencyBinCount);
+    }
+
+    function updateLevel() {
+      if (!analyser || !dataArrayRef.current) return;
+
+      const data = dataArrayRef.current;
+      (analyser as any).getByteFrequencyData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) {
+        sum += data[i];
+      }
+      const average = sum / data.length;
+      setLevelValue(Math.round(average));
+
+      // Check for silence (average < 10 out of 255)
+      if (average < 10) {
+        silenceCounterRef.current++;
+        if (silenceCounterRef.current > 100) {
+          // ~10 seconds at 10 updates/second
+          setSilenceWarning(true);
+          silenceCounterRef.current = 0;
+        }
+      } else {
+        silenceCounterRef.current = 0;
+        setSilenceWarning(false);
+      }
+
+      animationRef.current = requestAnimationFrame(updateLevel);
+    }
+
+    animationRef.current = requestAnimationFrame(updateLevel);
+
+    return () => {
+      if (animationRef.current !== null) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [recording, analyser]);
 
   const seconds = Math.floor(elapsed / 1000);
   const minutes = Math.floor(seconds / 60);
@@ -55,7 +106,7 @@ export function RecordingControls({
     }
   }, [recording, seconds, onStop]);
 
-  const levelPercent = Math.min(100, Math.round((levelValue / 128) * 100));
+  const levelPercent = Math.min(100, Math.round((levelValue / 255) * 100));
 
   return (
     <div className="space-y-8 max-w-2xl">
@@ -81,17 +132,32 @@ export function RecordingControls({
             {/* Level Meter */}
             <div className="space-y-2">
               <p className="text-xs text-[color:var(--muted)]">Nível de áudio</p>
-              <div className="h-2 bg-[color:var(--border)] rounded-full overflow-hidden">
+              <div className="h-3 bg-[color:var(--border)] rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-[color:var(--foreground)] transition-all duration-75"
+                  className="h-full bg-[color:var(--foreground)] transition-all duration-100"
                   style={{ width: `${levelPercent}%` }}
                 />
               </div>
             </div>
 
+            {/* Silence Warning */}
+            {silenceWarning && (
+              <div className="rounded-lg border border-yellow-600/30 bg-yellow-600/10 p-4 flex gap-3">
+                <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-yellow-700">
+                    Não estamos ouvindo nada
+                  </p>
+                  <p className="text-xs text-yellow-600 mt-1">
+                    Confira se o microfone certo está escolhido
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Chunk indicator */}
             <div className="text-sm text-[color:var(--muted-strong)]">
-              {chunkCount} pedaço{chunkCount !== 1 ? "s" : ""} enviado{chunkCount !== 1 ? "s" : ""}
+              {chunkCount} {chunkCount === 1 ? "envio" : "envios"} recebidos
             </div>
 
             {/* Recording indicator */}

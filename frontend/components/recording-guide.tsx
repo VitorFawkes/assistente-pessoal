@@ -1,5 +1,7 @@
 "use client";
 
+const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+
 export function RecordingGuide({ onConfirm, onBack }: { onConfirm: () => void; onBack: () => void }) {
   return (
     <div className="space-y-6 max-w-2xl">
@@ -9,6 +11,14 @@ export function RecordingGuide({ onConfirm, onBack }: { onConfirm: () => void; o
           São só 2 cliques. Veja como fazer em cada navegador:
         </p>
       </div>
+
+      {isMac && (
+        <div className="rounded-2xl border border-blue-600/30 bg-blue-600/10 p-6">
+          <p className="text-sm text-blue-700">
+            <strong>No Mac:</strong> você pode compartilhar apenas uma aba (som dela entra) ou a tela inteira (com som do sistema).
+          </p>
+        </div>
+      )}
 
       <div className="space-y-6">
         {/* Chrome/Edge Guide */}
