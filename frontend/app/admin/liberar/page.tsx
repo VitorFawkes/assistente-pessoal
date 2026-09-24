@@ -25,7 +25,7 @@ async function getTtarsRoster(): Promise<Pessoa[]> {
       headers: {
         "x-acoes-token": rosterToken,
       },
-      next: { revalidate: 300 }, // Cache 5 min
+      cache: "no-store",
     });
 
     if (!res.ok) {
@@ -34,8 +34,8 @@ async function getTtarsRoster(): Promise<Pessoa[]> {
     }
 
     const data = await res.json();
-    // Espera um array de {nome, email, organizacao?, times?}
-    return Array.isArray(data) ? data : [];
+    // TTARS responde { pessoas: [{ nome, email, organizacao, times }] }
+    return Array.isArray(data?.pessoas) ? data.pessoas : [];
   } catch (err) {
     console.error("erro buscando TTARS roster", err);
     return [];
