@@ -55,3 +55,4 @@ n8n-workflows/.backup-*.json
 
 # cópias do banco (dados de clientes) — nunca versionar
 backups/
+__pycache__/
