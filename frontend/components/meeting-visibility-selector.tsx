@@ -128,7 +128,7 @@ export function MeetingVisibilitySelector({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 z-50 bg-[color:var(--background)] border border-[color:var(--border)] rounded-xl shadow-lg min-w-[300px]">
+        <div className="absolute left-0 sm:left-auto sm:right-0 top-full mt-2 z-50 bg-[color:var(--background)] border border-[color:var(--border)] rounded-xl shadow-lg w-[min(340px,calc(100vw-2rem))]">
           <div className="p-4 space-y-4">
             {/* Opção: Toda a Welcome */}
             <label className="flex items-center gap-3 cursor-pointer">
@@ -219,7 +219,7 @@ export function MeetingVisibilitySelector({
               type="button"
               onClick={handleSave}
               disabled={isPending}
-              className="w-full py-2 px-3 text-[13px] font-medium bg-[color:var(--accent)] text-[color:var(--accent-foreground)] rounded-lg hover:opacity-90 transition disabled:opacity-50"
+              className="w-full py-2 px-3 text-[13px] font-medium bg-[color:var(--foreground)] text-[color:var(--background)] rounded-lg hover:opacity-90 transition disabled:opacity-50"
             >
               {isPending ? "Salvando..." : "Salvar"}
             </button>

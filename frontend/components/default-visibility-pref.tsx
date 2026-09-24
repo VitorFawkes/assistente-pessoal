@@ -84,7 +84,7 @@ export function DefaultVisibilityPref({
           type="button"
           onClick={handleSave}
           disabled={isPending}
-          className="w-full py-2 px-3 text-[13px] font-medium bg-[color:var(--accent)] text-[color:var(--accent-foreground)] rounded-lg hover:opacity-90 transition disabled:opacity-50"
+          className="w-full py-2 px-3 text-[13px] font-medium bg-[color:var(--foreground)] text-[color:var(--background)] rounded-lg hover:opacity-90 transition disabled:opacity-50"
         >
           {isPending ? "Salvando..." : "Salvar preferência"}
         </button>
