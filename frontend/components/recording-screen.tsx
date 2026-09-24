@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Mic, Video, Circle, Square, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { RecordingGuide } from "./recording-guide";
 import { RecordingControls } from "./recording-controls";
 import { FileUploader } from "./file-uploader";
+
+type RecordingState = "init" | "recording" | "stopping" | "stopped";
 
 export function RecordingScreen({ userId }: { userId: string }) {
   const [mode, setMode] = useState<"na-sala" | "online" | null>(null);
@@ -15,6 +17,11 @@ export function RecordingScreen({ userId }: { userId: string }) {
   const [chunkCount, setChunkCount] = useState(0);
   const [startTime, setStartTime] = useState<Date | null>(null);
   const [showUploader, setShowUploader] = useState(false);
+  const [recordingState, setRecordingState] = useState<RecordingState>("init");
+  const [resumeSession, setResumeSession] = useState<{
+    id: string;
+    chunks_count: number;
+  } | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -23,10 +30,58 @@ export function RecordingScreen({ userId }: { userId: string }) {
   const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const displaySourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const destRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   const isFirefox = typeof window !== "undefined" && /Firefox/.test(navigator.userAgent);
+  const isIPhone =
+    typeof window !== "undefined" &&
+    /iPhone|iPad|iPod/.test(navigator.userAgent);
 
-  async function startRecording() {
+  useEffect(() => {
+    checkActiveSession();
+  }, []);
+
+  async function checkActiveSession() {
+    try {
+      const response = await fetch("/api/gravacao/ativa");
+      const data = await response.json();
+      if (data.active) {
+        setResumeSession(data.active);
+      }
+    } catch (err) {
+      console.error("Error checking active session:", err);
+    }
+  }
+
+  async function acquireWakeLock() {
+    try {
+      if ("wakeLock" in navigator) {
+        wakeLockRef.current = await (
+          navigator.wakeLock as any
+        ).request("screen");
+        if (wakeLockRef.current) {
+          wakeLockRef.current.addEventListener("release", () => {
+            console.log("Wake Lock released");
+          });
+        }
+      }
+    } catch (err) {
+      console.warn("Wake Lock não disponível:", err);
+      toast.warning(
+        "Deixe esta tela aberta enquanto grava (seu dispositivo pode desligar)"
+      );
+    }
+  }
+
+  function releaseWakeLock() {
+    if (wakeLockRef.current) {
+      wakeLockRef.current.release().catch(() => {});
+      wakeLockRef.current = null;
+    }
+  }
+
+  async function startRecording(resumeId?: string) {
     try {
       if (mode === "na-sala") {
         await startMicOnly();
@@ -34,9 +89,14 @@ export function RecordingScreen({ userId }: { userId: string }) {
         await startMicAndSystem();
       }
       setRecording(true);
-      setSessionId(crypto.randomUUID());
-      setChunkCount(0);
+      const newSessionId = resumeId || crypto.randomUUID();
+      setSessionId(newSessionId);
+      if (!resumeId) {
+        setChunkCount(0);
+      }
       setStartTime(new Date());
+      setRecordingState("recording");
+      await acquireWakeLock();
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Erro ao iniciar gravação";
       toast.error(msg);
@@ -51,8 +111,13 @@ export function RecordingScreen({ userId }: { userId: string }) {
     audioContextRef.current = ctx;
 
     const micSource = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
     const dest = ctx.createMediaStreamDestination();
+
+    micSource.connect(analyser);
     micSource.connect(dest);
+    analyserRef.current = analyser;
     micSourceRef.current = micSource;
     destRef.current = dest;
 
@@ -62,6 +127,11 @@ export function RecordingScreen({ userId }: { userId: string }) {
   async function startMicAndSystem() {
     if (isFirefox) {
       toast.error("Use Chrome ou Edge para grabar reunião online");
+      return;
+    }
+
+    if (isIPhone) {
+      toast.error("No iPhone, use a opção 'Reunião na sala' (grava pela sala)");
       return;
     }
 
@@ -82,10 +152,14 @@ export function RecordingScreen({ userId }: { userId: string }) {
 
       const micSource = ctx.createMediaStreamSource(micStream);
       const displaySource = ctx.createMediaStreamSource(displayStream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
       const dest = ctx.createMediaStreamDestination();
 
+      micSource.connect(analyser);
       micSource.connect(dest);
       displaySource.connect(dest);
+      analyserRef.current = analyser;
       micSourceRef.current = micSource;
       displaySourceRef.current = displaySource;
       destRef.current = dest;
@@ -99,7 +173,6 @@ export function RecordingScreen({ userId }: { userId: string }) {
       if ((err as any).name === "NotAllowedError") {
         toast.error("Permissão negada. Tente novamente.");
       } else {
-        // Perguntar ao usuário se quer continuar só com microfone
         const wantsContinue = confirm(
           "Não consegui capturar o som da reunião online. Vou gravar só sua voz. Tem certeza?"
         );
@@ -124,7 +197,6 @@ export function RecordingScreen({ userId }: { userId: string }) {
       stopAllStreams();
     };
 
-    // Start recording with timeslice: send data every 30 seconds
     rec.start(30000);
   }
 
@@ -163,8 +235,9 @@ export function RecordingScreen({ userId }: { userId: string }) {
 
     mediaRecorderRef.current.stop();
     setRecording(false);
+    setRecordingState("stopping");
+    releaseWakeLock();
 
-    // Finalizar no servidor
     try {
       const response = await fetch(`/api/gravacao/${sessionId}/fim`, {
         method: "POST",
@@ -175,17 +248,170 @@ export function RecordingScreen({ userId }: { userId: string }) {
         throw new Error(`Erro ao finalizar: ${response.status}`);
       }
 
-      toast.success("Gravação finalizada! Você recebe o relatório em ~5-10 minutos.");
-      setSessionId("");
-      setChunkCount(0);
-      setStartTime(null);
+      setRecordingState("stopped");
     } catch (err) {
       toast.error("Erro ao finalizar gravação");
+      setRecordingState("init");
     }
   }
 
+  const handleRetryStop = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      const response = await fetch(`/api/gravacao/${sessionId}/fim`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!response.ok) {
+        throw new Error(`Erro ao finalizar: ${response.status}`);
+      }
+      setRecordingState("stopped");
+    } catch (err) {
+      toast.error("Erro ao finalizar gravação");
+    }
+  }, [sessionId]);
+
   if (showUploader) {
     return <FileUploader onClose={() => setShowUploader(false)} userId={userId} />;
+  }
+
+  if (recordingState === "stopping") {
+    return (
+      <div className="space-y-8 max-w-2xl text-center">
+        <div className="space-y-4">
+          <div className="inline-block animate-spin">
+            <Circle className="w-8 h-8 text-[color:var(--foreground)]" />
+          </div>
+          <div>
+            <p className="text-lg font-semibold text-[color:var(--foreground)]">
+              Enviando sua gravação…
+            </p>
+            <p className="text-sm text-[color:var(--muted-strong)] mt-2">
+              Não feche esta aba
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (recordingState === "stopped") {
+    return (
+      <div className="space-y-8 max-w-2xl">
+        <div className="text-center space-y-6">
+          <div className="space-y-3">
+            <Circle className="w-12 h-12 text-green-600 fill-green-600 mx-auto" />
+            <div>
+              <p className="text-xl font-semibold text-[color:var(--foreground)]">
+                Pronto!
+              </p>
+              <p className="text-[color:var(--muted-strong)] mt-2">
+                Sua reunião aparece em Reuniões em poucos minutos
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => {
+              window.location.href = "/reunioes";
+            }}
+            className="w-full py-4 px-6 rounded-lg bg-[color:var(--foreground)] text-[color:var(--bg)] font-semibold hover:opacity-90 transition"
+          >
+            Ver minhas reuniões
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (resumeSession && mode === null) {
+    return (
+      <div className="space-y-6 max-w-2xl">
+        <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--bg-secondary)] p-6">
+          <p className="font-semibold text-[color:var(--foreground)] mb-4">
+            Você tem uma gravação em andamento
+          </p>
+          <p className="text-sm text-[color:var(--muted-strong)] mb-6">
+            Iniciada há pouco tempo com {resumeSession.chunks_count} envios
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                setMode("na-sala");
+                startRecording(resumeSession.id);
+              }}
+              className="flex-1 py-3 px-4 rounded-lg bg-[color:var(--foreground)] text-[color:var(--bg)] font-semibold hover:opacity-90 transition"
+            >
+              Continuar gravando
+            </button>
+            <button
+              onClick={() => {
+                setSessionId(resumeSession.id);
+                setChunkCount(resumeSession.chunks_count);
+                setRecordingState("stopping");
+                stopRecording();
+              }}
+              className="flex-1 py-3 px-4 rounded-lg border border-[color:var(--border)] text-[color:var(--foreground)] hover:bg-[color:var(--bg-secondary)] transition"
+            >
+              Encerrar e processar
+            </button>
+          </div>
+        </div>
+
+        <button
+          onClick={() => {
+            setMode("na-sala");
+            setShowGuide(false);
+          }}
+          className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--bg)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
+        >
+          <div className="flex items-start gap-4">
+            <Mic className="w-8 h-8 text-[color:var(--foreground)] group-hover:scale-110 transition" />
+            <div>
+              <p className="font-semibold text-lg">Reunião na sala</p>
+              <p className="text-sm text-[color:var(--muted-strong)]">
+                Apenas sua voz
+              </p>
+            </div>
+          </div>
+        </button>
+
+        {!isIPhone && (
+          <button
+            onClick={() => {
+              setMode("online");
+              setShowGuide(true);
+            }}
+            className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--bg)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
+          >
+            <div className="flex items-start gap-4">
+              <Video className="w-8 h-8 text-[color:var(--foreground)] group-hover:scale-110 transition" />
+              <div>
+                <p className="font-semibold text-lg">Reunião online</p>
+                <p className="text-sm text-[color:var(--muted-strong)]">
+                  Teams, Zoom, Meet…
+                </p>
+              </div>
+            </div>
+          </button>
+        )}
+
+        <button
+          onClick={() => setShowUploader(true)}
+          className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--bg)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
+        >
+          <div className="flex items-start gap-4">
+            <Square className="w-8 h-8 text-[color:var(--foreground)] group-hover:scale-110 transition" />
+            <div>
+              <p className="font-semibold text-lg">Subir arquivo</p>
+              <p className="text-sm text-[color:var(--muted-strong)]">
+                Áudio ou vídeo já gravado
+              </p>
+            </div>
+          </div>
+        </button>
+      </div>
+    );
   }
 
   if (mode === null) {
@@ -209,23 +435,25 @@ export function RecordingScreen({ userId }: { userId: string }) {
           </div>
         </button>
 
-        <button
-          onClick={() => {
-            setMode("online");
-            setShowGuide(true);
-          }}
-          className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--bg)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
-        >
-          <div className="flex items-start gap-4">
-            <Video className="w-8 h-8 text-[color:var(--foreground)] group-hover:scale-110 transition" />
-            <div>
-              <p className="font-semibold text-lg">Reunião online</p>
-              <p className="text-sm text-[color:var(--muted-strong)]">
-                Teams, Zoom, Meet…
-              </p>
+        {!isIPhone && (
+          <button
+            onClick={() => {
+              setMode("online");
+              setShowGuide(true);
+            }}
+            className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--bg)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
+          >
+            <div className="flex items-start gap-4">
+              <Video className="w-8 h-8 text-[color:var(--foreground)] group-hover:scale-110 transition" />
+              <div>
+                <p className="font-semibold text-lg">Reunião online</p>
+                <p className="text-sm text-[color:var(--muted-strong)]">
+                  Teams, Zoom, Meet…
+                </p>
+              </div>
             </div>
-          </div>
-        </button>
+          </button>
+        )}
 
         <button
           onClick={() => setShowUploader(true)}
@@ -241,6 +469,15 @@ export function RecordingScreen({ userId }: { userId: string }) {
             </div>
           </div>
         </button>
+
+        {isIPhone && (
+          <div className="rounded-lg border border-yellow-600/30 bg-yellow-600/10 p-4 flex gap-3">
+            <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-yellow-600">
+              No iPhone: para reuniões online, use "Reunião na sala" e coloque no alto-falante
+            </p>
+          </div>
+        )}
 
         {isFirefox && (
           <div className="rounded-lg border border-yellow-600/30 bg-yellow-600/10 p-4 flex gap-3">
@@ -264,8 +501,10 @@ export function RecordingScreen({ userId }: { userId: string }) {
       recording={recording}
       chunkCount={chunkCount}
       startTime={startTime}
-      onStart={startRecording}
+      analyser={analyserRef.current}
+      onStart={() => startRecording()}
       onStop={stopRecording}
+      onRetry={handleRetryStop}
       onBack={() => {
         setMode(null);
         stopAllStreams();

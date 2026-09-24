@@ -54,7 +54,7 @@ export function FileUploader({ onClose, userId }: { onClose: () => void; userId:
         throw new Error(`Erro ao finalizar: ${finalResponse.status}`);
       }
 
-      toast.success("Arquivo enviado! Você recebe o relatório em alguns minutos.");
+      toast.success("Arquivo enviado com sucesso!");
       setProgress(0);
       setFileName("");
       setUploading(false);
