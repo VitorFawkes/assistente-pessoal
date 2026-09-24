@@ -68,7 +68,7 @@ export type CaptureCtx = {
   owners: { name: string; is_me: boolean }[];
 };
 
-const CAPTURE_MODEL = process.env.CAPTURE_MODEL || "gpt-5.1";
+const CAPTURE_MODEL = process.env.CAPTURE_MODEL || "gpt-6-luna";
 
 const SYSTEM_PROMPT = `Você converte UMA frase solta do Vitor em UMA tarefa estruturada (JSON).
 
@@ -102,7 +102,8 @@ export async function parseCapture(raw: string, ctx: CaptureCtx): Promise<Captur
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       model: CAPTURE_MODEL,
-      temperature: 0.2,
+      // modelos com raciocínio (GPT-5/6) não aceitam temperature; usam reasoning_effort
+      ...(/^(gpt-5|gpt-6|o\d)/.test(CAPTURE_MODEL) ? { reasoning_effort: "low" } : { temperature: 0.2 }),
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: SYSTEM_PROMPT },

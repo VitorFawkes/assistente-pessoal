@@ -258,7 +258,7 @@ export function montarMensagens(
 
 /** Juiz de verdade: OpenAI com resposta em formato fixo. */
 export function juizOpenAI(opts?: { modelo?: string; esforco?: string; timeoutMs?: number }): Juiz {
-  const modelo = opts?.modelo ?? process.env.DEDUP_MODEL ?? "gpt-5.6-sol";
+  const modelo = opts?.modelo ?? process.env.DEDUP_MODEL ?? "gpt-6-sol";
   const esforco = opts?.esforco ?? process.env.DEDUP_REASONING ?? "low";
   return async (mensagens) => {
     const apiKey = process.env.OPENAI_API_KEY;

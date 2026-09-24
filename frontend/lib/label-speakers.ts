@@ -2,7 +2,7 @@
 // quando a voz não bate (ver voice-svc). A IA já faz isso de forma confiável no
 // resumo ("Speaker A (Vitor, …)"); aqui formalizamos num mapa estruturado.
 
-const MODEL = process.env.CAPTURE_MODEL || "gpt-5.1";
+const MODEL = process.env.CAPTURE_MODEL || "gpt-6-luna";
 
 export type SpeakerGuess = { nome: string; confidence: number };
 
@@ -35,7 +35,8 @@ export async function labelSpeakersByContent(
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       model: MODEL,
-      temperature: 0.1,
+      // modelos com raciocínio (GPT-5/6) não aceitam temperature; usam reasoning_effort
+      ...(/^(gpt-5|gpt-6|o\d)/.test(MODEL) ? { reasoning_effort: "low" } : { temperature: 0.1 }),
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: SYSTEM },
