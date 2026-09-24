@@ -49,6 +49,7 @@ apply_workflow() {
   fi
 }
 
+apply_workflow "ilgULW6P1w2xWjv9" "acoes-relatorio-luna.json"     "Acoes - Relatorio Luna"
 apply_workflow "98jEiWWSAKFWEP6B" "acoes-audio-ingest.json"      "Acoes - Audio Ingest"
 apply_workflow "Gt34r0WVdZxCbJet" "acoes-process-segment.json"    "Acoes - Process Segment"
 apply_workflow "l1xcOvuEru496Zql" "acoes-reprocess-tarefas.json"  "Acoes - Reprocess Tarefas"
