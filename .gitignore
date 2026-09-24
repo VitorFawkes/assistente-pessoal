@@ -52,3 +52,6 @@ hostinger-mcp
 .backup-*.json
 .backup-wf-*.json
 n8n-workflows/.backup-*.json
+
+# cópias do banco (dados de clientes) — nunca versionar
+backups/

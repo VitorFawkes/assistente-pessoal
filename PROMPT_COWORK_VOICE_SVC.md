@@ -60,7 +60,7 @@ configurar parte e salvar, outras configs podem ser resetadas.
 
 4. Aba **Environment**: cola exatamente isso (uma var por linha):
    ```
-   DATABASE_URL=postgres://assistente:bd73f6392c1f72ed0283ea8261d0372c@n8n_assistente-pessoal-db:5432/assistente_pessoal
+   DATABASE_URL=postgres://assistente:<senha em POSTGRES_PASSWORD no .env>@n8n_assistente-pessoal-db:5432/assistente_pessoal
    AUDIO_BASE=/audios
    PYTHONUNBUFFERED=1
    ```
