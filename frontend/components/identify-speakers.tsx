@@ -1,11 +1,11 @@
 "use client";
 
+import { useDono } from "@/components/dono-context";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Check, UserRound, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const SELF_NAME = "Vitor";
 const DATALIST_ID = "identify-pessoas-options";
 
 export type Turn = {
@@ -256,6 +256,7 @@ function SpeakerRow({
   onToggleTurn: (t: Turn) => void;
   savedMessage?: string;
 }) {
+  const SELF_NAME = useDono().nome;
   const color = speakerColor(speaker.letter);
   const isSelf = (currentName || "").toLowerCase() === SELF_NAME.toLowerCase();
   const totalTurns = speaker.top_turns.length;
@@ -373,7 +374,7 @@ function SpeakerRow({
           onClick={() => onSave(SELF_NAME)}
           disabled={saving}
           className="inline-flex items-center gap-1 text-[11px] px-2 py-1.5 rounded-full bg-[color:var(--calm-bg)] text-[color:var(--calm)] hover:opacity-80 disabled:opacity-50"
-          title="Marcar como Vitor (você)"
+          title={`Marcar como ${SELF_NAME} (você)`}
         >
           <UserRound size={11} /> sou eu
         </button>

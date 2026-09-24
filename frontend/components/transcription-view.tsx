@@ -1,5 +1,6 @@
 "use client";
 
+import { useDono } from "@/components/dono-context";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -21,7 +22,6 @@ import { CutBar } from "@/components/cut-bar";
 import { RemoveBar } from "@/components/remove-bar";
 
 // Nome canônico do dono do sistema (corresponde a pessoas.is_vitor=TRUE).
-const SELF_NAME = "Vitor";
 
 const HIGH_CONFIDENCE = 0.80;
 const MIN_CONFIDENCE = 0.60;
@@ -78,6 +78,7 @@ function SpeakerChip({
   onSave: (speaker: string, newName: string) => void;
   saving: boolean;
 }) {
+  const SELF_NAME = useDono().nome;
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(labels[speaker] || "");
   const style = speakerStyle(speaker);

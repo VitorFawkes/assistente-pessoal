@@ -5,7 +5,7 @@
  */
 
 export function getOwnerSlug(): string {
-  return process.env.OWNER_SLUG ?? "vitor";
+  return process.env.NEXT_PUBLIC_OWNER_SLUG || process.env.OWNER_SLUG || "vitor";
 }
 
 /**

@@ -1,5 +1,6 @@
 "use client";
 
+import { isTeamMode } from "@/lib/team-mode";
 import { useEffect, useMemo, useState } from "react";
 import { Sparkles, Flame, Check, Search, X, Copy } from "lucide-react";
 import { TaskRow, type Tarefa } from "./task-row";
@@ -170,8 +171,9 @@ function groupByPessoa(list: Tarefa[]): [string, Tarefa[]][] {
   return [...map.entries()]
     .map(([k, items]) => [k, items] as [string, Tarefa[]])
     .sort((a, b) => {
-      if (a[0] === "Vitor") return -1;
-      if (b[0] === "Vitor") return 1;
+      const eu = isTeamMode() ? "Você" : "Vitor";
+      if (a[0] === eu) return -1;
+      if (b[0] === eu) return 1;
       return b[1].length - a[1].length || a[0].localeCompare(b[0], "pt-BR");
     });
 }

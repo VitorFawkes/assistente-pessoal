@@ -19,7 +19,7 @@ Responda APENAS com JSON, uma chave por letra de speaker presente:
 
 export async function labelSpeakersByContent(
   transcript: string,
-  ctx: { letters: string[]; knownPeople: string[] },
+  ctx: { letters: string[]; knownPeople: string[]; dono?: string },
 ): Promise<Record<string, SpeakerGuess>> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY ausente no ambiente");
@@ -38,7 +38,7 @@ export async function labelSpeakersByContent(
       temperature: 0.1,
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: SYSTEM },
+        { role: "system", content: ctx.dono ? SYSTEM.replace(/Vitor Gambetti/g, ctx.dono).replace(/\bVitor\b/g, ctx.dono) : SYSTEM },
         { role: "user", content: JSON.stringify(userPayload) },
       ],
     }),

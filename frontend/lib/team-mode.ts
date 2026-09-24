@@ -7,5 +7,6 @@
  */
 
 export function isTeamMode(): boolean {
-  return process.env.TEAM_MODE === "1" || process.env.TEAM_MODE === "true";
+  const v = process.env.NEXT_PUBLIC_TEAM_MODE || process.env.TEAM_MODE;
+  return v === "1" || v === "true";
 }

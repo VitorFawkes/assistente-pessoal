@@ -1,5 +1,6 @@
 "use client";
 
+import { useDono } from "@/components/dono-context";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Check, ChevronDown, Sparkles, UserRound, X } from "lucide-react";
@@ -7,7 +8,6 @@ import type { SpeakerCard, Turn } from "@/components/identify-speakers";
 import type { ProposedLabel } from "@/components/transcription-view";
 import { cn } from "@/lib/utils";
 
-const SELF_NAME = "Vitor";
 const DATALIST_ID = "speakers-strip-pessoas-options";
 
 function fmtTimecode(s: number): string {
@@ -43,6 +43,7 @@ export function SpeakersStrip({
   pessoas: Array<{ id: string; nome: string }>;
   speakerLabelsProposed?: Record<string, ProposedLabel | null>;
 }) {
+  const SELF_NAME = useDono().nome;
   const router = useRouter();
   const [, startTransition] = useTransition();
 
@@ -357,7 +358,7 @@ export function SpeakersStrip({
                       onClick={() => saveOne(s.letter, SELF_NAME, s)}
                       disabled={busyLetter === s.letter}
                       className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-full bg-[color:var(--calm-bg)] text-[color:var(--calm)] hover:opacity-80 disabled:opacity-50"
-                      title="Marcar como Vitor"
+                      title={`Marcar como ${SELF_NAME}`}
                     >
                       <UserRound size={10} /> sou eu
                     </button>

@@ -1,3 +1,4 @@
+import { isTeamMode } from "@/lib/team-mode";
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/db";
@@ -67,7 +68,11 @@ export const POST = withAuth<Ctx>(async (user, _req, ctx) => {
         await c.query<{ nome: string }>(`SELECT nome FROM pessoas ORDER BY is_vitor DESC, nome`)
       ).rows.map((r) => r.nome);
 
-      const guesses = await labelSpeakersByContent(transcript, { letters: blanks, knownPeople: known });
+      const guesses = await labelSpeakersByContent(transcript, {
+        letters: blanks,
+        knownPeople: known,
+        dono: isTeamMode() ? user.nome : undefined,
+      });
 
       const applied: Record<string, string> = {};
       for (const letter of blanks) {

@@ -5,6 +5,7 @@ import { anoBR } from "@/lib/data-br";
 import { query } from "@/lib/db";
 import { isTeamMode } from "@/lib/team-mode";
 import { SiteHeader } from "@/components/site-header";
+import { DonoProvider } from "@/components/dono-context";
 import { Toaster } from "sonner";
 import "./globals.css";
 
@@ -73,7 +74,9 @@ export default async function RootLayout({
       <body className="min-h-full flex flex-col font-sans">
         <SiteHeader user={user} teamMode={teamMode} />
         <main className="flex-1 mx-auto max-w-3xl w-full px-5 sm:px-6 py-6 sm:py-10">
-          {children}
+          <DonoProvider value={teamMode ? { nome: user?.nome || "Você", rotulo: "Você" } : { nome: "Vitor", rotulo: "Vitor" }}>
+            {children}
+          </DonoProvider>
         </main>
         <footer className="border-t border-[color:var(--border)] py-5 text-center text-[11px] tracking-wider uppercase text-[color:var(--muted)]">
           Assistente Pessoal · {anoBR()}

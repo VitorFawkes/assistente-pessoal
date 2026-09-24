@@ -1,3 +1,4 @@
+import { isTeamMode } from "@/lib/team-mode";
 import { type NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
 import { frentesFor, tarefasFor } from "@/lib/queries";
@@ -64,6 +65,7 @@ export const POST = withAuth(async (user, req) => {
       ownersFor(user.id).list(),
     ]);
     draft = await parseCapture(texto, {
+      dono: isTeamMode() ? user.nome : undefined,
       hoje, tz: TZ,
       frentes: frentes.map((f) => ({ nome: f.nome })),
       owners: owners.map((o) => ({ name: o.name, is_me: o.is_me })),

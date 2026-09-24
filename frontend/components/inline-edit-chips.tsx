@@ -1,5 +1,6 @@
 "use client";
 
+import { isTeamMode } from "@/lib/team-mode";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -525,7 +526,7 @@ export function OwnerPicker({
       <MenuItem active={jaSou} onClick={() => setOwner("vitor")}>
         <span className="inline-flex items-center gap-2">
           <UserRound size={13} className="text-[color:var(--calm)]" />
-          Vitor (você)
+          {isTeamMode() ? "Você" : "Vitor (você)"}
         </span>
         {jaSou && <Check size={13} />}
       </MenuItem>

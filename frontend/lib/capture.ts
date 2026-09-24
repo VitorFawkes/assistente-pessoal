@@ -64,6 +64,8 @@ export function precisaRevisao(d: Pick<CaptureDraft, "confidence" | "prazo" | "p
 }
 
 export type CaptureCtx = {
+  /** Nome de quem ditou (modo equipe); ausente = instância do Vitor. */
+  dono?: string;
   hoje: string; // "2026-06-08"
   tz: string; // "America/Sao_Paulo"
   frentes: { nome: string }[];
@@ -87,6 +89,18 @@ REGRAS:
 
 Responda APENAS com JSON: {titulo, descricao, owner, acao, prazo, prazo_text, prioridade, area_raw, pessoas, confidence, confidence_rationale}.`;
 
+function promptDaEquipe(dono: string): string {
+  return SYSTEM_PROMPT.replace(/\bdo próprio Vitor\b/g, `do próprio ${dono}`)
+    .replace(/\bo próprio Vitor\b/g, `o próprio ${dono}`)
+    .replace(/\bdo Vitor\b/g, `de ${dono}`)
+    .replace(/\bo Vitor\b/g, dono)
+    .replace(/owner=vitor/g, "owner=eu")
+    .replace(/owner="vitor"/g, 'owner="eu"')
+    .replace(/\(sem "vitor"\)/g, `(sem ${dono})`)
+    .replace(/NUNCA "vitor"/g, 'NUNCA "eu"')
+    .replace(/"vitor"/g, '"eu"');
+}
+
 export async function parseCapture(raw: string, ctx: CaptureCtx): Promise<CaptureDraft> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY ausente no ambiente");
@@ -107,7 +121,7 @@ export async function parseCapture(raw: string, ctx: CaptureCtx): Promise<Captur
       temperature: 0.2,
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: ctx.dono ? promptDaEquipe(ctx.dono) : SYSTEM_PROMPT },
         { role: "user", content: JSON.stringify(userPayload) },
       ],
     }),

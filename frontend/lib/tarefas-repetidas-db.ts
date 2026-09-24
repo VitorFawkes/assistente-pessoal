@@ -1,3 +1,4 @@
+import { getOwnerSlug, isOwner } from "./owner-slug";
 // Grava as tarefas de uma reunião já comparando com as que existem.
 //
 // Quem chama é o n8n (rota /api/admin/tarefas/incorporar), no lugar do INSERT
@@ -72,7 +73,7 @@ export function normalizarTitulo(t: string): string {
 
 function limpar(t: TarefaExtraida) {
   const owner = (t.owner ?? "").trim() || "vitor";
-  const ehVitor = /^vitor$/i.test(owner);
+  const ehVitor = isOwner(owner);
   const acao = ACOES.includes(String(t.acao)) ? String(t.acao) : ehVitor ? "executar" : "cobrar";
   let pessoas: string | null = null;
   if (Array.isArray(t.pessoas_raw)) pessoas = JSON.stringify(t.pessoas_raw);
@@ -80,7 +81,7 @@ function limpar(t: TarefaExtraida) {
   return {
     titulo: t.titulo.trim(),
     descricao: t.descricao?.trim() || null,
-    owner: ehVitor ? "vitor" : owner,
+    owner: ehVitor ? getOwnerSlug() : owner,
     acao,
     prazo: t.prazo || null,
     prazo_text: t.prazo_text?.trim() || null,
