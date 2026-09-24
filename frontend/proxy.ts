@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { isTeamMode } from "@/lib/team-mode";
 
 // Em Next.js 16, proxy roda em Node.js runtime por padrão (mudou em relação
 // ao middleware do 15 que era Edge). Permite acesso direto ao pg.
@@ -28,6 +29,8 @@ const PUBLIC_PREFIXES = [
 ];
 // /termos é semi-público: precisa de sessão, mas SEM consent_terms_at.
 // Tratado inline abaixo, não no PUBLIC_PREFIXES.
+// Modo equipe: só o admin abre estas áreas (páginas e APIs).
+const SO_ADMIN_NA_EQUIPE = ["/plano", "/quadros", "/coach", "/assistente", "/admin", "/api/coach", "/api/quadros"];
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const WEBHOOK_TOKEN = process.env.WEBHOOK_TOKEN || "";
 
@@ -55,10 +58,11 @@ export default async function proxy(req: NextRequest) {
 
   const cutoff = new Date(Date.now() - SESSION_TTL_MS).toISOString();
   try {
-    const rows = await query<{ exists: boolean; consent_terms_at: string | null }>(
+    const rows = await query<{ exists: boolean; consent_terms_at: string | null; is_admin: boolean }>(
       `SELECT
          (s.id IS NOT NULL) AS exists,
-         u.consent_terms_at
+         u.consent_terms_at,
+         u.is_admin
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.id = $1
@@ -77,6 +81,16 @@ export default async function proxy(req: NextRequest) {
     // Força aceite dos termos antes do app (exceto /termos e /api/termos)
     if (!row.consent_terms_at && pathname !== "/termos") {
       return NextResponse.redirect(new URL("/termos", req.url));
+    }
+
+    if (
+      isTeamMode() &&
+      !row.is_admin &&
+      SO_ADMIN_NA_EQUIPE.some((p) => pathname === p || pathname.startsWith(p + "/"))
+    ) {
+      return pathname.startsWith("/api/")
+        ? NextResponse.json({ error: "forbidden" }, { status: 403 })
+        : NextResponse.redirect(new URL("/", req.url));
     }
   } catch (err) {
     console.error("proxy: erro validando sessão", err);

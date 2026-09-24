@@ -1,55 +1,46 @@
--- Migração W1: Suporte a OWNER_SLUG configurável
--- Aplica a trigger resolve_tarefa_pessoas que ignora o slug 'eu' (dono da conta)
--- em vez de hardcoded 'vitor'.
---
--- Esta migração só é aplicada no banco da equipe (acoes-equipe).
--- A instância do Vitor (assistente_pessoal) continua com 'vitor' hardcoded
--- pois OWNER_SLUG não é definido (padrão).
+-- Só no banco da equipe (acoes-equipe): o dono da conta é o slug 'eu', não 'vitor'.
+-- Mesma função do banco do Vitor, trocando só o slug do dono.
 
--- Trigger que calcula pessoas principal quando tarefas.owner muda
--- Mantém a coluna tarefa_pessoas.principal consistente com acao/owner:
---   - acao='executar': ninguém é principal (agrupa em "Você")
---   - acao='cobrar'/'aguardar': principal = a pessoa do owner (se não for 'eu'/'?')
---
--- IMPORTANTE: em modo equipe, o slug 'eu' é o dono da conta (variável OWNER_SLUG).
--- Esta trigger o ignora como se fosse o 'vitor' original.
-CREATE OR REPLACE FUNCTION resolve_tarefa_pessoas()
-RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION public.resolve_tarefa_pessoas() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
 DECLARE
-  owner_slug TEXT := current_setting('app.owner_slug', true) OR 'vitor';
+  v_nome text;
+  pid uuid;
+  owner_slug text := app_slugify(NEW.owner);
+  delegada boolean := NEW.acao IN ('cobrar','aguardar');
+  is_principal boolean;
+  marcou_principal boolean := false;
 BEGIN
-  IF (NEW.acao = 'executar') THEN
-    -- executar: remove todas as marcações de principal
-    DELETE FROM tarefa_pessoas WHERE tarefa_id = NEW.id;
-  ELSIF (NEW.owner IS NOT NULL AND trim(NEW.owner) <> '' AND NEW.owner <> '?') THEN
-    -- cobrar/aguardar com owner válido e não-'eu'/não-'?':
-    -- principal = a pessoa do owner (criar se não existir)
-
-    -- Se o owner é o slug do dono da conta ('eu' em modo equipe, 'vitor' normalmente),
-    -- não linkamos ninguém — é como o executar mas guardamos o owner pra referência.
-    IF lower(trim(NEW.owner)) = lower(owner_slug) THEN
-      DELETE FROM tarefa_pessoas WHERE tarefa_id = NEW.id;
-    ELSE
-      -- Pessoa real: garante que está marcada principal
-      DELETE FROM tarefa_pessoas WHERE tarefa_id = NEW.id;
-      INSERT INTO tarefa_pessoas (tarefa_id, pessoa_id, principal)
-      SELECT NEW.id, p.id, true FROM pessoas p
-      WHERE p.user_id = NEW.user_id AND app_slugify(p.nome) = app_slugify(trim(NEW.owner))
-      LIMIT 1
-      ON CONFLICT (tarefa_id, pessoa_id) DO UPDATE SET principal = true;
-    END IF;
-  ELSE
-    -- owner vazio, null ou '?': limpa principal
-    DELETE FROM tarefa_pessoas WHERE tarefa_id = NEW.id;
+  IF NEW.pessoas_raw IS NULL OR jsonb_typeof(NEW.pessoas_raw) <> 'array' THEN
+    RETURN NULL;
   END IF;
-  RETURN NEW;
+  FOR v_nome IN SELECT jsonb_array_elements_text(NEW.pessoas_raw) LOOP
+    v_nome := trim(v_nome);
+    CONTINUE WHEN v_nome = '' OR v_nome = '?' OR app_slugify(v_nome) = 'eu';
+    -- get-or-create pessoa (match por slug do nome OU alias)
+    SELECT id INTO pid FROM pessoas
+      WHERE user_id = NEW.user_id
+        AND (app_slugify(v_nome) = app_slugify(pessoas.nome)
+             OR EXISTS (SELECT 1 FROM unnest(pessoas.aliases) a WHERE app_slugify(a) = app_slugify(v_nome)))
+      LIMIT 1;
+    CONTINUE WHEN pid IS NOT NULL AND EXISTS (SELECT 1 FROM pessoas WHERE id = pid AND is_vitor);
+    IF pid IS NULL THEN
+      INSERT INTO pessoas (user_id, nome) VALUES (NEW.user_id, v_nome)
+        ON CONFLICT (user_id, nome) DO UPDATE SET updated_at = now()
+        RETURNING id INTO pid;
+    END IF;
+    -- principal: SÓ em tarefa delegada, e SÓ a pessoa do owner.
+    -- executar não tem principal (as pessoas são apenas envolvidas).
+    is_principal := (NOT marcou_principal) AND delegada AND (app_slugify(v_nome) = owner_slug);
+    IF is_principal THEN marcou_principal := true; END IF;
+    INSERT INTO tarefa_pessoas (tarefa_id, pessoa_id, principal)
+      VALUES (NEW.id, pid, is_principal)
+      ON CONFLICT (tarefa_id, pessoa_id) DO UPDATE SET principal = EXCLUDED.principal OR tarefa_pessoas.principal;
+  END LOOP;
+  RETURN NULL;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
--- Trigger executado após INSERT/UPDATE em tarefas
-DROP TRIGGER IF EXISTS on_tarefa_owner_acao_change ON tarefas;
-CREATE TRIGGER on_tarefa_owner_acao_change
-AFTER INSERT OR UPDATE OF owner, acao ON tarefas
-FOR EACH ROW
-WHEN (NEW.owner IS DISTINCT FROM OLD.owner OR NEW.acao IS DISTINCT FROM OLD.acao OR OLD IS NULL)
-EXECUTE FUNCTION resolve_tarefa_pessoas();
+ALTER TABLE public.tarefas ALTER COLUMN owner SET DEFAULT 'eu';
+ALTER TABLE public.tarefas ALTER COLUMN is_mine SET EXPRESSION AS ((owner = 'eu'::text));
