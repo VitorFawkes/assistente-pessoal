@@ -16,6 +16,7 @@ import { userMemoryNotes } from "./conversation-memory";
 import { accountabilityFingerprint } from "./follow-up";
 import { formatCommitmentDue, naturalCommitmentDue } from "./commitment-dates";
 import { morningAgenda } from "./morning-agenda";
+import { handleTaskMessage } from "./task-actions";
 import type { CoachMeeting, CoachProfile, CoachState, Evidence, Observation, ReviewContent } from "./types";
 
 export class CoachBusyError extends Error { constructor(){super("O coach está trabalhando no seu histórico. Aguarde um pouco e tente novamente.");} }
@@ -102,6 +103,18 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
    if(receipt){await store.addMessage("assistant",receipt+"\n\nA execução foi interrompida depois dessa alteração. Confira o estado salvo antes de fazer outro pedido.",[],profile.revision,runId+":assistant");return;}
   }
   const history=await store.messages();
+  // Direct requests on tasks run first: a message only about tasks gets a short server-written reply, without a coaching answer.
+  let taskNotes:string[]=[];
+  if(!proactive){
+   const recent=history.filter(m=>!m.stale).map(m=>({role:m.role,content:m.role==="assistant"?splitChatPresentation(m.content).answer:m.content}));
+   const handled=await handleTaskMessage(userId,message,recent,profile.timezone,now,runId).catch(()=>{console.error("coach task actions failed");return null;});
+   if(handled&&"reply" in handled){
+    await store.addMessage("user",message,[],profile.revision,runId?runId+":user":undefined);
+    await store.addMessage("assistant",presentChat(handled.reply,[],[],await store.coverage(),0),[],profile.revision,runId?runId+":assistant":undefined);
+    return;
+   }
+   if(handled)taskNotes=handled.notes;
+  }
   const search=conversationSearch(message,history);
   const [context,memories,self,coverage,reviews,memory,commitments]=await Promise.all([store.context(search,{timezone:profile.timezone,now}),store.memories(),store.selfPersonIds(),store.coverage(),store.reviews(),store.memoryContext(),listCommitments(userId)]);
   // A bare "Sim." can close the only open agreement right after the coach asked whether it is done.
@@ -120,7 +133,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
   const reports=buildMeetingReports(context.meetings);
   const historicalReports=buildMeetingReports(context.historical_meetings||[],16000);
   const calendar=await calendarContext(userId,period?{from:period.from,to:period.to}:undefined,{timezone:profile.timezone});
-  const data={profile,trigger:proactive?{kind:proactive,origin:"system_schedule_or_button",not_user_statement:true}:null,current_time:now.toISOString(),timezone:profile.timezone,local_time:new Intl.DateTimeFormat("pt-BR",{timeZone:profile.timezone,dateStyle:"full",timeStyle:"short"}).format(now),
+  const data={profile,trigger:proactive?{kind:proactive,origin:"system_schedule_or_button",not_user_statement:true}:null,...(taskNotes.length?{task_changes_already_done_by_server:taskNotes}:{}),current_time:now.toISOString(),timezone:profile.timezone,local_time:new Intl.DateTimeFormat("pt-BR",{timeZone:profile.timezone,dateStyle:"full",timeStyle:"short"}).format(now),
     memories:usableMemories(memories),memory,commitments,history:history.filter(m=>!m.stale&&(m.role==="user"||m.context_freshness!=="unknown")).slice(-24),retrieved_conversations:context.messages.filter(m=>!m.stale&&(m.role==="user"||m.context_freshness!=="unknown")),question:message,coverage,
     reviews:reviews.filter(r=>!r.stale).slice(0,4),tasks:context.tasks,task_events:context.events,task_summary:context.task_summary,task_selection:context.task_selection,context_selection:context.selection,
     meeting_reports:reports.meetings,historical_meeting_reports:historicalReports.meetings,calendar_context:calendar,
@@ -130,7 +143,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
   const telemetry:CoachTelemetry[]=[];const onTelemetry=(e:CoachTelemetry)=>telemetry.push(e);
   try{
    let result=await coachCompletion(COACH_CONVERSATION_INSTRUCTION+"\n"+COACH_INVESTIGATION_INSTRUCTION+(proactive?"\nEste é um acompanhamento proativo. A pergunta é do sistema, não uma declaração do usuário. Não crie user_memories nem actions. Seja breve, não repita cobrança já enviada. Para nudge ou meeting sem novidade útil, answer=SEM_NOVIDADE.":""),data,
-    ()=>conversationSchemaWithSources(Object.keys(sources),message,{actions:actionSchema(proactive?"":message,memories,commitments,actionContext),detailed:/aprofund|detalh|explique melhor/iu.test(message)}),
+    ()=>conversationSchemaWithSources(Object.keys(sources),message,{actions:actionSchema(proactive||taskNotes.length?"":message,memories,commitments,actionContext),detailed:/aprofund|detalh|explique melhor/iu.test(message)}),
     {reasoningEffort:needsDeepInvestigation(message)?"high":"medium",tools:investigation.tools,maxToolRounds:4,maxToolCalls:8,timeoutMs:180000,onTelemetry});
    const validateCandidate=(result:Record<string,unknown>)=>{
    const validatedActions=(Array.isArray(result.actions)?[...result.actions]:[]).map(rawAction=>{
@@ -180,7 +193,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
     if(!(error instanceof CoachVerificationError))throw error;
     result=await coachCompletion(COACH_CONVERSATION_INSTRUCTION+"\n"+COACH_INVESTIGATION_INSTRUCTION+VERIFICATION_REPAIR_INSTRUCTION+(proactive?"\nAcompanhamento proativo: não crie actions ou user_memories; SEM_NOVIDADE continua permitido quando não houver sinal útil.":""),
      {...verificationData,previous_candidate:candidate.publishable,verification_issues:error.issuesForRepair()},
-     conversationSchemaWithSources(Object.keys(sources),message,{actions:actionSchema(proactive?"":message,memories,commitments,actionContext),detailed:/aprofund|detalh|explique melhor/iu.test(message)}),
+     conversationSchemaWithSources(Object.keys(sources),message,{actions:actionSchema(proactive||taskNotes.length?"":message,memories,commitments,actionContext),detailed:/aprofund|detalh|explique melhor/iu.test(message)}),
      {reasoningEffort:"high",timeoutMs:120000,onTelemetry});
     candidate=validateCandidate(result);
     await verifyCandidate();
@@ -245,7 +258,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
    }
    // The 8h message also lists, from the database, what is due today and overdue, plus today's calendar.
    const agenda=proactive==="morning"?await morningAgenda(userId,profile.timezone,now).catch(()=>""):"";
-   await store.addMessage("assistant",presentChat([...(proactive?[proactive==="morning"?"Foco do dia":proactive==="evening"?"Fechamento do dia":proactive==="meeting"?"Depois da reunião":"Um ponto de atenção"]:[]),answer,agenda,...confirmations].filter(Boolean).join("\n\n"),observations,investigation.selected.map(s=>s.meeting.id),coverage,reports.meetings.filter(m=>m.kind!=="missing").length+historicalReports.meetings.filter(m=>m.kind!=="missing").length),observations.flatMap(o=>o.evidence),revision,runId?runId+":assistant":undefined,[...reportSources([...context.meetings,...context.historical_meetings||[],...investigation.meetings.values()]),...investigation.contextSources,...inherited.sources],inherited.periods);
+   await store.addMessage("assistant",presentChat([...(proactive?[proactive==="morning"?"Foco do dia":proactive==="evening"?"Fechamento do dia":proactive==="meeting"?"Depois da reunião":"Um ponto de atenção"]:[]),answer,agenda,...taskNotes,...confirmations].filter(Boolean).join("\n\n"),observations,investigation.selected.map(s=>s.meeting.id),coverage,reports.meetings.filter(m=>m.kind!=="missing").length+historicalReports.meetings.filter(m=>m.kind!=="missing").length),observations.flatMap(o=>o.evidence),revision,runId?runId+":assistant":undefined,[...reportSources([...context.meetings,...context.historical_meetings||[],...investigation.meetings.values()]),...investigation.contextSources,...inherited.sources],inherited.periods);
   }finally{if(process.env.COACH_AUDIT_ENABLED==="true")await recordModelRuns(userId,"chat",runId||null,telemetry,revision).catch(()=>{});}
  });
 }
