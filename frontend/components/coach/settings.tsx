@@ -6,11 +6,12 @@ import type { CalendarStatus } from "@/lib/coach/calendar-types";
 import type { WhatsappView } from "@/lib/whatsapp/channel";
 import { ShieldCheck, Trash2 } from "lucide-react";
 import { buttonClass, fieldClass, primaryClass, type CoachMutation } from "./shared";
+import { GoalsEditor } from "./goals";
+import type { CoachGoal } from "@/lib/coach/store";
 
 export const days = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
 
-export function SettingsView({ profile, calendar, whatsapp, whatsappCode, refresh, busy, mutate, onClose }: { profile: CoachProfile; calendar?:CalendarStatus; whatsapp?:WhatsappView|null; whatsappCode?:string; refresh:()=>void; busy: boolean; mutate: CoachMutation; onClose: () => void }) {
-  const [goals, setGoals] = useState(profile.goals);
+export function SettingsView({ profile, goals, calendar, whatsapp, whatsappCode, refresh, busy, mutate, onClose }: { profile: CoachProfile; goals: CoachGoal[]; calendar?:CalendarStatus; whatsapp?:WhatsappView|null; whatsappCode?:string; refresh:()=>void; busy: boolean; mutate: CoachMutation; onClose: () => void }) {
   const [context, setContext] = useState(profile.context);
   const [enabled, setEnabled] = useState(profile.enabled);
   const [morning,setMorning]=useState(profile.morning_enabled??false);
@@ -27,8 +28,8 @@ export function SettingsView({ profile, calendar, whatsapp, whatsappCode, refres
   return (
     <section aria-label="Configurações do coach" className="rounded-2xl border border-border bg-card p-5 sm:p-6">
       <h2 className="font-display text-2xl">Seus objetivos e dificuldades</h2>
-      <form className="mt-5 space-y-5" onSubmit={async (event) => { event.preventDefault(); if (await mutate({ action: "settings", enabled, weekly_enabled: weekly, morning_enabled:morning,evening_enabled:evening,nudges_enabled:nudges,morning_hour:morningHour,evening_hour:eveningHour, goals, context, review_day: day, review_hour: hour, timezone }, "Configurações salvas.")) onClose(); }}>
-        <label className="block text-sm font-medium">Meus objetivos<textarea className={`${fieldClass} mt-2 min-h-28 resize-y`} placeholder="O que importa para mim agora? Em que quero avançar?" value={goals} onChange={(event) => setGoals(event.target.value)} maxLength={10000} disabled={busy} /></label>
+      <div className="mt-5"><GoalsEditor goals={goals} busy={busy} mutate={mutate} /></div>
+      <form className="mt-6 space-y-5 border-t border-border pt-5" onSubmit={async (event) => { event.preventDefault(); if (await mutate({ action: "settings", enabled, weekly_enabled: weekly, morning_enabled:morning,evening_enabled:evening,nudges_enabled:nudges,morning_hour:morningHour,evening_hour:eveningHour, context, review_day: day, review_hour: hour, timezone }, "Configurações salvas.")) onClose(); }}>
         <label className="block text-sm font-medium">Meu contexto e minhas dificuldades<textarea className={`${fieldClass} mt-2 min-h-28 resize-y`} placeholder="O que está difícil, o que disputa meu tempo e o que o coach precisa considerar…" value={context} onChange={(event) => setContext(event.target.value)} maxLength={10000} disabled={busy} /></label>
         <fieldset className="space-y-3 border-t border-border pt-4"><legend className="pr-2 text-sm font-semibold">Acompanhamento</legend>
           <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} disabled={busy} className="mt-0.5 size-4 accent-[var(--calm)]" /><span>Coach ativo<span className="mt-1 block text-xs leading-relaxed text-muted-strong">Ao pausar, análises e novas conversas param. Seu histórico continua disponível.</span></span></label>

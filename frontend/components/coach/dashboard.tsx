@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CoachJob } from "@/lib/coach/jobs";
 import type { CoachProfile, CoachState } from "@/lib/coach/types";
+import type { CoachGoal } from "@/lib/coach/store";
 import type { CalendarStatus } from "@/lib/coach/calendar-types";
 import type { WhatsappView } from "@/lib/whatsapp/channel";
 import { ArrowRight, BookOpen, Check, CircleAlert, LoaderCircle, RefreshCw, Settings2, ShieldCheck } from "lucide-react";
@@ -20,7 +21,7 @@ const tabs = [
   { id: "references", label: "Referenciais" },
 ] as const;
 type Tab = (typeof tabs)[number]["id"];
-type ViewState=CoachState & {calendar?:CalendarStatus;whatsapp?:WhatsappView|null;whatsapp_code?:string;jobs?:CoachJob[];model?:{provider:string;model:string;reviewer_model?:string|null;semantic_enabled?:boolean}};
+type ViewState=CoachState & {goals?:CoachGoal[];calendar?:CalendarStatus;whatsapp?:WhatsappView|null;whatsapp_code?:string;jobs?:CoachJob[];model?:{provider:string;model:string;reviewer_model?:string|null;semantic_enabled?:boolean}};
 const jobLabels={chat:"Sua conversa",analyze:"Leitura das reuniões",review:"Revisão semanal",checkin:"Acompanhamento do dia"};
 
 function profilePayload(profile: CoachProfile) {
@@ -133,7 +134,7 @@ export function CoachDashboard() {
       {failedJobs.map(job=><div key={job.id} className="rounded-xl border border-[var(--urgent)]/30 p-4"><p className="text-sm font-medium">{jobLabels[job.kind]} não terminou</p><p className="mt-1 text-xs leading-relaxed text-muted-strong">{job.error}</p><button className={`${buttonClass} mt-3 !text-xs`} type="button" disabled={!!busy||!profile.enabled} onClick={()=>void mutate({action:"retry_job",id:job.id})}>Tentar novamente</button><button className={`${buttonClass} mt-3 ml-2 !text-xs`} type="button" disabled={!!busy} onClick={()=>void mutate({action:"cancel_job",id:job.id})}>Dispensar</button></div>)}
       {!state.model_available && <div className="rounded-xl border border-border bg-accent p-4"><p className="text-sm font-semibold">A IA está indisponível neste momento</p><p className="mt-1 text-xs leading-relaxed text-muted-strong">Você pode consultar seu histórico, editar objetivos e corrigir memórias. Novas análises e respostas dependem da configuração do provedor.</p></div>}
 
-      {settings && <div id="coach-settings"><SettingsView profile={profile} calendar={state.calendar} whatsapp={state.whatsapp} whatsappCode={whatsappCode} refresh={refreshState} busy={!!busy} mutate={mutate} onClose={() => setSettings(false)} /></div>}
+      {settings && <div id="coach-settings"><SettingsView profile={profile} goals={state.goals??[]} calendar={state.calendar} whatsapp={state.whatsapp} whatsappCode={whatsappCode} refresh={refreshState} busy={!!busy} mutate={mutate} onClose={() => setSettings(false)} /></div>}
 
       {!profile.enabled && <section className="rounded-2xl border border-border bg-card p-5 sm:p-7"><h2 className="font-display text-2xl">{state.messages.length || state.reviews.length ? "Seu acompanhamento está pausado" : "Comece pelo que importa para você"}</h2><p className="mt-3 text-sm leading-relaxed text-muted-strong">Ao ativar, o coach considera seus objetivos, dificuldades e conversas para ajudar a escolher prioridades e retomar combinados. Reuniões e tarefas acrescentam contexto. Você pode corrigir as leituras e pausar quando quiser.</p><p className="mt-2 text-xs leading-relaxed text-muted-strong">O contexto necessário é processado pelo provedor de IA. Revisões e memórias ficam na sua conta; a conexão com a agenda pode ser consultada em Ajustes.</p><div className="mt-5 flex flex-wrap gap-2"><button type="button" className={primaryClass} disabled={!!busy || !state.model_available} onClick={() => void mutate({ action: "settings", ...profilePayload(profile), enabled: true }, "Coach ativado. Você já pode conversar.")}>{state.messages.length || state.reviews.length ? "Retomar meu coach" : "Ativar meu coach"}<ArrowRight size={16} aria-hidden="true" /></button><button type="button" className={buttonClass} disabled={!!busy} onClick={() => setSettings(true)}>Definir meus objetivos</button></div></section>}
 
