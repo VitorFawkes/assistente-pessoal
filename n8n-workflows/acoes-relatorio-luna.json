@@ -1,0 +1,455 @@
+{
+  "name": "Acoes - Relatorio Luna",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "name": "Recebe reunião",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        300
+      ],
+      "id": "efbd625e-a0ac-4ee8-a076-f1d8853fe9ef"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepara a leitura da reunião pelo GPT-6 Luna (relatório em etapas: extrai, revisa 2x, escreve o contexto)\nconst PROMPTS = {\"BASE\": \"Você é o analista de reuniões do Vitor Gambetti. A mensagem traz a transcrição completa de uma reunião, rotulada por falante, e no fim uma TAREFA. Faça só a tarefa pedida.\\nCuidados que valem sempre:\\n- Nunca acrescente nome, lugar, data, número, prazo ou fato que não esteja na transcrição. Preserve nomes como aparecem.\\n- Os rótulos de falante podem estar errados (às vezes tudo aparece como \\\"Vitor\\\", ou alguém aparece como \\\"Speaker A\\\"). Antes de dizer quem vai fazer algo, confira pelo conteúdo quem está falando com quem (quem diz \\\"eu te mando\\\" para o Vitor não é o Vitor). Se não der para saber, use o rótulo.\", \"EXTRAI\": \"TAREFA: leia a transcrição acima do começo ao fim, fala por fala, e monte a lista de compromissos e pendências. Não deixe passar nenhum compromisso, por menor que seja (agenda, convite, envio, olhar algo, conversar com alguém, intenções do Vitor, trabalho em andamento).\\n\\n1. Junte repetidos: o mesmo compromisso dito mais de uma vez (ou dito de formas diferentes, mais e menos específicas) vira um item só, com a versão mais específica. Se duas pessoas fazem a mesma ação (ex.: uma entrevista entre as duas), é um item só, com os dois nomes.\\n2. Classifique:\\n   - \\\"compromisso\\\": ação concreta que alguém assumiu, ou recebeu o pedido e aceitou (\\\"tá bom\\\", \\\"beleza\\\", \\\"pode deixar\\\", \\\"faço\\\"). Inclui agenda combinada (reunião marcada, convite, envio, conferência).\\n   - Também é compromisso: (a) ação concreta que o VITOR disse que vai fazer agora ou em breve, ou \\\"vamos fazer\\\" em algo que é dele (os sistemas dele, como TARS e Ações, e as decisões dele), mesmo sem aceite de ninguém — o Vitor é o dono deste sistema de tarefas; (b) trabalho em andamento que ainda precisa ser terminado (\\\"já tô construindo\\\" vira \\\"terminar X\\\").\\n   - NÃO é compromisso: continuar fazendo o que a pessoa já faz SEM uma entrega nova (\\\"continuar à frente do vinho\\\"); informar agenda que já existe (\\\"hoje tenho 3 reuniões\\\") sem ação nova; desejo vago para o futuro (\\\"em algum momento\\\", \\\"no futuro\\\", \\\"depois eu quero\\\"); esperar que outra pessoa faça algo que ela não assumiu (mas se alguém assumiu cobrar ou conversar com essa pessoa, isso é compromisso de quem assumiu).\\n   - Sistemas do Vitor (TARS, Wedme, Ações, Rumo, telas, CRM): quando o Vitor diz o que o sistema \\\"precisa ter\\\", \\\"tem que ter\\\", \\\"vai ter\\\", \\\"a gente vai fazer\\\", isso é compromisso do Vitor de construir ou ajustar aquilo. Em reunião de desenho de sistema, agrupe por tela ou módulo: UM item por tela/módulo, listando dentro dele TODAS as funcionalidades definidas, separadas por ponto e vírgula (ex.: \\\"Construir na tela de Produção: orçamentos dentro de cada etapa; filtro de tipo e de etapa nos documentos; tarefas por etapa; datas automáticas por etapa\\\"). Nenhuma funcionalidade definida pode ficar de fora, e nunca use item genérico como \\\"concluir as alterações discutidas\\\". Só vira pendência o que ficou explicitamente em aberto (\\\"ainda vamos definir\\\", \\\"não sei ainda\\\").\\n   - Plano que depende de outro acontecimento futuro (\\\"depois de fechar a vaga, ampliar a equipe\\\", \\\"quando contratar, passar as vendas\\\") é pendência, não tarefa agora.\\n   - Um item nunca aparece nas duas listas.\\n   - É compromisso, mesmo com \\\"continuar/seguir\\\": quando há entrega ou próximo passo concreto (\\\"seguir pesquisando e apresentar as opções\\\", \\\"levar os casamentos para o TARS até sexta\\\").\\n   - Na dúvida entre compromisso e pendência, prefira compromisso quando há responsável claro e ação concreta: esquecer um combinado é pior do que registrar um a mais.\\n   - \\\"pendencia\\\": todo o resto que vale registrar mas NÃO é tarefa: ideia, sugestão, possibilidade, \\\"vou pensar\\\", \\\"vale avaliar\\\", pedido sem aceite, desejo, desabafo, relato de algo já feito ou do que a pessoa faz sempre (rotina),  plano condicional (\\\"se precisar\\\", \\\"se concluir que...\\\"), oferta genérica de ajuda sem ação definida, problema resolvido na hora.\\n3. Para cada compromisso: \\\"dono\\\" (confira pelo conteúdo quem é; nunca deduza pelo cargo), \\\"o_que\\\" (entregável claro, começando por verbo), \\\"prazo\\\" (só se foi dito), \\\"trecho\\\" (copie o trecho literal do candidato que melhor prova).\\n4. Na dúvida entre compromisso e pendência, olhe a resposta de quem recebeu: aceitou uma ação concreta → compromisso.\\nCada item precisa de \\\"trecho\\\": citação LITERAL da transcrição, 8 a 30 palavras.\\nSAÍDA: só JSON {\\\"compromissos\\\":[{\\\"dono\\\":\\\"\\\",\\\"o_que\\\":\\\"\\\",\\\"prazo\\\":\\\"\\\",\\\"trecho\\\":\\\"\\\"}],\\\"pendencias\\\":[{\\\"texto\\\":\\\"\\\",\\\"trecho\\\":\\\"\\\"}],\\\"descartados\\\":[{\\\"candidato\\\":0,\\\"motivo\\\":\\\"\\\"}]}\", \"COBERTURA\": \"TAREFA: você é o revisor final. Abaixo vem a lista de compromissos já encontrados. Leia a transcrição acima do começo ao fim, fala por fala, e encontre TODO compromisso real que NÃO está na lista.\\nCompromisso real = ação concreta que alguém disse que vai fazer, ou recebeu o pedido e aceitou; também tudo que o VITOR disse que vai fazer ou \\\"vamos fazer\\\" em algo que é dele, e trabalho em andamento que ainda vai ser terminado. Preste atenção a: combinados curtos no meio de outro assunto, agenda (reunião, convite, horário), pedidos respondidos com \\\"tá bom\\\"/\\\"beleza\\\", intenções do Vitor (\\\"vou\\\", \\\"vamos mudar\\\", \\\"já tô construindo\\\"), o que o Vitor definiu que os sistemas dele \\\"precisam ter\\\" (cada funcionalidade precisa aparecer, agrupada no item da sua tela), troca de contatos, combinados no final da conversa.\\nNÃO inclua: o que já está na lista (mesmo com outras palavras ou de forma menos específica), ideia de outra pessoa sem aceite, relato de algo já feito, continuar fazendo o que já faz sem entrega nova, agenda já existente sem ação nova, desejo vago para o futuro, plano condicional, oferta genérica de ajuda. Na dúvida, com responsável claro e ação concreta, inclua.\\nPara cada faltante: \\\"dono\\\", \\\"o_que\\\", \\\"prazo\\\" (só se dito), \\\"trecho\\\" (citação LITERAL da transcrição, 10 a 40 palavras).\\nSAÍDA: só JSON {\\\"faltando\\\":[...]} (lista vazia se não faltar nada).\", \"COBERTURA_PESSOA\": \"TAREFA: revisão por pessoa. Abaixo vem a lista de compromissos já encontrados. Agora releia a transcrição acima olhando UMA PESSOA DE CADA VEZ (cada participante, inclusive o Vitor): o que ela disse que vai fazer, o que pediram a ela e ela aceitou, o que ela ficou de conversar, mandar, olhar, conferir, marcar ou terminar — inclusive frases curtas e indiretas (\\\"agora vai ser a conversa com ela\\\", \\\"deixa que eu vejo\\\", \\\"vou atrás disso\\\").\\nListe só compromissos reais que NÃO estão na lista (nem com outras palavras). Não inclua ideia sem aceite, relato de algo já feito, continuar o que já faz sem entrega nova, desejo vago para o futuro.\\nPara cada faltante: \\\"dono\\\", \\\"o_que\\\", \\\"prazo\\\" (só se dito), \\\"trecho\\\" (citação LITERAL da transcrição, 10 a 40 palavras).\\nSAÍDA: só JSON {\\\"faltando\\\":[...]} (lista vazia se não faltar nada).\", \"NARRATIVA\": \"TAREFA: escreva as seções de CONTEXTO do relatório desta reunião. Os próximos passos e as pendências já foram levantados por outra etapa e vêm abaixo; use-os para manter o relatório coerente, mas NÃO escreva as seções \\\"Próximos passos\\\" nem \\\"Pendências\\\".\\nEscreva em markdown-lite com EXATAMENTE estas seções, nesta ordem (cada seção é \\\"**Título:**\\\" numa linha, seguida de bullets que começam com \\\"- \\\"). Omita uma seção só se for genuinamente vazia:\\n**Contexto:** tipo de áudio, quem participa (nomes quando rotulados) e o assunto central.\\n**Problemas levantados:** cada dor, gargalo, risco ou insatisfação. Específico.\\n**Decisões e alinhamentos:** só o que foi de fato decidido ou acordado. Dono só quando alguém assumiu; senão \\\"sem dono definido\\\".\\n**Insights / observações relevantes:** constatações, números, padrões que valem registrar.\\nReunião densa → relatório detalhado. Português, voz objetiva.\\nSAÍDA: só JSON {\\\"summary\\\":\\\"<1-2 frases de contexto, não as tarefas>\\\",\\\"secoes\\\":\\\"<markdown das 4 seções>\\\"}\"};\nconst inp = $input.first().json;\nconst text = String(inp.labeled_text || '');\nconst pessoas = (inp.pessoas || []).map(p => p.nome + ((p.aliases && p.aliases.length) ? ` (também: ${p.aliases.join(', ')})` : '')).join('; ');\nlet data = ''; try { if (inp.recorded_at) data = new Date(inp.recorded_at).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'America/Sao_Paulo' }); } catch (e) {}\nconst header = `Data da reunião: ${data}. Pessoas conhecidas do Vitor: ${pessoas}.`;\nconst pre = `TRANSCRIÇÃO COMPLETA:\\n${text}\\n\\n${header}\\n\\n`;\nconst prep = { modelo: 'gpt-6-luna', chave: 'reuniao-' + String(text.length) + '-' + String(inp.recorded_at || ''), prompts: PROMPTS, pre, text };\n\nconst nrm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\\s+/g, ' ').trim();\nfunction makeOk(transcript) {\n  const T = nrm(transcript);\n  const lines = String(transcript).split('\\n').filter(l => l.trim()).map(l => new Set(nrm(l).split(' ')));\n  return quote => {\n    const q = nrm(quote); if (q.length < 8) return false; if (T.includes(q)) return true;\n    const w = q.split(' ');\n    if (w.length >= 5) { let hit = 0, tot = 0; for (let i = 0; i + 5 <= w.length; i++) { tot++; if (T.includes(w.slice(i, i + 5).join(' '))) hit++; } if (tot && hit / tot >= 0.85) return true; }\n    const qw = w.filter(x => x.length > 2); if (qw.length < 3) return false;\n    let best = 0; for (const L of lines) { let h = 0; for (const x of qw) if (L.has(x)) h++; if (h / qw.length > best) best = h / qw.length; }\n    return best >= 0.6;\n  };\n}\nfunction saida(r) {\n  const msg = (r.output || []).find(o => o.type === 'message');\n  const txt = msg && msg.content && (msg.content.find(c => c.type === 'output_text') || {}).text;\n  if (!txt) throw new Error('Luna sem resposta de texto');\n  return JSON.parse(txt);\n}\nfunction pedido(prep, tarefa, esforco) {\n  return { model: prep.modelo, store: false, prompt_cache_key: prep.chave, input: [{ role: 'system', content: prep.prompts.BASE }, { role: 'user', content: prep.pre + tarefa }], reasoning: { effort: esforco }, text: { format: { type: 'json_object' } }, max_output_tokens: 30000 };\n}\nfunction uso(r) { const u = r.usage || {}; return { entrada: u.input_tokens || 0, cache: (u.input_tokens_details || {}).cached_tokens || 0, saida: u.output_tokens || 0 }; }\nfunction lista(comps) { return comps.map((c, i) => `${i + 1}. ${c.dono}: ${c.o_que}${c.prazo ? ' (prazo: ' + c.prazo + ')' : ''}`).join('\\n'); }\n\nreturn [{ json: { prep, body: pedido(prep, PROMPTS.EXTRAI, 'medium') } }];\n"
+      },
+      "name": "Prepara leitura",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "onError": "continueErrorOutput",
+      "id": "6c01750e-c6ea-46cb-ac71-de6ca4057786"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "name": "Luna extrai",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        300
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "QSdaVgPRKxfvwcXr",
+          "name": "OpenAi account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput",
+      "id": "be1e19b9-e0ba-4095-a1d0-3c73d7f93073"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Confere os trechos citados (o que não existe na conversa não entra) e prepara a revisão cronológica\n\nconst nrm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\\s+/g, ' ').trim();\nfunction makeOk(transcript) {\n  const T = nrm(transcript);\n  const lines = String(transcript).split('\\n').filter(l => l.trim()).map(l => new Set(nrm(l).split(' ')));\n  return quote => {\n    const q = nrm(quote); if (q.length < 8) return false; if (T.includes(q)) return true;\n    const w = q.split(' ');\n    if (w.length >= 5) { let hit = 0, tot = 0; for (let i = 0; i + 5 <= w.length; i++) { tot++; if (T.includes(w.slice(i, i + 5).join(' '))) hit++; } if (tot && hit / tot >= 0.85) return true; }\n    const qw = w.filter(x => x.length > 2); if (qw.length < 3) return false;\n    let best = 0; for (const L of lines) { let h = 0; for (const x of qw) if (L.has(x)) h++; if (h / qw.length > best) best = h / qw.length; }\n    return best >= 0.6;\n  };\n}\nfunction saida(r) {\n  const msg = (r.output || []).find(o => o.type === 'message');\n  const txt = msg && msg.content && (msg.content.find(c => c.type === 'output_text') || {}).text;\n  if (!txt) throw new Error('Luna sem resposta de texto');\n  return JSON.parse(txt);\n}\nfunction pedido(prep, tarefa, esforco) {\n  return { model: prep.modelo, store: false, prompt_cache_key: prep.chave, input: [{ role: 'system', content: prep.prompts.BASE }, { role: 'user', content: prep.pre + tarefa }], reasoning: { effort: esforco }, text: { format: { type: 'json_object' } }, max_output_tokens: 30000 };\n}\nfunction uso(r) { const u = r.usage || {}; return { entrada: u.input_tokens || 0, cache: (u.input_tokens_details || {}).cached_tokens || 0, saida: u.output_tokens || 0 }; }\nfunction lista(comps) { return comps.map((c, i) => `${i + 1}. ${c.dono}: ${c.o_que}${c.prazo ? ' (prazo: ' + c.prazo + ')' : ''}`).join('\\n'); }\n\nconst prep = $('Prepara leitura').first().json.prep;\nconst r = $input.first().json; const out = saida(r); const ok = makeOk(prep.text);\nconst comps = (out.compromissos || []).filter(c => c && c.o_que && ok(c.trecho));\nconst pendencias = (out.pendencias || []).filter(p => p && p.texto && ok(p.trecho));\nconst t = prep.prompts.COBERTURA + '\\n\\nCOMPROMISSOS JÁ ENCONTRADOS:\\n' + lista(comps);\nreturn [{ json: { comps, pendencias, usos: [uso(r)], body: pedido(prep, t, 'high') } }];\n"
+      },
+      "name": "Confere trechos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ],
+      "onError": "continueErrorOutput",
+      "id": "9fdadd56-f9b6-439a-896d-8d87ac85688f"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "name": "Luna revisa",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        300
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "QSdaVgPRKxfvwcXr",
+          "name": "OpenAi account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput",
+      "id": "591e2a8d-71e9-4e0a-a399-f6e231d6c777"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Junta o que a revisão cronológica achou e prepara a revisão pessoa por pessoa\n\nconst nrm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\\s+/g, ' ').trim();\nfunction makeOk(transcript) {\n  const T = nrm(transcript);\n  const lines = String(transcript).split('\\n').filter(l => l.trim()).map(l => new Set(nrm(l).split(' ')));\n  return quote => {\n    const q = nrm(quote); if (q.length < 8) return false; if (T.includes(q)) return true;\n    const w = q.split(' ');\n    if (w.length >= 5) { let hit = 0, tot = 0; for (let i = 0; i + 5 <= w.length; i++) { tot++; if (T.includes(w.slice(i, i + 5).join(' '))) hit++; } if (tot && hit / tot >= 0.85) return true; }\n    const qw = w.filter(x => x.length > 2); if (qw.length < 3) return false;\n    let best = 0; for (const L of lines) { let h = 0; for (const x of qw) if (L.has(x)) h++; if (h / qw.length > best) best = h / qw.length; }\n    return best >= 0.6;\n  };\n}\nfunction saida(r) {\n  const msg = (r.output || []).find(o => o.type === 'message');\n  const txt = msg && msg.content && (msg.content.find(c => c.type === 'output_text') || {}).text;\n  if (!txt) throw new Error('Luna sem resposta de texto');\n  return JSON.parse(txt);\n}\nfunction pedido(prep, tarefa, esforco) {\n  return { model: prep.modelo, store: false, prompt_cache_key: prep.chave, input: [{ role: 'system', content: prep.prompts.BASE }, { role: 'user', content: prep.pre + tarefa }], reasoning: { effort: esforco }, text: { format: { type: 'json_object' } }, max_output_tokens: 30000 };\n}\nfunction uso(r) { const u = r.usage || {}; return { entrada: u.input_tokens || 0, cache: (u.input_tokens_details || {}).cached_tokens || 0, saida: u.output_tokens || 0 }; }\nfunction lista(comps) { return comps.map((c, i) => `${i + 1}. ${c.dono}: ${c.o_que}${c.prazo ? ' (prazo: ' + c.prazo + ')' : ''}`).join('\\n'); }\n\nconst prep = $('Prepara leitura').first().json.prep; const antes = $('Confere trechos').first().json;\nconst r = $input.first().json; const out = saida(r); const ok = makeOk(prep.text);\nconst add = (out.faltando || []).filter(c => c && c.o_que && ok(c.trecho)).map(c => ({ ...c, origem: 'revisao' }));\nconst comps = antes.comps.concat(add);\nconst t = prep.prompts.COBERTURA_PESSOA + '\\n\\nCOMPROMISSOS JÁ ENCONTRADOS:\\n' + lista(comps);\nreturn [{ json: { comps, pendencias: antes.pendencias, usos: antes.usos.concat([uso(r)]), body: pedido(prep, t, 'medium') } }];\n"
+      },
+      "name": "Junta revisão",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        300
+      ],
+      "onError": "continueErrorOutput",
+      "id": "61f43042-7be4-4c49-b6bb-e341c97c0db5"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "name": "Luna revisa por pessoa",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        300
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "QSdaVgPRKxfvwcXr",
+          "name": "OpenAi account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput",
+      "id": "2ccb6cd0-eae5-4d79-a1fa-01690803e876"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Junta o que a revisão por pessoa achou e prepara a escrita do contexto do relatório\n\nconst nrm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\\s+/g, ' ').trim();\nfunction makeOk(transcript) {\n  const T = nrm(transcript);\n  const lines = String(transcript).split('\\n').filter(l => l.trim()).map(l => new Set(nrm(l).split(' ')));\n  return quote => {\n    const q = nrm(quote); if (q.length < 8) return false; if (T.includes(q)) return true;\n    const w = q.split(' ');\n    if (w.length >= 5) { let hit = 0, tot = 0; for (let i = 0; i + 5 <= w.length; i++) { tot++; if (T.includes(w.slice(i, i + 5).join(' '))) hit++; } if (tot && hit / tot >= 0.85) return true; }\n    const qw = w.filter(x => x.length > 2); if (qw.length < 3) return false;\n    let best = 0; for (const L of lines) { let h = 0; for (const x of qw) if (L.has(x)) h++; if (h / qw.length > best) best = h / qw.length; }\n    return best >= 0.6;\n  };\n}\nfunction saida(r) {\n  const msg = (r.output || []).find(o => o.type === 'message');\n  const txt = msg && msg.content && (msg.content.find(c => c.type === 'output_text') || {}).text;\n  if (!txt) throw new Error('Luna sem resposta de texto');\n  return JSON.parse(txt);\n}\nfunction pedido(prep, tarefa, esforco) {\n  return { model: prep.modelo, store: false, prompt_cache_key: prep.chave, input: [{ role: 'system', content: prep.prompts.BASE }, { role: 'user', content: prep.pre + tarefa }], reasoning: { effort: esforco }, text: { format: { type: 'json_object' } }, max_output_tokens: 30000 };\n}\nfunction uso(r) { const u = r.usage || {}; return { entrada: u.input_tokens || 0, cache: (u.input_tokens_details || {}).cached_tokens || 0, saida: u.output_tokens || 0 }; }\nfunction lista(comps) { return comps.map((c, i) => `${i + 1}. ${c.dono}: ${c.o_que}${c.prazo ? ' (prazo: ' + c.prazo + ')' : ''}`).join('\\n'); }\n\nconst prep = $('Prepara leitura').first().json.prep; const antes = $('Junta revisão').first().json;\nconst r = $input.first().json; const out = saida(r); const ok = makeOk(prep.text);\nconst add = (out.faltando || []).filter(c => c && c.o_que && ok(c.trecho)).map(c => ({ ...c, origem: 'revisao_pessoa' }));\nconst comps = antes.comps.concat(add);\nconst t = prep.prompts.NARRATIVA + '\\n\\nPRÓXIMOS PASSOS E PENDÊNCIAS JÁ LEVANTADOS:\\n' + comps.map(c => '- ' + c.dono + ': ' + c.o_que).join('\\n') + '\\n' + antes.pendencias.map(p => '- pendência: ' + p.texto).join('\\n');\nreturn [{ json: { comps, pendencias: antes.pendencias, usos: antes.usos.concat([uso(r)]), body: pedido(prep, t, 'low') } }];\n"
+      },
+      "name": "Junta revisão por pessoa",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        300
+      ],
+      "onError": "continueErrorOutput",
+      "id": "48e96864-ab68-40c9-b3f2-8646c06f1b4f"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "name": "Luna escreve contexto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        300
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "QSdaVgPRKxfvwcXr",
+          "name": "OpenAi account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput",
+      "id": "45893059-ff28-4774-91ab-8327a8165212"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Monta o relatório final no mesmo formato de antes (summary + executive_summary)\n\nconst nrm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\\s+/g, ' ').trim();\nfunction makeOk(transcript) {\n  const T = nrm(transcript);\n  const lines = String(transcript).split('\\n').filter(l => l.trim()).map(l => new Set(nrm(l).split(' ')));\n  return quote => {\n    const q = nrm(quote); if (q.length < 8) return false; if (T.includes(q)) return true;\n    const w = q.split(' ');\n    if (w.length >= 5) { let hit = 0, tot = 0; for (let i = 0; i + 5 <= w.length; i++) { tot++; if (T.includes(w.slice(i, i + 5).join(' '))) hit++; } if (tot && hit / tot >= 0.85) return true; }\n    const qw = w.filter(x => x.length > 2); if (qw.length < 3) return false;\n    let best = 0; for (const L of lines) { let h = 0; for (const x of qw) if (L.has(x)) h++; if (h / qw.length > best) best = h / qw.length; }\n    return best >= 0.6;\n  };\n}\nfunction saida(r) {\n  const msg = (r.output || []).find(o => o.type === 'message');\n  const txt = msg && msg.content && (msg.content.find(c => c.type === 'output_text') || {}).text;\n  if (!txt) throw new Error('Luna sem resposta de texto');\n  return JSON.parse(txt);\n}\nfunction pedido(prep, tarefa, esforco) {\n  return { model: prep.modelo, store: false, prompt_cache_key: prep.chave, input: [{ role: 'system', content: prep.prompts.BASE }, { role: 'user', content: prep.pre + tarefa }], reasoning: { effort: esforco }, text: { format: { type: 'json_object' } }, max_output_tokens: 30000 };\n}\nfunction uso(r) { const u = r.usage || {}; return { entrada: u.input_tokens || 0, cache: (u.input_tokens_details || {}).cached_tokens || 0, saida: u.output_tokens || 0 }; }\nfunction lista(comps) { return comps.map((c, i) => `${i + 1}. ${c.dono}: ${c.o_que}${c.prazo ? ' (prazo: ' + c.prazo + ')' : ''}`).join('\\n'); }\n\nconst antes = $('Junta revisão por pessoa').first().json;\nconst r = $input.first().json; const out = saida(r);\nconst passos = antes.comps.map(c => `- ${c.dono}: ${c.o_que}${c.prazo ? ` (prazo: ${c.prazo})` : ''}`).join('\\n');\nconst pend = antes.pendencias.map(p => `- ${p.texto}`).join('\\n');\nlet exec = String(out.secoes || '').trim();\nexec += `\\n\\n**Próximos passos:**\\n${passos || '- Nenhum compromisso combinado nesta conversa.'}`;\nif (pend) exec += `\\n\\n**Pendências e ideias (não viram tarefa):**\\n${pend}`;\nconst usos = antes.usos.concat([uso(r)]);\nconst custo = usos.reduce((s, u) => s + (u.entrada - u.cache) * 0.10 / 1e6 + u.cache * 0.01 / 1e6 + u.saida * 0.50 / 1e6, 0);\nreturn [{ json: { summary: out.summary || '', executive_summary: exec, relatorio_modelo: 'gpt-6-luna', relatorio_compromissos: antes.comps, relatorio_pendencias: antes.pendencias, relatorio_custo_usd: Number(custo.toFixed(5)) } }];\n"
+      },
+      "name": "Monta relatório",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        300
+      ],
+      "onError": "continueErrorOutput",
+      "id": "68e5067f-ac59-4768-9566-2968a89be213"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-5.1"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Você lê a transcrição rotulada por falante de uma reunião/áudio do Vitor Gambetti e escreve um RELATÓRIO DE LEITURA. NÃO extraia tarefas/ações, NÃO produza listas de \"actions\" — apenas o relatório.\n\nEscreva um relatório em markdown-lite com EXATAMENTE estas seções, nesta ordem (cada seção é \"**Título:**\" numa linha, seguida de bullets que começam com \"- \"). Omita uma seção só se for genuinamente vazia:\n\n**Contexto:** tipo de áudio, quem participa (nomes quando rotulados) e o assunto central.\n**Problemas levantados:** cada dor, gargalo, risco ou insatisfação. Específico.\n**Decisões e alinhamentos:** cada decisão/acordo — e para CADA um deixe explícito QUEM é o dono (nome próprio quando a transcrição permitir; senão o papel/cargo) e qual o ENTREGÁVEL. Inclua decisões sobre PESSOAS/papéis (reavaliar/ajustar/trocar quem lidera) e criação de ROTINAS/rituais recorrentes (checklist, daily).\n**Insights / observações relevantes:** constatações, números, padrões — coisas que valem registrar mesmo sem virar ação.\n**Próximos passos:** o que vem a seguir — cada passo com dono e entregável.\n\nRegras: extraia só do que foi dito; preserve nomes próprios, números, prazos e termos do domínio (Trips, Weddings, Edis, CRM, SDR). Reunião densa → relatório detalhado. Português, voz objetiva.\n\nSAÍDA — retorne SÓ este JSON. O campo executive_summary é OBRIGATÓRIO e deve conter o relatório completo das seções acima (use null APENAS em áudio trivial: teste, saudação, ruído):\n{ \"summary\": \"<1-2 frases de contexto, não as tarefas>\", \"executive_summary\": \"<relatório markdown-lite com as seções acima>\" }\n"
+            },
+            {
+              "content": "=Transcrição rotulada:\n\n{{ $('Recebe reunião').first().json.labeled_text }}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "name": "Reserva: relatório antigo (GPT-5.1)",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.7,
+      "position": [
+        1100,
+        600
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "QSdaVgPRKxfvwcXr",
+          "name": "OpenAi account"
+        }
+      },
+      "executeOnce": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "id": "6b623fc7-f393-442d-ba63-40bb9f956c2a"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reserva: se alguma etapa do Luna falhar, usa o relatório antigo (GPT-5.1) para a reunião não travar\nconst raw = $input.first().json;\nlet p = raw;\ntry { if (raw.message && raw.message.content) p = typeof raw.message.content === 'string' ? JSON.parse(raw.message.content) : raw.message.content; else if (raw.content) p = typeof raw.content === 'string' ? JSON.parse(raw.content) : raw.content; } catch (e) {}\nreturn [{ json: { summary: (p && p.summary) || '', executive_summary: (p && p.executive_summary) || '', relatorio_modelo: 'gpt-5.1-reserva' } }];\n"
+      },
+      "name": "Monta relatório (reserva)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        600
+      ],
+      "id": "171dbf10-fcf0-4dcf-af24-e80c01267c16"
+    }
+  ],
+  "connections": {
+    "Recebe reunião": {
+      "main": [
+        [
+          {
+            "node": "Prepara leitura",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepara leitura": {
+      "main": [
+        [
+          {
+            "node": "Luna extrai",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reserva: relatório antigo (GPT-5.1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Luna extrai": {
+      "main": [
+        [
+          {
+            "node": "Confere trechos",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reserva: relatório antigo (GPT-5.1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confere trechos": {
+      "main": [
+        [
+          {
+            "node": "Luna revisa",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reserva: relatório antigo (GPT-5.1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Luna revisa": {
+      "main": [
+        [
+          {
+            "node": "Junta revisão",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reserva: relatório antigo (GPT-5.1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Junta revisão": {
+      "main": [
+        [
+          {
+            "node": "Luna revisa por pessoa",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reserva: relatório antigo (GPT-5.1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Luna revisa por pessoa": {
+      "main": [
+        [
+          {
+            "node": "Junta revisão por pessoa",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reserva: relatório antigo (GPT-5.1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Junta revisão por pessoa": {
+      "main": [
+        [
+          {
+            "node": "Luna escreve contexto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reserva: relatório antigo (GPT-5.1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Luna escreve contexto": {
+      "main": [
+        [
+          {
+            "node": "Monta relatório",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reserva: relatório antigo (GPT-5.1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monta relatório": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Reserva: relatório antigo (GPT-5.1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reserva: relatório antigo (GPT-5.1)": {
+      "main": [
+        [
+          {
+            "node": "Monta relatório (reserva)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

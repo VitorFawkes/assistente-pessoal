@@ -141,6 +141,11 @@ soft_deleted_at IS NULL` — se passar de ~10k, está na hora de migrar.
   - `Acoes - Process Segment` (id `Gt34r0WVdZxCbJet`) — disparado pelo PATCH
     `/api/meetings/[id]/segments` pra cada filho criado. Extrai tarefas via
     GPT-5.1 e dispara voice-svc/identify.
+  - `Acoes - Relatorio Luna` (id `ilgULW6P1w2xWjv9`) — escreve o relatório da reunião
+    (o antigo Stage A) com GPT-6 Luna em etapas: extrai os compromissos com trecho literal,
+    revisa 2x (cronológica e por pessoa) e escreve o contexto. Trecho que não existe na
+    transcrição é descartado. Os 4 fluxos chamam este pelo nó `Stage A Summary`. Se alguma
+    etapa falhar, cai no relatório antigo (GPT-5.1) e a reunião não trava.
   - `Acoes - Reprocess Tarefas` — disparado pelo PATCH `/api/meetings/[id]/speakers`
     quando user corrige rotulação.
   - Pra sincronizar JSON local → live: `source .env && ./n8n-workflows/apply.sh`.
