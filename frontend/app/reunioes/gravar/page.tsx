@@ -1,10 +1,17 @@
 import { requireUserOrRedirect } from "@/lib/auth";
+import { isTeamMode } from "@/lib/team-mode";
 import { RecordingScreen } from "@/components/recording-screen";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
 export default async function GravarPage() {
   const user = await requireUserOrRedirect();
+
+  // Gravador só disponível em TEAM_MODE
+  if (!isTeamMode()) {
+    redirect("/reunioes");
+  }
 
   return (
     <div className="space-y-7 sm:space-y-9">

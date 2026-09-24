@@ -136,7 +136,7 @@ export function FileUploader({ onClose, userId }: { onClose: () => void; userId:
             </div>
 
             <p className="text-xs text-[color:var(--muted)]">
-              Enviando em pedaços…
+              Fazendo upload do arquivo…
             </p>
           </div>
         )}

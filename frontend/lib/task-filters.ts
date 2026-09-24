@@ -5,6 +5,7 @@ import type { Tarefa } from "@/components/task-row";
 import { nowSP, toSP } from "@/lib/utils";
 import { meetingLabel } from "@/lib/meeting-label";
 import { isOwner } from "@/lib/owner-slug";
+import { isTeamMode } from "@/lib/team-mode";
 
 export type MeetingDateBucket = "qualquer" | "hoje" | "semana" | "mes" | "antigas";
 
@@ -95,14 +96,15 @@ export function tipoOf(t: Tarefa): string {
   return t.meeting_type || "desconhecido";
 }
 
-// Pessoa pela qual agrupar: "Você" pra executar (dono da conta), senão a principal / owner.
+// Pessoa pela qual agrupar: "Você"/"Vitor" pra executar (dono da conta), senão a principal / owner.
+// Em TEAM_MODE, usa "Você" (genérico); sem TEAM_MODE, usa "Vitor" (backward compat).
 export function principalPersonOf(t: Tarefa): string {
-  if (t.acao === "executar") return "Você";
+  if (t.acao === "executar") return isTeamMode() ? "Você" : "Vitor";
   const principal = (t.pessoas ?? []).find((p) => p.principal);
   if (principal) return principal.nome;
   const owner = (t.owner ?? "").trim();
   if (!owner || owner === "?") return "A definir";
-  if (isOwner(owner)) return "Você";
+  if (isOwner(owner)) return isTeamMode() ? "Você" : "Vitor";
   return owner;
 }
 

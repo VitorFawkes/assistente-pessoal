@@ -125,8 +125,8 @@ export function RecordingControls({
       {/* Info */}
       <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--bg-secondary)] p-6 text-sm text-[color:var(--muted-strong)]">
         <p>
-          Você pode fechar a aba e voltar mais tarde. A gravação continua se você
-          recarregar a página.
+          Se fechar a aba por acidente, abra novamente nos próximos 30 minutos
+          para continuar a mesma gravação.
         </p>
       </div>
     </div>

@@ -87,7 +87,9 @@ describe("derivações", () => {
     expect(tipoOf(mk({ meeting_type: null }))).toBe("desconhecido");
   });
   test("principalPersonOf", () => {
-    expect(principalPersonOf(mk({ acao: "executar" }))).toBe("Você");
+    // Sem TEAM_MODE, retorna "Vitor" (backward compat); com TEAM_MODE=1, retorna "Você" (genérico)
+    const expected = process.env.TEAM_MODE ? "Você" : "Vitor";
+    expect(principalPersonOf(mk({ acao: "executar" }))).toBe(expected);
     expect(
       principalPersonOf(
         mk({ acao: "cobrar", pessoas: [{ id: "1", nome: "Tiago", principal: true }] }),

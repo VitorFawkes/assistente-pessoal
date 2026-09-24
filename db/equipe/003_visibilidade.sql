@@ -89,10 +89,11 @@ CREATE POLICY meetings_read ON meetings
         AND ma.time_id IS NOT NULL
         AND ma.time_id = ANY(
           COALESCE(
-            (SELECT times FROM users WHERE id::text = current_setting('app.current_user_id', true))
-              ->> 'time_ids',
-            '[]'
-          )::TEXT[]
+            (SELECT array_agg(t->>'id')
+             FROM users u, jsonb_array_elements(u.times) t
+             WHERE u.id::text = current_setting('app.current_user_id', true)),
+            '[]'::TEXT[]
+          )
         )
     )
   );
@@ -133,10 +134,11 @@ CREATE POLICY tarefas_read ON tarefas
                 AND ma.time_id IS NOT NULL
                 AND ma.time_id = ANY(
                   COALESCE(
-                    (SELECT times FROM users WHERE id::text = current_setting('app.current_user_id', true))
-                      ->> 'time_ids',
-                    '[]'
-                  )::TEXT[]
+                    (SELECT array_agg(t->>'id')
+                     FROM users u, jsonb_array_elements(u.times) t
+                     WHERE u.id::text = current_setting('app.current_user_id', true)),
+                    '[]'::TEXT[]
+                  )
                 )
             )
           )

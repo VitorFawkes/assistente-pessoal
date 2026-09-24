@@ -37,7 +37,7 @@ export const POST = withAuth<Ctx>(async (user, req, ctx) => {
     // Read all chunks
     const chunks = await readdir(userTmpDir);
     const sortedChunks = chunks
-      .filter((f) => f.endsWith(".webm"))
+      .filter((f) => /^\d+\.webm$/.test(f))  // Validar que nome é só números + .webm
       .sort((a, b) => {
         const numA = parseInt(a.split(".")[0]);
         const numB = parseInt(b.split(".")[0]);
@@ -54,7 +54,7 @@ export const POST = withAuth<Ctx>(async (user, req, ctx) => {
     // Create concat file for ffmpeg
     const concatFile = join(userTmpDir, "concat.txt");
     const concatContent = sortedChunks
-      .map((chunk) => `file '${join(userTmpDir, chunk)}'`)
+      .map((chunk) => `file '${join(userTmpDir, chunk).replace(/'/g, "'\\''")}'`)
       .join("\n");
 
     await writeFile(concatFile, concatContent);

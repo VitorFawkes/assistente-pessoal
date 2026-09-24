@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { clientIp, rateLimit } from "@/lib/rate-limit";
 
 const TTARS_ROSTER_TOKEN = process.env.TTARS_ROSTER_TOKEN || "";
-const TTARS_SSO_SECRET = process.env.TTARS_SSO_SECRET || "";
 
 export async function POST(req: NextRequest) {
-  // Autenticação: espera header x-ttars-token = TTARS_ROSTER_TOKEN ou derivado de TTARS_SSO_SECRET
-  const token = req.headers.get("x-ttars-token");
+  // Rate-limit: 30 requisições por minuto por IP
+  const ip = clientIp(req.headers);
+  if (!rateLimit(`equipe-liberado:${ip}`, 30, 60_000)) {
+    return new NextResponse("too many requests", { status: 429 });
+  }
 
-  // Aceita tanto TTARS_ROSTER_TOKEN quanto TTARS_SSO_SECRET
-  const validToken = token === TTARS_ROSTER_TOKEN || token === TTARS_SSO_SECRET;
-  if (!validToken) {
+  // Autenticação: APENAS TTARS_ROSTER_TOKEN (nunca SSO_SECRET)
+  const token = req.headers.get("x-ttars-token");
+  if (token !== TTARS_ROSTER_TOKEN || !TTARS_ROSTER_TOKEN) {
     return new NextResponse("unauthorized", { status: 401 });
   }
 

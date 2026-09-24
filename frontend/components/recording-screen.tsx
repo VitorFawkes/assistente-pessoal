@@ -99,8 +99,13 @@ export function RecordingScreen({ userId }: { userId: string }) {
       if ((err as any).name === "NotAllowedError") {
         toast.error("Permissão negada. Tente novamente.");
       } else {
-        toast.error("Som do sistema não disponível. Continuando só com microfone.");
-        await startMicOnly();
+        // Perguntar ao usuário se quer continuar só com microfone
+        const wantsContinue = confirm(
+          "Não consegui capturar o som da reunião online. Vou gravar só sua voz. Tem certeza?"
+        );
+        if (wantsContinue) {
+          await startMicOnly();
+        }
       }
     }
   }
@@ -170,7 +175,7 @@ export function RecordingScreen({ userId }: { userId: string }) {
         throw new Error(`Erro ao finalizar: ${response.status}`);
       }
 
-      toast.success("Gravação finalizada! Você recebe o relatório em alguns minutos.");
+      toast.success("Gravação finalizada! Você recebe o relatório em ~5-10 minutos.");
       setSessionId("");
       setChunkCount(0);
       setStartTime(null);
@@ -198,7 +203,7 @@ export function RecordingScreen({ userId }: { userId: string }) {
             <div>
               <p className="font-semibold text-lg">Reunião na sala</p>
               <p className="text-sm text-[color:var(--muted-strong)]">
-                Microfone da máquina
+                Apenas sua voz
               </p>
             </div>
           </div>

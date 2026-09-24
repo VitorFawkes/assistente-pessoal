@@ -1,12 +1,15 @@
 import { requireUserOrRedirect } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { aceitarTermos } from "./actions";
+import { isTeamMode } from "@/lib/team-mode";
 
 export const dynamic = "force-dynamic";
 
 export default async function TermosPage() {
   const user = await requireUserOrRedirect();
   if (user.consent_terms_at) redirect("/");
+
+  const teamMode = isTeamMode();
 
   return (
     <div className="mx-auto max-w-2xl pt-8 sm:pt-12 space-y-6">
@@ -23,7 +26,7 @@ export default async function TermosPage() {
       <div className="space-y-4 text-[14px] leading-relaxed text-[color:var(--muted-strong)]">
         <p>
           Você manda áudios de reuniões e voice notes. A gente transcreve via{" "}
-          <strong>OpenAI Whisper</strong> e extrai ações pendentes via{" "}
+          <strong>AssemblyAI</strong> e extrai ações pendentes via{" "}
           <strong>OpenAI GPT</strong>.
         </p>
         <p>
@@ -34,13 +37,20 @@ export default async function TermosPage() {
         </p>
         <p>
           A gente armazena os áudios e transcrições enquanto a sua conta existir.
-          Você pode pedir pra deletar tudo a qualquer momento (manda mensagem
-          pro Vitor).
+          Você pode pedir pra deletar tudo a qualquer momento{" "}
+          {teamMode ? (
+            "(converse com o Vitor)"
+          ) : (
+            "(manda mensagem pro Vitor)"
+          )}
+          .
         </p>
         <p className="text-[12px] text-[color:var(--muted)] italic">
-          Esse é um beta — uso pessoal, custos da OpenAI bancados pelo Vitor
-          (ele te avisa se você passar de um volume razoável e combina como
-          dividir).
+          {teamMode ? (
+            "Essa é uma ferramenta de equipe da Welcome. Processamento de áudios na nuvem."
+          ) : (
+            "Esse é um beta — uso pessoal, custos da OpenAI bancados pelo Vitor (ele te avisa se você passar de um volume razoável e combina como dividir)."
+          )}
         </p>
       </div>
 

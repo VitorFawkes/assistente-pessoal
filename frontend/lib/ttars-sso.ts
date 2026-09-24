@@ -111,19 +111,15 @@ export async function validateTtarsSsoToken(token: string): Promise<TtarsSsoClai
     throw new TtarsSsoError("invalid_jti", "JTI já foi usado (replay attempt)");
   }
 
-  // Validar autorização (email liberado ou admin — ambos checar na tabela)
-  // Se is_admin for true no JWT, auto-aprova (não precisa estar em acessos_equipe)
-  const isAdminClaim = (claims as Record<string, unknown>).is_admin === true;
+  // Validar autorização: SEMPRE checar na tabela (nunca confiar cegamente no JWT)
+  // O claim is_admin é apenas dica; validar no banco é obrigatório
+  const access = await query<{ liberado: boolean }>(
+    `SELECT liberado FROM acessos_equipe WHERE email = LOWER($1)`,
+    [claims.email.toLowerCase()],
+  );
 
-  if (!isAdminClaim) {
-    const access = await query<{ liberado: boolean }>(
-      `SELECT liberado FROM acessos_equipe WHERE email = LOWER($1)`,
-      [claims.email.toLowerCase()],
-    );
-
-    if (!access.length || !access[0].liberado) {
-      throw new TtarsSsoError("email_not_authorized", "Email não está liberado");
-    }
+  if (!access.length || !access[0].liberado) {
+    throw new TtarsSsoError("email_not_authorized", "Email não está liberado");
   }
 
   // Registrar JTI como usado

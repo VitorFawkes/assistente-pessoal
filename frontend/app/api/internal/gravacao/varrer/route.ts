@@ -42,13 +42,13 @@ export const POST = async (req: Request) => {
   }
 
   try {
-    // Find sessions that timed out
+    // Find sessions that timed out (use placeholder instead of string interpolation)
     const timedOutSessions = await query(
       `SELECT id, user_id, chunks_count
        FROM gravacao_sessoes
        WHERE finalizada_em IS NULL
-       AND last_chunk_at < now() - interval '${TIMEOUT_MINUTES} minutes'`,
-      []
+       AND last_chunk_at < now() - make_interval(mins := $1)`,
+      [TIMEOUT_MINUTES]
     ) as Array<{ id: string; user_id: string; chunks_count: number }>;
 
     let processed = 0;
@@ -97,7 +97,7 @@ async function finalizeRecording(sessionId: string, userId: string) {
     // Read all chunks
     const chunks = await readdir(userTmpDir).catch(() => []);
     const sortedChunks = chunks
-      .filter((f) => f.endsWith(".webm"))
+      .filter((f) => /^\d+\.webm$/.test(f))  // Validar que nome é só números + .webm
       .sort((a, b) => {
         const numA = parseInt(a.split(".")[0]);
         const numB = parseInt(b.split(".")[0]);
@@ -107,8 +107,8 @@ async function finalizeRecording(sessionId: string, userId: string) {
     if (sortedChunks.length === 0) {
       // No chunks, just mark as finalized
       await query(
-        `UPDATE gravacao_sessoes SET finalizada_em = now() WHERE id = $1`,
-        [sessionId]
+        `UPDATE gravacao_sessoes SET finalizada_em = now() WHERE id = $1 AND user_id = $2`,
+        [sessionId, userId]
       );
       return;
     }
@@ -116,7 +116,7 @@ async function finalizeRecording(sessionId: string, userId: string) {
     // Create concat file for ffmpeg
     const concatFile = join(userTmpDir, "concat.txt");
     const concatContent = sortedChunks
-      .map((chunk) => `file '${join(userTmpDir, chunk)}'`)
+      .map((chunk) => `file '${join(userTmpDir, chunk).replace(/'/g, "'\\''")}'`)
       .join("\n");
 
     await writeFile(concatFile, concatContent);
@@ -178,8 +178,8 @@ async function finalizeRecording(sessionId: string, userId: string) {
 
     // Mark session as finalized
     await query(
-      `UPDATE gravacao_sessoes SET finalizada_em = now() WHERE id = $1`,
-      [sessionId]
+      `UPDATE gravacao_sessoes SET finalizada_em = now() WHERE id = $1 AND user_id = $2`,
+      [sessionId, userId]
     );
 
     // Cleanup temp files
@@ -190,8 +190,8 @@ async function finalizeRecording(sessionId: string, userId: string) {
     console.error(`Error finalizing recording ${sessionId}:`, err);
     // Mark as finalized even if upload failed
     await query(
-      `UPDATE gravacao_sessoes SET finalizada_em = now() WHERE id = $1`,
-      [sessionId]
+      `UPDATE gravacao_sessoes SET finalizada_em = now() WHERE id = $1 AND user_id = $2`,
+      [sessionId, userId]
     ).catch(() => {});
     throw err;
   }

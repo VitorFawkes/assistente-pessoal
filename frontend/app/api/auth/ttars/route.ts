@@ -43,10 +43,16 @@ export async function GET(req: NextRequest) {
     // Setar cookie de sessão
     await setSessionCookie(sessionId);
 
-    // Redirecionar para /termos se não aceitou, senão para /
+    // Redirecionar para /termos se não aceitou, senão para / (com validação de open redirect)
     const proto = req.headers.get("x-forwarded-proto") || "https";
     const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost";
-    const nextUrl = searchParams.get("next") || "/";
+    let nextUrl = searchParams.get("next") || "/";
+
+    // Validar que nextUrl é relativo e não um open redirect (ex: //attacker.com)
+    if (!nextUrl.startsWith("/") || nextUrl.startsWith("//")) {
+      nextUrl = "/";
+    }
+
     const redirectUrl = `${proto}://${host}${nextUrl}`;
 
     return NextResponse.redirect(redirectUrl, 303);
