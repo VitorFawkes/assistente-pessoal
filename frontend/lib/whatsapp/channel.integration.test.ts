@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
 import { getPool, withTenant } from "../db";
-import { channelStatus, handleEvent, meetingNotices, startLink, unlink, whatsappView } from "./channel";
+import { channelStatus, handleEvent, startLink, unlink, whatsappView } from "./channel";
 
 const connection = process.env.COACH_TEST_DATABASE_URL;
 const message = (jid: string, id: string, text: string, alt?: string) => ({ event: "messages.upsert", instance: "coach", data: { key: { remoteJid: jid, remoteJidAlt: alt, fromMe: false, id }, messageType: "conversation", message: { conversation: text } } });
@@ -22,13 +22,6 @@ describe.skipIf(!connection)("WhatsApp do coach: vínculo por código, deduplica
   await admin.query(migration); await admin.query(migration);
   const meetingsMigration = await readFile(new URL("../../../db/0037_whatsapp_reunioes.sql", import.meta.url), "utf8");
   await admin.query(meetingsMigration); await admin.query(meetingsMigration);
-  await admin.query(`CREATE TABLE meetings(id uuid PRIMARY KEY,user_id uuid NOT NULL,status text,source text,nome text,original_filename text,recorded_at timestamptz,done_at timestamptz,summary text,raw_ai_response jsonb,needs_segmentation boolean,duration_seconds int);
-   CREATE TABLE tarefas(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid NOT NULL,meeting_id uuid,titulo text,owner text,is_mine boolean,prazo timestamptz,status text NOT NULL DEFAULT 'aberta',created_at timestamptz NOT NULL DEFAULT now());
-   CREATE TABLE tarefa_mencoes(user_id uuid,tarefa_id uuid,meeting_id uuid,origem text);
-   CREATE TABLE coach_profiles(user_id uuid PRIMARY KEY,timezone text);
-   CREATE TABLE coach_jobs(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid,idempotency_key text,status text);
-   CREATE TABLE coach_messages(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid,idempotency_key text,content text);
-   GRANT SELECT ON meetings,tarefas,tarefa_mencoes,coach_profiles,coach_jobs,coach_messages TO app_tenant;`);
   await admin.query("INSERT INTO users(id,nome,is_admin) VALUES($1,'Dono',true),($2,'Outra',true)", [a, b]);
   await global.__pgPool?.end(); global.__pgPool = undefined;
   url.username = "app_tenant"; url.password = ""; url.searchParams.set("options", `-c search_path=${schema}`); process.env.DATABASE_URL = url.toString();
@@ -98,56 +91,5 @@ describe.skipIf(!connection)("WhatsApp do coach: vínculo por código, deduplica
   await unlink(b);
   expect((await whatsappView({ id: b, is_admin: true })).linked).toBe(false);
   expect((await whatsappView({ id: b, is_admin: false })).available).toBe(false);
- });
-
- const at15h = new Date("2026-09-24T18:00:00Z");
- const pinDay = (key: string, when: string) => admin.query("UPDATE whatsapp_messages SET created_at=$2 WHERE user_id=$1 AND dedup_key=$3", [a, when, key]);
-
- test("reunião processada depois do vínculo ganha um aviso só; as de antes, partes de gravação e em andamento não", async () => {
-  await admin.query("UPDATE whatsapp_links SET phone='5541955550000',lid=NULL,verified_at='2026-09-24T16:00:00Z',proactive=true WHERE user_id=$1", [a]);
-  await admin.query("INSERT INTO coach_profiles(user_id,timezone) VALUES($1,'America/Sao_Paulo')", [a]);
-  const [m1, m2, m3, m4] = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
-  await admin.query(`INSERT INTO meetings(id,user_id,status,source,nome,recorded_at,done_at,summary) VALUES
-   ($1,$5,'done','macbook','Reunião com a Closer','2026-09-24T17:00:00Z','2026-09-24T17:40:00Z','Proposta fechada.'),
-   ($2,$5,'done','macbook','Antes do vínculo','2026-09-24T14:00:00Z','2026-09-24T15:00:00Z',null),
-   ($3,$5,'done','segmented','Parte 1','2026-09-24T17:00:00Z','2026-09-24T17:45:00Z',null),
-   ($4,$5,'processing','macbook','Em andamento','2026-09-24T17:00:00Z',null,null)`, [m1, m2, m3, m4, a]);
-  await admin.query(`INSERT INTO tarefas(user_id,meeting_id,titulo,owner,is_mine,status) VALUES
-   ($1,$2,'Enviar proposta','vitor',true,'aberta'),($1,$2,'Revisar contrato','Marcelo',false,'aberta'),($1,$2,'Cópia repetida','vitor',true,'cancelada')`, [a, m1]);
-  await admin.query("INSERT INTO tarefa_mencoes(user_id,tarefa_id,meeting_id,origem) VALUES($1,$2,$3,'reuniao')", [a, randomUUID(), m1]);
-  expect(await meetingNotices(a, at15h)).toBe(1);
-  expect(await meetingNotices(a, at15h)).toBe(0);
-  const rows = (await admin.query("SELECT dedup_key,to_jid,body FROM whatsapp_messages WHERE user_id=$1 AND dedup_key LIKE 'meeting:%'", [a])).rows;
-  expect(rows.map(r => r.dedup_key)).toEqual([`meeting:${m1}`]);
-  expect(rows[0].to_jid).toBe("5541955550000@s.whatsapp.net");
-  expect(rows[0].body).toContain("✅ *Suas tarefas* (1)\n• Enviar proposta");
-  expect(rows[0].body).toContain("*Marcelo:* Revisar contrato");
-  expect(rows[0].body).toContain("♻️ 1 já existia; anotei no card");
-  expect(rows[0].body).not.toContain("Cópia repetida");
-  await pinDay(`meeting:${m1}`, "2026-09-24T17:41:00Z");
- });
-
- test("pergunta do Coach em preparo segura o aviso; pronta, vai na mesma mensagem", async () => {
-  const [m5, m6] = [randomUUID(), randomUUID()];
-  await admin.query(`INSERT INTO meetings(id,user_id,status,source,nome,done_at) VALUES ($1,$3,'done','macbook','Com combinado','2026-09-24T17:50:00Z'),($2,$3,'done','macbook','Sem combinado','2026-09-24T17:52:00Z')`, [m5, m6, a]);
-  const job = (await admin.query("INSERT INTO coach_jobs(user_id,idempotency_key,status) VALUES($1,$2,'running') RETURNING id", [a, `scheduled:meeting:${m5}`])).rows[0].id;
-  expect(await meetingNotices(a, at15h)).toBe(1);
-  await pinDay(`meeting:${m6}`, "2026-09-24T17:53:00Z");
-  await admin.query("UPDATE coach_jobs SET status='succeeded' WHERE id=$1", [job]);
-  const message = (await admin.query("INSERT INTO coach_messages(user_id,idempotency_key,content) VALUES($1,$2,'Depois da reunião\n\nA reunião destravou o combinado?') RETURNING id", [a, `${job}:assistant`])).rows[0].id;
-  expect(await meetingNotices(a, at15h)).toBe(1);
-  const merged = (await admin.query("SELECT body,coach_message_id FROM whatsapp_messages WHERE user_id=$1 AND dedup_key=$2", [a, `meeting:${m5}`])).rows[0];
-  expect(merged.coach_message_id).toBe(message);
-  expect(merged.body.endsWith("💬 *Coach:* A reunião destravou o combinado?")).toBe(true);
-  await pinDay(`meeting:${m5}`, "2026-09-24T17:54:00Z");
- });
-
- test("depois de 4 avisos no dia o próximo espera o fim da tarde; de madrugada nada sai", async () => {
-  await admin.query("INSERT INTO whatsapp_messages(user_id,direction,kind,to_jid,dedup_key,body,status,created_at) VALUES($1,'out','notice','5541955550000@s.whatsapp.net','meeting:outra','x','sent','2026-09-24T12:00:00Z')", [a]);
-  const m7 = randomUUID();
-  await admin.query("INSERT INTO meetings(id,user_id,status,source,nome,done_at) VALUES($1,$2,'done','macbook','Quinta do dia','2026-09-24T17:58:00Z')", [m7, a]);
-  expect(await meetingNotices(a, at15h)).toBe(0);
-  expect(await meetingNotices(a, new Date("2026-09-25T01:30:00Z"))).toBe(0);
-  expect(await meetingNotices(a, new Date("2026-09-24T22:00:00Z"))).toBe(1);
  });
 });

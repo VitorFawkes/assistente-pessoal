@@ -1,5 +1,6 @@
 import { createHash, randomInt } from "node:crypto";
 import { splitChatPresentation } from "../coach/chat-presentation";
+import { acoesUrl } from "../public-url";
 
 export type WaSender = { phone: string | null; lid: string | null; jid: string };
 type WaKey = { remoteJid?: string | null; remoteJidAlt?: string | null; fromMe?: boolean | null; id?: unknown };
@@ -89,4 +90,17 @@ export function displayNumber(raw: string | undefined) {
  const d = (raw || "").replace(/\D/g, "");
  const m = d.match(/^55(\d{2})(\d{4,5})(\d{4})$/);
  return m ? `(${m[1]}) ${m[2]}-${m[3]}` : d || null;
+}
+
+const clip = (s: string, max: number) => { const t = s.replace(/\s+/g, " ").trim(); return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t; };
+/** Friday review on WhatsApp: the proposal only; evidence stays on the coach page. */
+export function reviewText(c: { headline?: string; focus?: string; progress?: string; experiment?: string; question?: string }) {
+ const parts = ["*Revisão da semana*"];
+ if (c.headline?.trim()) parts.push(`*${clip(c.headline, 120)}*`);
+ if (c.focus?.trim()) parts.push(whatsappText(c.focus.slice(0, 2500)));
+ if (c.progress?.trim()) parts.push(`*Avanço:* ${whatsappText(c.progress.slice(0, 1500))}`);
+ if (c.experiment?.trim()) parts.push(`*Experimento da semana:* ${whatsappText(c.experiment.slice(0, 1200))}`);
+ if (c.question?.trim()) parts.push(clip(c.question, 500));
+ parts.push(`Evidências e detalhes: ${acoesUrl("/coach")}`);
+ return parts.join("\n\n");
 }

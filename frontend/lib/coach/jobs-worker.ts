@@ -1,7 +1,6 @@
 import { withTenant } from "../db";
 import { listCommitments } from "./coach-commitments";
-import { createHash } from "node:crypto";
-import { accountabilityFingerprint, commitmentsDueForFollowup, meetingMentionsCommitment } from "./follow-up";
+import { commitmentsDueForFollowup, meetingMentionsCommitment } from "./follow-up";
 import { coachStore } from "./store";
 import { reviewPeriod } from "./evidence";
 import { attentionBudget,claimJob,type ClaimedCoachJob,dueCheckins,enqueueJob,extraFollowupAllowed,finishJob,localJobDay,renewJob,type CadenceProfile,type CheckinKind } from "./jobs";
@@ -48,14 +47,12 @@ export async function scheduleCoachJobs(userId:string,now=new Date()){
  const store=coachStore(userId);const profile=await store.profile();if(!profile.enabled)return;
  const coverage=await store.coverage();
  if(coverage.pending_meetings>0)await enqueueJob(userId,{kind:"analyze",key:`scheduled:analyze:${Math.floor(now.getTime()/900000)}:${coverage.analyzed_chunks}:${coverage.pending_meetings}`});
- const commitments=profile.weekly_enabled||profile.nudges_enabled?await listCommitments(userId):[];
+ const commitments=profile.nudges_enabled?await listCommitments(userId):[];
  if(profile.weekly_enabled){
+  // One scheduled review per week, right after its slot. Changes during the week wait for the next one
+  // (or the manual refresh): regenerating on every new message cost 20 model calls in 4 days.
   const period=reviewPeriod(now,profile.timezone,profile.review_day,profile.review_hour);
-  const week=await store.analysesInPeriod(period.from,period.to);
-  const newest=week.analyses.reduce((last,item)=>item.created_at>last?item.created_at:last,"")||"empty";
-  const [memories,messages]=await Promise.all([store.memories(),store.userMessages()]);
-  const fingerprint=createHash("sha256").update(JSON.stringify([week.report_fingerprint||"legacy",newest,accountabilityFingerprint(commitments,memories,messages)])).digest("hex");
-  await enqueueJob(userId,{kind:"review",key:`scheduled:review:${period.weekStart}:${profile.revision}:${fingerprint}`});
+  if(!(await store.reviews()).some(review=>review.week_start===period.weekStart))await enqueueJob(userId,{kind:"review",key:`scheduled:review:${period.weekStart}:${profile.revision}`});
  }
  const cadence=profile as typeof profile & CadenceProfile;
  if(!cadence.morning_enabled&&!cadence.evening_enabled&&!cadence.nudges_enabled)return;
