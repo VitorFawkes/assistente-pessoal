@@ -1,3 +1,5 @@
+import { requireAdminOrRedirect } from "@/lib/auth";
+import { isTeamMode } from "@/lib/team-mode";
 import { query } from "@/lib/db";
 import { criarConvite, revogarConvite } from "./actions";
 import { CopyLinkButton } from "@/components/copy-link-button";
@@ -27,6 +29,7 @@ async function fetchInvites(): Promise<InviteRow[]> {
 }
 
 export default async function AdminConvitesPage() {
+  const user = await requireAdminOrRedirect();
   const invites = await fetchInvites();
   const base = process.env.NEXT_PUBLIC_BASE_URL
     || process.env.FRONTEND_DOMAIN

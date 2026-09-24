@@ -1,4 +1,5 @@
-import { requireUserOrRedirect } from "@/lib/auth";
+import { requireUserOrRedirect, requireAdminOrRedirect } from "@/lib/auth";
+import { isTeamMode } from "@/lib/team-mode";
 import { quadrosFor, type QuadroComContagem } from "@/lib/quadros";
 import { NovoQuadro } from "@/components/novo-quadro";
 import Link from "next/link";
@@ -7,6 +8,9 @@ export const dynamic = "force-dynamic";
 
 export default async function QuadrosPage() {
   const user = await requireUserOrRedirect();
+  if (isTeamMode() && !user.is_admin) {
+    await requireAdminOrRedirect();
+  }
   let quadros: QuadroComContagem[] = [];
   let error: string | null = null;
 

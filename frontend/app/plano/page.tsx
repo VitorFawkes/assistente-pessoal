@@ -1,4 +1,5 @@
-import { requireUserOrRedirect } from "@/lib/auth";
+import { requireUserOrRedirect, requireAdminOrRedirect } from "@/lib/auth";
+import { isTeamMode } from "@/lib/team-mode";
 import { tarefasFor } from "@/lib/queries";
 import { type Tarefa } from "@/lib/queries";
 import { PlanoTimeline } from "@/components/plano-timeline";
@@ -8,6 +9,9 @@ export const dynamic = "force-dynamic";
 
 export default async function PlanoPage() {
   const user = await requireUserOrRedirect();
+  if (isTeamMode() && !user.is_admin) {
+    await requireAdminOrRedirect();
+  }
 
   let tarefas: Tarefa[] = [];
   let dbError: string | null = null;

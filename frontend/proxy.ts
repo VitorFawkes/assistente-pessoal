@@ -10,6 +10,7 @@ export const config = {
 
 const PUBLIC_PREFIXES = [
   "/c/",                  // página de convite (consume)
+  "/privacidade",         // política de privacidade (sem login)
   "/sem-acesso",
   "/api/sessao",          // POST consume invite (cria sessão), DELETE logout
   "/api/auth/",           // login externo (ttars, mobile, etc) — auth própria por rota

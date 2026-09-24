@@ -1,5 +1,7 @@
+import Link from "next/link";
 import { requireUserOrRedirect } from "@/lib/auth";
-import { ABERTAS_LIMIT, tarefasFor } from "@/lib/queries";
+import { isTeamMode } from "@/lib/team-mode";
+import { ABERTAS_LIMIT, tarefasFor, meetingsFor } from "@/lib/queries";
 import { type Tarefa } from "@/lib/queries";
 import { TasksDashboard } from "@/components/tasks-dashboard";
 import { OwnerTaskProvider } from "@/lib/task-mutations";
@@ -8,19 +10,23 @@ export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const user = await requireUserOrRedirect();
+  const teamMode = isTeamMode();
 
   let tarefas: Tarefa[] = [];
   let totalAbertas = 0;
+  let meetings: any[] = [];
   let dbError: string | null = null;
   try {
     // tarefasFor.recentes() retorna abertas + concluídas/canceladas com meeting joinado.
     // RLS filtra por user_id automaticamente. UI filtra por status.
-    const [lista, contagens] = await Promise.all([
+    const [lista, contagens, meetingsList] = await Promise.all([
       tarefasFor(user.id).recentes(),
       tarefasFor(user.id).contagens(),
+      teamMode ? meetingsFor(user.id).list() : Promise.resolve([]),
     ]);
     tarefas = lista as unknown as Tarefa[];
     totalAbertas = contagens.abertas;
+    meetings = meetingsList;
   } catch (e: unknown) {
     dbError = e instanceof Error ? e.message : String(e);
   }
@@ -38,6 +44,35 @@ export default async function HomePage() {
           Confirme se <code>DATABASE_URL</code> está definida no ambiente e se o
           Postgres está acessível.
         </p>
+      </div>
+    );
+  }
+
+  // Em TEAM_MODE, se não houver reuniões, mostrar o bloco de primeiro uso
+  if (teamMode && meetings.length === 0) {
+    return (
+      <div className="space-y-6 py-6 sm:py-10">
+        <header>
+          <h1 className="font-display text-3xl sm:text-4xl leading-tight mb-3">
+            Bem-vindo ao Ações
+          </h1>
+          <p className="text-[color:var(--muted-strong)] max-w-lg">
+            Grave suas reuniões e receba automaticamente um resumo com as tarefas extraídas.
+          </p>
+        </header>
+
+        <div className="rounded-3xl border border-[color:var(--border)] bg-[color:var(--card)] p-8 sm:p-10">
+          <h2 className="font-display text-2xl mb-6">Grave sua primeira reunião</h2>
+          <Link
+            href="/reunioes/gravar"
+            className="inline-flex items-center justify-center px-6 py-3 rounded-2xl bg-[color:var(--accent)] text-[color:var(--foreground)] font-medium text-base hover:opacity-90 transition"
+          >
+            Começar a gravar
+          </Link>
+          <p className="mt-6 text-sm text-[color:var(--muted-strong)]">
+            ou <Link href="/reunioes" className="underline hover:no-underline">suba um arquivo de áudio</Link>
+          </p>
+        </div>
       </div>
     );
   }

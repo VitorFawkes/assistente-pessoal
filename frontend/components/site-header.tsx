@@ -28,12 +28,19 @@ function isCurrent(pathname: string, href: string): boolean {
 
 export function SiteHeader({
   user,
+  teamMode,
 }: {
   user: { nome: string; is_admin: boolean } | null;
+  teamMode: boolean;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  // Em TEAM_MODE, não-admin vê só Pendências, Reuniões e Pessoas
+  const filteredNav = teamMode && user && !user.is_admin
+    ? NAV.filter((item) => ["/", "/reunioes", "/pessoas"].includes(item.href))
+    : NAV;
 
   useEffect(() => {
     if (!open) return;
@@ -70,7 +77,7 @@ export function SiteHeader({
         <div className="flex items-center gap-2 sm:gap-3">
           {user && (
             <nav className="hidden lg:flex items-center gap-0.5 text-[13px]">
-              {NAV.map((item) => {
+              {filteredNav.map((item) => {
                 const current = isCurrent(pathname, item.href);
                 return (
                   <Link
@@ -104,7 +111,7 @@ export function SiteHeader({
               </button>
               {open && (
                 <div className="absolute right-0 mt-2 w-52 rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] shadow-xl p-1.5 z-50">
-                  {NAV.map((item) => {
+                  {filteredNav.map((item) => {
                     const current = isCurrent(pathname, item.href);
                     return (
                       <Link

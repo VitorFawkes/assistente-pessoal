@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireUserOrRedirect } from "@/lib/auth";
+import { requireUserOrRedirect, requireAdminOrRedirect } from "@/lib/auth";
+import { isTeamMode } from "@/lib/team-mode";
 import { coachStore } from "@/lib/coach/store";
 import { chunkMeeting, sourceHash } from "@/lib/coach/evidence";
 export const dynamic="force-dynamic";
 export default async function EvidencePage({searchParams}:{searchParams:Promise<{meeting?:string;chunk?:string;hash?:string}>}){
- const user=await requireUserOrRedirect();const params=await searchParams;
+ const user=await requireUserOrRedirect();if(isTeamMode()&&!user.is_admin)await requireAdminOrRedirect();const params=await searchParams;
  if(!params.meeting||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(params.meeting))notFound();
  const meeting=await coachStore(user.id).meetingById(params.meeting);if(!meeting)notFound();
  const chunks=chunkMeeting(meeting);const index=Number(params.chunk||0);if(!Number.isInteger(index)||index<0||!chunks[index])notFound();

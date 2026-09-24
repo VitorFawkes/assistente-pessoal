@@ -67,12 +67,22 @@ export default async function ReunioesPage() {
           ? "Suas reuniões e as compartilhadas com você."
           : "Tudo que foi gravado, da mais recente pra mais antiga."}
       </p>
-      <Link
-        href="/reunioes/arquivadas"
-        className="inline-flex items-center gap-1.5 text-[12px] text-[color:var(--muted)] hover:text-[color:var(--foreground)] transition"
-      >
-        <Archive size={12} /> ver arquivadas
-      </Link>
+      <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+        {teamMode && (
+          <Link
+            href="/reunioes/gravar"
+            className="inline-flex items-center justify-center px-4 py-2.5 rounded-2xl bg-[color:var(--accent)] text-[color:var(--foreground)] font-medium text-sm hover:opacity-90 transition"
+          >
+            Gravar reunião
+          </Link>
+        )}
+        <Link
+          href="/reunioes/arquivadas"
+          className="inline-flex items-center gap-1.5 text-[12px] text-[color:var(--muted)] hover:text-[color:var(--foreground)] transition"
+        >
+          <Archive size={12} /> ver arquivadas
+        </Link>
+      </div>
     </>
   );
 
@@ -93,7 +103,7 @@ export default async function ReunioesPage() {
         {meetingsMine.length === 0 ? (
           emptyStateContent
         ) : (
-          <MeetingsList meetings={meetingsMine} total={total} limite={MEETINGS_LIMIT} />
+          <MeetingsList meetings={meetingsMine} total={total} limite={MEETINGS_LIMIT} isAdmin={user.is_admin} />
         )}
       </div>
     );
@@ -114,7 +124,7 @@ export default async function ReunioesPage() {
               meetingsMine.length === 0 ? (
                 emptyStateContent
               ) : (
-                <MeetingsList meetings={meetingsMine} total={total} limite={MEETINGS_LIMIT} />
+                <MeetingsList meetings={meetingsMine} total={total} limite={MEETINGS_LIMIT} isAdmin={user.is_admin} />
               ),
           },
           {
@@ -133,6 +143,7 @@ export default async function ReunioesPage() {
                   meetings={meetingsVisible.filter((m: any) => m.user_id !== user.id)}
                   total={meetingsVisible.length}
                   limite={MEETINGS_LIMIT}
+                  isAdmin={user.is_admin}
                 />
               ),
           },
