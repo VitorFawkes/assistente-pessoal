@@ -105,7 +105,7 @@ export function FileUploader({ onClose, userId }: { onClose: () => void; userId:
 
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="w-full py-8 px-6 rounded-2xl border-2 border-dashed border-[color:var(--border)] bg-[color:var(--bg-secondary)] hover:border-[color:var(--foreground)]/50 transition group"
+              className="w-full py-8 px-6 rounded-2xl border-2 border-dashed border-[color:var(--border)] bg-[color:var(--card)] hover:border-[color:var(--foreground)]/50 transition group"
             >
               <div className="flex flex-col items-center gap-3">
                 <Upload className="w-8 h-8 text-[color:var(--muted-strong)] group-hover:text-[color:var(--foreground)] transition" />

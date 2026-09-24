@@ -180,7 +180,7 @@ export function RecordingControls({
         ) : (
           <button
             onClick={onStart}
-            className="w-full py-6 px-6 rounded-lg bg-[color:var(--foreground)] text-[color:var(--bg)] font-semibold hover:opacity-90 transition flex items-center justify-center gap-3 text-lg"
+            className="w-full py-6 px-6 rounded-lg bg-[color:var(--foreground)] text-[color:var(--background)] font-semibold hover:opacity-90 transition flex items-center justify-center gap-3 text-lg"
           >
             <Circle className="w-6 h-6 fill-current" />
             Começar
@@ -189,7 +189,7 @@ export function RecordingControls({
       </div>
 
       {/* Info */}
-      <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--bg-secondary)] p-6 text-sm text-[color:var(--muted-strong)]">
+      <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-6 text-sm text-[color:var(--muted-strong)]">
         <p>
           Se fechar a aba por acidente, abra novamente nos próximos 30 minutos
           para continuar a mesma gravação.

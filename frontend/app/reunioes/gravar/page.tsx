@@ -26,7 +26,7 @@ export default async function GravarPage() {
           </span>
         </h1>
         <p className="text-[14px] text-[color:var(--muted-strong)] max-w-md">
-          Escolha se é uma reunião na sala ou online, e começar a grabar.
+          Escolha se é uma reunião na sala ou online, e começar a gravar.
         </p>
       </header>
 

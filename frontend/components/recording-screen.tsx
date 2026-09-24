@@ -132,7 +132,7 @@ export function RecordingScreen({ userId }: { userId: string }) {
 
   async function startMicAndSystem() {
     if (isFirefox) {
-      toast.error("Use Chrome ou Edge para grabar reunião online");
+      toast.error("Use Chrome ou Edge para gravar reunião online");
       return;
     }
 
@@ -309,7 +309,7 @@ export function RecordingScreen({ userId }: { userId: string }) {
         <p className="text-[color:var(--muted-strong)]">Confira a internet e toque no botão abaixo. Não feche esta aba.</p>
         <button
           onClick={() => finalizar()}
-          className="w-full py-4 rounded-2xl bg-[color:var(--foreground)] text-[color:var(--bg)] font-semibold text-lg"
+          className="w-full py-4 rounded-2xl bg-[color:var(--foreground)] text-[color:var(--background)] font-semibold text-lg"
         >
           Tentar de novo
         </button>
@@ -337,7 +337,7 @@ export function RecordingScreen({ userId }: { userId: string }) {
             onClick={() => {
               window.location.href = "/reunioes";
             }}
-            className="w-full py-4 px-6 rounded-lg bg-[color:var(--foreground)] text-[color:var(--bg)] font-semibold hover:opacity-90 transition"
+            className="w-full py-4 px-6 rounded-lg bg-[color:var(--foreground)] text-[color:var(--background)] font-semibold hover:opacity-90 transition"
           >
             Ver minhas reuniões
           </button>
@@ -349,7 +349,7 @@ export function RecordingScreen({ userId }: { userId: string }) {
   if (resumeSession && mode === null) {
     return (
       <div className="space-y-6 max-w-2xl">
-        <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--bg-secondary)] p-6">
+        <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-6">
           <p className="font-semibold text-[color:var(--foreground)] mb-4">
             Você tem uma gravação em andamento
           </p>
@@ -363,7 +363,7 @@ export function RecordingScreen({ userId }: { userId: string }) {
                 setResumeSession(null);
                 startRecording(resumeSession.id, "na-sala");
               }}
-              className="flex-1 py-3 px-4 rounded-lg bg-[color:var(--foreground)] text-[color:var(--bg)] font-semibold hover:opacity-90 transition"
+              className="flex-1 py-3 px-4 rounded-lg bg-[color:var(--foreground)] text-[color:var(--background)] font-semibold hover:opacity-90 transition"
             >
               Continuar gravando
             </button>
@@ -373,7 +373,7 @@ export function RecordingScreen({ userId }: { userId: string }) {
                 setResumeSession(null);
                 finalizar();
               }}
-              className="flex-1 py-3 px-4 rounded-lg border border-[color:var(--border)] text-[color:var(--foreground)] hover:bg-[color:var(--bg-secondary)] transition"
+              className="flex-1 py-3 px-4 rounded-lg border border-[color:var(--border)] text-[color:var(--foreground)] hover:bg-[color:var(--card)] transition"
             >
               Encerrar e processar
             </button>
@@ -385,7 +385,7 @@ export function RecordingScreen({ userId }: { userId: string }) {
             setMode("na-sala");
             setShowGuide(false);
           }}
-          className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--bg)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
+          className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--background)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
         >
           <div className="flex items-start gap-4">
             <Mic className="w-8 h-8 text-[color:var(--foreground)] group-hover:scale-110 transition" />
@@ -404,7 +404,7 @@ export function RecordingScreen({ userId }: { userId: string }) {
               setMode("online");
               setShowGuide(true);
             }}
-            className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--bg)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
+            className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--background)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
           >
             <div className="flex items-start gap-4">
               <Video className="w-8 h-8 text-[color:var(--foreground)] group-hover:scale-110 transition" />
@@ -420,7 +420,7 @@ export function RecordingScreen({ userId }: { userId: string }) {
 
         <button
           onClick={() => setShowUploader(true)}
-          className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--bg)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
+          className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--background)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
         >
           <div className="flex items-start gap-4">
             <Square className="w-8 h-8 text-[color:var(--foreground)] group-hover:scale-110 transition" />
@@ -444,7 +444,7 @@ export function RecordingScreen({ userId }: { userId: string }) {
             setMode("na-sala");
             setShowGuide(false);
           }}
-          className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--bg)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
+          className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--background)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
         >
           <div className="flex items-start gap-4">
             <Mic className="w-8 h-8 text-[color:var(--foreground)] group-hover:scale-110 transition" />
@@ -463,7 +463,7 @@ export function RecordingScreen({ userId }: { userId: string }) {
               setMode("online");
               setShowGuide(true);
             }}
-            className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--bg)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
+            className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--background)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
           >
             <div className="flex items-start gap-4">
               <Video className="w-8 h-8 text-[color:var(--foreground)] group-hover:scale-110 transition" />
@@ -479,7 +479,7 @@ export function RecordingScreen({ userId }: { userId: string }) {
 
         <button
           onClick={() => setShowUploader(true)}
-          className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--bg)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
+          className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--background)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
         >
           <div className="flex items-start gap-4">
             <Square className="w-8 h-8 text-[color:var(--foreground)] group-hover:scale-110 transition" />

@@ -22,13 +22,13 @@ export function RecordingGuide({ onConfirm, onBack }: { onConfirm: () => void; o
 
       <div className="space-y-6">
         {/* Chrome/Edge Guide */}
-        <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--bg-secondary)] p-6">
+        <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-6">
           <h3 className="font-semibold text-lg mb-4">Chrome / Edge</h3>
 
           <div className="space-y-4">
             <div>
               <p className="text-sm font-medium mb-2">1º clique: escolha a aba ou tela</p>
-              <div className="bg-[color:var(--bg)] rounded-lg p-4 text-sm text-[color:var(--muted-strong)]">
+              <div className="bg-[color:var(--background)] rounded-lg p-4 text-sm text-[color:var(--muted-strong)]">
                 <svg viewBox="0 0 400 300" className="w-full max-w-sm mx-auto bg-white rounded" xmlns="http://www.w3.org/2000/svg">
                   <rect width="400" height="300" fill="white"/>
                   <text x="20" y="30" fontSize="16" fontWeight="bold" fill="#000">Selecione o que compartilhar</text>
@@ -42,7 +42,7 @@ export function RecordingGuide({ onConfirm, onBack }: { onConfirm: () => void; o
 
             <div>
               <p className="text-sm font-medium mb-2">2º clique: apareça "Compartilhar áudio do sistema"</p>
-              <div className="bg-[color:var(--bg)] rounded-lg p-4 text-sm text-[color:var(--muted-strong)]">
+              <div className="bg-[color:var(--background)] rounded-lg p-4 text-sm text-[color:var(--muted-strong)]">
                 <svg viewBox="0 0 400 200" className="w-full max-w-sm mx-auto bg-white rounded" xmlns="http://www.w3.org/2000/svg">
                   <rect width="400" height="200" fill="white"/>
                   <rect x="20" y="40" width="360" height="130" fill="#f5f5f5" stroke="#999" strokeWidth="1" rx="4"/>
@@ -58,12 +58,12 @@ export function RecordingGuide({ onConfirm, onBack }: { onConfirm: () => void; o
         {/* Firefox Note */}
         <div className="rounded-2xl border border-yellow-600/30 bg-yellow-600/10 p-6">
           <p className="text-sm text-yellow-700">
-            <strong>Firefox:</strong> use Chrome ou Edge para grabar áudio online com mais facilidade.
+            <strong>Firefox:</strong> use Chrome ou Edge para gravar reunião online com mais facilidade.
           </p>
         </div>
 
         {/* Instructions */}
-        <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--bg-secondary)] p-6 space-y-3">
+        <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-6 space-y-3">
           <p className="text-sm font-medium">O que você vai ouvir:</p>
           <ul className="text-sm text-[color:var(--muted-strong)] space-y-2">
             <li>• Você falando (microfone)</li>
@@ -75,13 +75,13 @@ export function RecordingGuide({ onConfirm, onBack }: { onConfirm: () => void; o
       <div className="flex gap-3 pt-4">
         <button
           onClick={onBack}
-          className="px-6 py-3 rounded-lg border border-[color:var(--border)] text-[color:var(--foreground)] hover:bg-[color:var(--bg-secondary)] transition"
+          className="px-6 py-3 rounded-lg border border-[color:var(--border)] text-[color:var(--foreground)] hover:bg-[color:var(--card)] transition"
         >
           Voltar
         </button>
         <button
           onClick={onConfirm}
-          className="flex-1 px-6 py-3 rounded-lg bg-[color:var(--foreground)] text-[color:var(--bg)] font-medium hover:opacity-90 transition"
+          className="flex-1 px-6 py-3 rounded-lg bg-[color:var(--foreground)] text-[color:var(--background)] font-medium hover:opacity-90 transition"
         >
           Entendi, começar
         </button>
