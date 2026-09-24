@@ -1,5 +1,5 @@
-import { createHmac } from "node:crypto";
-import { query } from "./db";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { query, withTenant } from "./db";
 
 export type TtarsSsoClaims = {
   email: string;
@@ -76,8 +76,9 @@ export function validateJwtSignatureAndExpiry(token: string): TtarsSsoClaims {
     .update(`${headerB64}.${payloadB64}`)
     .digest("base64url");
 
-  const providedSignature = signatureB64;
-  if (providedSignature !== expectedSignature) {
+  const a = Buffer.from(signatureB64);
+  const b = Buffer.from(expectedSignature);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) {
     throw new TtarsSsoError("invalid_signature", "Assinatura inválida");
   }
 
@@ -102,28 +103,26 @@ export async function validateTtarsSsoToken(token: string): Promise<TtarsSsoClai
   // Validar assinatura e expiração
   const claims = validateJwtSignatureAndExpiry(token);
 
-  // Validar JTI de uso único
-  const existingJti = await query<{ jti: string }>(
-    `SELECT jti FROM jti_usados WHERE jti = $1`,
-    [claims.jti],
+  // Liberado na tabela, ou admin já cadastrado neste banco (nunca pelo token)
+  const access = await query<{ ok: boolean }>(
+    `SELECT (
+       EXISTS (SELECT 1 FROM acessos_equipe WHERE email = LOWER($1) AND liberado)
+       OR EXISTS (SELECT 1 FROM users WHERE LOWER(email) = LOWER($1) AND is_admin AND deleted_at IS NULL)
+     ) AS ok`,
+    [claims.email],
   );
-  if (existingJti.length > 0) {
-    throw new TtarsSsoError("invalid_jti", "JTI já foi usado (replay attempt)");
-  }
-
-  // Validar autorização: SEMPRE checar na tabela (nunca confiar cegamente no JWT)
-  // O claim is_admin é apenas dica; validar no banco é obrigatório
-  const access = await query<{ liberado: boolean }>(
-    `SELECT liberado FROM acessos_equipe WHERE email = LOWER($1)`,
-    [claims.email.toLowerCase()],
-  );
-
-  if (!access.length || !access[0].liberado) {
+  if (!access[0]?.ok) {
     throw new TtarsSsoError("email_not_authorized", "Email não está liberado");
   }
 
-  // Registrar JTI como usado
-  await query(`INSERT INTO jti_usados (jti) VALUES ($1) ON CONFLICT DO NOTHING`, [claims.jti]);
+  // Uso único: grava o jti; se já existia, é reuso
+  const novo = await query<{ jti: string }>(
+    `INSERT INTO jti_usados (jti) VALUES ($1) ON CONFLICT DO NOTHING RETURNING jti`,
+    [claims.jti],
+  );
+  if (!novo.length) {
+    throw new TtarsSsoError("invalid_jti", "JTI já foi usado (replay attempt)");
+  }
 
   return claims;
 }
@@ -162,8 +161,6 @@ export async function upsertUserFromTtars(
     user = rows[0];
   } else {
     // Inserir novo user
-    // Se for admin no JWT, criar com is_admin=true
-    const isAdmin = (claims as Record<string, unknown>).is_admin === true;
 
     const rows = await query<{
       id: string;
@@ -172,11 +169,11 @@ export async function upsertUserFromTtars(
       times: Array<{ id: string; nome: string }>;
     }>(
       `INSERT INTO users (nome, email, times, is_admin, consent_terms_at)
-       VALUES ($1, $2, $3, $4, NULL)
-       ON CONFLICT (email) DO UPDATE
+       VALUES ($1, $2, $3, false, NULL)
+       ON CONFLICT (email) WHERE email IS NOT NULL AND deleted_at IS NULL DO UPDATE
        SET nome = EXCLUDED.nome, times = EXCLUDED.times
        RETURNING id, nome, email, times`,
-      [claims.nome, normalizedEmail, JSON.stringify(times), isAdmin],
+      [claims.nome, normalizedEmail, JSON.stringify(times)],
     );
     if (!rows.length) {
       throw new Error("Erro ao inserir/atualizar user");
@@ -184,14 +181,16 @@ export async function upsertUserFromTtars(
     user = rows[0];
 
     // Criar pessoa "sou eu" na primeira vez
-    const pessoaRows = await query<{ id: string }>(
-      `INSERT INTO pessoas (user_id, nome, is_vitor)
-       VALUES ($1, $2, TRUE)
-       ON CONFLICT (user_id, nome) DO NOTHING
-       RETURNING id`,
-      [user.id, "Você"],
+    const donoId = user.id;
+    await withTenant(donoId, (db) =>
+      db.query(
+        `INSERT INTO pessoas (user_id, nome, is_vitor)
+         SELECT $1, $2, TRUE
+         WHERE NOT EXISTS (SELECT 1 FROM pessoas WHERE user_id = $1 AND is_vitor)
+         ON CONFLICT (user_id, nome) DO UPDATE SET is_vitor = TRUE`,
+        [donoId, claims.nome],
+      ),
     );
-    // Se não inseriu, é porque já existe — tudo bem
   }
 
   return user;

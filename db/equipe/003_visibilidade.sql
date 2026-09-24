@@ -74,8 +74,9 @@ DROP POLICY IF EXISTS meetings_write ON meetings;
 CREATE POLICY meetings_read ON meetings
   FOR SELECT
   USING (
-    user_id::text = current_setting('app.current_user_id', true)  -- Dono
-    OR visibilidade = 'todos'  -- Visível para todos
+    current_setting('app.leitura_equipe', true) = '1'
+    AND (
+    visibilidade = 'todos'  -- Visível para todos
     OR EXISTS (
       -- Acesso explícito por user_id
       SELECT 1 FROM meeting_acessos
@@ -96,12 +97,10 @@ CREATE POLICY meetings_read ON meetings
           )
         )
     )
+  )
   );
 
 -- INSERT/UPDATE/DELETE: dono apenas (preserva comportamento atual)
-CREATE POLICY meetings_write ON meetings
-  FOR ALL
-  USING (user_id::text = current_setting('app.current_user_id', true));
 
 -- ─── Políticas NOVAS de leitura (SELECT) em tarefas ────────────────────
 
@@ -112,8 +111,8 @@ DROP POLICY IF EXISTS tarefas_write ON tarefas;
 CREATE POLICY tarefas_read ON tarefas
   FOR SELECT
   USING (
-    user_id::text = current_setting('app.current_user_id', true)  -- Dono
-    OR (
+    current_setting('app.leitura_equipe', true) = '1'
+    AND (
       -- Tarefa herda visibilidade via reunião
       EXISTS (
         SELECT 1 FROM meetings m
@@ -147,9 +146,6 @@ CREATE POLICY tarefas_read ON tarefas
   );
 
 -- INSERT/UPDATE/DELETE: dono apenas (preserva comportamento atual)
-CREATE POLICY tarefas_write ON tarefas
-  FOR ALL
-  USING (user_id::text = current_setting('app.current_user_id', true));
 
 -- ─── Grants para meeting_acessos ───────────────────────────────────────
 GRANT SELECT, INSERT, UPDATE, DELETE ON meeting_acessos TO app_tenant;

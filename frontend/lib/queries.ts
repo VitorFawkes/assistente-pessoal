@@ -1,4 +1,5 @@
-import { withTenant } from "./db";
+import { withTenant, withTenantLeituraEquipe } from "./db";
+import { isTeamMode } from "./team-mode";
 import { getOwnerSlug, isOwner } from "./owner-slug";
 import { randomBytes } from "node:crypto";
 
@@ -290,7 +291,7 @@ export const meetingsFor = (userId: string) => ({
 
   /** Versão pra página de detalhe — recorded_at já formatado pra ISO UTC. */
   byIdDetailed: (id: string) =>
-    withTenant(userId, async (db) => {
+    (isTeamMode() ? withTenantLeituraEquipe : withTenant)(userId, async (db) => {
       const r = await db.query<{
         id: string;
         user_id: string;
@@ -504,7 +505,7 @@ export const meetingsFor = (userId: string) => ({
 
   /** Lista todas as reuniões visíveis pro usuário (próprias + compartilhadas) com contagem de tarefas. */
   listVisibleForIndex: () =>
-    withTenant(userId, async (db) => {
+    withTenantLeituraEquipe(userId, async (db) => {
       const r = await db.query<{
         id: string;
         user_id: string;
@@ -753,7 +754,7 @@ export const tarefasFor = (userId: string) => ({
 
   /** Lista tarefas de um meeting. Ordem: suas (executar/cobrar) > aguardando, aberta > finalizada, prazo asc. */
   byMeeting: (meetingId: string) =>
-    withTenant(userId, async (db) => {
+    (isTeamMode() ? withTenantLeituraEquipe : withTenant)(userId, async (db) => {
       // Usa TAREFA_SELECT (mesmo shape das demais listas → inclui anexos) +
       // ORDER BY próprio: suas (executar/cobrar) > aguardando, aberta > finalizada, prazo asc.
       const r = await db.query<Tarefa>(

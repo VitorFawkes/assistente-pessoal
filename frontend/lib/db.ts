@@ -53,6 +53,18 @@ export async function withClient<T>(fn: (c: PoolClient) => Promise<T>): Promise<
  * `set_config(..., true)` = SET LOCAL = escope da transação (não vaza pra
  * outras conexões do pool após COMMIT/ROLLBACK).
  */
+/** Igual a withTenant, mas liga a leitura de reuniões da equipe (políticas
+ *  meetings_read/tarefas_read do banco da equipe). Só para telas de leitura. */
+export async function withTenantLeituraEquipe<T>(
+  userId: string,
+  fn: (c: PoolClient) => Promise<T>,
+): Promise<T> {
+  return withTenant(userId, async (c) => {
+    await c.query("SELECT set_config('app.leitura_equipe', '1', true)");
+    return fn(c);
+  });
+}
+
 export async function withTenant<T>(
   userId: string,
   fn: (c: PoolClient) => Promise<T>,

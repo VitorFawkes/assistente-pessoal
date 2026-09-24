@@ -26,11 +26,14 @@ export async function POST(req: NextRequest) {
 
   try {
     const rows = await query<{ liberado: boolean }>(
-      `SELECT liberado FROM acessos_equipe WHERE email = $1`,
+      `SELECT (
+         EXISTS (SELECT 1 FROM acessos_equipe WHERE email = $1 AND liberado)
+         OR EXISTS (SELECT 1 FROM users WHERE LOWER(email) = $1 AND is_admin AND deleted_at IS NULL)
+       ) AS liberado`,
       [email],
     );
 
-    const liberado = rows.length > 0 && rows[0].liberado === true;
+    const liberado = rows[0]?.liberado === true;
     return NextResponse.json({ liberado });
   } catch (err) {
     console.error("[equipe/liberado] erro", err);
