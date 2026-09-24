@@ -8,14 +8,16 @@ import { cancelJobs,clearJobs,enqueueJob,listJobs,retryJob } from "@/lib/coach/j
 import { drainJobs } from "@/lib/coach/jobs-worker";
 import { coachModelAvailable } from "@/lib/coach/model";
 import { calendarContext,calendarStatus,clearCalendarSnapshot,setCalendarEnabled } from "@/lib/coach/calendar";
+import { connectChannel,setProactive,startLink,unlink,whatsappAllowed,whatsappView } from "@/lib/whatsapp/channel";
+import { WhatsappUnavailableError } from "@/lib/whatsapp/evolution";
 export const dynamic="force-dynamic";
 export const maxDuration=600;
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const noStore={"Cache-Control":"private, no-store"};
 function string(value:unknown,max:number){if(typeof value!=="string"||value.length>max)throw new Error("invalid_input");return value.trim();}
-async function state(userId:string){const [coach,jobs,calendar]=await Promise.all([coachState(userId),listJobs(userId),calendarStatus(userId)]);return {...coach,jobs,calendar};}
+async function state(user:{id:string;is_admin:boolean}){const userId=user.id;const [coach,jobs,calendar,whatsapp]=await Promise.all([coachState(userId),listJobs(userId),calendarStatus(userId),whatsappView(user).catch(()=>null)]);return {...coach,jobs,calendar,whatsapp};}
 function resume(userId:string){after(async()=>{try{await drainJobs(userId,{maxJobs:1,deadline:Date.now()+480000});}catch{console.error("coach worker unavailable");}});}
-export const GET=withAuth(async(user)=>NextResponse.json(await state(user.id),{headers:noStore}));
+export const GET=withAuth(async(user)=>NextResponse.json(await state(user),{headers:noStore}));
 export const POST=withAuth(async(user,req)=>{
  const origin=req.headers.get("origin");const host=req.headers.get("x-forwarded-host")||req.headers.get("host");
  if(origin){try{if(new URL(origin).host!==host)throw new Error();}catch{return NextResponse.json({error:"Origem inválida."},{status:403,headers:noStore});}}
@@ -54,6 +56,17 @@ export const POST=withAuth(async(user,req)=>{
     await enqueueJob(user.id,{kind:body.action,key:`manual:${key}`,payload:body.action==="chat"?{message:string(body.message,6000)}:body.action==="checkin"?{checkin:body.checkin}:{force:body.action==="review"}});
     resume(user.id);break;
    }
+   case "whatsapp_link":{
+    if(!whatsappAllowed(user))throw new Error("invalid_input");
+    if(!rateLimit(`coach-whatsapp-link:${user.id}`,5,600_000))return NextResponse.json({error:"Muitos códigos em pouco tempo. Aguarde alguns minutos."},{status:429,headers:{...noStore,"Retry-After":"600"}});
+    const code=await startLink(user.id);return NextResponse.json({...await state(user),whatsapp_code:code},{headers:noStore});
+   }
+   case "whatsapp_unlink":if(!whatsappAllowed(user))throw new Error("invalid_input");await unlink(user.id);break;
+   case "whatsapp_proactive":if(!whatsappAllowed(user)||typeof body.enabled!=="boolean")throw new Error("invalid_input");await setProactive(user.id,body.enabled);break;
+   case "whatsapp_connect":
+    if(!whatsappAllowed(user))throw new Error("invalid_input");
+    if(!rateLimit(`coach-whatsapp-connect:${user.id}`,6,60_000))return NextResponse.json({error:"Aguarde um minuto antes de gerar outro código."},{status:429,headers:{...noStore,"Retry-After":"60"}});
+    await connectChannel();break;
    case "resume_jobs":resume(user.id);break;
    case "cancel_job":if(!uuid.test(body.id))throw new Error("invalid_input");await cancelJobs(user.id,body.id);break;
    case "retry_job":if(!uuid.test(body.id))throw new Error("invalid_input");if(!await retryJob(user.id,body.id))return NextResponse.json({error:"Este pedido não pode ser retomado. Envie uma nova mensagem com seu contexto atual."},{status:409,headers:noStore});resume(user.id);break;
@@ -65,10 +78,11 @@ export const POST=withAuth(async(user,req)=>{
    case "delete":if(body.confirm!=="APAGAR COACH")throw new Error("invalid_input");await cancelJobs(user.id);await store.reset();await clearJobs(user.id);break;
    default:throw new Error("invalid_input");
   }
-  return NextResponse.json(await state(user.id),{headers:noStore});
+  return NextResponse.json(await state(user),{headers:noStore});
  }catch(e){
   if(e instanceof Error&&e.message==="calendar_not_configured")return NextResponse.json({error:"A agenda ainda não está conectada a esta conta."},{status:409,headers:noStore});
   if(e instanceof CoachAIError)return NextResponse.json({error:e.message},{status:503,headers:noStore});
+  if(e instanceof WhatsappUnavailableError)return NextResponse.json({error:"O WhatsApp do Coach está indisponível agora. Tente de novo em instantes."},{status:503,headers:noStore});
   if(e instanceof CoachBusyError||e instanceof CoachPendingError||e instanceof StaleCoachRunError)return NextResponse.json({error:e.message},{status:409,headers:noStore});
   if(e instanceof SyntaxError||e instanceof RangeError||(e instanceof Error&&e.message==="invalid_input"))return NextResponse.json({error:"Revise os campos e tente novamente."},{status:400,headers:noStore});
   if(e instanceof Error&&e.message.startsWith("Ative o coach"))return NextResponse.json({error:e.message},{status:409,headers:noStore});

@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { accountabilityFingerprint, commitmentsDueForFollowup, meetingMentionsCommitment } from "./follow-up";
 import { coachStore } from "./store";
 import { reviewPeriod } from "./evidence";
-import { attentionBudget,claimJob,dueCheckins,enqueueJob,extraFollowupAllowed,finishJob,localJobDay,renewJob,type CadenceProfile,type CheckinKind } from "./jobs";
+import { attentionBudget,claimJob,type ClaimedCoachJob,dueCheckins,enqueueJob,extraFollowupAllowed,finishJob,localJobDay,renewJob,type CadenceProfile,type CheckinKind } from "./jobs";
 import { CoachProviderUnavailableError } from "./model";
 
 /** Scheduled work waits past the next 15-minute runner tick; chat answers stay immediate. */
@@ -24,7 +24,7 @@ export async function drainJobs(userId:string,options:{maxJobs?:number;deadline?
    else if(job.kind==="analyze")await service.analyzeMeetings(userId,2);
    else if(job.kind==="review")await service.generateReview(userId,new Date(),job.payload.force===true,job.payload.force!==true);
    else await service.generateCheckin(userId,job.payload.checkin as CheckinKind,new Date(),job.id,typeof job.payload.meeting_id==="string"?job.payload.meeting_id:undefined);
-   if(await finishJob(userId,job.id,job.lease_token))completed++;
+   if(await finishJob(userId,job.id,job.lease_token)){completed++;await whatsapp(userId,job,"deliverJob");}
   }catch(error){
    const unavailable=job.kind!=="chat"&&error instanceof CoachProviderUnavailableError;
    const waitProvider=unavailable&&job.attempts<3;
@@ -32,10 +32,15 @@ export async function drainJobs(userId:string,options:{maxJobs?:number;deadline?
    const stale=error instanceof service.StaleCoachRunError;
    const message=stale?"Seu contexto mudou durante esta leitura. Faça um novo pedido.":waitProvider?"A IA do coach está indisponível agora. Vou tentar de novo automaticamente.":unavailable?"A IA do coach continuou indisponível. Seu histórico está preservado; tente novamente.":retry?"Aguardando a conclusão das análises em andamento.":"O coach não conseguiu concluir. Seu histórico está preservado; tente novamente.";
    await finishJob(userId,job.id,job.lease_token,{error:message,retry,...(waitProvider?{delaySeconds:PROVIDER_RETRY_DELAY_SECONDS}:{})});
-   if(!retry)failed++;
+   if(!retry){failed++;await whatsapp(userId,job,"notifyChatFailure");}
   }finally{clearInterval(heartbeat);}
  }
  return {attempted,completed,failed};
+}
+
+/** WhatsApp is a delivery channel: its failures never change the job result. */
+async function whatsapp(userId:string,job:ClaimedCoachJob,step:"deliverJob"|"notifyChatFailure"){
+ try{const channel=await import("../whatsapp/channel");await channel[step](userId,job);}catch{console.error("whatsapp delivery failed");}
 }
 
 /** Existing 15-minute runner calls this. Daily jobs never backfill an obsolete day. */

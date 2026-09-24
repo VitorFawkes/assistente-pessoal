@@ -20,7 +20,8 @@ export function validateJobInput(input:JobInput):Required<JobInput>{
  if(input.kind==="checkin"&&!["morning","evening","nudge","meeting"].includes(String(payload.checkin)))throw new Error("invalid_input");
  const meeting=input.kind==="checkin"&&payload.checkin==="meeting";
  if(meeting&&!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(payload.meeting_id)))throw new Error("invalid_input");
- return {kind:input.kind,key:input.key,payload:input.kind==="chat"?{message:String(payload.message).trim()}:input.kind==="checkin"?{checkin:payload.checkin,...(meeting?{meeting_id:payload.meeting_id}:{})}:input.kind==="review"?{force:payload.force===true}: {}};
+ const whatsapp=input.kind==="chat"&&payload.channel==="whatsapp"?{channel:"whatsapp",...(typeof payload.reply_to==="string"&&/^[0-9]{5,25}@(s\.whatsapp\.net|lid)$/.test(payload.reply_to)?{reply_to:payload.reply_to}:{})}:{};
+ return {kind:input.kind,key:input.key,payload:input.kind==="chat"?{message:String(payload.message).trim(),...whatsapp}:input.kind==="checkin"?{checkin:payload.checkin,...(meeting?{meeting_id:payload.meeting_id}:{})}:input.kind==="review"?{force:payload.force===true}: {}};
 }
 export function dueCheckins(profile:CadenceProfile,now:Date,concreteTrigger:boolean):CheckinKind[]{
  if(!profile.enabled)return [];
