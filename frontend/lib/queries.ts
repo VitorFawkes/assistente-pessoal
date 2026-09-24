@@ -519,9 +519,10 @@ export const meetingsFor = (userId: string) => ({
         needs_segmentation: boolean;
         n_tarefas: number;
         n_minhas: number;
+        dono_nome: string | null;
       }>(
         `SELECT DISTINCT ON (m.id)
-           m.id, m.user_id, m.source, m.meeting_type,
+           m.id, m.user_id, (SELECT u.nome FROM users u WHERE u.id = m.user_id) AS dono_nome, m.source, m.meeting_type,
            to_char(coalesce(m.recorded_at, m.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
            to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
            m.status, m.summary, m.duration_seconds, m.needs_segmentation,

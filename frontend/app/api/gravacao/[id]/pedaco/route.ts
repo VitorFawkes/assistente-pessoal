@@ -1,64 +1,47 @@
 import { withAuth } from "@/lib/auth";
-import { mkdir, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { query } from "@/lib/db";
-
-const AUDIO_TMP_DIR = "/audios/tmp";
+import { idDeGravacaoValido, nomeDoPedaco, pastaDaGravacao } from "@/lib/gravacao-final";
 
 type Ctx = { params: Promise<{ id: string }> };
 
+const erro = (status: number, error: string) =>
+  new Response(JSON.stringify({ error }), { status, headers: { "Content-Type": "application/json" } });
+
 export const POST = withAuth<Ctx>(async (user, req, ctx) => {
-  const { id: sessionId } = await ctx.params;
-
+  const { id } = await ctx.params;
   const url = new URL(req.url);
-  const chunkIndexStr = url.searchParams.get("chunk") || "0";
-
-  // Validar e sanitizar chunkIndex
-  const chunkIndex = parseInt(chunkIndexStr, 10);
-  if (isNaN(chunkIndex) || chunkIndex < 0 || chunkIndex > 9999) {
-    return new Response(JSON.stringify({ error: "Índice de chunk inválido" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
+  const n = Number(url.searchParams.get("chunk"));
+  const parte = Number(url.searchParams.get("parte") ?? "0");
+  if (!idDeGravacaoValido(id) || !Number.isInteger(n) || n < 0 || n > 9999 || !Number.isInteger(parte) || parte < 0 || parte > 1e15) {
+    return erro(400, "pedido inválido");
   }
 
-  const formData = await req.formData();
-  const audioBlob = formData.get("audio");
+  const existente = await query<{ user_id: string; finalizada_em: string | null }>(
+    `SELECT user_id, finalizada_em FROM gravacao_sessoes WHERE id = $1`,
+    [id],
+  );
+  if (existente.length && existente[0].user_id !== user.id) return erro(403, "gravação de outra pessoa");
+  if (existente.length && existente[0].finalizada_em) return erro(409, "gravação já encerrada");
 
-  if (!(audioBlob instanceof Blob)) {
-    return new Response(JSON.stringify({ error: "Nenhum áudio enviado" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
+  const audio = (await req.formData()).get("audio");
+  if (!(audio instanceof Blob)) return erro(400, "sem áudio");
 
   try {
-    const userDir = join(AUDIO_TMP_DIR, user.id, sessionId);
-    await mkdir(userDir, { recursive: true });
-
-    const chunkPath = join(userDir, `${chunkIndex}.webm`);
-    const buffer = await audioBlob.arrayBuffer();
-    await writeFile(chunkPath, new Uint8Array(buffer));
-
-    // Update recording session in database
+    const pasta = await pastaDaGravacao(user.id, id);
+    await writeFile(join(pasta, nomeDoPedaco(parte, n)), new Uint8Array(await audio.arrayBuffer()));
     await query(
       `INSERT INTO gravacao_sessoes (id, user_id, chunks_count, last_chunk_at)
        VALUES ($1, $2, 1, now())
        ON CONFLICT (id) DO UPDATE
-       SET chunks_count = gravacao_sessoes.chunks_count + 1,
-           last_chunk_at = now()`,
-      [sessionId, user.id]
+       SET chunks_count = gravacao_sessoes.chunks_count + 1, last_chunk_at = now()
+       WHERE gravacao_sessoes.user_id = EXCLUDED.user_id`,
+      [id, user.id],
     );
-
-    return new Response(JSON.stringify({ ok: true, chunk: chunkIndex }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch (error) {
-    console.error("Chunk upload error:", error);
-    return new Response(JSON.stringify({ error: "Erro ao salvar chunk" }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return Response.json({ ok: true, chunk: n });
+  } catch (err) {
+    console.error("gravacao/pedaco:", err);
+    return erro(500, "não consegui salvar o áudio");
   }
 });

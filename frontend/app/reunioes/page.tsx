@@ -144,6 +144,7 @@ export default async function ReunioesPage() {
                   total={meetingsVisible.length}
                   limite={MEETINGS_LIMIT}
                   isAdmin={user.is_admin}
+                  somenteLeitura
                 />
               ),
           },

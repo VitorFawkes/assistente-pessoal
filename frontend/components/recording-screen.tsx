@@ -7,7 +7,7 @@ import { RecordingGuide } from "./recording-guide";
 import { RecordingControls } from "./recording-controls";
 import { FileUploader } from "./file-uploader";
 
-type RecordingState = "init" | "recording" | "stopping" | "stopped";
+type RecordingState = "init" | "recording" | "stopping" | "stopped" | "erro-envio";
 
 export function RecordingScreen({ userId }: { userId: string }) {
   const [mode, setMode] = useState<"na-sala" | "online" | null>(null);
@@ -32,6 +32,10 @@ export function RecordingScreen({ userId }: { userId: string }) {
   const destRef = useRef<MediaStreamAudioDestinationNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  const sessionIdRef = useRef("");
+  const proximoPedacoRef = useRef(0);
+  const parteRef = useRef(0);
+  const filaEnvioRef = useRef<Promise<void>>(Promise.resolve());
 
   const isFirefox = typeof window !== "undefined" && /Firefox/.test(navigator.userAgent);
   const isIPhone =
@@ -81,17 +85,19 @@ export function RecordingScreen({ userId }: { userId: string }) {
     }
   }
 
-  async function startRecording(resumeId?: string) {
+  async function startRecording(resumeId?: string, modo = mode) {
+    sessionIdRef.current = resumeId || crypto.randomUUID();
     try {
-      if (mode === "na-sala") {
+      if (modo === "na-sala") {
         await startMicOnly();
       } else {
         await startMicAndSystem();
       }
       setRecording(true);
-      const newSessionId = resumeId || crypto.randomUUID();
+      const newSessionId = sessionIdRef.current;
       setSessionId(newSessionId);
       if (!resumeId) {
+        proximoPedacoRef.current = 0;
         setChunkCount(0);
       }
       setStartTime(new Date());
@@ -139,11 +145,17 @@ export function RecordingScreen({ userId }: { userId: string }) {
       const [micStream, displayStream] = await Promise.all([
         navigator.mediaDevices.getUserMedia({ audio: true }),
         navigator.mediaDevices.getDisplayMedia({
-          audio: { echoCancellation: false } as any,
-          video: false,
+          audio: { echoCancellation: false },
+          video: true,
+          systemAudio: "include",
         } as any),
       ]);
 
+      // O Chrome só deixa compartilhar som junto com imagem; a imagem não é usada.
+      displayStream.getVideoTracks().forEach((t) => t.stop());
+      if (displayStream.getAudioTracks().length === 0) {
+        throw new Error("sem-som-do-sistema");
+      }
       streamRef.current = micStream;
       displayStreamRef.current = displayStream;
 
@@ -184,12 +196,17 @@ export function RecordingScreen({ userId }: { userId: string }) {
   }
 
   function setupMediaRecorder(stream: MediaStream) {
-    const rec = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
+    const tipo = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"].find((t) => MediaRecorder.isTypeSupported(t));
+    const rec = new MediaRecorder(stream, tipo ? { mimeType: tipo } : undefined);
+    parteRef.current = Date.now();
+    proximoPedacoRef.current = 0;
     mediaRecorderRef.current = rec;
 
     rec.ondataavailable = (e) => {
-      if (e.data.size > 0 && sessionId) {
-        sendChunk(e.data);
+      if (e.data.size > 0) {
+        const indice = proximoPedacoRef.current++;
+        const parte = parteRef.current;
+        filaEnvioRef.current = filaEnvioRef.current.then(() => sendChunk(e.data, indice, parte));
       }
     };
 
@@ -200,25 +217,24 @@ export function RecordingScreen({ userId }: { userId: string }) {
     rec.start(30000);
   }
 
-  async function sendChunk(blob: Blob) {
-    try {
-      const formData = new FormData();
-      formData.append("audio", blob);
-
-      const response = await fetch(`/api/gravacao/${sessionId}/pedaco?chunk=${chunkCount}`, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error(`Erro ao enviar chunk: ${response.status}`);
+  async function sendChunk(blob: Blob, indice: number, parte: number) {
+    for (let tentativa = 1; tentativa <= 5; tentativa++) {
+      try {
+        const formData = new FormData();
+        formData.append("audio", blob);
+        const response = await fetch(`/api/gravacao/${sessionIdRef.current}/pedaco?chunk=${indice}&parte=${parte}`, {
+          method: "POST",
+          body: formData,
+        });
+        if (!response.ok) throw new Error(String(response.status));
+        setChunkCount((c) => c + 1);
+        return;
+      } catch (err) {
+        console.error("Envio do áudio falhou, tentando de novo:", err);
+        await new Promise((r) => setTimeout(r, tentativa * 2000));
       }
-
-      setChunkCount((c) => c + 1);
-    } catch (err) {
-      console.error("Chunk send error:", err);
-      toast.error("Erro ao enviar chunk de áudio");
     }
+    toast.error("A internet caiu e parte do áudio não subiu. Continue gravando; tentamos de novo no fim.");
   }
 
   function stopAllStreams() {
@@ -230,46 +246,37 @@ export function RecordingScreen({ userId }: { userId: string }) {
     audioContextRef.current = null;
   }
 
-  async function stopRecording() {
-    if (!mediaRecorderRef.current) return;
-
-    mediaRecorderRef.current.stop();
-    setRecording(false);
+  async function finalizar() {
     setRecordingState("stopping");
-    releaseWakeLock();
-
     try {
-      const response = await fetch(`/api/gravacao/${sessionId}/fim`, {
+      await filaEnvioRef.current;
+      const response = await fetch(`/api/gravacao/${sessionIdRef.current}/fim`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
-
       if (!response.ok) {
         throw new Error(`Erro ao finalizar: ${response.status}`);
       }
-
       setRecordingState("stopped");
     } catch (err) {
-      toast.error("Erro ao finalizar gravação");
-      setRecordingState("init");
+      toast.error("Não conseguimos enviar sua gravação. Toque em Tentar de novo.");
+      setRecordingState("erro-envio");
     }
   }
 
-  const handleRetryStop = useCallback(async () => {
-    if (!sessionId) return;
-    try {
-      const response = await fetch(`/api/gravacao/${sessionId}/fim`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      if (!response.ok) {
-        throw new Error(`Erro ao finalizar: ${response.status}`);
-      }
-      setRecordingState("stopped");
-    } catch (err) {
-      toast.error("Erro ao finalizar gravação");
-    }
-  }, [sessionId]);
+  async function stopRecording() {
+    const rec = mediaRecorderRef.current;
+    if (!rec) return;
+    const parou = new Promise<void>((resolve) => rec.addEventListener("stop", () => resolve(), { once: true }));
+    rec.stop();
+    setRecording(false);
+    setRecordingState("stopping");
+    releaseWakeLock();
+    await parou;
+    await finalizar();
+  }
+
+  const handleRetryStop = useCallback(() => finalizar(), []);
 
   if (showUploader) {
     return <FileUploader onClose={() => setShowUploader(false)} userId={userId} />;
@@ -291,6 +298,21 @@ export function RecordingScreen({ userId }: { userId: string }) {
             </p>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  if (recordingState === "erro-envio") {
+    return (
+      <div className="space-y-6 max-w-2xl text-center">
+        <p className="font-display text-2xl">Sua gravação está guardada, mas não subiu</p>
+        <p className="text-[color:var(--muted-strong)]">Confira a internet e toque no botão abaixo. Não feche esta aba.</p>
+        <button
+          onClick={() => finalizar()}
+          className="w-full py-4 rounded-2xl bg-[color:var(--foreground)] text-[color:var(--bg)] font-semibold text-lg"
+        >
+          Tentar de novo
+        </button>
       </div>
     );
   }
@@ -338,7 +360,8 @@ export function RecordingScreen({ userId }: { userId: string }) {
             <button
               onClick={() => {
                 setMode("na-sala");
-                startRecording(resumeSession.id);
+                setResumeSession(null);
+                startRecording(resumeSession.id, "na-sala");
               }}
               className="flex-1 py-3 px-4 rounded-lg bg-[color:var(--foreground)] text-[color:var(--bg)] font-semibold hover:opacity-90 transition"
             >
@@ -346,10 +369,9 @@ export function RecordingScreen({ userId }: { userId: string }) {
             </button>
             <button
               onClick={() => {
-                setSessionId(resumeSession.id);
-                setChunkCount(resumeSession.chunks_count);
-                setRecordingState("stopping");
-                stopRecording();
+                sessionIdRef.current = resumeSession.id;
+                setResumeSession(null);
+                finalizar();
               }}
               className="flex-1 py-3 px-4 rounded-lg border border-[color:var(--border)] text-[color:var(--foreground)] hover:bg-[color:var(--bg-secondary)] transition"
             >

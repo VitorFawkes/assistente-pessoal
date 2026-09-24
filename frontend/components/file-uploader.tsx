@@ -31,13 +31,17 @@ export function FileUploader({ onClose, userId }: { onClose: () => void; userId:
         formData.append("chunk_index", String(i));
         formData.append("total_chunks", String(totalChunks));
 
-        const response = await fetch(`/api/gravacao/${sessionId}/pedaco`, {
-          method: "POST",
-          body: formData,
-        });
-
-        if (!response.ok) {
-          throw new Error(`Erro ao enviar chunk ${i}: ${response.status}`);
+        let enviado = false;
+        for (let tentativa = 1; tentativa <= 4 && !enviado; tentativa++) {
+          const response = await fetch(`/api/gravacao/${sessionId}/pedaco?chunk=${i}&parte=0`, {
+            method: "POST",
+            body: formData,
+          }).catch(() => null);
+          enviado = !!response?.ok;
+          if (!enviado) await new Promise((r) => setTimeout(r, tentativa * 2000));
+        }
+        if (!enviado) {
+          throw new Error("A internet falhou no meio do envio. Tente de novo.");
         }
 
         uploadedChunks++;
@@ -48,19 +52,20 @@ export function FileUploader({ onClose, userId }: { onClose: () => void; userId:
       const finalResponse = await fetch(`/api/gravacao/${sessionId}/fim`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nome: file.name }),
       });
 
       if (!finalResponse.ok) {
-        throw new Error(`Erro ao finalizar: ${finalResponse.status}`);
+        throw new Error("Não conseguimos processar este arquivo. Confira se é um áudio ou vídeo e tente de novo.");
       }
 
-      toast.success("Arquivo enviado com sucesso!");
+      toast.success("Pronto! A reunião aparece em Reuniões em poucos minutos.");
       setProgress(0);
       setFileName("");
       setUploading(false);
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erro ao enviar arquivo");
+      toast.error(err instanceof Error ? err.message : "Não conseguimos enviar o arquivo. Tente de novo.");
       setUploading(false);
     }
   }

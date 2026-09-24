@@ -19,6 +19,7 @@ export type MeetingItem = {
   needs_segmentation: boolean;
   n_tarefas: number;
   n_minhas: number;
+  dono_nome?: string | null;
 };
 
 function MeetingIcon({ type, source }: { type: string | null; source: string | null }) {
@@ -57,12 +58,15 @@ export function MeetingsList({
   total = 0,
   limite = 0,
   isAdmin = true,
+  somenteLeitura = false,
 }: {
   meetings: MeetingItem[];
   /** Quantas existem no banco — a lista é um recorte das mais recentes. */
   total?: number;
   limite?: number;
   isAdmin?: boolean;
+  /** Lista de reuniões de outras pessoas: sem apagar e com o nome de quem gravou. */
+  somenteLeitura?: boolean;
 }) {
   const [q, setQ] = useState("");
 
@@ -143,6 +147,9 @@ export function MeetingsList({
                     </p>
                   )}
                   <div className="mt-2 flex items-center flex-wrap gap-x-3 gap-y-1 text-[12px] text-[color:var(--muted)]">
+                    {somenteLeitura && m.dono_nome && (
+                      <span className="font-medium text-[color:var(--foreground)]">de {m.dono_nome} ·</span>
+                    )}
                     {m.recorded_at && <span>{fmtDate(m.recorded_at)}</span>}
                     {m.duration_seconds && m.duration_seconds > 0 ? (
                       <span>· {Math.max(1, Math.round(m.duration_seconds / 60))} min</span>
@@ -154,7 +161,7 @@ export function MeetingsList({
                           {m.n_tarefas}
                         </span>{" "}
                         {m.n_tarefas === 1 ? "ação" : "ações"}
-                        {m.n_minhas > 0 && (
+                        {m.n_minhas > 0 && !somenteLeitura && (
                           <span className="text-[color:var(--muted)]">
                             {" "}
                             (
@@ -184,10 +191,12 @@ export function MeetingsList({
                 </div>
               </div>
             </div>
-            <DeleteMeetingButton
-              meetingId={m.id}
-              className="shrink-0 flex items-center justify-center w-10 h-10 rounded-xl border border-[color:var(--border)] text-[color:var(--muted)] hover:text-[color:var(--urgent)] hover:border-[color:var(--urgent)]/40 transition disabled:opacity-50"
-            />
+            {!somenteLeitura && (
+              <DeleteMeetingButton
+                meetingId={m.id}
+                className="shrink-0 flex items-center justify-center w-10 h-10 rounded-xl border border-[color:var(--border)] text-[color:var(--muted)] hover:text-[color:var(--urgent)] hover:border-[color:var(--urgent)]/40 transition disabled:opacity-50"
+              />
+            )}
           </div>
         ))}
       </div>
