@@ -14,17 +14,17 @@
 #   handler é abortado quando o cliente desconecta. Este script desacopla a
 #   transcrição (AssemblyAI faz async) e só usa o webhook (rápido) p/ gravar.
 #
-# Pré-req: source .env (ASSEMBLYAI_API_KEY, WEBHOOK_TOKEN, VPS_*), jq, sshpass.
+# Pré-req: source .env (ASSEMBLYAI_API_KEY, WEBHOOK_TOKEN, VPS_*), jq, chave SSH em VPS_SSH_KEY_PATH.
 # Uso:     source .env && ops/recover-meeting-segments.sh <meeting_id>
 # Depois:  confirmar os speakers na UI /reunioes/<id> (re-extrai com nomes).
 # ─────────────────────────────────────────────────────────────────────
 set -euo pipefail
 MID="${1:?uso: recover-meeting-segments.sh <meeting_id>}"
-: "${ASSEMBLYAI_API_KEY:?source .env}" "${WEBHOOK_TOKEN:?}" "${VPS_ROOT_PASSWORD:?}" "${VPS_SSH_HOST:?}" "${VPS_SSH_USER:?}"
+: "${ASSEMBLYAI_API_KEY:?source .env}" "${WEBHOOK_TOKEN:?}" "${VPS_SSH_KEY_PATH:?}" "${VPS_SSH_HOST:?}" "${VPS_SSH_USER:?}"
 N8N_URL="${N8N_URL:-https://n8n.vitorgambetti.com.br}"
 AAI="https://api.assemblyai.com"
 
-SSH(){ sshpass -p "$VPS_ROOT_PASSWORD" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 "${VPS_SSH_USER}@${VPS_SSH_HOST}" "$@"; }
+SSH(){ ssh -i "${VPS_SSH_KEY_PATH/#\~/$HOME}" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=20 "${VPS_SSH_USER}@${VPS_SSH_HOST}" "$@"; }
 DBC=$(SSH "docker ps --format '{{.Names}}' | grep assistente-pessoal-db | head -1")
 FE=$(SSH "docker ps --format '{{.Names}}' | grep assistente-frontend | head -1")
 PSQL(){ SSH "docker exec -i $DBC psql -U assistente -d assistente_pessoal -At -F'|'" 2>/dev/null | grep -viE 'collation|detail|hint|rebuild'; }

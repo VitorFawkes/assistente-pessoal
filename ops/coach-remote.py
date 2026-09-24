@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run an explicit VPS command without putting SSH credentials in arguments.
 
-Loads existing VPS_* credentials locally. Requires sshpass and a pre-verified
+Loads existing VPS_* settings locally. Requires the SSH key in VPS_SSH_KEY_PATH and a pre-verified
 entry in known_hosts. Does not disable host verification or print credentials.
 The command decides whether the operation is read-only or a mutation.
 """
@@ -43,18 +43,18 @@ def main() -> int:
         values = read_env(args.env_file)
         host = values["VPS_SSH_HOST"]
         user = values.get("VPS_SSH_USER", "root")
-        password = values["VPS_ROOT_PASSWORD"]
-        if not host or not user or not password or host.startswith("-") or user.startswith("-"):
+        key = os.path.expanduser(values.get("VPS_SSH_KEY_PATH", "~/.ssh/easypanel_diag"))
+        if not host or not user or not os.path.isfile(key) or host.startswith("-") or user.startswith("-"):
             raise ValueError("invalid connection settings")
         command = [
-            "sshpass", "-e", "ssh", "-o", "StrictHostKeyChecking=yes",
-            "-o", "PreferredAuthentications=password", "-o", "PubkeyAuthentication=no",
+            "ssh", "-i", key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
+            "-o", "StrictHostKeyChecking=yes",
             "-o", "ConnectTimeout=15", f"{user}@{host}", args.command,
         ]
         source = args.stdin_file.read_bytes() if args.stdin_file else None
         result = subprocess.run(
             command, input=source, capture_output=True, timeout=args.timeout,
-            env={**os.environ, "SSHPASS": password}, check=False,
+            check=False,
         )
         if result.returncode:
             # Commands may print credentials in their errors; do not echo stderr.

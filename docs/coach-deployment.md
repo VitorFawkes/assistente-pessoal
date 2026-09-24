@@ -133,7 +133,7 @@ Não gravar transcrições, títulos de reuniões, mensagens do coach, nomes de 
 
 ## Ferramentas locais
 
-`ops/coach-remote.py` usa as credenciais `VPS_*` já existentes na `.env`, passando a senha pelo ambiente do subprocesso `sshpass`, sem colocá-la em argumentos ou logs. Exige um host previamente confiado em `known_hosts`; não desabilita essa proteção. Exemplo somente leitura:
+`ops/coach-remote.py` usa as configurações `VPS_*` da `.env` e entra com a chave SSH de `VPS_SSH_KEY_PATH` (desde 24/09/2026 o servidor recusa senha pela internet), sem colocar segredo em argumentos ou logs. Exige um host previamente confiado em `known_hosts`; não desabilita essa proteção. Exemplo somente leitura:
 
 ```sh
 python3 ops/coach-remote.py --command 'docker service ls'

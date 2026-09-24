@@ -27,12 +27,13 @@ EMBED_MODEL = "text-embedding-3-small"
 
 
 def runsql(sql: str) -> str:
-    """SELECT read-only via sshpass+docker exec (padrão ops/)."""
+    """SELECT read-only via ssh (chave em VPS_SSH_KEY_PATH)+docker exec (padrão ops/)."""
     remote = ('cid=$(docker ps --format "{{.Names}}" | grep -m1 "n8n_assistente-pessoal-db"); '
               'docker exec -i "$cid" sh -c '
               "'PGPASSWORD=$POSTGRES_PASSWORD psql -U $POSTGRES_USER -d $POSTGRES_DB -tA -f -'")
     p = subprocess.run(
-        ["sshpass", "-p", os.environ["VPS_ROOT_PASSWORD"], "ssh",
+        ["ssh", "-i", os.path.expanduser(os.environ.get("VPS_SSH_KEY_PATH", "~/.ssh/easypanel_diag")),
+         "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
          "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=15",
          f'{os.environ["VPS_SSH_USER"]}@{os.environ["VPS_SSH_HOST"]}', remote],
         input=sql, capture_output=True, text=True)
