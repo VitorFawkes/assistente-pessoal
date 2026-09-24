@@ -167,6 +167,13 @@ soft_deleted_at IS NULL` — se passar de ~10k, está na hora de migrar.
   easypanel host. Packages devem estar PUBLIC em
   github.com/users/VitorFawkes/packages.
 
+- **Trava de segredos (repo PÚBLICO):** todo commit e push passam por
+  `.githooks/segredos` (valor exato dos `.env` + gitleaks com `.gitleaks.toml`);
+  o GitHub repete a checagem em `.github/workflows/segredos.yml`. No Mac do Vitor
+  fica instalado em `~/.acoes/githooks` (`core.hooksPath` do repo): ao mudar a
+  trava, copiar de novo pra lá. Bloqueou? Tire o valor e leia do `.env`; nunca
+  `--no-verify` (o pre-push pega de novo).
+
 ---
 
 ## Endpoints-chave

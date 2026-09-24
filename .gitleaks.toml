@@ -1,0 +1,32 @@
+# O repositório é público: estas regras barram chave, senha ou token antes do commit,
+# do push (ganchos em .githooks/) e na checagem do GitHub (.github/workflows/segredos.yml).
+# As regras padrão do gitleaks não pegaram o vazamento de 09/2026 (chave do WhatsApp num nó
+# do n8n e senha do banco num endereço postgres://); as três regras abaixo pegam esses formatos.
+# Falso positivo: acrescente "gitleaks:allow" no fim da linha.
+
+title = "Ações"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "postgres-url-com-senha"
+description = "Endereço do Postgres com a senha dentro"
+regex = '''(?i)postgres(?:ql)?://[^:@/\s'"]+:([^@/\s'"<>{}$]{6,})@'''
+secretGroup = 1
+
+[[rules.allowlists]]
+regexTarget = "secret"
+regexes = ['''(?i)^(senha|password|pass|secret|postgres|changeme|example|x+|\*+)$''']
+
+[[rules]]
+id = "cabecalho-http-com-chave"
+description = "Chave colada no cabeçalho de um nó HTTP do n8n"
+regex = '''"name"\s*:\s*"(?i:[a-z0-9-]*(?:api[-_]?key|apikey|secret|token|auth[a-z-]*))"\s*,\s*"value"\s*:\s*"=?((?:Bearer\s+)?[A-Za-z0-9_\-.+/=]{16,})"'''
+secretGroup = 1
+
+[[rules]]
+id = "sshpass-com-senha"
+description = "Senha do servidor escrita no comando sshpass"
+regex = '''sshpass\s+-p\s*['"]?([^\s'"$]{6,})'''
+secretGroup = 1
