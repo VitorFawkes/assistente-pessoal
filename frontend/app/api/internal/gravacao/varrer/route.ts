@@ -32,10 +32,6 @@ function runFfmpeg(args: string[]): Promise<void> {
   });
 }
 
-async function writeFile(path: string, content: string) {
-  const fs = await import("node:fs/promises");
-  return fs.writeFile(path, content, "utf-8");
-}
 
 export const POST = async (req: Request) => {
   if (!verifyToken(req)) {
