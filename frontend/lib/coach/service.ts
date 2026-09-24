@@ -273,6 +273,8 @@ export async function generateReview(userId:string,now=new Date(),force=false,sc
   if(scheduled&&!profile.weekly_enabled)return null;
   const period=reviewPeriod(now,profile.timezone,profile.review_day,profile.review_hour);
   const reviews=await store.reviews();const existing=reviews.find(r=>r.week_start===period.weekStart);
+  // The scheduled run makes the week's review once; only the manual refresh (force) rewrites it.
+  if(scheduled&&existing)return existing;
   const [periodData,context,memories,self,messages,memoryAtPeriod,commitments,userReplies]=await Promise.all([store.analysesInPeriod(period.from,period.to),store.context("",{timezone:profile.timezone,now,period:{from:period.from,to:period.to,label:"período da revisão semanal"}}),store.memories(),store.selfPersonIds(),store.messages(),store.memoryContext(period.to),listCommitments(userId),store.userMessages()]);
   const analyses=periodData.analyses;
   const hasNewAnalysis=!!existing&&analyses.some(a=>new Date(a.created_at)>new Date(existing.created_at));
