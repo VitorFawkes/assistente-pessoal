@@ -34,6 +34,7 @@ export type Meeting = {
   segment_start_offset: number | null;
   segment_end_offset: number | null;
   needs_segmentation: boolean;
+  visibilidade: "todos" | "so_eu" | "escolhidos";
   created_at: string;
   done_at: string | null;
 };
@@ -461,6 +462,144 @@ export const meetingsFor = (userId: string) => ({
         [`%${q}%`, limite],
       );
       return r.rows;
+    }),
+
+  /** Lista apenas reuniões do usuário (próprias) com contagem de tarefas. */
+  listMineForIndex: () =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<{
+        id: string;
+        source: string;
+        meeting_type: string | null;
+        recorded_at: string | null;
+        created_at: string;
+        status: string;
+        summary: string | null;
+        duration_seconds: number | null;
+        needs_segmentation: boolean;
+        n_tarefas: number;
+        n_minhas: number;
+      }>(
+        `SELECT
+           m.id, m.source, m.meeting_type,
+           to_char(coalesce(m.recorded_at, m.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
+           to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+           m.status, m.summary, m.duration_seconds, m.needs_segmentation,
+           (SELECT count(*) FROM tarefas WHERE meeting_id = m.id)::int AS n_tarefas,
+           (SELECT count(*) FROM tarefas WHERE meeting_id = m.id AND acao IN ('executar','cobrar'))::int AS n_minhas
+         FROM meetings m
+         WHERE m.status != 'archived_session'
+           AND m.user_id::text = current_setting('app.current_user_id', true)
+         ORDER BY coalesce(m.recorded_at, m.created_at) DESC
+         LIMIT 100`,
+      );
+      return r.rows;
+    }),
+
+  /** Lista todas as reuniões visíveis pro usuário (próprias + compartilhadas) com contagem de tarefas. */
+  listVisibleForIndex: () =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<{
+        id: string;
+        user_id: string;
+        source: string;
+        meeting_type: string | null;
+        recorded_at: string | null;
+        created_at: string;
+        status: string;
+        summary: string | null;
+        duration_seconds: number | null;
+        needs_segmentation: boolean;
+        n_tarefas: number;
+        n_minhas: number;
+      }>(
+        `SELECT DISTINCT ON (m.id)
+           m.id, m.user_id, m.source, m.meeting_type,
+           to_char(coalesce(m.recorded_at, m.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
+           to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+           m.status, m.summary, m.duration_seconds, m.needs_segmentation,
+           (SELECT count(*) FROM tarefas WHERE meeting_id = m.id)::int AS n_tarefas,
+           (SELECT count(*) FROM tarefas WHERE meeting_id = m.id AND acao IN ('executar','cobrar'))::int AS n_minhas
+         FROM meetings m
+         WHERE m.status != 'archived_session'
+           AND (
+             m.user_id::text = current_setting('app.current_user_id', true)  -- Próprias
+             OR m.visibilidade = 'todos'  -- Visíveis para todos
+             OR EXISTS (
+               SELECT 1 FROM meeting_acessos
+               WHERE meeting_acessos.meeting_id = m.id
+                 AND meeting_acessos.user_id::text = current_setting('app.current_user_id', true)
+             )
+           )
+         ORDER BY m.id, coalesce(m.recorded_at, m.created_at) DESC
+         LIMIT 100`,
+      );
+      return r.rows;
+    }),
+
+  /** Verifica se o usuário é o dono de uma reunião. */
+  isOwner: (id: string) =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<{ is_owner: boolean }>(
+        `SELECT (user_id::text = current_setting('app.current_user_id', true))::boolean AS is_owner
+         FROM meetings WHERE id = $1`,
+        [id],
+      );
+      return r.rows[0]?.is_owner ?? false;
+    }),
+
+  /** Atualiza a configuração de visibilidade de uma reunião.
+   *  Valida que o usuário é o dono. */
+  updateVisibility: (id: string, visibilidade: "todos" | "so_eu" | "escolhidos") =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<Meeting>(
+        `UPDATE meetings SET visibilidade = $2 WHERE id = $1 RETURNING *`,
+        [id, visibilidade],
+      );
+      return r.rows[0] ?? null;
+    }),
+
+  /** Retorna a lista de pessoas e times que têm acesso explícito a uma reunião. */
+  getAccessList: (id: string) =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<{ user_id: string | null; time_id: string | null }>(
+        `SELECT user_id, time_id FROM meeting_acessos WHERE meeting_id = $1`,
+        [id],
+      );
+      return r.rows;
+    }),
+
+  /** Adiciona acesso a uma pessoa ou time (idempotente via UNIQUE PK). */
+  grantAccess: (id: string, accessType: "user" | "time", accessId: string) =>
+    withTenant(userId, async (db) => {
+      const userId_val = accessType === "user" ? accessId : null;
+      const timeId_val = accessType === "time" ? accessId : null;
+      const r = await db.query<{ id: string }>(
+        `INSERT INTO meeting_acessos (meeting_id, user_id, time_id, created_by)
+         VALUES ($1, $2::uuid, $3, $4::uuid)
+         ON CONFLICT DO NOTHING
+         RETURNING meeting_id as id`,
+        [id, userId_val, timeId_val, userId],
+      );
+      return (r.rowCount ?? 0) > 0;
+    }),
+
+  /** Remove acesso de uma pessoa ou time. */
+  revokeAccess: (id: string, accessType: "user" | "time", accessId: string) =>
+    withTenant(userId, async (db) => {
+      let r;
+      if (accessType === "user") {
+        r = await db.query(
+          `DELETE FROM meeting_acessos WHERE meeting_id = $1 AND user_id = $2::uuid`,
+          [id, accessId],
+        );
+      } else {
+        r = await db.query(
+          `DELETE FROM meeting_acessos WHERE meeting_id = $1 AND time_id = $2`,
+          [id, accessId],
+        );
+      }
+      return (r.rowCount ?? 0) > 0;
     }),
 });
 

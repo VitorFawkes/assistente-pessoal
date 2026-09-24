@@ -1,11 +1,13 @@
 -- ─────────────────────────────────────────────────────────────────────
 -- db/equipe/002_sso_liberar.sql
--- Tabelas para SSO do TTARS: acessos_equipe, jti_usados, times em users.
+-- W2: Login pela aba do TTARS + liberar pessoas
 --
--- Aplicar:
---   psql "$DATABASE_URL" -f db/equipe/002_sso_liberar.sql
+-- Tabelas novas: acessos_equipe (liberações por e-mail), jti_usados (JWT de uso único)
+-- Coluna nova: users.times (times do TTARS em JSONB)
 --
--- Idempotente: CREATE TABLE IF NOT EXISTS, DROP IF EXISTS.
+-- Aplicar APÓS: 0007_multitenant.sql
+--
+-- Idempotente: CREATE TABLE IF NOT EXISTS, DROP IF EXISTS
 -- ─────────────────────────────────────────────────────────────────────
 
 -- ─── users: adiciona coluna times (JSON com {id, nome}) ────────────────

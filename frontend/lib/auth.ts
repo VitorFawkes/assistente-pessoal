@@ -23,6 +23,8 @@ export type User = {
   is_admin: boolean;
   consent_terms_at: string | null;
   deleted_at: string | null;
+  visibilidade_padrao?: "todos" | "so_eu";
+  times?: { time_ids?: string[] };
 };
 
 export class AuthError extends Error {
