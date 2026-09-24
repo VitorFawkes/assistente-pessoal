@@ -154,3 +154,30 @@ CREATE POLICY tarefas_write ON tarefas
 -- ─── Grants para meeting_acessos ───────────────────────────────────────
 GRANT SELECT, INSERT, UPDATE, DELETE ON meeting_acessos TO app_tenant;
 GRANT SELECT, INSERT, UPDATE, DELETE ON meeting_acessos TO app_writer;
+
+-- ─── Trigger: aplicar visibilidade padrão na criação da reunião ────────
+DROP FUNCTION IF EXISTS apply_default_visibilidade() CASCADE;
+
+CREATE OR REPLACE FUNCTION apply_default_visibilidade()
+RETURNS TRIGGER AS $$
+DECLARE
+  padrao TEXT;
+BEGIN
+  -- Busca a preferência padrão do usuário
+  SELECT visibilidade_padrao INTO padrao
+  FROM users
+  WHERE id = NEW.user_id::uuid;
+
+  -- Se tiver preferência, aplica; senão fica com 'todos' (default da coluna)
+  IF padrao IS NOT NULL AND padrao IN ('todos', 'so_eu') THEN
+    NEW.visibilidade := padrao;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER apply_default_visibilidade_trigger
+BEFORE INSERT ON meetings
+FOR EACH ROW
+EXECUTE FUNCTION apply_default_visibilidade();
