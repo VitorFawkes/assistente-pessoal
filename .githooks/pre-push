@@ -1,0 +1,3 @@
+#!/bin/sh
+# Confere de novo tudo que vai sair, inclusive commit feito com --no-verify.
+exec python3 "$(dirname "$0")/segredos" push

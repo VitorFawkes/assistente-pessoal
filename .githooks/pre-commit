@@ -1,0 +1,3 @@
+#!/bin/sh
+# Trava de segredos: nenhum commit sai com chave, senha ou token (o repositório é público).
+exec python3 "$(dirname "$0")/segredos" staged

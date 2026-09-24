@@ -1,0 +1,35 @@
+name: segredos
+
+# O repositório é público: barra chave, senha ou token nos commits novos.
+# Mesmas regras dos ganchos locais (.githooks/segredos + .gitleaks.toml).
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      - name: Instala o gitleaks (versão fixa, conferida pelo checksum do Go)
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
+      - name: Procura segredo só nos commits novos
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then RANGE="$BASE..$HEAD_SHA"
+          elif git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then RANGE="$BEFORE..$HEAD_SHA"
+          else RANGE="origin/main..$HEAD_SHA"; fi
+          "$(go env GOPATH)/bin/gitleaks" git . --log-opts="$RANGE" --config .gitleaks.toml --redact --no-banner -v
