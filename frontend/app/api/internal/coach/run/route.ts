@@ -18,7 +18,7 @@ export async function POST(req:Request){
  }
  const channel=await import("@/lib/whatsapp/channel");
  await channel.refreshChannelState().catch(()=>null);
- for(const user of users)await channel.retryDeliveries(user.id).catch(()=>0);
+ for(const user of users){await channel.retryDeliveries(user.id).catch(()=>0);await channel.meetingNotices(user.id).catch(()=>0);}
  let remainingMeetings=0;for(const user of users)remainingMeetings+=(await coachStore(user.id).coverage()).pending_meetings;
  return NextResponse.json({ok:failed===0,processed,completed,failed,remaining_meetings:remainingMeetings,enabled:enabled.length},{status:failed?503:200,headers:{"Cache-Control":"no-store"}});
 }
