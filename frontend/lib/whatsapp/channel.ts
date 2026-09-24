@@ -1,10 +1,12 @@
 import { query, withClient, withTenant } from "../db";
 import { rateLimit } from "../rate-limit";
-import { enqueueJob, type ClaimedCoachJob } from "../coach/jobs";
+import { reviewPeriod } from "../coach/evidence";
+import { enqueueJob, localJobDay, type ClaimedCoachJob } from "../coach/jobs";
 import { coachModelAvailable } from "../coach/model";
 import { coachStore } from "../coach/store";
 import * as wa from "./evolution";
 import { audioFile, codeInText, displayNumber, hashLinkCode, isAudio, LINK_CODE_TTL_MS, maskPhone, messageText, newLinkCode, quietHours, senderFromKey, splitForWhatsApp, whatsappText, type WaSender } from "./format";
+import { COACH_WAIT_MS, meetingNoticeText, noticeSlot, reviewText, type NoticeMeeting, type NoticeTask } from "./meeting-notice";
 
 type Link = { user_id: string; phone: string | null; lid: string | null; verified_at: Date | null; proactive: boolean; code_hash: string | null; code_expires_at: Date | null };
 type OutKind = "reply" | "checkin" | "aviso" | "link" | "notice";
@@ -199,36 +201,116 @@ async function transmit(userId: string, id: string, to: string, text: string) {
   return false;
  }
 }
-/** Recorded before sending, once per coach message, so a retry never sends the same answer twice. */
-async function send(userId: string, to: string, text: string, kind: OutKind, ref: { coachMessageId?: string; jobId?: string } = {}) {
+/** Recorded before sending, once per coach message (or dedup key), so a retry never sends the same thing twice. */
+async function send(userId: string, to: string, text: string, kind: OutKind, ref: { coachMessageId?: string; jobId?: string; dedupKey?: string } = {}) {
  const id = await withTenant(userId, async db => {
   if (ref.coachMessageId) {
    const prior = (await db.query<{ id: string; status: string }>("SELECT id,status FROM whatsapp_messages WHERE user_id=$1 AND direction='out' AND coach_message_id=$2", [userId, ref.coachMessageId])).rows[0];
    if (prior) return prior.status === "sent" ? null : prior.id;
   }
-  return (await db.query<{ id: string }>("INSERT INTO whatsapp_messages(user_id,direction,kind,to_jid,coach_message_id,job_id,body,status) VALUES($1,'out',$2,$3,$4,$5,$6,'queued') RETURNING id",
-   [userId, kind, to, ref.coachMessageId ?? null, ref.jobId ?? null, text.slice(0, 20000)])).rows[0].id;
+  return (await db.query<{ id: string }>(`INSERT INTO whatsapp_messages(user_id,direction,kind,to_jid,coach_message_id,job_id,dedup_key,body,status) VALUES($1,'out',$2,$3,$4,$5,$6,$7,'queued')
+   ON CONFLICT (user_id,dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING RETURNING id`,
+   [userId, kind, to, ref.coachMessageId ?? null, ref.jobId ?? null, ref.dedupKey ?? null, text.slice(0, 20000)])).rows[0]?.id ?? null;
  });
  return id ? transmit(userId, id, to, text) : true;
 }
 
-/** Called after a job finishes: answers go back to WhatsApp; scheduled check-ins go out when allowed. */
+/** Called after a job finishes: answers go back to WhatsApp; check-ins, meeting notices and the weekly review go out when allowed. */
 export async function deliverJob(userId: string, job: Pick<ClaimedCoachJob, "id" | "kind" | "payload">) {
  if (!wa.whatsappConfigured()) return;
  const fromWhatsapp = job.kind === "chat" && job.payload.channel === "whatsapp";
- if (!fromWhatsapp && job.kind !== "checkin") return;
+ const scheduledReview = job.kind === "review" && job.payload.force !== true;
+ if (!fromWhatsapp && job.kind !== "checkin" && !scheduledReview) return;
  const link = await linkByUser(userId);
  if (!link?.verified_at) return;
  const store = coachStore(userId);
+ const now = new Date();
+ let timezone = "America/Sao_Paulo";
  if (!fromWhatsapp) {
   if (!link.proactive) return;
-  if (quietHours((await store.profile()).timezone, new Date())) return;
+  timezone = (await store.profile()).timezone;
+  if (quietHours(timezone, now)) return;
  }
  // The linked number is the safest destination; the chat address only covers a link that knows no phone yet.
  const to = destination(link) || (fromWhatsapp && typeof job.payload.reply_to === "string" ? job.payload.reply_to : null);
+ if (!to) return;
+ if (scheduledReview) return deliverReview(userId, to, store, now);
  const message = await store.messageByKey(`${job.id}:assistant`);
- if (!to || !message || message.role !== "assistant") return;
- await send(userId, to, whatsappText(message.content), fromWhatsapp ? "reply" : "checkin", { coachMessageId: message.id, jobId: job.id });
+ const checkin = job.kind === "checkin" ? String(job.payload.checkin) : null;
+ if (message?.role === "assistant") {
+  const meetingId = checkin === "meeting" && typeof job.payload.meeting_id === "string" ? job.payload.meeting_id : null;
+  // The coach's question about a meeting rides on that meeting's notice while the notice has not gone out.
+  if (!meetingId || !await sendMeetingNotice(userId, link, to, meetingId, timezone, now, { id: message.id, content: message.content, jobId: job.id }))
+   await send(userId, to, whatsappText(message.content), fromWhatsapp ? "reply" : "checkin", { coachMessageId: message.id, jobId: job.id });
+ }
+ // Notices held overnight or beyond the daily limit go right after the 8h and 18h check-ins.
+ if (checkin === "morning" || checkin === "evening") for (const m of await pendingMeetings(userId, link.verified_at, now)) await sendMeetingNotice(userId, link, to, m.id, timezone, now);
+}
+
+async function deliverReview(userId: string, to: string, store: ReturnType<typeof coachStore>, now: Date) {
+ const profile = await store.profile();
+ const period = reviewPeriod(now, profile.timezone, profile.review_day, profile.review_hour);
+ // Only right after the weekly slot: later refreshes of an older review never message again.
+ if (now.getTime() - Date.parse(period.to) > 48 * 3600_000) return;
+ const review = (await store.reviews()).find(r => r.week_start === period.weekStart && !r.stale);
+ if (review) await send(userId, to, reviewText(review.content), "checkin", { dedupKey: `review:${period.weekStart}` });
+}
+
+/** Processed meetings still without a notice: since the link, within 36 hours; parts of a split recording are shown on the page. */
+async function pendingMeetings(userId: string, since: Date, now: Date, meetingId?: string): Promise<NoticeMeeting[]> {
+ const rows = await withTenant(userId, async db => (await db.query<Omit<NoticeMeeting, "recorded_at" | "done_at"> & { recorded_at: Date | null; done_at: Date }>(
+  `SELECT m.id,m.nome,m.original_filename,m.recorded_at,m.done_at,m.summary,m.raw_ai_response->>'executive_summary' AS executive_summary,m.needs_segmentation,m.duration_seconds
+   FROM meetings m WHERE m.user_id=$1 AND m.status='done' AND m.source IS DISTINCT FROM 'segmented'
+    AND m.done_at>greatest($3::timestamptz-interval '36 hours',$2::timestamptz) AND ($4::uuid IS NULL OR m.id=$4)
+    AND NOT EXISTS (SELECT 1 FROM whatsapp_messages w WHERE w.user_id=m.user_id AND w.dedup_key='meeting:'||m.id::text)
+   ORDER BY m.done_at,m.id LIMIT 10`, [userId, since.toISOString(), now.toISOString(), meetingId ?? null])).rows);
+ return rows.map(r => ({ ...r, recorded_at: iso(r.recorded_at), done_at: iso(r.done_at)! }));
+}
+/** Recorded once per meeting before sending; false when another delivery already took this meeting. */
+async function sendMeetingNotice(userId: string, link: Link, to: string, meetingId: string, timezone: string, now: Date, coach?: { id: string; content: string; jobId: string }) {
+ const meeting = link.verified_at ? (await pendingMeetings(userId, link.verified_at, now, meetingId))[0] : null;
+ if (!meeting) return false;
+ const text = await withTenant(userId, async db => {
+  const tasks = (await db.query<Omit<NoticeTask, "prazo"> & { prazo: Date | null }>("SELECT titulo,owner,is_mine,prazo FROM tarefas WHERE user_id=$1 AND meeting_id=$2 AND status<>'cancelada' ORDER BY is_mine DESC,prazo NULLS LAST,created_at,id", [userId, meeting.id])).rows;
+  const merged = (await db.query<{ n: number }>("SELECT count(DISTINCT tarefa_id)::int AS n FROM tarefa_mencoes WHERE user_id=$1 AND meeting_id=$2 AND origem='reuniao'", [userId, meeting.id])).rows[0]?.n ?? 0;
+  return meetingNoticeText(meeting, tasks.map(t => ({ ...t, prazo: iso(t.prazo) })), merged, { timezone, now, coach: coach ? whatsappText(coach.content) : null });
+ });
+ const id = await withTenant(userId, async db => (await db.query<{ id: string }>(`INSERT INTO whatsapp_messages(user_id,direction,kind,to_jid,coach_message_id,job_id,dedup_key,body,status) VALUES($1,'out','notice',$2,$3,$4,$5,$6,'queued')
+  ON CONFLICT (user_id,dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING RETURNING id`, [userId, to, coach?.id ?? null, coach?.jobId ?? null, `meeting:${meeting.id}`, text.slice(0, 20000)])).rows[0]?.id ?? null);
+ if (!id) return false;
+ await transmit(userId, id, to, text);
+ return true;
+}
+/** The coach question about a meeting, when one was prepared: wait while it runs; merge it while it has not gone out. */
+async function coachQuestion(userId: string, meetingId: string) {
+ const row = await withTenant(userId, async db => (await db.query<{ job_id: string; status: string; message_id: string | null; content: string | null; sent: boolean }>(
+  `SELECT j.id AS job_id,j.status,m.id AS message_id,m.content,EXISTS(SELECT 1 FROM whatsapp_messages w WHERE w.user_id=j.user_id AND w.coach_message_id=m.id) AS sent
+   FROM coach_jobs j LEFT JOIN coach_messages m ON m.user_id=j.user_id AND m.idempotency_key=j.id::text||':assistant'
+   WHERE j.user_id=$1 AND j.idempotency_key=$2`, [userId, `scheduled:meeting:${meetingId}`])).rows[0]);
+ if (!row) return null;
+ if (row.status === "queued" || row.status === "running") return "wait" as const;
+ return row.message_id && row.content && !row.sent ? { id: row.message_id, content: row.content, jobId: row.job_id } : null;
+}
+/** 15-minute runner: each processed meeting gets one notice, when noticeSlot allows it. */
+export async function meetingNotices(userId: string, now = new Date()) {
+ if (!wa.whatsappConfigured()) return 0;
+ const link = await linkByUser(userId);
+ const to = link?.verified_at && link.proactive ? destination(link) : null;
+ if (!link?.verified_at || !to) return 0;
+ const pending = await pendingMeetings(userId, link.verified_at, now);
+ if (!pending.length) return 0;
+ const timezone = await withTenant(userId, async db => (await db.query<{ timezone: string }>("SELECT timezone FROM coach_profiles WHERE user_id=$1", [userId])).rows[0]?.timezone || "America/Sao_Paulo");
+ let today = await withTenant(userId, async db => (await db.query<{ n: number }>(
+  "SELECT count(*)::int AS n FROM whatsapp_messages WHERE user_id=$1 AND direction='out' AND dedup_key LIKE 'meeting:%' AND to_char(created_at AT TIME ZONE $2,'YYYY-MM-DD')=$3",
+  [userId, timezone, localJobDay(timezone, now)])).rows[0]?.n ?? 0);
+ let sent = 0;
+ for (const m of pending) {
+  if (noticeSlot(new Date(m.done_at), now, timezone, today) !== "now") continue;
+  const coach = await coachQuestion(userId, m.id);
+  if (coach === "wait" && now.getTime() - Date.parse(m.done_at) < COACH_WAIT_MS) continue;
+  if (await sendMeetingNotice(userId, link, to, m.id, timezone, now, coach && coach !== "wait" ? coach : undefined)) { sent++; today++; }
+ }
+ return sent;
 }
 export async function notifyChatFailure(userId: string, job: Pick<ClaimedCoachJob, "kind" | "payload">) {
  if (!wa.whatsappConfigured() || job.kind !== "chat" || job.payload.channel !== "whatsapp") return;
@@ -236,15 +318,15 @@ export async function notifyChatFailure(userId: string, job: Pick<ClaimedCoachJo
  const to = (link?.verified_at ? destination(link) : null) || (typeof job.payload.reply_to === "string" ? job.payload.reply_to : null);
  if (to) await send(userId, to, "Não consegui responder agora. Sua mensagem ficou salva; tente de novo em alguns minutos.", "notice");
 }
-/** The 15-minute runner retries failed sends for 6 hours; check-ins still respect quiet hours. */
+/** The 15-minute runner retries failed sends for 6 hours; messages the coach starts still respect quiet hours. */
 export async function retryDeliveries(userId: string) {
  if (!wa.whatsappConfigured()) return 0;
- const rows = await withTenant(userId, async db => (await db.query<{ id: string; kind: string; to_jid: string | null; body: string }>(
-  "SELECT id,kind,to_jid,body FROM whatsapp_messages WHERE user_id=$1 AND direction='out' AND status IN ('queued','failed') AND attempts<5 AND created_at>now()-interval '6 hours' AND updated_at<now()-interval '2 minutes' ORDER BY created_at LIMIT 5", [userId])).rows);
+ const rows = await withTenant(userId, async db => (await db.query<{ id: string; kind: string; to_jid: string | null; body: string; dedup_key: string | null }>(
+  "SELECT id,kind,to_jid,body,dedup_key FROM whatsapp_messages WHERE user_id=$1 AND direction='out' AND status IN ('queued','failed') AND attempts<5 AND created_at>now()-interval '6 hours' AND updated_at<now()-interval '2 minutes' ORDER BY created_at LIMIT 5", [userId])).rows);
  if (!rows.length) return 0;
  const quiet = quietHours((await coachStore(userId).profile()).timezone, new Date());
  let sent = 0;
- for (const row of rows) if (row.to_jid && !(quiet && row.kind === "checkin") && await transmit(userId, row.id, row.to_jid, row.body)) sent++;
+ for (const row of rows) if (row.to_jid && !(quiet && (row.kind === "checkin" || row.dedup_key?.startsWith("meeting:"))) && await transmit(userId, row.id, row.to_jid, row.body)) sent++;
  return sent;
 }
 
