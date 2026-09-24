@@ -29,7 +29,7 @@ jobs:
         working-directory: frontend
         run: |
           bunx tsc --noEmit
-          bunx eslint lib/coach app/api/coach app/api/internal/coach app/coach components/coach components/site-header.tsx
+          bunx eslint lib/coach lib/whatsapp lib/whatsapp.ts app/api/coach app/api/internal/coach app/api/internal/whatsapp app/coach components/coach components/site-header.tsx
       - name: Unit tests
         working-directory: frontend
         run: bun test
@@ -39,7 +39,7 @@ jobs:
         working-directory: frontend
         env:
           COACH_TEST_DATABASE_URL: postgresql://postgres@localhost:55432/coach_test
-        run: bun test lib/coach/store.integration.test.ts lib/coach/task-context.test.ts lib/coach/jobs.integration.test.ts lib/coach/calendar.integration.test.ts lib/coach/coach-commitments.integration.test.ts
+        run: bun test lib/coach/store.integration.test.ts lib/coach/task-context.test.ts lib/coach/jobs.integration.test.ts lib/coach/calendar.integration.test.ts lib/coach/coach-commitments.integration.test.ts lib/whatsapp/channel.integration.test.ts
       - name: Private runner checks
         run: |
           python3 ops/coach-run.test.py

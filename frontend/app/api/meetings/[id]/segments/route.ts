@@ -352,9 +352,9 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
     }
 
     if (result.archived) {
-      sendWhatsApp(`📦 Sessão arquivada sem segmentação.`).catch(() => {});
+      sendWhatsApp(user.id, `📦 Sessão arquivada sem segmentação.`).catch(() => {});
     } else if (result.restored) {
-      sendWhatsApp(`♻️ Sessão arquivada restaurada.`).catch(() => {});
+      sendWhatsApp(user.id, `♻️ Sessão arquivada restaurada.`).catch(() => {});
     } else if (result.children.length > 0) {
       const recordedAt = result.parent.recorded_at;
       const dateStr = recordedAt
@@ -365,6 +365,7 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
           ? ` ${skipIntervals.length} pedaço(s) descartado(s).`
           : "";
       sendWhatsApp(
+        user.id,
         `✂️ Sessão de ${dateStr} segmentada em ${result.children.length} reuniões.${descartadosMsg} Tarefas serão extraídas em segundo plano.`,
       ).catch(() => {});
     }

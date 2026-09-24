@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { CoachProfile } from "@/lib/coach/types";
 import type { CalendarStatus } from "@/lib/coach/calendar-types";
+import type { WhatsappView } from "@/lib/whatsapp/channel";
 import { ShieldCheck, Trash2 } from "lucide-react";
 import { buttonClass, fieldClass, primaryClass, type CoachMutation } from "./shared";
 
 export const days = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
 
-export function SettingsView({ profile, calendar, busy, mutate, onClose }: { profile: CoachProfile; calendar?:CalendarStatus; busy: boolean; mutate: CoachMutation; onClose: () => void }) {
+export function SettingsView({ profile, calendar, whatsapp, whatsappCode, refresh, busy, mutate, onClose }: { profile: CoachProfile; calendar?:CalendarStatus; whatsapp?:WhatsappView|null; whatsappCode?:string; refresh:()=>void; busy: boolean; mutate: CoachMutation; onClose: () => void }) {
   const [goals, setGoals] = useState(profile.goals);
   const [context, setContext] = useState(profile.context);
   const [enabled, setEnabled] = useState(profile.enabled);
@@ -33,7 +34,7 @@ export function SettingsView({ profile, calendar, busy, mutate, onClose }: { pro
           <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} disabled={busy} className="mt-0.5 size-4 accent-[var(--calm)]" /><span>Coach ativo<span className="mt-1 block text-xs leading-relaxed text-muted-strong">Ao pausar, análises e novas conversas param. Seu histórico continua disponível.</span></span></label>
           <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={weekly} onChange={(event) => setWeekly(event.target.checked)} disabled={busy} className="mt-0.5 size-4 accent-[var(--calm)]" /><span>Revisão semanal automática<span className="mt-1 block text-xs leading-relaxed text-muted-strong">A revisão fica aqui no Ações, sem enviar seu contexto a outras pessoas.</span></span></label>
           <div className="grid grid-cols-2 gap-3"><label className="text-xs font-medium">Dia<select value={day} onChange={(event) => setDay(Number(event.target.value))} disabled={busy} className={`${fieldClass} mt-1.5`}>{days.map((label, value) => <option key={value} value={value}>{label}</option>)}</select></label><label className="text-xs font-medium">Horário<select value={hour} onChange={(event) => setHour(Number(event.target.value))} disabled={busy} className={`${fieldClass} mt-1.5`}>{Array.from({ length: 24 }, (_, value) => <option key={value} value={value}>{String(value).padStart(2, "0")}:00</option>)}</select></label></div>
-          <div className="space-y-3 border-t border-border pt-3"><p className="text-xs leading-relaxed text-muted-strong">Os acompanhamentos aparecem aqui no Ações. Os horários indicam o início da preparação; você pode conversar a qualquer momento.</p>
+          <div className="space-y-3 border-t border-border pt-3"><p className="text-xs leading-relaxed text-muted-strong">Os acompanhamentos aparecem aqui no Ações e, se você ligar seu WhatsApp, também lá. Os horários indicam o início da preparação; você pode conversar a qualquer momento.</p>
             <label className="flex items-center gap-3 text-sm"><input type="checkbox" checked={morning} onChange={event=>setMorning(event.target.checked)} disabled={busy} className="size-4 accent-[var(--calm)]"/>Foco no início do dia</label>
             {morning&&<label className="block text-xs">Preparar a partir de<select className={`${fieldClass} mt-1.5`} value={morningHour} onChange={event=>setMorningHour(Number(event.target.value))} disabled={busy}>{Array.from({length:24},(_,hour)=><option key={hour} value={hour}>{String(hour).padStart(2,"0")}:00</option>)}</select></label>}
             <label className="flex items-center gap-3 text-sm"><input type="checkbox" checked={evening} onChange={event=>setEvening(event.target.checked)} disabled={busy} className="size-4 accent-[var(--calm)]"/>Fechamento do dia</label>
@@ -44,6 +45,7 @@ export function SettingsView({ profile, calendar, busy, mutate, onClose }: { pro
         </fieldset>
         <div className="flex flex-wrap gap-2"><button className={primaryClass} type="submit" disabled={busy}>Salvar configurações</button><button className={buttonClass} type="button" disabled={busy} onClick={onClose}>Cancelar</button></div>
       </form>
+      <WhatsAppSettings whatsapp={whatsapp} code={whatsappCode} busy={busy} mutate={mutate} refresh={refresh}/>
       <CalendarSettings calendar={calendar} coachEnabled={profile.enabled} busy={busy} mutate={mutate} timezone={profile.timezone}/>
       <div className="mt-6 border-t border-border pt-5"><h3 className="flex items-center gap-2 text-sm font-semibold"><ShieldCheck size={16} aria-hidden="true" /> Privacidade e contexto disponível</h3><p className="mt-2 text-xs leading-relaxed text-muted-strong">Seu histórico é privado na sua conta. O coach envia ao provedor de IA os trechos necessários para responder e analisar, conforme as condições do provedor configurado. Seu contexto não é publicado; isso não significa retenção zero pelo provedor.</p><p className="mt-2 text-xs leading-relaxed text-muted-strong">Usa seus objetivos, contexto, memórias, combinados e conversas neste coach. Relatórios de reuniões e tarefas acrescentam contexto; trechos da transcrição podem sustentar uma observação. A agenda, quando ativa acima, ajuda a comparar prioridades e tempo planejado. Conversas antigas do assistente no Mac não estão conectadas.</p></div>
       <div className="mt-5 border-t border-border pt-4">
@@ -59,4 +61,25 @@ function CalendarSettings({calendar,coachEnabled,busy,mutate,timezone}:{calendar
  let updated:string|null=null;
  if(calendar?.updated_at){try{updated=new Intl.DateTimeFormat("pt-BR",{timeZone:timezone,dateStyle:"short",timeStyle:"short"}).format(new Date(calendar.updated_at));}catch{updated=null;}}
  return <section aria-label="Agenda do coach" className="mt-6 border-t border-border pt-5"><h3 className="text-sm font-semibold">Sua agenda, junto das suas prioridades</h3><p className="mt-2 text-sm" role="status">{labels[status]}</p><p className="mt-2 text-xs leading-relaxed text-muted-strong">Ajuda o coach a comparar suas prioridades com o tempo já reservado e propor um dia possível. Um evento mostra o que estava planejado; o coach precisa de registros ou da sua resposta para saber o que aconteceu.</p>{updated&&<p className="mt-2 text-xs text-muted-strong">Última leitura: {updated}.</p>}{calendar?.configured&&<><div className="mt-3 flex flex-wrap items-center gap-3"><label className="flex min-h-10 items-center gap-2 text-sm"><input type="checkbox" checked={calendar.enabled} disabled={busy} onChange={event=>void mutate({action:"calendar_settings",enabled:event.target.checked},event.target.checked?"Leitura da agenda ativada.":"Leitura da agenda pausada; a cópia local foi removida.")} className="size-4 accent-[var(--calm)]"/>Usar minha agenda</label><button type="button" disabled={busy||!coachEnabled||!calendar.enabled} className={`${buttonClass} !text-xs`} onClick={()=>void mutate({action:"calendar_refresh"})}>Atualizar agenda</button></div><p className="mt-2 text-xs leading-relaxed text-muted-strong">A leitura usa o calendário principal da Microsoft já conectado ao TTARS e só fica disponível nesta conta. Calendários secundários e eventos apenas locais do Mac não estão incluídos. O coach não altera eventos. Ao conversar ou preparar um acompanhamento, atualiza a agenda quando a leitura tem mais de 15 minutos.</p></>}{(status==="unavailable"||status==="stale")&&<p className="mt-2 text-xs text-[var(--urgent)]">O coach vai informar essa limitação, sem tratar seu dia como livre.</p>}</section>;
+}
+
+function WhatsAppSettings({whatsapp,code,busy,mutate,refresh}:{whatsapp?:WhatsappView|null;code?:string;busy:boolean;mutate:CoachMutation;refresh:()=>void}){
+ const linked=!!whatsapp?.linked;
+ const shownCode=!linked&&whatsapp?.code_pending?code:null;
+ const waiting=!!whatsapp?.available&&(!!whatsapp.channel?.qr||whatsapp.channel?.state==="connecting"||(!linked&&(whatsapp.code_pending||!!shownCode)));
+ useEffect(()=>{if(!waiting)return;const timer=setInterval(()=>{if(document.visibilityState==="visible")refresh();},3000);return()=>clearInterval(timer);},[waiting,refresh]);
+ if(!whatsapp?.available)return null;
+ const channel=whatsapp.channel;const connected=channel?.state==="open";
+ return <section aria-label="WhatsApp do coach" className="mt-6 border-t border-border pt-5"><h3 className="text-sm font-semibold">WhatsApp do Coach</h3><p className="mt-2 text-xs leading-relaxed text-muted-strong">Converse com o Coach por mensagem ou áudio no número {whatsapp.coach_number}. Ele só vê o que você manda para ele; suas outras conversas ficam de fora. Tudo também fica nesta página.</p>
+  {channel&&<div className="mt-3 rounded-xl border border-border p-3"><p className="text-sm" role="status">{connected?"Número do Coach conectado.":channel.state==="connecting"?"Conectando o número do Coach…":"Número do Coach desconectado."}</p>
+   {!connected&&(channel.qr?<>
+    {/* eslint-disable-next-line @next/next/no-img-element -- QR gerado na hora, em data URL */}
+    <img src={channel.qr} alt="Código para conectar o número do Coach" className="mt-3 size-56 rounded-lg bg-white p-2"/><p className="mt-2 text-xs leading-relaxed text-muted-strong">No celular com o chip do Coach: WhatsApp → Aparelhos conectados → Conectar um aparelho → leia este código. Ele muda a cada poucos segundos.</p></>
+    :<button type="button" className={`${buttonClass} mt-3 !text-xs`} disabled={busy} onClick={()=>void mutate({action:"whatsapp_connect"})}>Conectar o número do Coach</button>)}</div>}
+  {linked?<div className="mt-3 space-y-3"><p className="text-sm">Seu WhatsApp ({whatsapp.phone}) está ligado ao Coach.</p>
+    <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={whatsapp.proactive} disabled={busy} onChange={event=>void mutate({action:"whatsapp_proactive",enabled:event.target.checked},event.target.checked?"Os acompanhamentos também vão chegar no WhatsApp.":"Os acompanhamentos ficam só nesta página.")} className="mt-0.5 size-4 accent-[var(--calm)]"/><span>Receber os acompanhamentos no WhatsApp<span className="mt-1 block text-xs text-muted-strong">Foco do dia, fechamento e lembretes. Nunca entre 22h e 7h.</span></span></label>
+    <button type="button" className="min-h-10 text-xs underline underline-offset-4" disabled={busy} onClick={()=>void mutate({action:"whatsapp_unlink"},"Seu WhatsApp foi desligado do Coach.")}>Desligar meu WhatsApp</button></div>
+   :<div className="mt-3">{shownCode?<p className="text-sm leading-relaxed">Mande este código para o Coach no WhatsApp <strong>{whatsapp.coach_number}</strong>: <strong className="font-mono text-lg tracking-widest">{shownCode}</strong><span className="mt-1 block text-xs text-muted-strong">Vale por 15 minutos. Esta tela atualiza sozinha quando ligar.</span></p>
+    :<button type="button" className={`${buttonClass} !text-xs`} disabled={busy||(!!channel&&!connected)} onClick={()=>void mutate({action:"whatsapp_link"})}>Ligar meu WhatsApp</button>}</div>}
+ </section>;
 }
