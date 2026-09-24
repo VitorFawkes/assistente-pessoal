@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/db";
+import { getOwnerSlug, isOwner } from "@/lib/owner-slug";
 
 const VALID_STATUS = ["aberta", "em_andamento", "aguardando_aprovacao", "concluida", "cancelada"] as const;
 const VALID_PRIORIDADE = ["baixa", "media", "alta", "urgente"] as const;
@@ -51,8 +52,8 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
       return NextResponse.json({ error: "acao inválida" }, { status: 400 });
     }
     push("acao", body.acao);
-    // invariante: executar ⇔ a tarefa é do Vitor. Sem owner explícito, força "vitor".
-    if (body.acao === "executar" && body.owner === undefined) push("owner", "vitor");
+    // invariante: executar ⇔ a tarefa é do dono da conta. Sem owner explícito, força o slug.
+    if (body.acao === "executar" && body.owner === undefined) push("owner", getOwnerSlug());
   }
   if (body.prazo !== undefined) push("prazo", body.prazo);
   if (body.inicio !== undefined) push("inicio", body.inicio);
@@ -172,7 +173,7 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
           );
         } else {
           await c.query("UPDATE tarefa_pessoas SET principal = false WHERE tarefa_id = $1", [id]);
-          if (owner && owner !== "?" && owner.toLowerCase() !== "vitor") {
+          if (owner && owner !== "?" && !isOwner(owner)) {
             const found = await c.query<{ pessoa_id: string }>(
               `SELECT tp.pessoa_id FROM tarefa_pessoas tp
                  JOIN pessoas p ON p.id = tp.pessoa_id

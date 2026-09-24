@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
+import { getOwnerSlug } from "@/lib/owner-slug";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +44,7 @@ export const POST = withAuth(async (user, req) => {
     return NextResponse.json({ error: "prioridade inválida" }, { status: 400 });
   }
 
-  const owner = (body.owner ?? "").trim() || "vitor";
+  const owner = (body.owner ?? "").trim() || getOwnerSlug();
 
   try {
     const { tarefasFor } = await import("@/lib/queries");

@@ -8,6 +8,7 @@ import {
   ehDataValida,
   quandoBR,
 } from "./data-br";
+import { isOwner } from "./owner-slug";
 
 export const SP_TZ = "America/Sao_Paulo";
 
@@ -25,19 +26,19 @@ export function toSP(d: Date | string): Date {
 
 // Normaliza o "dono" de uma tarefa pra exibição consistente:
 //  - vazio / "?"           → "A definir"
-//  - "vitor"/"Vitor" (qq)  → "Vitor"
+//  - dono da conta         → "Você" (ou o slug configurado)
 //  - outros                → nome como veio (trim)
 export function normalizeOwner(owner: string | null | undefined): string {
   const s = (owner ?? "").trim();
   if (!s || s === "?") return "A definir";
-  if (s.toLowerCase() === "vitor") return "Vitor";
+  if (isOwner(s)) return "Você";
   return s;
 }
 
-// "Eu" = dono é o próprio usuário (vitor / vazio / "?").
+// "Eu" = dono é o próprio usuário (dono da conta ou vazio ou "?").
 export function isOwnerMe(owner: string | null | undefined): boolean {
-  const s = (owner ?? "").trim().toLowerCase();
-  return !s || s === "?" || s === "vitor";
+  const s = (owner ?? "").trim();
+  return !s || s === "?" || isOwner(s);
 }
 
 // Deriva a ação a partir do nome do dono, mantendo o invariante do sistema

@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { withGuest, GuestError, membershipDoQuadro, guestErrorResponse } from "@/lib/quadro-guest";
 import { clientIp } from "@/lib/rate-limit";
 import { TAREFA_SELECT_CONVIDADO as TAREFA_SELECT } from "@/lib/queries";
+import { isOwner } from "@/lib/owner-slug";
 
 type Ctx = { params: Promise<{ token: string; id: string }> };
 
@@ -146,7 +147,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           );
         } else {
           await c.query("UPDATE tarefa_pessoas SET principal = false WHERE tarefa_id = $1", [id]);
-          if (owner && owner !== "?" && owner.toLowerCase() !== "vitor") {
+          if (owner && owner !== "?" && !isOwner(owner)) {
             const found = await c.query<{ pessoa_id: string }>(
               `SELECT tp.pessoa_id FROM tarefa_pessoas tp
                  JOIN pessoas p ON p.id = tp.pessoa_id

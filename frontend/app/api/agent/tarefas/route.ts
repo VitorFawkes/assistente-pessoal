@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { withAgentAuth } from "@/lib/auth";
 import { tarefasFor, frentesFor } from "@/lib/queries";
 import { quadrosFor } from "@/lib/quadros";
+import { getOwnerSlug } from "@/lib/owner-slug";
 
 export const dynamic = "force-dynamic";
 
@@ -70,7 +71,7 @@ export const POST = withAgentAuth(async ({ user, origem }, req) => {
   if (!VALID_PRIORIDADE.includes(prioridade)) {
     return NextResponse.json({ error: "prioridade inválida" }, { status: 400 });
   }
-  const owner = (body.owner ?? "").trim() || "vitor";
+  const owner = (body.owner ?? "").trim() || getOwnerSlug();
 
   try {
     // frente por nome (get-or-create) tem precedência sobre frente_id explícito

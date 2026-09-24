@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/db";
 import { aposentarCopia, registrarMencao } from "@/lib/tarefas-repetidas-db";
+import { getOwnerSlug, isOwner } from "@/lib/owner-slug";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -141,10 +142,10 @@ export const POST = withAuth(async (user, req) => {
           }
         }
         if (!novaId) {
-          const dono = (m.owner_falado ?? "").trim() || "vitor";
+          const dono = (m.owner_falado ?? "").trim() || getOwnerSlug();
           const acao = ["executar", "cobrar", "aguardar"].includes(String(m.acao_falada))
             ? m.acao_falada
-            : /^vitor$/i.test(dono)
+            : isOwner(dono)
               ? "executar"
               : "cobrar";
           const r = await c.query<{ id: string }>(

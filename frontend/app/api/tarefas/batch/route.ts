@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/db";
+import { getOwnerSlug, isOwner } from "@/lib/owner-slug";
 
 export const dynamic = "force-dynamic";
 
@@ -119,7 +120,7 @@ export const PATCH = withAuth(async (user, req) => {
       // 3) Ação + dono uniformes → espelha o resolve do PATCH individual.
       if (patch.acao !== undefined) {
         const acao = patch.acao;
-        const owner = acao === "executar" ? "vitor" : (patch.owner ?? "").trim();
+        const owner = acao === "executar" ? getOwnerSlug() : (patch.owner ?? "").trim();
         await c.query(
           `UPDATE tarefas SET acao = $1, owner = $2 WHERE id = ANY($3::uuid[])`,
           [acao, owner, ids],
@@ -137,7 +138,7 @@ export const PATCH = withAuth(async (user, req) => {
             `UPDATE tarefa_pessoas SET principal = false WHERE tarefa_id = ANY($1::uuid[])`,
             [ids],
           );
-          if (owner && owner !== "?" && owner.toLowerCase() !== "vitor") {
+          if (owner && owner !== "?" && !isOwner(owner)) {
             const pr = await c.query<{ id: string }>(
               `INSERT INTO pessoas (user_id, nome) VALUES ($1,$2)
                ON CONFLICT (user_id, nome) DO UPDATE SET updated_at = now() RETURNING id`,

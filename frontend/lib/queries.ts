@@ -1,4 +1,5 @@
 import { withTenant } from "./db";
+import { getOwnerSlug, isOwner } from "./owner-slug";
 import { randomBytes } from "node:crypto";
 
 // ─── Tipos (espelham o schema atual) ──────────────────────────────────
@@ -533,7 +534,7 @@ export const tarefasFor = (userId: string) => ({
           userId,
           draft.titulo.trim(),
           draft.descricao?.trim() || null,
-          (draft.owner ?? "vitor").trim() || "vitor",
+          (draft.owner ?? getOwnerSlug()).trim() || getOwnerSlug(),
           draft.acao ?? "executar",
           draft.prazo ?? null,
           draft.prazo_text?.trim() || null,
@@ -676,8 +677,8 @@ export const tarefasFor = (userId: string) => ({
       if (patch.owner !== undefined) push("owner", patch.owner);
       if (patch.acao !== undefined) {
         push("acao", patch.acao);
-        // invariante: executar ⇔ tarefa é do Vitor. Sem owner explícito, força "vitor".
-        if (patch.acao === "executar" && patch.owner === undefined) push("owner", "vitor");
+        // invariante: executar ⇔ tarefa é do dono da conta. Sem owner explícito, força o slug.
+        if (patch.acao === "executar" && patch.owner === undefined) push("owner", getOwnerSlug());
       }
       if (patch.prazo !== undefined) push("prazo", patch.prazo);
       if (patch.prazo_text !== undefined) push("prazo_text", patch.prazo_text);
@@ -749,7 +750,7 @@ export const tarefasFor = (userId: string) => ({
           );
         } else {
           await c.query("UPDATE tarefa_pessoas SET principal = false WHERE tarefa_id = $1", [id]);
-          if (owner && owner !== "?" && owner.toLowerCase() !== "vitor") {
+          if (owner && owner !== "?" && !isOwner(owner)) {
             const found = await c.query<{ pessoa_id: string }>(
               `SELECT tp.pessoa_id FROM tarefa_pessoas tp
                  JOIN pessoas p ON p.id = tp.pessoa_id

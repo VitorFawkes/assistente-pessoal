@@ -1,4 +1,5 @@
 import type { Acao } from "./queries";
+import { getOwnerSlug } from "./owner-slug";
 
 const PRIORIDADES = ["baixa", "media", "alta", "urgente"] as const;
 const ACOES = ["executar", "cobrar", "aguardar"] as const;
@@ -40,10 +41,11 @@ function oneOf<T extends readonly string[]>(list: T, v: unknown, dflt: T[number]
 }
 
 export function normalizeDraft(raw: RawDraft): CaptureDraft {
+  const ownerSlug = getOwnerSlug();
   return {
     titulo: (raw.titulo ?? "").trim(),
     descricao: raw.descricao?.trim() || null,
-    owner: (raw.owner ?? "vitor").trim() || "vitor",
+    owner: (raw.owner ?? ownerSlug).trim() || ownerSlug,
     acao: oneOf(ACOES, raw.acao, "executar"),
     prazo: raw.prazo ?? null,
     prazo_text: raw.prazo_text?.trim() || null,
