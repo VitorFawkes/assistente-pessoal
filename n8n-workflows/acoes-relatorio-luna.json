@@ -216,14 +216,14 @@
       "parameters": {
         "modelId": {
           "__rl": true,
-          "mode": "list",
-          "value": "gpt-5.1"
+          "mode": "id",
+          "value": "gpt-6-sol"
         },
         "messages": {
           "values": [
             {
               "role": "system",
-              "content": "Você lê a transcrição rotulada por falante de uma reunião/áudio do Vitor Gambetti e escreve um RELATÓRIO DE LEITURA. NÃO extraia tarefas/ações, NÃO produza listas de \"actions\" — apenas o relatório.\n\nEscreva um relatório em markdown-lite com EXATAMENTE estas seções, nesta ordem (cada seção é \"**Título:**\" numa linha, seguida de bullets que começam com \"- \"). Omita uma seção só se for genuinamente vazia:\n\n**Contexto:** tipo de áudio, quem participa (nomes quando rotulados) e o assunto central.\n**Problemas levantados:** cada dor, gargalo, risco ou insatisfação. Específico.\n**Decisões e alinhamentos:** cada decisão/acordo — e para CADA um deixe explícito QUEM é o dono (nome próprio quando a transcrição permitir; senão o papel/cargo) e qual o ENTREGÁVEL. Inclua decisões sobre PESSOAS/papéis (reavaliar/ajustar/trocar quem lidera) e criação de ROTINAS/rituais recorrentes (checklist, daily).\n**Insights / observações relevantes:** constatações, números, padrões — coisas que valem registrar mesmo sem virar ação.\n**Próximos passos:** o que vem a seguir — cada passo com dono e entregável.\n\nRegras: extraia só do que foi dito; preserve nomes próprios, números, prazos e termos do domínio (Trips, Weddings, Edis, CRM, SDR). Reunião densa → relatório detalhado. Português, voz objetiva.\n\nSAÍDA — retorne SÓ este JSON. O campo executive_summary é OBRIGATÓRIO e deve conter o relatório completo das seções acima (use null APENAS em áudio trivial: teste, saudação, ruído):\n{ \"summary\": \"<1-2 frases de contexto, não as tarefas>\", \"executive_summary\": \"<relatório markdown-lite com as seções acima>\" }\n"
+              "content": "Você lê a transcrição rotulada por falante de uma reunião/áudio do Vitor Gambetti e escreve um RELATÓRIO DE LEITURA. NÃO extraia tarefas/ações, NÃO produza listas de \"actions\" — apenas o relatório.\n\nEscreva um relatório em markdown-lite com EXATAMENTE estas seções, nesta ordem (cada seção é \"**Título:**\" numa linha, seguida de bullets que começam com \"- \"). Omita uma seção só se for genuinamente vazia:\n\n**Contexto:** tipo de áudio, quem participa (nomes quando rotulados) e o assunto central.\n**Problemas levantados:** cada dor, gargalo, risco ou insatisfação. Específico.\n**Decisões e alinhamentos:** só o que foi de fato decidido ou acordado na conversa. Diga quem é o dono apenas quando alguém assumiu ou recebeu a responsabilidade e aceitou; se ninguém assumiu, escreva \"sem dono definido\". Inclua decisões sobre PESSOAS/papéis e criação de ROTINAS quando foram de fato decididas.\n**Insights / observações relevantes:** constatações, números, padrões — coisas que valem registrar mesmo sem virar ação.\n**Próximos passos:** SOMENTE compromissos combinados: alguém disse que vai fazer, ou recebeu a tarefa e aceitou. Cada passo com dono (o nome como aparece na transcrição) e entregável; prazo só se foi dito. Cubra TODOS os compromissos: antes de fechar esta seção, releia a transcrição inteira e confira que nenhum ficou de fora (reuniões marcadas, convites, envios, conferências, prazos).\n**Ideias e pendências sem combinado:** sugestões, possibilidades, desejos, desabafos e assuntos que ficaram em aberto sem ninguém assumir. Esta seção NÃO vira tarefa.\n\nRegras:\n- Extraia só do que foi dito. Nunca acrescente nome, lugar, data, número, prazo ou fato que não esteja na transcrição. Preserve nomes próprios exatamente como aparecem (mesmo que pareçam errados), números, prazos e termos do domínio (Trips, Weddings, Edis, CRM, SDR).\n- Não deduza dono pelo cargo nem por quem costuma fazer. Não confunda quem falou do assunto com quem vai fazer. Não junte pessoas diferentes numa só.\n- Ideia, sugestão, \"vou pensar\", \"vale avaliar\", problema que se resolveu na hora ou compromisso sem dono vai para \"Ideias e pendências sem combinado\", nunca para \"Próximos passos\".\n- Reunião densa → relatório detalhado. Português, voz objetiva.\n\nSAÍDA — retorne SÓ este JSON. O campo executive_summary é OBRIGATÓRIO e deve conter o relatório completo das seções acima (use null APENAS em áudio trivial: teste, saudação, ruído):\n{ \"summary\": \"<1-2 frases de contexto, não as tarefas>\", \"executive_summary\": \"<relatório markdown-lite com as seções acima>\" }\n"
             },
             {
               "content": "=Transcrição rotulada:\n\n{{ $('Recebe reunião').first().json.labeled_text }}"
@@ -231,11 +231,9 @@
           ]
         },
         "jsonOutput": true,
-        "options": {
-          "temperature": 0.2
-        }
+        "options": {}
       },
-      "name": "Reserva: relatório antigo (GPT-5.1)",
+      "name": "Reserva: relatório em 1 chamada (GPT-6 Sol)",
       "type": "@n8n/n8n-nodes-langchain.openAi",
       "typeVersion": 1.7,
       "position": [
@@ -256,7 +254,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Reserva: se alguma etapa do Luna falhar, usa o relatório antigo (GPT-5.1) para a reunião não travar\nconst raw = $input.first().json;\nlet p = raw;\ntry { if (raw.message && raw.message.content) p = typeof raw.message.content === 'string' ? JSON.parse(raw.message.content) : raw.message.content; else if (raw.content) p = typeof raw.content === 'string' ? JSON.parse(raw.content) : raw.content; } catch (e) {}\nreturn [{ json: { summary: (p && p.summary) || '', executive_summary: (p && p.executive_summary) || '', relatorio_modelo: 'gpt-5.1-reserva' } }];\n"
+        "jsCode": "// Reserva: se alguma etapa do Luna falhar, usa o relatório em 1 chamada (GPT-6 Sol) para a reunião não travar\nconst raw = $input.first().json;\nlet p = raw;\ntry { if (raw.message && raw.message.content) p = typeof raw.message.content === 'string' ? JSON.parse(raw.message.content) : raw.message.content; else if (raw.content) p = typeof raw.content === 'string' ? JSON.parse(raw.content) : raw.content; } catch (e) {}\nreturn [{ json: { summary: (p && p.summary) || '', executive_summary: (p && p.executive_summary) || '', relatorio_modelo: 'gpt-6-sol-reserva' } }];\n"
       },
       "name": "Monta relatório (reserva)",
       "type": "n8n-nodes-base.code",
@@ -291,7 +289,7 @@
         ],
         [
           {
-            "node": "Reserva: relatório antigo (GPT-5.1)",
+            "node": "Reserva: relatório em 1 chamada (GPT-6 Sol)",
             "type": "main",
             "index": 0
           }
@@ -309,7 +307,7 @@
         ],
         [
           {
-            "node": "Reserva: relatório antigo (GPT-5.1)",
+            "node": "Reserva: relatório em 1 chamada (GPT-6 Sol)",
             "type": "main",
             "index": 0
           }
@@ -327,7 +325,7 @@
         ],
         [
           {
-            "node": "Reserva: relatório antigo (GPT-5.1)",
+            "node": "Reserva: relatório em 1 chamada (GPT-6 Sol)",
             "type": "main",
             "index": 0
           }
@@ -345,7 +343,7 @@
         ],
         [
           {
-            "node": "Reserva: relatório antigo (GPT-5.1)",
+            "node": "Reserva: relatório em 1 chamada (GPT-6 Sol)",
             "type": "main",
             "index": 0
           }
@@ -363,7 +361,7 @@
         ],
         [
           {
-            "node": "Reserva: relatório antigo (GPT-5.1)",
+            "node": "Reserva: relatório em 1 chamada (GPT-6 Sol)",
             "type": "main",
             "index": 0
           }
@@ -381,7 +379,7 @@
         ],
         [
           {
-            "node": "Reserva: relatório antigo (GPT-5.1)",
+            "node": "Reserva: relatório em 1 chamada (GPT-6 Sol)",
             "type": "main",
             "index": 0
           }
@@ -399,7 +397,7 @@
         ],
         [
           {
-            "node": "Reserva: relatório antigo (GPT-5.1)",
+            "node": "Reserva: relatório em 1 chamada (GPT-6 Sol)",
             "type": "main",
             "index": 0
           }
@@ -417,7 +415,7 @@
         ],
         [
           {
-            "node": "Reserva: relatório antigo (GPT-5.1)",
+            "node": "Reserva: relatório em 1 chamada (GPT-6 Sol)",
             "type": "main",
             "index": 0
           }
@@ -429,14 +427,14 @@
         [],
         [
           {
-            "node": "Reserva: relatório antigo (GPT-5.1)",
+            "node": "Reserva: relatório em 1 chamada (GPT-6 Sol)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Reserva: relatório antigo (GPT-5.1)": {
+    "Reserva: relatório em 1 chamada (GPT-6 Sol)": {
       "main": [
         [
           {

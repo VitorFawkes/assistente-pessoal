@@ -145,7 +145,10 @@ soft_deleted_at IS NULL` — se passar de ~10k, está na hora de migrar.
     (o antigo Stage A) com GPT-6 Luna em etapas: extrai os compromissos com trecho literal,
     revisa 2x (cronológica e por pessoa) e escreve o contexto. Trecho que não existe na
     transcrição é descartado. Os 4 fluxos chamam este pelo nó `Stage A Summary`. Se alguma
-    etapa falhar, cai no relatório antigo (GPT-5.1) e a reunião não trava.
+    etapa falhar, cai num relatório em 1 chamada (GPT-6 Sol) e a reunião não trava.
+  - Modelos (24/09): Distiller e Judge em GPT-6 Luna; Coach (`COACH_MODEL`) e tarefas repetidas
+    (`DEDUP_MODEL`) em GPT-6 Sol; ditado e sugestão de quem falou (`CAPTURE_MODEL`) em GPT-6 Luna.
+    Regra do Vitor: nada de GPT-5.x ou anterior em nenhuma parte.
   - `Acoes - Reprocess Tarefas` — disparado pelo PATCH `/api/meetings/[id]/speakers`
     quando user corrige rotulação.
   - Pra sincronizar JSON local → live: `source .env && ./n8n-workflows/apply.sh`.

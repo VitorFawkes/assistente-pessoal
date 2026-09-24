@@ -56,8 +56,8 @@
       "parameters": {
         "modelId": {
           "__rl": true,
-          "mode": "list",
-          "value": "gpt-5.1"
+          "mode": "id",
+          "value": "gpt-6-luna"
         },
         "messages": {
           "values": [
@@ -71,9 +71,7 @@
           ]
         },
         "jsonOutput": true,
-        "options": {
-          "temperature": 0.2
-        }
+        "options": {}
       },
       "id": "gpt-1",
       "name": "Distiller",
@@ -207,8 +205,8 @@
       "parameters": {
         "modelId": {
           "__rl": true,
-          "mode": "list",
-          "value": "gpt-5.1"
+          "mode": "id",
+          "value": "gpt-6-luna"
         },
         "messages": {
           "values": [
@@ -218,9 +216,7 @@
           ]
         },
         "jsonOutput": true,
-        "options": {
-          "temperature": 0.2
-        }
+        "options": {}
       },
       "id": "sc-judge",
       "name": "Judge",
