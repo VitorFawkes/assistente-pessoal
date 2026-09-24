@@ -1,5 +1,6 @@
 "use client";
 
+import { isTeamMode } from "@/lib/team-mode";
 import { useState, useTransition } from "react";
 import Link from "next/link";
 
@@ -55,6 +56,15 @@ export function UserMenu({ nome, isAdmin }: Props) {
                   className="block px-4 py-2 hover:bg-[color:var(--accent)] text-[color:var(--muted-strong)]"
                 >
                   Convites
+                </Link>
+              )}
+              {isAdmin && isTeamMode() && (
+                <Link
+                  href="/admin/liberar"
+                  onClick={() => setOpen(false)}
+                  className="block px-4 py-2 hover:bg-[color:var(--accent)] text-[color:var(--muted-strong)]"
+                >
+                  Liberar pessoas
                 </Link>
               )}
               <Link
