@@ -1,4 +1,5 @@
-import { requireUserOrRedirect } from "@/lib/auth";
+import { requireUserOrRedirect, requireAdminOrRedirect } from "@/lib/auth";
+import { isTeamMode } from "@/lib/team-mode";
 import { quadrosFor, type Quadro, type QuadroConvidado, type AtividadeItem } from "@/lib/quadros";
 import { type Tarefa } from "@/lib/queries";
 import { QuadroManager } from "@/components/quadro-manager";
@@ -12,6 +13,9 @@ export default async function QuadroDetailPage({
 }) {
   const { id } = await params;
   const user = await requireUserOrRedirect();
+  if (isTeamMode() && !user.is_admin) {
+    await requireAdminOrRedirect();
+  }
 
   let quadro: Quadro | null = null;
   let tarefas: Tarefa[] = [];

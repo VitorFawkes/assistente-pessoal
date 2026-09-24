@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, Fraunces } from "next/font/google";
 import { cookies } from "next/headers";
 import { anoBR } from "@/lib/data-br";
 import { query } from "@/lib/db";
+import { isTeamMode } from "@/lib/team-mode";
 import { SiteHeader } from "@/components/site-header";
 import { Toaster } from "sonner";
 import "./globals.css";
@@ -50,6 +51,7 @@ export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const user = await getCurrentUser();
+  const teamMode = isTeamMode();
 
   return (
     <html
@@ -69,7 +71,7 @@ export default async function RootLayout({
         />
       </head>
       <body className="min-h-full flex flex-col font-sans">
-        <SiteHeader user={user} />
+        <SiteHeader user={user} teamMode={teamMode} />
         <main className="flex-1 mx-auto max-w-3xl w-full px-5 sm:px-6 py-6 sm:py-10">
           {children}
         </main>

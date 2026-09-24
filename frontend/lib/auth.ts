@@ -89,6 +89,15 @@ export async function requireAdmin(): Promise<User> {
   return u;
 }
 
+/** Em Server Component: require admin ou redirect pra "/". */
+export async function requireAdminOrRedirect(): Promise<User> {
+  try {
+    return await requireAdmin();
+  } catch {
+    redirect("/");
+  }
+}
+
 /**
  * Versão Bearer-token de requireUser, pra clientes nativos (iOS app).
  * Token = sessions.id (mesmo UUID que vai no cookie). Diferente do cookie,

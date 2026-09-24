@@ -56,11 +56,13 @@ export function MeetingsList({
   meetings,
   total = 0,
   limite = 0,
+  isAdmin = true,
 }: {
   meetings: MeetingItem[];
   /** Quantas existem no banco — a lista é um recorte das mais recentes. */
   total?: number;
   limite?: number;
+  isAdmin?: boolean;
 }) {
   const [q, setQ] = useState("");
 
@@ -167,7 +169,7 @@ export function MeetingsList({
                   </div>
                   {/* Dentro do cartão: solto embaixo, o aviso ficava entre dois
                       cartões e não dava pra saber de qual reunião era. */}
-                  {m.needs_segmentation && (
+                  {m.needs_segmentation && isAdmin && (
                     <Link
                       href={`/reunioes/${m.id}/segmentar`}
                       className="pointer-events-auto relative mt-2 inline-flex items-center gap-1.5 text-[11px] text-[color:var(--warm)] bg-[color:var(--warm-bg)] px-2.5 py-1 rounded-full w-fit hover:opacity-80 transition"

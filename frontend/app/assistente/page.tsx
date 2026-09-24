@@ -1,10 +1,14 @@
-import { requireUserOrRedirect } from "@/lib/auth";
+import { requireUserOrRedirect, requireAdminOrRedirect } from "@/lib/auth";
+import { isTeamMode } from "@/lib/team-mode";
 import { ChatPanel } from "@/components/chat-panel";
 
 export const dynamic = "force-dynamic";
 
 export default async function AssistentePage() {
-  await requireUserOrRedirect();
+  const user = await requireUserOrRedirect();
+  if (isTeamMode() && !user.is_admin) {
+    await requireAdminOrRedirect();
+  }
   return (
     <div className="space-y-5">
       <header className="space-y-1.5">
