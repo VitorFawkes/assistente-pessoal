@@ -5,13 +5,14 @@ import { CoachDashboard } from "../components/coach/dashboard";
 import type { CalendarStatus } from "../lib/coach/calendar-types";
 import type { CoachJob } from "../lib/coach/jobs";
 import type { CoachProfile, CoachState, Coverage } from "../lib/coach/types";
+import type { CoachGoal } from "../lib/coach/store";
 const now=new Date().toISOString();
-type FixtureState=CoachState&{calendar:CalendarStatus;jobs:CoachJob[]};
+type FixtureState=CoachState&{calendar:CalendarStatus;jobs:CoachJob[];goals:CoachGoal[]};
 type FixtureWindow=Window&typeof globalThis&{__fixture:{calls:Record<string,unknown>[];state:()=>FixtureState;remount:()=>void;setCoverage:(coverage:Partial<Coverage>)=>void}};
 let state:FixtureState={
  profile:{user_id:"synthetic-offline",enabled:true,weekly_enabled:true,morning_enabled:false,evening_enabled:false,nudges_enabled:false,morning_hour:8,evening_hour:18,goals:"Prioridade fictícia",context:"Contexto fictício",timezone:"America/Sao_Paulo",review_day:5,review_hour:17,revision:1,last_run_at:null,last_error:null,created_at:now,updated_at:now},
  calendar:{configured:true,enabled:true,status:"connected",updated_at:now,from:null,to:null,limitations:[]},
- memories:[],messages:[],reviews:[],jobs:[],coverage:{total_meetings:2,report_ready_meetings:2,executive_report_meetings:1,summary_only_meetings:1,missing_report_meetings:0,pending_meetings:0,analyzed_meetings:0,analyzed_chunks:0},model_available:true
+ memories:[],messages:[],reviews:[],jobs:[],goals:[],coverage:{total_meetings:2,report_ready_meetings:2,executive_report_meetings:1,summary_only_meetings:1,missing_report_meetings:0,pending_meetings:0,analyzed_meetings:0,analyzed_chunks:0},model_available:true
 };
 const calls:Record<string,unknown>[]=[];
 const offlineFetch=async(input:RequestInfo|URL,init:RequestInit={})=>{
@@ -19,6 +20,8 @@ const offlineFetch=async(input:RequestInfo|URL,init:RequestInit={})=>{
  const body=init.body?JSON.parse(String(init.body)) as Record<string,unknown>:null;
  calls.push(body||{action:"read"});
  if(body?.action==="calendar_settings"){const enabled=body.enabled===true;state.calendar={...state.calendar,enabled,status:enabled?"not_synced":"paused",updated_at:null};state.profile={...state.profile,revision:state.profile.revision+1};}
+ if(body?.action==="goal_save"){const goal={id:`goal-${state.goals.length+1}`,area:body.area as CoachGoal["area"],content:String(body.content),due:(body.due as string|null)??null,measure:(body.measure as string|null)??null,lifecycle:"active" as const,updated_at:now};state.goals=body.id?state.goals.map(g=>g.id===body.id?{...g,...goal,id:g.id}:g):[...state.goals,goal];}
+ if(body?.action==="goal_status")state.goals=state.goals.map(g=>g.id===body.id?{...g,lifecycle:body.lifecycle as CoachGoal["lifecycle"]}:g);
  if(body?.action==="settings"){const profile={...body};Reflect.deleteProperty(profile,"action");state.profile={...state.profile,...profile,revision:state.profile.revision+1} as CoachProfile;}
  return new Response(JSON.stringify(state),{status:200,headers:{"content-type":"application/json"}});
 };
