@@ -18,14 +18,16 @@ export function localDayRange(timezone: string, now: Date) {
 }
 const clip = (s: string, max: number) => { const t = s.replace(/\s+/g, " ").trim(); return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t; };
 
-/** Tasks due today first, then the most recently overdue; the 8h check-in shows at most AGENDA_LIMIT. */
+/** Tasks due today first, then the most recently overdue (own tasks before follow-ups on the same day); at most AGENDA_LIMIT. */
 export function agendaText(tasks: AgendaTask[], totals: AgendaTotals, events: Pick<CalendarEvent, "subject" | "start" | "is_all_day" | "is_private">[], timezone: string): string {
  const blocks: string[] = [];
  if (tasks.length) {
   const shown = tasks.slice(0, AGENDA_LIMIT);
   const date = new Intl.DateTimeFormat("pt-BR", { timeZone: timezone, day: "2-digit", month: "2-digit" });
   const lines = shown.map(t => {
-   const who = t.acao === "cobrar" && !t.is_mine ? `Cobrar ${t.owner?.trim() || "a outra pessoa"}: ` : "";
+   // "vitor" (or no owner) is the legacy marker for the user; a follow-up only names someone else.
+   const other = t.owner?.trim() && !/^vitor\b/i.test(t.owner.trim()) ? t.owner.trim() : null;
+   const who = t.acao === "cobrar" && !t.is_mine && other ? `Cobrar ${other}: ` : "";
    return `- ${who}${clip(t.titulo, 110)} (${t.today ? "vence hoje" : `venceu em ${date.format(new Date(t.prazo))}`})`;
   });
   const today = Math.max(0, totals.today - shown.filter(t => t.today).length);
@@ -55,9 +57,9 @@ export async function morningAgenda(userId: string, timezone: string, now = new 
    FROM tarefas WHERE user_id=$1 AND status NOT IN ('concluida','cancelada') AND prazo IS NOT NULL AND prazo<$3 AND (is_mine OR acao='cobrar')
    ORDER BY prazo>=$2 DESC,
     CASE WHEN prazo>=$2 THEN CASE prioridade WHEN 'urgente' THEN 0 WHEN 'alta' THEN 1 WHEN 'media' THEN 2 ELSE 3 END END,
-    CASE WHEN prazo>=$2 THEN prazo END,CASE WHEN prazo<$2 THEN prazo END DESC,
-    CASE prioridade WHEN 'urgente' THEN 0 WHEN 'alta' THEN 1 WHEN 'media' THEN 2 ELSE 3 END,id
-   LIMIT ${AGENDA_LIMIT}`, [userId, range.from.toISOString(), range.to.toISOString()])).rows);
+    CASE WHEN prazo>=$2 THEN prazo END,CASE WHEN prazo<$2 THEN (prazo AT TIME ZONE $4)::date END DESC,is_mine DESC,
+    CASE prioridade WHEN 'urgente' THEN 0 WHEN 'alta' THEN 1 WHEN 'media' THEN 2 ELSE 3 END,prazo DESC,id
+   LIMIT ${AGENDA_LIMIT}`, [userId, range.from.toISOString(), range.to.toISOString(), timezone])).rows);
  const total = rows[0]?.total ?? 0, totalToday = rows[0]?.total_today ?? 0;
  const events = await calendarContext(userId, { from: range.from.toISOString(), to: range.to.toISOString() }, { timezone }).then(c => c.events).catch(() => []);
  return agendaText(rows.map(r => ({ ...r, prazo: new Date(r.prazo).toISOString() })), { today: totalToday, overdue: total - totalToday }, events, timezone);
