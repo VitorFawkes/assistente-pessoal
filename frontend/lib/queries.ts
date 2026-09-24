@@ -530,6 +530,7 @@ export const meetingsFor = (userId: string) => ({
            (SELECT count(*) FROM tarefas WHERE meeting_id = m.id AND acao IN ('executar','cobrar'))::int AS n_minhas
          FROM meetings m
          WHERE m.status != 'archived_session'
+           AND m.user_id::text <> current_setting('app.current_user_id', true)
          ORDER BY coalesce(m.recorded_at, m.created_at) DESC
          LIMIT 100`,
       );

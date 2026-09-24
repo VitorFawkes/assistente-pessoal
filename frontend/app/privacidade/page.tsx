@@ -15,7 +15,7 @@ export default function PrivacidadePage() {
       <section className="space-y-4">
         <h2 className="text-lg font-semibold">Quem é o controlador de dados</h2>
         <p className="text-sm leading-relaxed">
-          A Welcome Trips é a controladora dos dados pessoais processados nesta plataforma.
+          A Welcome (Welcome Trips e Welcome Weddings) é a controladora dos dados pessoais processados nesta plataforma.
           Nos comprometemos a proteger sua privacidade de acordo com a Lei Geral de Proteção
           de Dados (LGPD) do Brasil.
         </p>
@@ -54,8 +54,8 @@ export default function PrivacidadePage() {
       <section className="space-y-4">
         <h2 className="text-lg font-semibold">Quem pode acessar seus dados</h2>
         <p className="text-sm leading-relaxed">
-          Por padrão, todas as reuniões são visíveis para toda a Welcome Trips. Você pode restringir
-          o acesso de três formas:
+          Por padrão, todas as reuniões são visíveis para toda a Welcome. Você pode restringir
+          o acesso de duas formas:
         </p>
         <ul className="list-disc list-inside space-y-2 ml-2 text-sm leading-relaxed">
           <li><strong>Só eu:</strong> apenas você pode acessar a reunião</li>
@@ -92,8 +92,7 @@ export default function PrivacidadePage() {
       <section className="space-y-4">
         <h2 className="text-lg font-semibold">Como solicitar exclusão</h2>
         <p className="text-sm leading-relaxed">
-          Para solicitar a exclusão de suas reuniões e dados pessoais, entre em contato com
-          a Welcome Trips. Suas gravações e transcrições serão permanentemente removidas de
+          Para solicitar a exclusão de suas reuniões e dados pessoais, fale com o Vitor. Suas gravações e transcrições serão permanentemente removidas de
           nossos servidores.
         </p>
       </section>
@@ -101,23 +100,23 @@ export default function PrivacidadePage() {
       <section className="space-y-4">
         <h2 className="text-lg font-semibold">Duração dos dados</h2>
         <p className="text-sm leading-relaxed">
-          Suas reuniões e dados são mantidos enquanto sua conta estiver ativa. Ao cancelar
-          sua conta ou solicitar exclusão, todos os dados serão removidos em até 30 dias.
+          Suas reuniões e dados são mantidos enquanto sua conta estiver ativa. Quando você
+          pede a exclusão, os dados são removidos pelo administrador.
         </p>
       </section>
 
       <section className="space-y-4">
         <h2 className="text-lg font-semibold">Alterações nesta política</h2>
         <p className="text-sm leading-relaxed">
-          Podemos atualizar esta política de privacidade ocasionalmente. Notificaremos você
-          sobre mudanças significativas via e-mail.
+          Podemos atualizar esta política de privacidade ocasionalmente. A versão atual fica
+          sempre nesta página.
         </p>
       </section>
 
       <footer className="border-t border-[color:var(--border)] pt-6 mt-8">
         <p className="text-xs text-[color:var(--muted)]">
           Esta política está disponível em português. Para questões sobre privacidade,
-          entre em contato com a Welcome Trips.
+          fale com o Vitor.
         </p>
       </footer>
     </article>

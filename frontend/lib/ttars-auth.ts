@@ -109,7 +109,24 @@ export async function atualizarListaDoTtars(token: string): Promise<number> {
        SET nome = EXCLUDED.nome, organizacao = EXCLUDED.organizacao, times = EXCLUDED.times, atualizado_em = now()`,
     [JSON.stringify(linhas)],
   );
-  await query(`DELETE FROM ttars_pessoas WHERE atualizado_em < now() - interval '1 minute'`);
+  // Não apaga quem ficou de fora: o admin pode ter entrado por outra org, que mostra outra lista.
+  // Quem foi desativado no TTARS perde a liberação e sai de todos os aparelhos.
+  const inativos =
+    (await lerTtars<{ email: string | null }[]>(
+      "/rest/v1/profiles?select=email&active=eq.false&email=not.is.null&limit=1000",
+      token,
+    )) || [];
+  const emailsInativos = inativos.map((p) => String(p.email).toLowerCase());
+  if (emailsInativos.length) {
+    await query(`UPDATE acessos_equipe SET liberado = false, alterado_em = now() WHERE liberado AND email = ANY($1::text[])`, [emailsInativos]);
+    await query(
+      `UPDATE sessions SET revoked_at = now()
+       WHERE revoked_at IS NULL
+         AND user_id IN (SELECT id FROM users WHERE LOWER(email) = ANY($1::text[]) AND NOT is_admin)`,
+      [emailsInativos],
+    );
+    await query(`DELETE FROM ttars_pessoas WHERE email = ANY($1::text[])`, [emailsInativos]);
+  }
   return linhas.length;
 }
 

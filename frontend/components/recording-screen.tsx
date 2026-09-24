@@ -37,12 +37,13 @@ export function RecordingScreen({ userId }: { userId: string }) {
   const parteRef = useRef(0);
   const filaEnvioRef = useRef<Promise<void>>(Promise.resolve());
 
-  const isFirefox = typeof window !== "undefined" && /Firefox/.test(navigator.userAgent);
-  const isIPhone =
-    typeof window !== "undefined" &&
-    /iPhone|iPad|iPod/.test(navigator.userAgent);
+  const pendentesRef = useRef<{ blob: Blob; indice: number; parte: number }[]>([]);
+  const [isFirefox, setIsFirefox] = useState(false);
+  const [isIPhone, setIsIPhone] = useState(false);
 
   useEffect(() => {
+    setIsFirefox(/Firefox/.test(navigator.userAgent));
+    setIsIPhone(/iPhone|iPad|iPod/.test(navigator.userAgent));
     checkActiveSession();
   }, []);
 
@@ -87,6 +88,9 @@ export function RecordingScreen({ userId }: { userId: string }) {
 
   async function startRecording(resumeId?: string, modo = mode) {
     sessionIdRef.current = resumeId || crypto.randomUUID();
+    try {
+      localStorage.setItem(`gravacao-modo:${sessionIdRef.current}`, modo || "na-sala");
+    } catch {}
     try {
       if (modo === "na-sala") {
         await startMicOnly();
@@ -219,24 +223,66 @@ export function RecordingScreen({ userId }: { userId: string }) {
     rec.start(30000);
   }
 
-  async function sendChunk(blob: Blob, indice: number, parte: number) {
-    for (let tentativa = 1; tentativa <= 5; tentativa++) {
-      try {
-        const formData = new FormData();
-        formData.append("audio", blob);
-        const response = await fetch(`/api/gravacao/${sessionIdRef.current}/pedaco?chunk=${indice}&parte=${parte}`, {
-          method: "POST",
-          body: formData,
-        });
-        if (!response.ok) throw new Error(String(response.status));
-        setChunkCount((c) => c + 1);
-        return;
-      } catch (err) {
-        console.error("Envio do áudio falhou, tentando de novo:", err);
-        await new Promise((r) => setTimeout(r, tentativa * 2000));
-      }
+  async function enviarPedaco(blob: Blob, indice: number, parte: number): Promise<"ok" | "fechada" | "falhou"> {
+    try {
+      const formData = new FormData();
+      formData.append("audio", blob);
+      const response = await fetch(`/api/gravacao/${sessionIdRef.current}/pedaco?chunk=${indice}&parte=${parte}`, {
+        method: "POST",
+        body: formData,
+      });
+      if (response.status === 409) return "fechada";
+      return response.ok ? "ok" : "falhou";
+    } catch {
+      return "falhou";
     }
-    toast.error("A internet caiu e parte do áudio não subiu. Continue gravando; tentamos de novo no fim.");
+  }
+
+  async function reenviarPendentes() {
+    const fila = pendentesRef.current;
+    pendentesRef.current = [];
+    for (const p of fila) {
+      const r = await enviarPedaco(p.blob, p.indice, p.parte);
+      if (r === "ok") setChunkCount((c) => c + 1);
+      else if (r === "falhou") pendentesRef.current.push(p);
+    }
+  }
+
+  // Ficou mais de 30 min sem internet: o que já subiu virou reunião; segue numa gravação nova.
+  function recomecarEmGravacaoNova() {
+    const antigo = mediaRecorderRef.current;
+    if (!antigo || antigo.state === "inactive") return;
+    antigo.ondataavailable = null;
+    antigo.onstop = null;
+    antigo.stop();
+    pendentesRef.current = [];
+    sessionIdRef.current = crypto.randomUUID();
+    try {
+      localStorage.setItem(`gravacao-modo:${sessionIdRef.current}`, mode || "na-sala");
+    } catch {}
+    setSessionId(sessionIdRef.current);
+    setChunkCount(0);
+    setupMediaRecorder(antigo.stream);
+    toast.info("A internet ficou fora por muito tempo. O que foi gravado antes já foi enviado; continuamos gravando.");
+  }
+
+  async function sendChunk(blob: Blob, indice: number, parte: number) {
+    if (parte !== parteRef.current) return;
+    for (let tentativa = 1; tentativa <= 5; tentativa++) {
+      const r = await enviarPedaco(blob, indice, parte);
+      if (r === "ok") {
+        setChunkCount((c) => c + 1);
+        if (pendentesRef.current.length) await reenviarPendentes();
+        return;
+      }
+      if (r === "fechada") {
+        recomecarEmGravacaoNova();
+        return;
+      }
+      await new Promise((res) => setTimeout(res, tentativa * 2000));
+    }
+    pendentesRef.current.push({ blob, indice, parte });
+    toast.error("A internet caiu. Continue gravando: o áudio fica guardado e sobe quando ela voltar.");
   }
 
   function stopAllStreams() {
@@ -252,6 +298,11 @@ export function RecordingScreen({ userId }: { userId: string }) {
     setRecordingState("stopping");
     try {
       await filaEnvioRef.current;
+      for (let tentativa = 1; pendentesRef.current.length && tentativa <= 3; tentativa++) {
+        await reenviarPendentes();
+        if (pendentesRef.current.length) await new Promise((res) => setTimeout(res, 3000));
+      }
+      if (pendentesRef.current.length) throw new Error("áudio ainda não subiu");
       const response = await fetch(`/api/gravacao/${sessionIdRef.current}/fim`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -361,9 +412,13 @@ export function RecordingScreen({ userId }: { userId: string }) {
           <div className="flex gap-3">
             <button
               onClick={() => {
-                setMode("na-sala");
+                let modo: "na-sala" | "online" = "na-sala";
+                try {
+                  if (localStorage.getItem(`gravacao-modo:${resumeSession.id}`) === "online" && !isIPhone) modo = "online";
+                } catch {}
+                setMode(modo);
                 setResumeSession(null);
-                startRecording(resumeSession.id, "na-sala");
+                startRecording(resumeSession.id, modo);
               }}
               className="flex-1 py-3 px-4 rounded-lg bg-[color:var(--foreground)] text-[color:var(--background)] font-semibold hover:opacity-90 transition"
             >

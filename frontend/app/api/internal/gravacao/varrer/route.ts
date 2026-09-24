@@ -2,8 +2,9 @@ import { timingSafeEqual } from "node:crypto";
 import { query } from "@/lib/db";
 import { finalizarGravacao } from "@/lib/gravacao-final";
 
-// Gravação sem áudio novo há 10 min (aba fechada, notebook dormiu, internet caiu) vira reunião.
-const MINUTOS_SEM_AUDIO = 10;
+// Gravação sem áudio novo há 30 min (aba fechada, notebook dormiu, internet caiu) vira reunião.
+// Mesmo prazo que a tela promete para reabrir e continuar.
+const MINUTOS_SEM_AUDIO = 30;
 
 function autorizado(req: Request): boolean {
   const esperado = Buffer.from(process.env.WEBHOOK_TOKEN || "");

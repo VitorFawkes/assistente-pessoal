@@ -23,6 +23,7 @@ const NAV = [
 ];
 
 function isCurrent(pathname: string, href: string): boolean {
+  if (href === "/reunioes" && pathname.startsWith("/reunioes/gravar")) return false;
   return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/");
 }
 
@@ -37,10 +38,11 @@ export function SiteHeader({
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  // Em TEAM_MODE, não-admin vê só Pendências, Reuniões e Pessoas
+  // Em TEAM_MODE: Gravar sempre à mão; não-admin vê só Pendências, Reuniões, Gravar e Pessoas
+  const navEquipe = teamMode ? [...NAV.slice(0, 3), { href: "/reunioes/gravar", label: "Gravar" }, ...NAV.slice(3)] : NAV;
   const filteredNav = teamMode && user && !user.is_admin
-    ? NAV.filter((item) => ["/", "/reunioes", "/pessoas"].includes(item.href))
-    : NAV;
+    ? navEquipe.filter((item) => ["/", "/reunioes", "/reunioes/gravar", "/pessoas"].includes(item.href))
+    : navEquipe;
 
   useEffect(() => {
     if (!open) return;

@@ -99,9 +99,9 @@ export function RecordingControls({
     return `${displayMinutes}:${String(displaySeconds).padStart(2, "0")}`;
   };
 
-  // Stop after 4 hours
+  // Para sozinho em 6 h (gravação esquecida), como o gravador do Mac
   useEffect(() => {
-    if (recording && seconds >= 4 * 3600) {
+    if (recording && seconds >= 6 * 3600) {
       onStop();
     }
   }, [recording, seconds, onStop]);

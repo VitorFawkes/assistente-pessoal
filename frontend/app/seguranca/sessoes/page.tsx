@@ -122,7 +122,7 @@ export default async function SessoesPage() {
       </form>
 
       {isTeamMode() && (
-        <section className="pt-7 space-y-4">
+        <section id="quem-ve" className="pt-7 space-y-4 scroll-mt-20">
           <h2 className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
             Minhas reuniões
           </h2>

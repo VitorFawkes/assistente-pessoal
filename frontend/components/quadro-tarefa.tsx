@@ -27,6 +27,7 @@ import {
 } from "@/lib/quadro-v2";
 import { TaskAnexos } from "./task-anexos";
 import type { Tarefa } from "@/lib/queries";
+import { getOwnerSlug } from "@/lib/owner-slug";
 
 // ── pedacinhos de edição no lugar ──────────────────────────────────────
 
@@ -146,7 +147,7 @@ function DonoVivo({ tarefa, pessoasDoQuadro }: { tarefa: Tarefa; pessoasDoQuadro
     ];
     mut.patch(
       tarefa.id,
-      { pessoas: lista, owner: novo || "vitor", acao: novo ? "cobrar" : "executar" },
+      { pessoas: lista, owner: novo || getOwnerSlug(), acao: novo ? "cobrar" : "executar" },
       { silent: true },
     );
   }

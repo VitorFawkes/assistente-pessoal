@@ -47,7 +47,12 @@ export default async function TermosPage() {
         </p>
         <p className="text-[12px] text-[color:var(--muted)] italic">
           {teamMode ? (
-            "Essa é uma ferramenta de equipe da Welcome. Processamento de áudios na nuvem."
+            <>
+              Essa é uma ferramenta de equipe da Welcome. Por padrão, as reuniões que você gravar
+              ficam visíveis para toda a Welcome; você pode mudar para só você ou para pessoas e
+              times escolhidos, no menu e em cada reunião.{" "}
+              <a href="/privacidade" className="underline">Política de privacidade</a>.
+            </>
           ) : (
             "Esse é um beta — uso pessoal, custos da OpenAI bancados pelo Vitor (ele te avisa se você passar de um volume razoável e combina como dividir)."
           )}

@@ -103,7 +103,7 @@ export default async function ReunioesPage() {
         {meetingsMine.length === 0 ? (
           emptyStateContent
         ) : (
-          <MeetingsList meetings={meetingsMine} total={total} limite={MEETINGS_LIMIT} isAdmin={user.is_admin} />
+          <MeetingsList meetings={meetingsMine} total={total} limite={MEETINGS_LIMIT} />
         )}
       </div>
     );
@@ -124,7 +124,7 @@ export default async function ReunioesPage() {
               meetingsMine.length === 0 ? (
                 emptyStateContent
               ) : (
-                <MeetingsList meetings={meetingsMine} total={total} limite={MEETINGS_LIMIT} isAdmin={user.is_admin} />
+                <MeetingsList meetings={meetingsMine} total={total} limite={MEETINGS_LIMIT} />
               ),
           },
           {
@@ -143,7 +143,6 @@ export default async function ReunioesPage() {
                   meetings={meetingsVisible.filter((m: any) => m.user_id !== user.id)}
                   total={meetingsVisible.length}
                   limite={MEETINGS_LIMIT}
-                  isAdmin={user.is_admin}
                   somenteLeitura
                 />
               ),

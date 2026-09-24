@@ -7,6 +7,7 @@
 // e a reunião). Quando a comparação fica em dúvida, o card nasce com o aviso
 // "Parece repetida de…" e dois botões. Os cliques viram exemplo pra próxima
 // comparação. Tudo isso é só do dono — o convidado não vê.
+import { isOwner } from "@/lib/owner-slug";
 import { useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -163,7 +164,7 @@ function Mencao({ m, podeSeparar }: { m: TarefaMencao; podeSeparar: boolean }) {
         )}
       </div>
       <p className="text-[color:var(--muted-strong)]">Dito assim: &ldquo;{m.titulo_falado}&rdquo;</p>
-      {m.owner_falado && m.owner_falado.toLowerCase() !== "vitor" && (
+      {m.owner_falado && !isOwner(m.owner_falado) && (
         <p className="text-[11px] text-[color:var(--muted)]">Dono citado nesta reunião: {m.owner_falado}</p>
       )}
       {m.prazo_anterior && m.prazo_falado && (

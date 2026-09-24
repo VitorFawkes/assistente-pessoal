@@ -67,6 +67,15 @@ export function UserMenu({ nome, isAdmin }: Props) {
                   Liberar pessoas
                 </Link>
               )}
+              {isTeamMode() && (
+                <Link
+                  href="/seguranca/sessoes#quem-ve"
+                  onClick={() => setOpen(false)}
+                  className="block px-4 py-2 hover:bg-[color:var(--accent)] text-[color:var(--muted-strong)]"
+                >
+                  Quem vê minhas reuniões
+                </Link>
+              )}
               <Link
                 href="/seguranca/sessoes"
                 onClick={() => setOpen(false)}

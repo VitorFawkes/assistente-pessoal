@@ -72,7 +72,7 @@ export function normalizarTitulo(t: string): string {
 }
 
 function limpar(t: TarefaExtraida) {
-  const owner = (t.owner ?? "").trim() || "vitor";
+  const owner = (t.owner ?? "").trim() || getOwnerSlug();
   const ehVitor = isOwner(owner);
   const acao = ACOES.includes(String(t.acao)) ? String(t.acao) : ehVitor ? "executar" : "cobrar";
   let pessoas: string | null = null;
