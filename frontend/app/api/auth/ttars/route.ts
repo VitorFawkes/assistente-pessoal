@@ -1,76 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
-import { validateTtarsSsoToken, upsertUserFromTtars, TtarsSsoError } from "@/lib/ttars-sso";
+import { upsertUserFromTtars } from "@/lib/ttars-sso";
+import { estaLiberado, usarCodigoDeEntrada } from "@/lib/ttars-auth";
 import { setSessionCookie } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { clientIp } from "@/lib/rate-limit";
 
+// Entrada pela aba do TTARS com o código de uso único gerado em /api/auth/ttars/entrar.
 export async function GET(req: NextRequest) {
-  const { searchParams } = req.nextUrl;
-  const token = searchParams.get("t");
+  const proto = req.headers.get("x-forwarded-proto") || "https";
+  const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost";
+  const ir = (caminho: string) => NextResponse.redirect(`${proto}://${host}${caminho}`, 303);
 
-  if (!token) {
-    return new NextResponse("missing token", { status: 400 });
-  }
+  const codigo = req.nextUrl.searchParams.get("c") || "";
+  const pessoa = /^[A-Za-z0-9_-]{20,64}$/.test(codigo) ? await usarCodigoDeEntrada(codigo) : null;
+  if (!pessoa) return ir("/sem-acesso?motivo=link-expirado");
+  if (!(await estaLiberado(pessoa.email))) return ir("/sem-acesso");
 
-  try {
-    // Validar token do TTARS
-    const claims = await validateTtarsSsoToken(token);
+  const user = await upsertUserFromTtars({
+    email: pessoa.email,
+    nome: pessoa.nome,
+    ttars_user_id: pessoa.ttarsId,
+    times: pessoa.times,
+  } as Parameters<typeof upsertUserFromTtars>[0]);
 
-    // Criar ou atualizar user
-    const user = await upsertUserFromTtars(claims);
-
-    // Criar sessão
-    const ip = clientIp(req.headers);
-    const sessionRows = await query<{ id: string }>(
-      `INSERT INTO sessions (user_id, ip_address, user_agent)
-       VALUES ($1, $2, $3) RETURNING id`,
-      [
-        user.id,
-        ip === "unknown" ? null : ip,
-        (req.headers.get("user-agent") || "").slice(0, 500),
-      ],
-    );
-
-    const sessionId = sessionRows[0].id;
-
-    // Audit log
-    await query(
-      `INSERT INTO audit_log (user_id, action, metadata)
-       VALUES ($1, 'ttars.login', $2)`,
-      [user.id, JSON.stringify({ ttars_user_id: claims.ttars_user_id, times: claims.times })],
-    );
-
-    // Setar cookie de sessão
-    await setSessionCookie(sessionId);
-
-    // Redirecionar para /termos se não aceitou, senão para / (com validação de open redirect)
-    const proto = req.headers.get("x-forwarded-proto") || "https";
-    const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost";
-    let nextUrl = searchParams.get("next") || "/";
-
-    // Validar que nextUrl é relativo e não um open redirect (ex: //attacker.com)
-    if (!nextUrl.startsWith("/") || nextUrl.startsWith("//")) {
-      nextUrl = "/";
-    }
-
-    const redirectUrl = `${proto}://${host}${nextUrl}`;
-
-    return NextResponse.redirect(redirectUrl, 303);
-  } catch (e) {
-    if (e instanceof TtarsSsoError) {
-      // Email não autorizado → /sem-acesso
-      if (e.code === "email_not_authorized") {
-        const proto = req.headers.get("x-forwarded-proto") || "https";
-        const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost";
-        return NextResponse.redirect(`${proto}://${host}/sem-acesso`, 303);
-      }
-
-      // Outros erros de validação → 400
-      console.error(`[TTARS SSO] ${e.code}: ${e.message}`);
-      return new NextResponse(`${e.code}: ${e.message}`, { status: 400 });
-    }
-
-    console.error("[TTARS SSO] erro inesperado", e);
-    throw e;
-  }
+  const ip = clientIp(req.headers);
+  const sessao = await query<{ id: string }>(
+    `INSERT INTO sessions (user_id, ip_address, user_agent) VALUES ($1, $2, $3) RETURNING id`,
+    [user.id, ip === "unknown" ? null : ip, (req.headers.get("user-agent") || "").slice(0, 500)],
+  );
+  await query(`INSERT INTO audit_log (user_id, action, metadata) VALUES ($1, 'ttars.login', $2)`, [
+    user.id,
+    JSON.stringify({ ttars_user_id: pessoa.ttarsId, times: pessoa.times }),
+  ]);
+  await setSessionCookie(sessao[0].id);
+  return ir("/");
 }

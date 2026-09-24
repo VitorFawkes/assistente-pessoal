@@ -12,34 +12,8 @@ type Pessoa = {
 };
 
 async function getTtarsRoster(): Promise<Pessoa[]> {
-  const rosterUrl = process.env.TTARS_ROSTER_URL;
-  const rosterToken = process.env.TTARS_ROSTER_TOKEN;
-
-  if (!rosterUrl || !rosterToken) {
-    console.warn("TTARS_ROSTER_URL ou TTARS_ROSTER_TOKEN não configurados");
-    return [];
-  }
-
-  try {
-    const res = await fetch(rosterUrl, {
-      headers: {
-        "x-acoes-token": rosterToken,
-      },
-      cache: "no-store",
-    });
-
-    if (!res.ok) {
-      console.error(`TTARS roster error: ${res.status}`);
-      return [];
-    }
-
-    const data = await res.json();
-    // TTARS responde { pessoas: [{ nome, email, organizacao, times }] }
-    return Array.isArray(data?.pessoas) ? data.pessoas : [];
-  } catch (err) {
-    console.error("erro buscando TTARS roster", err);
-    return [];
-  }
+  // Atualizada a cada entrada do admin pela aba do TTARS (lib/ttars-auth.ts).
+  return query<Pessoa>(`SELECT nome, email, organizacao, times FROM ttars_pessoas ORDER BY nome`);
 }
 
 async function getAccessControls(): Promise<Map<string, { liberado: boolean }>> {
