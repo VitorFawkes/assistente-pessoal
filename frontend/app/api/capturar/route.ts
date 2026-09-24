@@ -3,6 +3,7 @@ import { withAuth } from "@/lib/auth";
 import { frentesFor, tarefasFor } from "@/lib/queries";
 import { parseCapture, precisaRevisao, type CaptureDraft } from "@/lib/capture";
 import { ownersFor } from "@/lib/owners";
+import { getOwnerSlug } from "@/lib/owner-slug";
 
 export const dynamic = "force-dynamic";
 
@@ -71,7 +72,7 @@ export const POST = withAuth(async (user, req) => {
   } catch (err) {
     console.error("[capturar] parseCapture falhou, salvando cru:", err);
     draft = {
-      titulo: texto, descricao: null, owner: "vitor", acao: "executar",
+      titulo: texto, descricao: null, owner: getOwnerSlug(), acao: "executar",
       prazo: null, prazo_text: null, prioridade: "media", area_raw: null,
       pessoas: [], confidence: "low", confidence_rationale: "fallback: IA indisponível",
     };

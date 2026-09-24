@@ -87,7 +87,7 @@ describe("derivações", () => {
     expect(tipoOf(mk({ meeting_type: null }))).toBe("desconhecido");
   });
   test("principalPersonOf", () => {
-    expect(principalPersonOf(mk({ acao: "executar" }))).toBe("Vitor");
+    expect(principalPersonOf(mk({ acao: "executar" }))).toBe("Você");
     expect(
       principalPersonOf(
         mk({ acao: "cobrar", pessoas: [{ id: "1", nome: "Tiago", principal: true }] }),
