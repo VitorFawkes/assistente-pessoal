@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUserOrRedirect } from "@/lib/auth";
-import { meetingsFor, tarefasFor, pessoasFor } from "@/lib/queries";
+import { meetingsFor, tarefasFor, pessoasFor, teamAccessFor } from "@/lib/queries";
 import { fmtDate } from "@/lib/utils";
 import { meetingSubject } from "@/lib/meeting-label";
+import { isTeamMode } from "@/lib/team-mode";
 import { TaskRow, type Tarefa } from "@/components/task-row";
 import { TaskGroupByPerson } from "@/components/task-group-by-person";
 import { MeetingTaskSummary } from "@/components/meeting-task-summary";
@@ -14,19 +15,22 @@ import {
 } from "@/components/transcription-view";
 import { SpeakersStrip } from "@/components/speakers-strip";
 import { buildSpeakerCards } from "@/lib/speakers";
-import { ArrowLeft, Mic, Video, FileQuestion, UsersRound } from "lucide-react";
+import { ArrowLeft, Mic, Video, FileQuestion, UsersRound, Lock } from "lucide-react";
 import { ExecutiveSummary } from "./executive-summary";
 import { AutoLabelByContent } from "./auto-label-by-content";
 import { DeleteMeetingButton } from "@/components/delete-meeting-button";
 import { MeetingExportMenu } from "@/components/meeting-export-menu";
 import { MeetingShareButton } from "@/components/meeting-share-button";
 import { RegenerateButton } from "@/components/regenerate-button";
+import { MeetingVisibilitySelector } from "@/components/meeting-visibility-selector";
 import { OwnerTaskProvider } from "@/lib/task-mutations";
 
 export const dynamic = "force-dynamic";
 
 type Meeting = {
   id: string;
+  user_id: string;
+  user_nome: string | null;
   source: string;
   meeting_type: string | null;
   original_filename: string;
@@ -44,6 +48,7 @@ type Meeting = {
   sections: { start_seconds: number; title: string }[] | null;
   segments_removidos_count: number;
   share_token: string | null;
+  visibilidade: string | null;
 };
 
 function MeetingTypeIcon({ type }: { type: string | null }) {
@@ -62,10 +67,14 @@ export default async function ReuniaoDetalhePage({
   const meeting = (await meetingsFor(user.id).byIdDetailed(id)) as Meeting | null;
   if (!meeting) notFound();
 
-  const [tarefas, pessoas, jaExistiam] = await Promise.all([
+  const isOwner = meeting.user_id === user.id;
+
+  const [tarefas, pessoas, jaExistiam, teamPessoas, teamTimes] = await Promise.all([
     tarefasFor(user.id).byMeeting(id) as Promise<Tarefa[]>,
     pessoasFor(user.id).listMinimal(),
     tarefasFor(user.id).faladasDeNovoNa(id) as Promise<Tarefa[]>,
+    isTeamMode() ? teamAccessFor(user.id).listPessoas() : Promise.resolve([]),
+    isTeamMode() ? teamAccessFor(user.id).listTimes() : Promise.resolve([]),
   ]);
   const aberta = (t: Tarefa) => t.status !== "concluida" && t.status !== "cancelada";
   const suas = tarefas.filter((t) => aberta(t) && t.acao !== "aguardar");
@@ -95,29 +104,49 @@ export default async function ReuniaoDetalhePage({
   return (
     <OwnerTaskProvider>
     <div className="space-y-7 sm:space-y-9">
-      <div className="flex items-center justify-between gap-3">
+      {isTeamMode() && !isOwner && (
+        <div className="rounded-2xl border border-[color:var(--info)]/30 bg-[color:var(--info-bg)] p-4">
+          <p className="text-[12px] text-[color:var(--info)] flex items-center gap-2">
+            <Lock size={14} />
+            Reunião de {meeting.user_nome || "outro usuário"} — só leitura
+          </p>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <Link
           href="/reunioes"
           className="inline-flex items-center gap-1.5 text-[13px] text-[color:var(--muted)] hover:text-[color:var(--foreground)] transition"
         >
           <ArrowLeft size={14} /> reuniões
         </Link>
-        {/* Um botão de baixar pra reunião inteira. Antes eram dois — um ao lado
-            do resumo, outro ao lado da transcrição — e cada um abria a lista
-            completa: dava pra clicar em "baixar resumo" e sair com a
-            transcrição. Escolher O QUE baixar virou pergunta dentro do menu. */}
-        <div className="flex items-center gap-2">
-          <MeetingExportMenu
-            segments={meeting.segments || []}
-            labels={meeting.speaker_labels || {}}
-            sections={meeting.sections || []}
-            summaryMd={meeting.executive_summary}
-            duracao={meeting.duration_seconds || 0}
-            exportBase={`/api/meetings/${meeting.id}/export`}
-            printBase={`/reunioes/${meeting.id}/imprimir`}
-          />
-          <MeetingShareButton meetingId={meeting.id} tokenInicial={meeting.share_token} />
-          <DeleteMeetingButton meetingId={meeting.id} redirectTo="/reunioes" label="deletar" />
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {isTeamMode() && isOwner && (
+            <MeetingVisibilitySelector
+              meetingId={meeting.id}
+              currentVisibilidade={(meeting.visibilidade as "todos" | "so_eu" | "escolhidos") || "todos"}
+              pessoas={teamPessoas}
+              times={teamTimes}
+              isOwner={isOwner}
+            />
+          )}
+
+          {isOwner && (
+            <>
+              <MeetingExportMenu
+                segments={meeting.segments || []}
+                labels={meeting.speaker_labels || {}}
+                sections={meeting.sections || []}
+                summaryMd={meeting.executive_summary}
+                duracao={meeting.duration_seconds || 0}
+                exportBase={`/api/meetings/${meeting.id}/export`}
+                printBase={`/reunioes/${meeting.id}/imprimir`}
+              />
+              <MeetingShareButton meetingId={meeting.id} tokenInicial={meeting.share_token} />
+              <DeleteMeetingButton meetingId={meeting.id} redirectTo="/reunioes" label="deletar" />
+            </>
+          )}
         </div>
       </div>
 

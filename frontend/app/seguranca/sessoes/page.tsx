@@ -1,6 +1,8 @@
 import { requireUserOrRedirect, getCurrentSessionId } from "@/lib/auth";
 import { dataBR, horaBR } from "@/lib/data-br";
 import { query } from "@/lib/db";
+import { isTeamMode } from "@/lib/team-mode";
+import { DefaultVisibilityPref } from "@/components/default-visibility-pref";
 
 export const dynamic = "force-dynamic";
 
@@ -40,17 +42,28 @@ export default async function SessoesPage() {
   const user = await requireUserOrRedirect();
   const currentSessionId = await getCurrentSessionId();
 
-  const sessions = await query<SessionRow>(
-    `SELECT id,
-            to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
-            to_char(last_used_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS last_used_at,
-            ip_address::text AS ip_address,
-            user_agent
-       FROM sessions
-      WHERE user_id = $1 AND revoked_at IS NULL
-      ORDER BY last_used_at DESC`,
-    [user.id],
-  );
+  const [sessions, userPrefs] = await Promise.all([
+    query<SessionRow>(
+      `SELECT id,
+              to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+              to_char(last_used_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS last_used_at,
+              ip_address::text AS ip_address,
+              user_agent
+         FROM sessions
+        WHERE user_id = $1 AND revoked_at IS NULL
+        ORDER BY last_used_at DESC`,
+      [user.id],
+    ),
+    isTeamMode()
+      ? query<{ visibilidade_padrao: string }>(
+          `SELECT visibilidade_padrao FROM users WHERE id = $1`,
+          [user.id],
+        )
+      : Promise.resolve([]),
+  ]);
+
+  const currentPref =
+    userPrefs.length > 0 ? (userPrefs[0].visibilidade_padrao as "todos" | "so_eu") : "todos";
 
   return (
     <div className="mx-auto max-w-2xl space-y-7">
@@ -107,6 +120,15 @@ export default async function SessoesPage() {
           Sair de todos os dispositivos
         </button>
       </form>
+
+      {isTeamMode() && (
+        <section className="pt-7 space-y-4">
+          <h2 className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
+            Minhas reuniões
+          </h2>
+          <DefaultVisibilityPref currentPreference={currentPref} />
+        </section>
+      )}
     </div>
   );
 }

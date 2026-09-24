@@ -293,6 +293,8 @@ export const meetingsFor = (userId: string) => ({
     withTenant(userId, async (db) => {
       const r = await db.query<{
         id: string;
+        user_id: string;
+        user_nome: string | null;
         source: string;
         meeting_type: string | null;
         original_filename: string;
@@ -310,17 +312,21 @@ export const meetingsFor = (userId: string) => ({
         sections: unknown;
         segments_removidos_count: number;
         share_token: string | null;
+        visibilidade: string | null;
       }>(
         `SELECT
-           id, source, meeting_type, original_filename, share_token,
-           to_char(coalesce(recorded_at, created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
-           to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
-           status, status_error, transcription, summary,
-           raw_ai_response->>'executive_summary' AS executive_summary,
-           duration_seconds, segments,
-           speaker_labels, speaker_labels_proposed, sections,
-           jsonb_array_length(coalesce(segments_removidos, '[]'::jsonb)) AS segments_removidos_count
-         FROM meetings WHERE id = $1`,
+           m.id, m.user_id, u.nome AS user_nome, m.source, m.meeting_type, m.original_filename, m.share_token,
+           to_char(coalesce(m.recorded_at, m.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
+           to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+           m.status, m.status_error, m.transcription, m.summary,
+           m.raw_ai_response->>'executive_summary' AS executive_summary,
+           m.duration_seconds, m.segments,
+           m.speaker_labels, m.speaker_labels_proposed, m.sections,
+           jsonb_array_length(coalesce(m.segments_removidos, '[]'::jsonb)) AS segments_removidos_count,
+           m.visibilidade
+         FROM meetings m
+         LEFT JOIN users u ON m.user_id = u.id
+         WHERE m.id = $1`,
         [id],
       );
       return r.rows[0] ?? null;
@@ -1161,5 +1167,41 @@ export const frentesFor = (userId: string) => ({
         [userId, nome.trim()],
       );
       return r.rows[0];
+    }),
+});
+
+// ─── teamAccessFor: pessoas e times acessíveis pra visibilidade ─────────
+export const teamAccessFor = (userId: string) => ({
+  /** Lista pessoas liberadas (acessos_equipe.liberado=true) e próprio usuário. */
+  listPessoas: () =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<{ id: string; nome: string; is_vitor: boolean }>(
+        `SELECT DISTINCT u.id, u.nome, u.id::text = $1 AS is_vitor
+         FROM users u
+         WHERE u.id::text = $1
+            OR EXISTS (SELECT 1 FROM acessos_equipe WHERE email = u.email AND liberado = true)
+         ORDER BY is_vitor DESC, u.nome`,
+        [userId],
+      );
+      return r.rows;
+    }),
+
+  /** Lista times únicos de todos os usuários liberados. */
+  listTimes: () =>
+    withTenant(userId, async (db) => {
+      const r = await db.query<{ id: string; nome: string }>(
+        `SELECT DISTINCT jsonb_array_elements(u.times)->'id' AS id,
+                        jsonb_array_elements(u.times)->'nome' AS nome
+         FROM users u
+         WHERE (u.id::text = $1
+            OR EXISTS (SELECT 1 FROM acessos_equipe WHERE email = u.email AND liberado = true))
+           AND (u.times IS NOT NULL AND jsonb_array_length(u.times) > 0)
+         ORDER BY nome`,
+        [userId],
+      );
+      return r.rows.map((row) => ({
+        id: row.id ? (typeof row.id === "string" ? row.id : JSON.stringify(row.id)) : "",
+        nome: row.nome ? (typeof row.nome === "string" ? row.nome : JSON.stringify(row.nome)) : "",
+      }));
     }),
 });
