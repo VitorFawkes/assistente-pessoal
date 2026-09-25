@@ -28,5 +28,6 @@ export function origensQuePodemEmbutir(): string[] {
   return (process.env.TTARS_ORIGENS || "")
     .split(",")
     .map((s) => s.trim())
-    .filter((s) => /^https:\/\/[a-z0-9.-]+$/i.test(s));
+    // https sempre; http só o localhost de quem desenvolve (teste da aba numa página local).
+    .filter((s) => /^(https:\/\/[a-z0-9.-]+|http:\/\/localhost(:\d+)?)$/i.test(s));
 }
