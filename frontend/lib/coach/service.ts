@@ -170,7 +170,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
   const reportIds=()=>[...new Set([dossier,...(ask?.reads||[]).map(r=>r.dossier)].flatMap(reportIdsOf))];
   const data={profile,trigger:proactive?{kind:proactive,origin:"system_schedule_or_button",not_user_statement:true}:null,...(taskNotes.length?{task_changes_already_done_by_server:taskNotes}:{}),current_time:now.toISOString(),timezone:profile.timezone,local_time:new Intl.DateTimeFormat("pt-BR",{timeZone:profile.timezone,dateStyle:"full",timeStyle:"short"}).format(now),
     memories:usableMemories(memories),memory,commitments,history:modelMessages(recentHistory,MODEL_CONTEXT.history,MODEL_CONTEXT.historyChars),question:message,coverage,
-    reviews:modelReviews(recentReviews),assistant_dossier:dossierForModel(dossier,profile.timezone),self_person_ids:self,sources,
+    reviews:modelReviews(recentReviews),assistant_dossier:dossierForModel(dossier,profile.timezone,{passageText:false}),self_person_ids:self,sources,
     transcripts:selected.map(({meeting,chunk})=>({meeting_id:meeting.id,title:meeting.nome||meeting.original_filename,recorded_at:meeting.recorded_at,chunk_index:chunk.index,text:chunk.text,labeled_turns:labeledTurns(meeting,chunk,self)})),limitations:dossier.limitacoes};
   const inherited=reportLineage([...recentHistory,...recentReviews.map(review=>review.content)]);
   try{

@@ -44,7 +44,7 @@ const iso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
  * What a model may read: dates already in the user's timezone (a UTC date can fall on the next day), and the
  * transcript chunks behind passages stay on the server.
  */
-export function dossierForModel(dossier: Dossier, timezone: string) {
+export function dossierForModel(dossier: Dossier, timezone: string, options: { passageText?: boolean } = {}) {
  const format = new Intl.DateTimeFormat("pt-BR", { timeZone: timezone, day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
  const local = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(local);
@@ -53,7 +53,9 @@ export function dossierForModel(dossier: Dossier, timezone: string) {
  };
  const { excerpts: _excerpts, ...rest } = dossier;
  void _excerpts;
- return local(rest) as Omit<Dossier, "excerpts">;
+ // The Coach already reads each passage in transcripts (with speakers); the dossier then only points to it.
+ const consultas = options.passageText === false ? rest.consultas.map(c => c.trechos ? { ...c, trechos: c.trechos.map(t => ({ meeting_id: t.meeting_id, titulo: t.titulo, data: t.data, source_ids: t.source_ids })) } : c) : rest.consultas;
+ return local({ ...rest, consultas }) as Omit<Dossier, "excerpts">;
 }
 
 export const ASSISTANT_INSTRUCTION = `Você é o assistente do app Ações: acha e resume para o usuário o que está registrado sobre tarefas, pessoas, reuniões, prazos e agenda. Responda curto e direto, em português do Brasil.
@@ -99,7 +101,7 @@ export function assistantTool(input: { userId: string; timezone: string; now: Da
    const pedido = String(args.pedido).slice(0, 300);
    const dossier = await buildDossier({ userId: input.userId, message: pedido, recent: [], lane: "tarefas", timezone: input.timezone, now: input.now, selfPersonIds: input.selfPersonIds, onTelemetry: input.onTelemetry });
    reads.push({ pedido, dossier });
-   const ids = new Map(dossier.excerpts.map(s => [`${s.meeting.id}:${s.chunk.text.slice(0, 1500)}`, input.addExcerpt(s)]));
+   const ids = new Map(dossier.excerpts.map(s => [`${s.meeting.id}:${s.chunk.text}`, input.addExcerpt(s)]));
    const view = dossierForModel({ ...dossier, consultas: dossier.consultas.map(c => c.trechos ? { ...c, trechos: c.trechos.map(t => ({ ...t, source_ids: ids.get(`${t.meeting_id}:${t.texto}`) ?? [] })) } : c) }, input.timezone);
    return { pedido, ...view };
   },

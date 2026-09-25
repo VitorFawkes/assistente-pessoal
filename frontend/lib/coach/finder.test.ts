@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { matchMeetings, matchPeople, periodRange } from "./finder";
+import { chunkMeeting } from "./evidence";
+import { matchMeetings, matchPeople, narrowChunk, periodRange } from "./finder";
+import type { CoachMeeting } from "./types";
 
 const SP = "America/Sao_Paulo";
 const range = (key: Parameters<typeof periodRange>[0], now: string) => { const r = periodRange(key, SP, new Date(now)); return [r.from.toISOString(), r.to.toISOString()]; };
@@ -54,5 +56,24 @@ describe("reuniões citadas na mensagem", () => {
   expect(ids("o que ficou da reunião de 24/09")).toEqual(["m2"]);
   expect(ids("o que vence em 24/09")).toEqual([]);
   expect(ids("x")).toEqual([]);
+ });
+});
+
+describe("trecho recortado em volta do assunto", () => {
+ const filler = (n: number) => "conversa sobre outros temas da semana. ".repeat(n);
+ const transcription = `${filler(700)}Sobre o Active: vou desligar o Active para o comercial quando o CRM entrar.\n${filler(400)}`;
+ const meeting = { id: "m", nome: "R", original_filename: "r.m4a", recorded_at: null, transcription, segments: null, speaker_labels: null, speaker_pessoas: null } as CoachMeeting;
+ test("guarda a posição real na reunião e o texto em volta dos termos", () => {
+  const chunks = chunkMeeting(meeting);
+  const hit = chunks.findIndex(c => c.text.includes("desligar o Active"));
+  const { chunk } = narrowChunk({ meeting, chunk: chunks[hit] }, "desligar o Active");
+  expect(chunk.text).toContain("vou desligar o Active para o comercial");
+  expect(chunk.text.length).toBeLessThan(3600);
+  expect(transcription.slice(chunk.start_offset!, chunk.start_offset! + chunk.text.length)).toBe(chunk.text);
+  expect(chunk.index).toBe(chunks[hit].index);
+ });
+ test("trecho curto fica como está", () => {
+  const short = { meeting, chunk: { index: 0, count: 1, text: "curto", source_hash: "h" } };
+  expect(narrowChunk(short, "x").chunk).toBe(short.chunk);
  });
 });

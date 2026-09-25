@@ -3,6 +3,8 @@ import type { PoolClient } from "pg";
 import { withTenant } from "../db";
 import type { Dossier, DossierEntry, DossierMeeting, DossierPassage, DossierTask, MeetingCandidate, PeriodKey, PersonCandidate, PlannedQuery } from "./assistant-types";
 import { calendarContext } from "./calendar";
+import { contextSearchTerms } from "./context-selection";
+import { chunkMeeting } from "./evidence";
 import { buildSourceBank, selectChunks, type SelectedChunk } from "./investigation";
 import { meetingReport } from "./meeting-reports";
 import { dueTasks } from "./morning-agenda";
@@ -108,6 +110,25 @@ const FULL_MEETING_COLUMNS = `${MEETING_COLUMNS},m.transcription,m.segments,m.sp
 /** Same rule the Coach's store uses for citable meetings; a passage from any other would make the reply's sources fail. */
 const HAS_TRANSCRIPT = "m.status='done' AND m.transcription IS NOT NULL AND length(btrim(m.transcription))>0";
 
+const WINDOW = 3500, MAX_EXCERPTS = 4;
+/**
+ * The part of a transcript chunk (24k characters) around where the search terms concentrate, so a passage costs
+ * a few thousand characters instead of the whole chunk. Offsets stay absolute, as open_meeting does.
+ */
+export function narrowChunk({ meeting, chunk }: SelectedChunk, busca: string): SelectedChunk {
+ if (chunk.text.length <= WINDOW) return { meeting, chunk };
+ const text = chunk.text.toLocaleLowerCase("pt-BR");
+ const hits = contextSearchTerms(busca).toLocaleLowerCase("pt-BR").split(/\s+/).filter(Boolean)
+  .flatMap(term => { const at: number[] = []; for (let i = text.indexOf(term); i >= 0 && at.length < 200; i = text.indexOf(term, i + term.length)) at.push(i); return at; }).sort((a, b) => a - b);
+ const best = hits.reduce((top, p) => { const n = hits.filter(h => h >= p - 1000 && h < p + WINDOW - 1000).length; return n > top.n ? { p, n } : top; }, { p: 1000, n: 0 }).p;
+ let start = Math.max(0, Math.min(best - 1000, chunk.text.length - WINDOW));
+ const line = chunk.text.lastIndexOf("\n", start);
+ start = line >= 0 && start - line < 400 ? line + 1 : Math.max(0, chunk.text.lastIndexOf(" ", start) + 1);
+ const base = chunk.start_offset ?? chunkMeeting(meeting).slice(0, chunk.index).reduce((n, c) => n + c.text.length, 0);
+ const end = chunk.text.indexOf(" ", start + WINDOW);
+ return { meeting, chunk: { ...chunk, start_offset: base + start, text: chunk.text.slice(start, end < 0 ? undefined : end) } };
+}
+
 type Ctx = { db: PoolClient; userId: string; timezone: string; now: Date; selfPersonIds: string[]; names: () => Promise<Map<string, string>> };
 
 function toMeeting(r: MeetingRow, names: Map<string, string>, max: number): DossierMeeting {
@@ -133,7 +154,7 @@ async function execute(q: PlannedQuery, ctx: Ctx, people: PersonCandidate[], exc
      FROM ${TASK_FROM}
      WHERE t.user_id=$1 AND (lower(btrim(t.owner))=(SELECT nome FROM alvo) OR EXISTS (SELECT 1 FROM tarefa_pessoas tp WHERE tp.tarefa_id=t.id AND tp.pessoa_id=(SELECT id FROM alvo)))
        AND ($3='todas' OR t.status NOT IN ('concluida','cancelada'))
-     ORDER BY ${order},t.id LIMIT 20`, [userId, q.pessoa, q.status])).rows;
+     ORDER BY ${order},t.id LIMIT 30`, [userId, q.pessoa, q.status])).rows;
    return taskEntry(`tarefas ligadas a ${personName(people, q.pessoa)} (${q.status === "todas" ? "todas" : "abertas"}, ${q.ordem === "recentes" ? "mais novas primeiro" : "por prazo"})`, q.tipo, rows);
   }
   case "tarefas_por_assunto": {
@@ -213,10 +234,12 @@ async function execute(q: PlannedQuery, ctx: Ctx, people: PersonCandidate[], exc
        docs AS MATERIALIZED (SELECT m.id,to_tsvector('portuguese',m.transcription) AS doc FROM meetings m WHERE m.user_id=$1 AND ${HAS_TRANSCRIPT})
        SELECT ${FULL_MEETING_COLUMNS} FROM docs d JOIN meetings m ON m.id=d.id AND m.user_id=$1, busca
        WHERE d.doc @@ busca.q ORDER BY ts_rank_cd(d.doc,busca.q) DESC LIMIT 5`, [userId, q.busca.slice(0, 120)])).rows;
-   const selected = selectChunks(rows, q.busca, 3);
-   excerpts.push(...selected.filter(s => !excerpts.some(e => e.meeting.id === s.meeting.id && e.chunk.index === s.chunk.index)));
+   const selected = selectChunks(rows, q.busca, 3).filter(s => !excerpts.some(e => e.meeting.id === s.meeting.id && e.chunk.index === s.chunk.index))
+    .slice(0, Math.max(0, MAX_EXCERPTS - excerpts.length)).map(s => narrowChunk(s, q.busca));
+   excerpts.push(...selected);
    return { consulta: `trechos literais sobre "${q.busca}"`, tipo: q.tipo, total: selected.length, mostrados: selected.length,
-    trechos: selected.map(s => ({ meeting_id: s.meeting.id, titulo: s.meeting.nome || s.meeting.original_filename, data: iso(s.meeting.recorded_at), texto: s.chunk.text.slice(0, 1500), source_ids: [], chunk_index: s.chunk.index })) };
+    ...(selected.length ? {} : { aviso: excerpts.length >= MAX_EXCERPTS ? "Limite de trechos desta resposta atingido." : "Nenhum trecho encontrado." }),
+    trechos: selected.map(s => ({ meeting_id: s.meeting.id, titulo: s.meeting.nome || s.meeting.original_filename, data: iso(s.meeting.recorded_at), texto: s.chunk.text, source_ids: [], chunk_index: s.chunk.index })) };
   }
   case "conversas": {
    if (!q.busca.trim()) return missing(q.tipo, "busca");
