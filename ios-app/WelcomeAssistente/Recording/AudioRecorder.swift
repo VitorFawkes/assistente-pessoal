@@ -31,6 +31,7 @@ final class AudioRecorder: NSObject {
 
     private var recorder: AVAudioRecorder?
     private var parteAtual: Int64 = 0
+    private var ultimaParte: Int64 = 0
     private var inicioDoTrecho: Date?
     private var acumulado: TimeInterval = 0     // segundos de trechos já fechados
     private var timer: Timer?
@@ -126,7 +127,9 @@ final class AudioRecorder: NSObject {
 
     private func iniciarTrecho() throws {
         guard let gravacaoId else { return }
-        let parte = Int64(Date().timeIntervalSince1970 * 1000)
+        // Sempre crescente, mesmo se o relógio do iPhone voltar: o servidor junta na ordem da parte.
+        let parte = max(Int64(Date().timeIntervalSince1970 * 1000), ultimaParte + 1)
+        ultimaParte = parte
         let url = UploadQueue.pasta(da: gravacaoId).appendingPathComponent("\(parte).m4a")
         try? FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -231,6 +234,6 @@ final class AudioRecorder: NSObject {
 
 extension AudioRecorder: AVAudioRecorderDelegate {
     nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
-        Task { @MainActor in self.tratarInterrupcao(.began) }
+        Task { @MainActor [weak self] in self?.tratarInterrupcao(.began) }
     }
 }

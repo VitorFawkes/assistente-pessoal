@@ -39,6 +39,15 @@ final class AuthStore {
     /// Entra direto com o acesso guardado; confere no servidor em seguida.
     /// Sem internet, continua entrado (a gravação não pode depender de rede).
     func restoreFromKeychain() async {
+        #if DEBUG
+        // Só em testes no simulador: entra com um acesso de conta de teste (-tokenDeTeste <token>).
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "-tokenDeTeste"), i + 1 < args.count,
+           let remoto = try? await APIClient.shared.eu(token: args[i + 1]) {
+            guardar(token: args[i + 1], usuario: remoto)
+            return
+        }
+        #endif
         guard let token = KeychainStorage.get(.sessionToken),
               let id = KeychainStorage.get(.userId) else {
             state = .unauthenticated

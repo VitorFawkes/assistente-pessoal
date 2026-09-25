@@ -126,7 +126,7 @@ final class APIClient: @unchecked Sendable {
         guard let http = resposta as? HTTPURLResponse else { throw ErroDeEntrada.outro }
         guard (200..<300).contains(http.statusCode) else {
             let erro = try? decoder.decode(ErroTtars.self, from: dados)
-            switch erro?.error_code ?? erro?.code {
+            switch erro?.error_code ?? erro?.code ?? "" {
             case "invalid_credentials": throw ErroDeEntrada.senhaErrada
             case "email_not_confirmed": throw ErroDeEntrada.emailNaoConfirmado
             default: throw http.statusCode == 429 ? ErroDeEntrada.muitasTentativas : ErroDeEntrada.senhaErrada
