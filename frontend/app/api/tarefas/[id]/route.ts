@@ -279,6 +279,14 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
 
 export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
   const { id } = await ctx.params;
+  // Equipe: quem recebeu de colega ou vê pelo projeto lê a tarefa do ponto de vista dele.
+  if (isTeamMode()) {
+    const acesso = await acessoTarefa(user.id, id);
+    if (acesso && acesso.papel !== "dono") {
+      const [visto] = await carregarTarefas(user.id, [{ tarefa_id: id, dono_id: acesso.donoId }]);
+      return visto ? NextResponse.json(visto) : NextResponse.json({ error: "não encontrada" }, { status: 404 });
+    }
+  }
   const rows = await withTenant(user.id, async (db) => {
     const r = await db.query("SELECT * FROM tarefas WHERE id = $1", [id]);
     return r.rows;

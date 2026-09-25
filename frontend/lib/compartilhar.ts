@@ -122,7 +122,13 @@ const SEM_REUNIAO: Partial<Tarefa> = {
   parece_com: null,
   mencoes: [],
   no_plano: false,
+  prazo_text: null,
+  frente_proposta: null,
 };
+
+// Colunas cruas da extração (vêm no t.* do banco, fora do tipo): nomes e área ditos na
+// reunião. Também ficam só com quem gravou.
+const CRUS_DA_REUNIAO = ["pessoas_raw", "area_raw"] as const;
 
 /**
  * A tarefa como quem está vendo deve enxergar.
@@ -158,8 +164,10 @@ export function paraQuemVe(
     acao = "cobrar";
   }
 
+  const limpa: Record<string, unknown> = { ...t };
+  for (const k of CRUS_DA_REUNIAO) delete limpa[k];
   return {
-    ...t,
+    ...(limpa as Tarefa),
     ...SEM_REUNIAO,
     owner,
     acao,

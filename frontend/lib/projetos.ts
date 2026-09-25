@@ -104,8 +104,18 @@ async function atividadeDoProjeto(pares: Par[]): Promise<AtividadeItem[]> {
     )
   ).flat();
   const nomes = await nomesDeUsuarios(linhas.map((l) => l.ator_user_id));
+  // O histórico só precisa de QUEM fez e O QUE mudou (nomes dos campos). O conteúdo do
+  // registro (de→para, texto capturado, trechos) fica fora: vai pra todo mundo do projeto.
+  const soCampos = (p: Record<string, unknown> | null) => {
+    const changed = p && typeof p.changed === "object" && p.changed ? Object.keys(p.changed) : [];
+    return changed.length ? { changed: Object.fromEntries(changed.map((k) => [k, true])) } : null;
+  };
   return linhas
-    .map(({ ator_user_id, ...l }) => ({ ...l, convidado_nome: (ator_user_id && nomes.get(ator_user_id)) || null }))
+    .map(({ ator_user_id, payload, ...l }) => ({
+      ...l,
+      payload: soCampos(payload),
+      convidado_nome: (ator_user_id && nomes.get(ator_user_id)) || null,
+    }))
     .sort((a, b) => (a.criado_em < b.criado_em ? 1 : -1))
     .slice(0, 50);
 }
@@ -178,7 +188,9 @@ export async function adicionarAoProjeto(
 ): Promise<{ adicionadas: number; duplicadas: number; recusadas: number } | null> {
   const donoId = await donoDoProjeto(userId, quadroId);
   if (!donoId) return null;
-  const ids = [...new Set(tarefaIds)];
+  const ids = [...new Set(tarefaIds)].filter((x) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(x),
+  );
   const permitidas = await withTenant(userId, async (c) => {
     const r = await c.query<{ id: string }>(
       `SELECT x::text AS id FROM unnest($1::uuid[]) AS x

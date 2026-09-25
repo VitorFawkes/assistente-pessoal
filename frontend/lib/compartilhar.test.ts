@@ -104,6 +104,7 @@ describe("a tarefa vista por outra pessoa", () => {
     const t = tarefa({
       owner: "Marina Souza", acao: "cobrar", is_mine: false, responsavel_user_id: MARINA.id,
       pessoas: [{ id: "p1", nome: "Marina Souza", principal: true }, { id: "p2", nome: "Ana", principal: false }],
+      ...({ pessoas_raw: ["Marina", "Fornecedor X"] } as Partial<Tarefa>),
     });
     const v = paraQuemVe(t, { viewerId: MARINA.id, slug: "eu", nomes });
     expect(v).toMatchObject({ owner: "eu", acao: "executar", is_mine: true, compartilhada: true, criador_nome: "Vitor Gambetti" });
@@ -112,6 +113,7 @@ describe("a tarefa vista por outra pessoa", () => {
     expect(v.meeting_summary).toBeNull();
     expect(v.meeting_nome).toBeNull();
     expect(v.no_plano).toBe(false);
+    expect((v as unknown as Record<string, unknown>).pessoas_raw).toBeUndefined();
     // o próprio nome não aparece de novo como "pessoa da tarefa"
     expect(v.pessoas.map((p) => p.nome)).toEqual(["Ana"]);
   });
