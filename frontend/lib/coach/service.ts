@@ -101,7 +101,7 @@ export async function analyzeMeetings(userId:string,maxChunks=2){
 }
 
 const NO_DOSSIER:Dossier={pessoas_citadas:[],reunioes_citadas:[],consultas:[],limitacoes:["O assistente não conseguiu buscar os dados desta conversa agora."],excerpts:[]};
-export const ASSISTANT_DOSSIER_INSTRUCTION="\nDADOS DESTA RESPOSTA: o assistente do Ações buscou o que esta conversa pede e entregou em assistant_dossier. Cada consulta diz o que foi buscado (consulta), quantos existem (total) e quantos vieram (mostrados); reuniões trazem resumo do relatório gerado (contexto secundário, não fala literal); agenda traz agenda_status; pendencias é a lista do que vence hoje e está atrasado. transcripts e sources só trazem trechos literais quando foram buscados. Não há ferramentas de leitura nesta resposta: se faltar um dado decisivo, diga qual, sem supor.";
+export const ASSISTANT_DOSSIER_INSTRUCTION="\nDADOS DESTA RESPOSTA: o assistente do Ações buscou o que esta conversa pede e entregou em assistant_dossier. Cada consulta diz o que foi buscado (consulta), quantos existem (total) e quantos vieram (mostrados); reuniões trazem resumo do relatório gerado (contexto secundário, não fala literal); agenda traz agenda_status; pendencias é a lista do que vence hoje e está atrasado; conversas são mensagens antigas com você, com data (contexto, não fato atual). transcripts e sources só trazem trechos literais quando foram buscados. Não há ferramentas de leitura nesta resposta: se faltar um dado decisivo, diga qual, sem supor.";
 export async function chatWithCoach(userId:string,message:string,now=new Date(),runId?:string,proactive?:"morning"|"evening"|"nudge"|"meeting",meetingId?:string){
  return withLease(userId,async(store,profile)=>{
   if(runId&&await store.messageByKey(runId+":assistant"))return;
@@ -164,7 +164,8 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
   const sources=investigation.sources;
   const recentHistory=history.filter(m=>!m.stale&&(m.role==="user"||m.context_freshness!=="unknown")).slice(-24);
   const recentReviews=reviews.filter(r=>!r.stale).slice(0,4);
-  const reportCount=new Set(dossier.consultas.flatMap(entry=>(entry.reunioes||[]).filter(m=>m.resumo).map(m=>m.id))).size;
+  const reportIds=[...new Set(dossier.consultas.flatMap(entry=>(entry.reunioes||[]).filter(m=>m.resumo).map(m=>m.id)))];
+  const reportCount=reportIds.length;
   const data={profile,trigger:proactive?{kind:proactive,origin:"system_schedule_or_button",not_user_statement:true}:null,...(taskNotes.length?{task_changes_already_done_by_server:taskNotes}:{}),current_time:now.toISOString(),timezone:profile.timezone,local_time:new Intl.DateTimeFormat("pt-BR",{timeZone:profile.timezone,dateStyle:"full",timeStyle:"short"}).format(now),
     memories:usableMemories(memories),memory,commitments,history:modelMessages(recentHistory,MODEL_CONTEXT.history,MODEL_CONTEXT.historyChars),question:message,coverage,
     reviews:modelReviews(recentReviews),assistant_dossier:dossierForModel(dossier,profile.timezone),self_person_ids:self,sources,
@@ -290,7 +291,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
    const agenda=proactive==="morning"?await morningAgenda(userId,profile.timezone,now).catch(()=>""):"";
    // The answer that crosses the day's ceiling says so; the next ones get the short refusal above.
    const reachedCap=budget.spent+runCostUsd(telemetry)>=budget.cap?budgetNotice(budget.cap):"";
-   await store.addMessage("assistant",presentChat([...(proactive?[proactive==="morning"?"Foco do dia":proactive==="evening"?"Fechamento do dia":proactive==="meeting"?"Depois da reunião":"Um ponto de atenção"]:[]),answer,agenda,...taskNotes,...confirmations,reachedCap].filter(Boolean).join("\n\n"),observations,investigation.selected.map(s=>s.meeting.id),coverage,reportCount),observations.flatMap(o=>o.evidence),revision,runId?runId+":assistant":undefined,[...reportSources([...investigation.meetings.values()]),...inherited.sources],inherited.periods);
+   await store.addMessage("assistant",presentChat([...(proactive?[proactive==="morning"?"Foco do dia":proactive==="evening"?"Fechamento do dia":proactive==="meeting"?"Depois da reunião":"Um ponto de atenção"]:[]),answer,agenda,...taskNotes,...confirmations,reachedCap].filter(Boolean).join("\n\n"),observations,investigation.selected.map(s=>s.meeting.id),coverage,reportCount),observations.flatMap(o=>o.evidence),revision,runId?runId+":assistant":undefined,[...reportSources([...await store.reportMeetings(reportIds),...investigation.meetings.values()]),...inherited.sources],inherited.periods);
   }finally{await recordModelRuns(userId,"chat",runId||null,telemetry,revision).catch(()=>{});}
  });
 }

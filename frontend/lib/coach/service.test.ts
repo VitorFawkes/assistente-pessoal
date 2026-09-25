@@ -54,6 +54,7 @@ function fixture(meetings:CoachMeeting[],result:Record<string,unknown>,periodObs
   profile:async()=>({enabled:true,weekly_enabled:true,revision:tracked.length&&options.concurrentProfileRevision?options.concurrentProfileRevision:1,goals:"",context:"",timezone:"America/Sao_Paulo",review_day:5,review_hour:17}),
   claimLease:async()=>"lease",releaseLease:async()=>{},runReceipt:async()=>options.receipt||null,
   meetingById:async(id:string)=>{const found=meetings.find(item=>item.id===id);return found?{...found,context_at:found.recorded_at}:null;},
+  reportMeetings:async(ids:string[])=>meetings.filter(item=>ids.includes(item.id)),
   context:async(search?:string,contextOptions?:unknown)=>{contextRequest={search,options:contextOptions};return {meetings,messages:options.retrievedMessages||[],tasks:[],events:[],analyses:[],limitations:[],...(options.toolContext&&search===options.toolContext.query?options.toolContext.context:{})};},
   memories:async()=>options.storedMemories||[],memoryContext:async(at?:string)=>(options.toolContext&&at===options.toolContext.at?options.toolContext.memory:{active_goals:[],corrections:options.storedMemories||[],memories:[],legacy_goals:null}),messages:async()=>options.storedMessages||[],userMessages:async()=>(options.storedMessages||[]).filter(m=>m.role==="user"),selfPersonIds:async()=>["self"],reviews:async()=>options.storedReviews||[],
   coverage:async()=>({total_meetings:137,analyzed_meetings:2,analyzed_chunks:3,pending_meetings:135}),
@@ -453,6 +454,8 @@ test("report-first chat reads the reports the assistant found, without transcrip
   expect(run.mainTools()).toBeUndefined();
   expect(run.saved[1].evidence).toEqual([]);
   expect(run.saved[1].content).toContain("relatórios/resumos de 12 reuniões");
+  // The reply goes stale if any report it read changes later.
+  expect(run.saved[1].context_sources.map(source=>source.meeting_id).sort()).toEqual(meetings.map(m=>m.id).sort());
  }finally{run.restore();}
 });
 test("weekly uses reports even while full behavioral analysis backlog is incomplete",async()=>{

@@ -29,7 +29,8 @@ describe.skipIf(!connection)("Busca do assistente: consultas fixas no banco real
    CREATE TABLE tarefas(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid NOT NULL,meeting_id uuid,titulo text NOT NULL,descricao text,owner text,is_mine boolean DEFAULT false,acao text DEFAULT 'executar',
     prazo timestamptz,prioridade text DEFAULT 'media',status text DEFAULT 'aberta',concluida_em timestamptz,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
    CREATE TABLE tarefa_pessoas(tarefa_id uuid,pessoa_id uuid,principal boolean DEFAULT false,PRIMARY KEY(tarefa_id,pessoa_id));
-   ${tenant("meetings")}${tenant("pessoas")}${tenant("tarefas")}
+   CREATE TABLE coach_messages(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid NOT NULL,role text NOT NULL,content text NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
+   ${tenant("meetings")}${tenant("pessoas")}${tenant("tarefas")}${tenant("coach_messages")}
    GRANT SELECT ON ALL TABLES IN SCHEMA ${schema} TO app_tenant;`);
   await admin.query("INSERT INTO users(id) VALUES($1),($2)", [a, b]);
   await admin.query(`INSERT INTO pessoas(id,user_id,nome,is_vitor) VALUES($1,$6,'Ana Silva',false),($2,$6,'Ana Teresa',false),($3,$6,'Paula',false),($4,$6,'Vitor',true),($5,$7,'Ana Silva',false)`, [ana, anaT, paula, eu, anaB, a, b]);
@@ -53,6 +54,10 @@ describe.skipIf(!connection)("Busca do assistente: consultas fixas no banco real
   // "Revisar orçamento" belongs to Vitor but involves Ana; it came from the Sprint meeting, where Ana did not speak.
   await admin.query("INSERT INTO tarefa_pessoas(tarefa_id,pessoa_id,principal) VALUES($1,$3,true),($2,$3,false),($4,$5,true)", [t[0], t[1], ana, t[4], paula]);
   await admin.query("INSERT INTO tarefa_pessoas(tarefa_id,pessoa_id,principal) VALUES($1,$2,true)", [t[5], anaB]);
+  // One old conversation about the budget, then 24 recent messages (already in the Coach's history), one of them also about it.
+  await admin.query(`INSERT INTO coach_messages(user_id,role,content,created_at) VALUES($1,'user','Estou travado no orçamento do trimestre com o financeiro','2026-08-01T12:00:00Z'),
+   ($2,'user','Orçamento da outra conta','2026-08-01T12:00:00Z')`, [a, b]);
+  await admin.query(`INSERT INTO coach_messages(user_id,role,content,created_at) SELECT $1,'user',CASE WHEN i=1 THEN 'orçamento de novo' ELSE 'mensagem '||i END,'2026-09-20T12:00:00Z'::timestamptz+i*interval '1 minute' FROM generate_series(1,24) i`, [a]);
   await global.__pgPool?.end(); global.__pgPool = undefined;
   url.username = "app_tenant"; url.password = ""; url.searchParams.set("options", `-c search_path=${schema}`); process.env.DATABASE_URL = url.toString();
  });
@@ -113,6 +118,11 @@ describe.skipIf(!connection)("Busca do assistente: consultas fixas no banco real
   expect(assunto.tarefas!.map(t => t.titulo)).toEqual(["Desligar o Active para o comercial"]);
   expect(agenda.agenda_status).not.toBe("connected");
   expect(agenda.eventos).toEqual([]);
+ });
+
+ test("conversas antigas com o Coach: só as que não estão no histórico recente, só da conta", async () => {
+  const [c] = (await runQueries(a, [q("conversas", { busca: "orçamento" })], opts())).consultas;
+  expect(c.conversas).toEqual([{ papel: "usuario", data: "2026-08-01T12:00:00.000Z", texto: "Estou travado no orçamento do trimestre com o financeiro" }]);
  });
 
  test("no máximo 4 consultas; faltou dado ou falhou vira aviso e as outras seguem", async () => {

@@ -23,6 +23,7 @@ Buscas:
 - detalhe_da_reuniao (reuniao): relatório, participantes e tarefas de uma reunião citada. Se só a data foi citada e há várias reuniões nesse dia, use reunioes_do_periodo ou escolha pelo assunto.
 - trechos (busca; reuniao ou pessoa opcionais): fala literal da transcrição. Só quando importa o que foi dito exatamente, ou no coach, para ver como o usuário agiu.
 - agenda (periodo opcional, padrão hoje): compromissos do calendário.
+- conversas (busca): o que o usuário já conversou com o Coach sobre um assunto, em conversas antigas (as últimas mensagens já estão na conversa recente). "o que falamos sobre X", "aquilo que te contei de X".
 
 Exemplos: "quais foram as últimas tarefas que discuti com a Ana" → tarefas_da_pessoa(p0, todas, recentes) + reunioes_da_pessoa(p0). "me ajuda a preparar a conversa com a Paula" (coach) → tarefas_da_pessoa(p0, abertas) + reunioes_da_pessoa(p0). "o que tenho hoje?" → pendencias + agenda(hoje).`;
 
@@ -182,6 +183,7 @@ function isValidQuery(q: Partial<PlannedQuery>): q is PlannedQuery {
   case "tarefas_por_assunto":
   case "reunioes_por_assunto":
   case "trechos":
+  case "conversas":
    return !!q.busca;
   case "tarefas_do_periodo":
    return !!q.periodo && !!q.campo && !!q.status && !!q.ordem;

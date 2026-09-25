@@ -474,6 +474,6 @@ test("recent conversation limited to last 4 items and clipped to 400 chars each"
 });
 
 test("the instruction names every lookup the finder runs", () => {
- for (const kind of ["tarefas_da_pessoa", "tarefas_por_assunto", "tarefas_do_periodo", "pendencias", "reunioes_da_pessoa", "reunioes_por_assunto", "reunioes_do_periodo", "detalhe_da_reuniao", "trechos", "agenda"])
+ for (const kind of ["tarefas_da_pessoa", "tarefas_por_assunto", "tarefas_do_periodo", "pendencias", "reunioes_da_pessoa", "reunioes_por_assunto", "reunioes_do_periodo", "detalhe_da_reuniao", "trechos", "agenda", "conversas"])
   expect(PLANNER_INSTRUCTION).toContain(`- ${kind}`);
 });

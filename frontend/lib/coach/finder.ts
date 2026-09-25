@@ -105,6 +105,8 @@ const TSQUERY = "(SELECT array_to_string(ARRAY(SELECT quote_literal(x) FROM unne
 type MeetingRow = CoachMeeting & { total?: number; ligacao?: string };
 const MEETING_COLUMNS = `m.id,m.nome,m.original_filename,m.recorded_at,m.summary,m.raw_ai_response->>'executive_summary' AS executive_summary,m.speaker_pessoas`;
 const FULL_MEETING_COLUMNS = `${MEETING_COLUMNS},m.transcription,m.segments,m.speaker_labels`;
+/** Same rule the Coach's store uses for citable meetings; a passage from any other would make the reply's sources fail. */
+const HAS_TRANSCRIPT = "m.status='done' AND m.transcription IS NOT NULL AND length(btrim(m.transcription))>0";
 
 type Ctx = { db: PoolClient; userId: string; timezone: string; now: Date; selfPersonIds: string[]; names: () => Promise<Map<string, string>> };
 
@@ -203,18 +205,29 @@ async function execute(q: PlannedQuery, ctx: Ctx, people: PersonCandidate[], exc
   case "trechos": {
    if (!q.busca.trim()) return missing(q.tipo, "busca");
    const rows = q.reuniao
-    ? (await db.query<MeetingRow>(`SELECT ${FULL_MEETING_COLUMNS} FROM meetings m WHERE m.user_id=$1 AND m.id=$2::uuid AND m.status='done'`, [userId, q.reuniao])).rows
+    ? (await db.query<MeetingRow>(`SELECT ${FULL_MEETING_COLUMNS} FROM meetings m WHERE m.user_id=$1 AND m.id=$2::uuid AND ${HAS_TRANSCRIPT}`, [userId, q.reuniao])).rows
     : q.pessoa
-     ? (await db.query<MeetingRow>(`SELECT ${FULL_MEETING_COLUMNS} FROM meetings m WHERE m.user_id=$1 AND m.status='done' AND ${tookPart("$2")} ORDER BY m.recorded_at DESC NULLS LAST LIMIT 5`, [userId, q.pessoa])).rows
+     ? (await db.query<MeetingRow>(`SELECT ${FULL_MEETING_COLUMNS} FROM meetings m WHERE m.user_id=$1 AND ${HAS_TRANSCRIPT} AND ${tookPart("$2")} ORDER BY m.recorded_at DESC NULLS LAST LIMIT 5`, [userId, q.pessoa])).rows
      : (await db.query<MeetingRow>(
       `WITH busca AS (SELECT ${TSQUERY} AS q),
-       docs AS MATERIALIZED (SELECT m.id,to_tsvector('portuguese',coalesce(m.transcription,'')) AS doc FROM meetings m WHERE m.user_id=$1 AND m.status='done')
+       docs AS MATERIALIZED (SELECT m.id,to_tsvector('portuguese',m.transcription) AS doc FROM meetings m WHERE m.user_id=$1 AND ${HAS_TRANSCRIPT})
        SELECT ${FULL_MEETING_COLUMNS} FROM docs d JOIN meetings m ON m.id=d.id AND m.user_id=$1, busca
        WHERE d.doc @@ busca.q ORDER BY ts_rank_cd(d.doc,busca.q) DESC LIMIT 5`, [userId, q.busca.slice(0, 120)])).rows;
    const selected = selectChunks(rows, q.busca, 3);
    excerpts.push(...selected.filter(s => !excerpts.some(e => e.meeting.id === s.meeting.id && e.chunk.index === s.chunk.index)));
    return { consulta: `trechos literais sobre "${q.busca}"`, tipo: q.tipo, total: selected.length, mostrados: selected.length,
     trechos: selected.map(s => ({ meeting_id: s.meeting.id, titulo: s.meeting.nome || s.meeting.original_filename, data: iso(s.meeting.recorded_at), texto: s.chunk.text.slice(0, 1500), source_ids: [], chunk_index: s.chunk.index })) };
+  }
+  case "conversas": {
+   if (!q.busca.trim()) return missing(q.tipo, "busca");
+   const rows = (await db.query<{ role: string; content: string; created_at: Date; total: number }>(
+    `WITH busca AS (SELECT ${TSQUERY} AS q),
+     recentes AS (SELECT id FROM coach_messages WHERE user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 24)
+     SELECT c.role,left(c.content,2000) AS content,c.created_at,count(*) OVER()::int AS total FROM coach_messages c, busca
+     WHERE c.user_id=$1 AND c.id NOT IN (SELECT id FROM recentes) AND to_tsvector('portuguese',c.content) @@ busca.q
+     ORDER BY ts_rank_cd(to_tsvector('portuguese',c.content),busca.q) DESC,c.created_at DESC LIMIT 6`, [userId, q.busca.slice(0, 120)])).rows;
+   return { consulta: `conversas anteriores com o Coach sobre "${q.busca}"`, tipo: q.tipo, total: rows[0]?.total ?? 0, mostrados: rows.length,
+    conversas: rows.map(r => ({ papel: r.role === "user" ? "usuario" as const : "coach" as const, data: iso(r.created_at)!, texto: r.content.replace(/\s+/g, " ").trim().slice(0, 600) })) };
   }
   default: throw new Error("unsupported query");
  }

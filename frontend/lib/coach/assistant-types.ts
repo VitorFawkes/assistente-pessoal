@@ -18,6 +18,7 @@ export const QUERY_KINDS = [
  "detalhe_da_reuniao",   // one meeting: report, participants and its tasks; reuniao required
  "trechos",              // literal transcript passages (evidence for coaching); busca required, reuniao/pessoa optional
  "agenda",               // calendar events; periodo optional (default hoje)
+ "conversas",            // older Coach conversations about a subject (the latest ones are already in history); busca required
 ] as const;
 export type QueryKind = (typeof QUERY_KINDS)[number];
 
@@ -60,6 +61,7 @@ export type DossierEntry = {
  agenda_status?: string;
  pendencias?: { vence_hoje: number; atrasadas: number; itens: { titulo: string; owner: string | null; prazo: string; vence_hoje: boolean; mostrada_as_8h: boolean }[] };
  trechos?: DossierPassage[];
+ conversas?: { papel: "usuario" | "coach"; data: string; texto: string }[];
  aviso?: string;
 };
 
