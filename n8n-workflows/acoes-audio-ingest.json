@@ -540,17 +540,6 @@
       }
     },
     {
-      "parameters": {},
-      "type": "@n8n/n8n-nodes-langchain.toolThink",
-      "typeVersion": 1.1,
-      "position": [
-        96,
-        128
-      ],
-      "id": "6e384d6c-aa6a-4b4d-af3c-9c0ad8c6beff",
-      "name": "Think"
-    },
-    {
       "parameters": {
         "method": "POST",
         "url": "http://voice-svc:8000/identify",
@@ -972,17 +961,6 @@
           {
             "node": "6. Use Pretranscribed",
             "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Think": {
-      "ai_tool": [
-        [
-          {
-            "node": "Distiller",
-            "type": "ai_tool",
             "index": 0
           }
         ]
