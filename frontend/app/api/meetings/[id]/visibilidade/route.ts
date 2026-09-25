@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/db";
+import { garantirColegaDoTtars } from "@/lib/equipe-compartilhado";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -14,7 +15,7 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
 
   let body: {
     visibilidade?: string;
-    acessos?: Array<{ user_id?: string; time_id?: string }>;
+    acessos?: Array<{ user_id?: string; time_id?: string; email?: string }>;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -32,6 +33,16 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
       { error: "visibilidade deve ser: todos, so_eu ou escolhidos" },
       { status: 400 }
     );
+  }
+
+  // Telas do TTARS escolhem pela lista da Welcome (e-mail): ganha conta aqui se ainda não tem.
+  if (Array.isArray(body.acessos)) {
+    for (const a of body.acessos) {
+      if (!a.user_id && typeof a.email === "string" && a.email.trim()) {
+        const c = await garantirColegaDoTtars(a.email);
+        if (c) a.user_id = c.id;
+      }
+    }
   }
 
   try {
