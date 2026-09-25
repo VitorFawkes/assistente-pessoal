@@ -90,3 +90,22 @@ targets:
         SUPPORTS_MACCATALYST: NO
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
         TARGETED_DEVICE_FAMILY: "1"
+    scheme:
+      testTargets:
+        - WelcomeAssistenteUITests
+
+  # Testes de tela no simulador (gravar com a conta de teste, demonstração).
+  WelcomeAssistenteUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: WelcomeAssistenteUITests
+    dependencies:
+      - target: WelcomeAssistente
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: br.com.ttars.uitests
+        CODE_SIGN_STYLE: Automatic
+        TEST_TARGET_NAME: WelcomeAssistente

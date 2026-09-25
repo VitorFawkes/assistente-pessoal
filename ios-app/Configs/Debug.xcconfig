@@ -10,7 +10,7 @@ PRODUCT_BUNDLE_IDENTIFIER = br.com.ttars
 MARKETING_VERSION = 1.1.0
 
 // Build number (CFBundleVersion). Bump a cada upload pro TestFlight.
-CURRENT_PROJECT_VERSION = 3
+CURRENT_PROJECT_VERSION = 4
 
 // Code signing — preenchido pelo Xcode quando você logar com Apple ID.
 DEVELOPMENT_TEAM = 8J472F3RHN

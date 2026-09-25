@@ -27,13 +27,23 @@ final class AudioRecorder: NSObject {
     /// (id da gravação, parte = ms do início do trecho, arquivo)
     var aoFecharTrecho: ((String, Int64, URL) -> Void)?
 
-    static let duracaoDoTrecho: TimeInterval = 5 * 60
+    static let duracaoDoTrecho: TimeInterval = {
+        #if DEBUG
+        // Só em testes no simulador: trechos curtos (-trechoSegundos 20) para ver a troca acontecer.
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "-trechoSegundos"), i + 1 < args.count, let s = TimeInterval(args[i + 1]) {
+            return s
+        }
+        #endif
+        return 5 * 60
+    }()
 
     private var recorder: AVAudioRecorder?
     private var parteAtual: Int64 = 0
     private var ultimaParte: Int64 = 0
     private var inicioDoTrecho: Date?
     private var acumulado: TimeInterval = 0     // segundos de trechos já fechados
+    private var proximaTroca: Date?             // troca que falhou: tenta de novo a partir daqui
     private var timer: Timer?
     private var observadores: [NSObjectProtocol] = []
 
@@ -84,6 +94,7 @@ final class AudioRecorder: NSObject {
             acumulado = 0
         }
         self.gravacaoId = gravacaoId
+        proximaTroca = nil
         try iniciarTrecho()
         state = .recording
         iniciarTimer()
@@ -104,6 +115,7 @@ final class AudioRecorder: NSObject {
         state = .idle
         gravacaoId = nil
         acumulado = 0
+        proximaTroca = nil
         elapsedSeconds = 0
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         return total
@@ -137,6 +149,7 @@ final class AudioRecorder: NSObject {
         rec.delegate = self
         rec.isMeteringEnabled = true
         guard rec.record() else {
+            rec.deleteRecording()
             throw NSError(domain: "AudioRecorder", code: -6, userInfo: [
                 NSLocalizedDescriptionKey: "Não consegui começar a gravar. Feche outros apps que usam o microfone e tente de novo.",
             ])
@@ -158,15 +171,23 @@ final class AudioRecorder: NSObject {
         aoFecharTrecho?(gravacaoId, parteAtual, url)
     }
 
+    /// Troca de arquivo sem soltar o microfone: o trecho novo começa antes de o antigo fechar.
+    /// Com a tela bloqueada o iOS não deixa começar a gravar do zero, então o microfone nunca
+    /// para na troca. Se o novo não começar, o antigo segue gravando e a troca tenta de novo em 30 s.
     private func girarTrecho() {
-        fecharTrecho()
+        guard let antigo = recorder, let gravacaoId else { return }
+        let parteAntiga = parteAtual
+        let inicioAntigo = inicioDoTrecho
         do {
             try iniciarTrecho()
         } catch {
-            state = .interrompido
-            pararTimer()
-            avisarQueParou()
+            proximaTroca = Date().addingTimeInterval(30)
+            return
         }
+        proximaTroca = nil
+        acumulado += inicioAntigo.map { Date().timeIntervalSince($0) } ?? antigo.currentTime
+        antigo.stop()
+        aoFecharTrecho?(gravacaoId, parteAntiga, antigo.url)
     }
 
     /// Pede (uma vez) para poder avisar quando a gravação parar sozinha.
@@ -220,7 +241,7 @@ final class AudioRecorder: NSObject {
         meterLevel = Double((clamped + 50) / 50)
         let noTrecho = Date().timeIntervalSince(inicio)
         elapsedSeconds = acumulado + noTrecho
-        if noTrecho >= Self.duracaoDoTrecho {
+        if noTrecho >= Self.duracaoDoTrecho, proximaTroca.map({ Date() >= $0 }) ?? true {
             girarTrecho()
         }
     }
