@@ -34,9 +34,22 @@ final class AuthStore {
 
     var emDemonstracao: Bool { state == .demonstracao }
 
+    /// Já nasce entrado com o acesso guardado: o iOS pode abrir o app escondido
+    /// para atender o botão da tela bloqueada, sem tela nenhuma.
+    init() {
+        if let token = KeychainStorage.get(.sessionToken), let id = KeychainStorage.get(.userId) {
+            state = .authenticated(user: AuthenticatedUser(
+                id: id,
+                nome: KeychainStorage.get(.userName) ?? "",
+                email: KeychainStorage.get(.userEmail),
+                token: token
+            ))
+        }
+    }
+
     // MARK: - Abrir o app
 
-    /// Entra direto com o acesso guardado; confere no servidor em seguida.
+    /// Confere no servidor o acesso guardado (401 = sai).
     /// Sem internet, continua entrado (a gravação não pode depender de rede).
     func restoreFromKeychain() async {
         #if DEBUG
@@ -48,18 +61,11 @@ final class AuthStore {
             return
         }
         #endif
-        guard let token = KeychainStorage.get(.sessionToken),
-              let id = KeychainStorage.get(.userId) else {
-            state = .unauthenticated
+        guard let token = sessionToken else {
+            if state == .checking { state = .unauthenticated }
             await carregarConfig()
             return
         }
-        state = .authenticated(user: AuthenticatedUser(
-            id: id,
-            nome: KeychainStorage.get(.userName) ?? "",
-            email: KeychainStorage.get(.userEmail),
-            token: token
-        ))
         do {
             let remoto = try await APIClient.shared.eu(token: token)
             guardar(token: token, usuario: remoto)
@@ -86,6 +92,13 @@ final class AuthStore {
     func entrarNaDemonstracao() {
         state = .demonstracao
     }
+
+    #if DEBUG
+    /// Só em testes: entra com o acesso de uma conta de teste.
+    func entrarParaTeste(token: String) async throws {
+        guardar(token: token, usuario: try await APIClient.shared.eu(token: token))
+    }
+    #endif
 
     // MARK: - Sair
 

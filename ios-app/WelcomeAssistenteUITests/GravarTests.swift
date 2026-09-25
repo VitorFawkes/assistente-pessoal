@@ -56,6 +56,61 @@ final class GravarTests: XCTestCase {
         foto("5-reunioes")
     }
 
+    /// Pausar, continuar e parar pelos botões da tela bloqueada (Atividade ao Vivo), sem abrir o app.
+    func testBotoesDaTelaBloqueada() throws {
+        continueAfterFailure = false
+        let token = try XCTUnwrap(ProcessInfo.processInfo.environment["TOKEN_DE_TESTE"], "passe TEST_RUNNER_TOKEN_DE_TESTE")
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+
+        app.launchArguments = ["-tokenDeTeste", token]
+        app.launch()
+        let gravar = app.buttons["Começar a gravar"]
+        XCTAssertTrue(gravar.waitForExistence(timeout: 60), "a tela de gravar não apareceu")
+        gravar.tap()
+        aceitarAvisosDoSistema()
+        XCTAssertTrue(app.buttons["Pausar a gravação"].waitForExistence(timeout: 20), "não começou a gravar")
+        sleep(4)
+
+        XCUIDevice.shared.perform(NSSelectorFromString("pressLockButton"))
+        sleep(2)
+        let pausar = springboard.buttons["Pausar"]
+        if !pausar.waitForExistence(timeout: 5) {
+            springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        XCTAssertTrue(pausar.waitForExistence(timeout: 20), "a tela bloqueada não mostrou Pausar")
+        // Na primeira vez o iOS pergunta se o app pode mostrar Atividades ao Vivo.
+        let permitir = springboard.buttons["Permitir"]
+        if permitir.waitForExistence(timeout: 3) {
+            permitir.tap()
+            sleep(2)
+        }
+        fotoDaTela("bloqueada-1-gravando")
+        pausar.tap()
+
+        let continuar = springboard.buttons["Continuar"]
+        XCTAssertTrue(continuar.waitForExistence(timeout: 20), "Pausar na tela bloqueada não pausou")
+        sleep(2)
+        fotoDaTela("bloqueada-2-pausada")
+        continuar.tap()
+        XCTAssertTrue(pausar.waitForExistence(timeout: 20), "Continuar na tela bloqueada não voltou a gravar")
+        sleep(4)
+        fotoDaTela("bloqueada-3-gravando-de-novo")
+
+        springboard.buttons["Parar"].tap()
+        let fimDaAtividade = Date().addingTimeInterval(20)
+        while springboard.buttons["Parar"].exists && Date() < fimDaAtividade { sleep(1) }
+        XCTAssertFalse(springboard.buttons["Parar"].exists, "Parar na tela bloqueada não encerrou")
+        fotoDaTela("bloqueada-4-parou")
+
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        XCTAssertTrue(gravar.waitForExistence(timeout: 30), "o app não voltou para o começo depois de Parar")
+        let naFila = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'subindo'")).firstMatch
+        let fim = Date().addingTimeInterval(180)
+        while naFila.exists && Date() < fim { sleep(2) }
+        XCTAssertFalse(naFila.exists, "partes ainda subindo depois de 3 minutos")
+    }
+
     /// O caminho de quem não tem conta (revisão da Apple): grava no aparelho e não envia nada.
     func testDemonstracaoGravaSemEnviar() {
         continueAfterFailure = false
@@ -107,6 +162,14 @@ final class GravarTests: XCTestCase {
 
     private func foto(_ nome: String) {
         let anexo = XCTAttachment(screenshot: app.screenshot())
+        anexo.name = nome
+        anexo.lifetime = .keepAlways
+        add(anexo)
+    }
+
+    /// A tela inteira (tela bloqueada, Ilha Dinâmica), não só o app.
+    private func fotoDaTela(_ nome: String) {
+        let anexo = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         anexo.name = nome
         anexo.lifetime = .keepAlways
         add(anexo)

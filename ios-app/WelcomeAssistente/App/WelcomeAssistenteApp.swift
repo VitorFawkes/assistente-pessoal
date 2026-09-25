@@ -4,29 +4,24 @@ import SwiftUI
 struct WelcomeAssistenteApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
-    @State private var authStore = AuthStore()
-    @State private var uploadQueue = UploadQueue()
-    @State private var recorder = AudioRecorder()
+    private let controle = ControleGravacao.shared
 
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environment(authStore)
-                .environment(uploadQueue)
-                .environment(recorder)
+                .environment(controle.auth)
+                .environment(controle.fila)
+                .environment(controle.gravador)
                 .task {
-                    recorder.aoFecharTrecho = { [uploadQueue] gravacaoId, parte, arquivo in
-                        uploadQueue.adicionarTrecho(gravacaoId: gravacaoId, parte: parte, arquivo: arquivo)
-                    }
-                    await authStore.restoreFromKeychain()
-                    uploadQueue.usarToken(authStore.sessionToken, usuarioId: authStore.currentUser?.id)
+                    await controle.auth.restoreFromKeychain()
+                    controle.fila.usarToken(controle.auth.sessionToken, usuarioId: controle.auth.currentUser?.id)
                 }
-                .onChange(of: authStore.sessionToken) { _, novo in
-                    uploadQueue.usarToken(novo, usuarioId: authStore.currentUser?.id)
+                .onChange(of: controle.auth.sessionToken) { _, novo in
+                    controle.fila.usarToken(novo, usuarioId: controle.auth.currentUser?.id)
                 }
                 .onChange(of: scenePhase) { _, fase in
                     if fase == .active {
-                        Task { await uploadQueue.enviarPendentes() }
+                        Task { await controle.fila.enviarPendentes() }
                     }
                 }
         }

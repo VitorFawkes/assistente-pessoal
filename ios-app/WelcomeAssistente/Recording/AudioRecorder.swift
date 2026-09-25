@@ -10,12 +10,14 @@ import UserNotifications
 /// - Ligação, Siri ou outro app pegando o microfone: o trecho em andamento é fechado
 ///   (nada se perde) e, quando a interrupção acaba, o gravador tenta continuar sozinho.
 ///   Se o iOS não deixar, fica "interrompido" até a pessoa tocar em Continuar.
+/// - Pausar fecha o trecho e solta o microfone; continuar abre um trecho novo.
 @Observable
 @MainActor
 final class AudioRecorder: NSObject {
     enum State: Equatable {
         case idle
         case recording
+        case pausado
         case interrompido
     }
 
@@ -26,6 +28,8 @@ final class AudioRecorder: NSObject {
 
     /// (id da gravação, parte = ms do início do trecho, arquivo)
     var aoFecharTrecho: ((String, Int64, URL) -> Void)?
+    /// Qualquer mudança de estado, venha da tela, da tela bloqueada ou de uma ligação.
+    var aoMudarEstado: (() -> Void)?
 
     static let duracaoDoTrecho: TimeInterval = {
         #if DEBUG
@@ -96,14 +100,23 @@ final class AudioRecorder: NSObject {
         self.gravacaoId = gravacaoId
         proximaTroca = nil
         try iniciarTrecho()
-        state = .recording
         iniciarTimer()
+        mudarEstado(.recording)
     }
 
-    /// Continua depois de uma interrupção (ligação etc.).
+    /// Continua depois de uma pausa ou de uma interrupção (ligação etc.).
     func continuar() throws {
-        guard let gravacaoId, state == .interrompido else { return }
+        guard let gravacaoId, state == .pausado || state == .interrompido else { return }
         try iniciar(gravacaoId: gravacaoId)
+    }
+
+    /// Pausa: o trecho fecha (e sobe) e o microfone fica livre até continuar.
+    func pausar() {
+        guard state == .recording else { return }
+        fecharTrecho()
+        pararTimer()
+        elapsedSeconds = acumulado
+        mudarEstado(.pausado)
     }
 
     /// Para de vez. Devolve a duração total gravada.
@@ -112,13 +125,19 @@ final class AudioRecorder: NSObject {
         fecharTrecho()
         pararTimer()
         let total = acumulado
-        state = .idle
         gravacaoId = nil
         acumulado = 0
         proximaTroca = nil
         elapsedSeconds = 0
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        mudarEstado(.idle)
         return total
+    }
+
+    private func mudarEstado(_ novo: State) {
+        guard state != novo else { return }
+        state = novo
+        aoMudarEstado?()
     }
 
     // MARK: - trechos
@@ -211,7 +230,8 @@ final class AudioRecorder: NSObject {
             guard state == .recording else { return }
             fecharTrecho()
             pararTimer()
-            state = .interrompido
+            elapsedSeconds = acumulado
+            mudarEstado(.interrompido)
         case .ended:
             guard state == .interrompido else { return }
             do {

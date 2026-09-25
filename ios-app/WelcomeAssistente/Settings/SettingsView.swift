@@ -26,6 +26,10 @@ struct SettingsView: View {
                     }
                 }
 
+                Section {
+                    NavigationLink("Gravar sem desbloquear o iPhone") { BotaoTelaBloqueadaView() }
+                }
+
                 Section("Privacidade") {
                     Button("Termos de uso e privacidade") {
                         Task {

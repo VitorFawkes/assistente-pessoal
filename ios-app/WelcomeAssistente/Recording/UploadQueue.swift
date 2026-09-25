@@ -124,6 +124,21 @@ final class UploadQueue {
         Task { await enviarPendentes() }
     }
 
+    /// Ao abrir o app: gravação que ficou "gravando" morreu com o app anterior e não volta.
+    /// O que já subiu segue como reunião.
+    func encerrarInterrompidas() {
+        guard gravacoes.contains(where: { !$0.encerrada }) else { return }
+        // Sem dono = demonstração, que nunca envia.
+        for g in gravacoes where !g.encerrada && g.donoId == nil {
+            try? fm.removeItem(at: Self.pasta(da: g.id))
+        }
+        gravacoes.removeAll { !$0.encerrada && $0.donoId == nil }
+        for i in gravacoes.indices where !gravacoes[i].encerrada {
+            gravacoes[i].encerrada = true
+        }
+        salvar()
+    }
+
     /// Descarta uma gravação local (usado na demonstração, que não envia nada).
     func descartar(gravacaoId: String) {
         try? fm.removeItem(at: Self.pasta(da: gravacaoId))

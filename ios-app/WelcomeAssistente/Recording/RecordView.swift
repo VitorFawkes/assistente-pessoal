@@ -11,6 +11,7 @@ struct RecordView: View {
     @State private var permissionDenied = false
     @State private var errorMessage: String?
     @State private var terminou = false
+    @State private var mostrarGuia = false
 
     var body: some View {
         NavigationStack {
@@ -26,10 +27,11 @@ struct RecordView: View {
                 Spacer()
                 timerLabel
                 meterBar
-                if recorder.state == .interrompido {
-                    interrompido
+                if recorder.state == .interrompido || recorder.state == .pausado {
+                    parado
                 } else {
                     recordButton
+                    if isRecording { botaoPausar }
                 }
                 Spacer()
                 statusText
@@ -38,6 +40,12 @@ struct RecordView: View {
             }
             .padding()
             .navigationTitle("Ações")
+            .sheet(isPresented: $mostrarGuia) {
+                NavigationStack {
+                    BotaoTelaBloqueadaView()
+                        .toolbar { Button("OK") { mostrarGuia = false } }
+                }
+            }
             .alert("Microfone bloqueado", isPresented: $permissionDenied) {
                 Button("Abrir Ajustes") { openSettings() }
                 Button("Cancelar", role: .cancel) {}
@@ -107,14 +115,26 @@ struct RecordView: View {
         .accessibilityLabel(isRecording ? "Parar a gravação" : "Começar a gravar")
     }
 
-    private var interrompido: some View {
+    private var botaoPausar: some View {
+        Button {
+            ControleGravacao.shared.pausar()
+        } label: {
+            Label("Pausar", systemImage: "pause.fill").font(.headline)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel("Pausar a gravação")
+    }
+
+    private var parado: some View {
         VStack(spacing: 14) {
-            Text("A gravação parou (ligação ou outro app usou o microfone). O que foi gravado está salvo.")
+            Text(recorder.state == .pausado
+                 ? "Gravação pausada. O que foi gravado está salvo."
+                 : "A gravação parou (ligação ou outro app usou o microfone). O que foi gravado está salvo.")
                 .font(.subheadline)
                 .multilineTextAlignment(.center)
             Button {
                 do {
-                    try recorder.continuar()
+                    try ControleGravacao.shared.continuar()
                 } catch {
                     errorMessage = error.localizedDescription
                 }
@@ -132,7 +152,7 @@ struct RecordView: View {
     @ViewBuilder
     private var statusText: some View {
         if isRecording {
-            Text("Gravando. Pode bloquear a tela, continua gravando.")
+            Text("Gravando. Pode bloquear a tela: continua gravando, e lá aparecem Pausar e Parar.")
                 .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
         } else if terminou && !auth.emDemonstracao {
             VStack(spacing: 10) {
@@ -144,8 +164,14 @@ struct RecordView: View {
             Text("Demonstração: a gravação ficou só neste iPhone e foi apagada.")
                 .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
         } else if recorder.state == .idle {
-            Text("Toque para gravar a reunião.")
-                .font(.subheadline).foregroundStyle(.secondary)
+            VStack(spacing: 10) {
+                Text("Toque para gravar a reunião.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                if !auth.emDemonstracao {
+                    Button("Gravar sem desbloquear o iPhone") { mostrarGuia = true }
+                        .font(.footnote)
+                }
+            }
         }
     }
 
@@ -190,26 +216,15 @@ struct RecordView: View {
         }
         recorder.pedirPermissaoDeAviso()
         do {
-            let id = try queue.novaGravacao(donoId: auth.currentUser?.id)
-            do {
-                try recorder.iniciar(gravacaoId: id)
-            } catch {
-                queue.descartar(gravacaoId: id)
-                throw error
-            }
+            try ControleGravacao.shared.comecar()
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
     private func stop() {
-        guard let id = recorder.gravacaoId else { return }
-        let duracao = recorder.parar()
-        if auth.emDemonstracao {
-            queue.descartar(gravacaoId: id)
-        } else {
-            queue.encerrar(gravacaoId: id, duracao: duracao)
-        }
+        guard recorder.gravacaoId != nil else { return }
+        ControleGravacao.shared.parar()
         terminou = true
     }
 

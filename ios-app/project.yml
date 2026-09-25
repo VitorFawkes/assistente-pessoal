@@ -68,6 +68,8 @@ targets:
           - UIInterfaceOrientationPortrait
         UIBackgroundModes:
           - audio
+        # Gravação na tela bloqueada e na Ilha Dinâmica (Pausar/Parar).
+        NSSupportsLiveActivities: true
         NSMicrophoneUsageDescription: O Ações usa o microfone para gravar suas reuniões e transformar em resumo e tarefas.
         # App não usa criptografia além da padrão do sistema (HTTPS) — evita
         # bloqueio MISSING_EXPORT_COMPLIANCE em cada build novo no TestFlight.
@@ -90,9 +92,49 @@ targets:
         SUPPORTS_MACCATALYST: NO
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
         TARGETED_DEVICE_FAMILY: "1"
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: TTARS BR App Store
+    dependencies:
+      - target: AcoesWidgets
     scheme:
       testTargets:
         - WelcomeAssistenteUITests
+        - WelcomeAssistenteTests
+
+  # Botão da tela bloqueada (controle) e a gravação na tela bloqueada (Atividade ao Vivo).
+  AcoesWidgets:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: AcoesWidgets
+        excludes:
+          - "Info.plist"
+      - path: WelcomeAssistente/Shared/GravacaoAtividade.swift
+      - path: WelcomeAssistente/Shared/GravacaoIntents.swift
+    info:
+      path: AcoesWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Ações
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: br.com.ttars.widgets
+        PRODUCT_NAME: AcoesWidgets
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) WIDGET"
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: TTARS BR Widgets App Store
 
   # Testes de tela no simulador (gravar com a conta de teste, demonstração).
   WelcomeAssistenteUITests:
@@ -109,3 +151,20 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: br.com.ttars.uitests
         CODE_SIGN_STYLE: Automatic
         TEST_TARGET_NAME: WelcomeAssistente
+
+  # Testes dentro do app: os botões da tela bloqueada (pedidos ao app) sem tela.
+  WelcomeAssistenteTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: WelcomeAssistenteTests
+    dependencies:
+      - target: WelcomeAssistente
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: br.com.ttars.tests
+        CODE_SIGN_STYLE: Automatic
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Acoes.app/Acoes"
+        BUNDLE_LOADER: "$(TEST_HOST)"
