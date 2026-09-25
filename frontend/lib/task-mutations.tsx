@@ -25,6 +25,8 @@ export type TaskMutations = {
       inicio?: string | null;
       pessoas?: ({ nome: string; principal?: boolean } | TarefaPessoa)[];
       depende_de?: string | null;
+      /** Equipe: colega que passa a ser o dono (a tarefa vai pra lista dele). */
+      responsavel_user_id?: string | null;
     }>,
     opts?: { silent?: boolean },
   ) => Promise<Tarefa | null>;

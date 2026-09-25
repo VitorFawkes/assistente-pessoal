@@ -13,12 +13,16 @@ import { ideiasDoDono } from "@/lib/ideias-api";
 import { QuadroPainel } from "./quadro-painel";
 import { QuadroDescricao } from "./quadro-descricao";
 import { EscolherDasReunioes } from "./escolher-das-reunioes";
+import { ProjetoPessoas } from "./projeto-pessoas";
+import type { PessoaProjeto } from "@/lib/projetos";
 
 interface QuadroManagerProps {
   quadro: Quadro;
   tarefas: Tarefa[];
   convidados: QuadroConvidado[];
   atividade: AtividadeItem[];
+  /** Equipe: o quadro é um projeto de várias pessoas (sem link de convidado nem ideias). */
+  equipe?: { pessoas: PessoaProjeto[]; souDono: boolean; eu: string };
 }
 
 export function QuadroManager({
@@ -26,6 +30,7 @@ export function QuadroManager({
   tarefas,
   convidados: initialConvidados,
   atividade,
+  equipe,
 }: QuadroManagerProps) {
   const router = useRouter();
   const [quadro, setQuadro] = useState(initialQuadro);
@@ -39,13 +44,14 @@ export function QuadroManager({
 
   // conta as ideias pra mostrar no número da aba
   useEffect(() => {
+    if (equipe) return;
     let vivo = true;
     void apiIdeias
       .listar()
       .then((l) => { if (vivo) setQuantasIdeias(l.length); })
       .catch(() => {});
     return () => { vivo = false; };
-  }, [apiIdeias, pagina]);
+  }, [apiIdeias, pagina, equipe]);
   const [convidados, setConvidados] = useState(initialConvidados);
   const [editingName, setEditingName] = useState(false);
 
@@ -86,7 +92,7 @@ export function QuadroManager({
       if (!res.ok) throw new Error("Erro ao atualizar");
       const updated = await res.json();
       setQuadro(updated);
-      toast.success("Quadro atualizado");
+      toast.success(equipe ? "Projeto atualizado" : "Quadro atualizado");
       setEditingName(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro desconhecido");
@@ -98,8 +104,8 @@ export function QuadroManager({
       const res = await fetch(`/api/quadros/${quadro.id}/tarefas/${tarefaId}`, {
         method: "DELETE",
       });
-      if (!res.ok) throw new Error("Erro ao remover do quadro");
-      toast.success("Removida do quadro");
+      if (!res.ok) throw new Error(equipe ? "Erro ao tirar do projeto" : "Erro ao remover do quadro");
+      toast.success(equipe ? "Tirada do projeto" : "Removida do quadro");
       router.refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro desconhecido");
@@ -210,12 +216,14 @@ export function QuadroManager({
             </h1>
           )}
 
-          <QuadroAbas
-            pagina={pagina}
-            setPagina={setPagina}
-            quantasTarefas={tarefas.length}
-            quantasIdeias={quantasIdeias}
-          />
+          {!equipe && (
+            <QuadroAbas
+              pagina={pagina}
+              setPagina={setPagina}
+              quantasTarefas={tarefas.length}
+              quantasIdeias={quantasIdeias}
+            />
+          )}
 
           {/* A descrição continua editável, mas só ocupa espaço quando existe:
               o "Adicione uma descrição…" antigo comia uma linha inteira à toa. */}
@@ -232,13 +240,23 @@ export function QuadroManager({
             >
               Escolher das reuniões
             </button>
-            <QuadroPainel
-              convidados={convidados}
-              onCreate={criarConvidado}
-              onCreateBulk={criarConvidadosBulk}
-              onRevoke={handleRevokeConvidado}
-              atividade={atividade}
-            />
+            {equipe ? (
+              <ProjetoPessoas
+                quadroId={quadro.id}
+                pessoasIniciais={equipe.pessoas}
+                souDono={equipe.souDono}
+                eu={equipe.eu}
+                atividade={atividade}
+              />
+            ) : (
+              <QuadroPainel
+                convidados={convidados}
+                onCreate={criarConvidado}
+                onCreateBulk={criarConvidadosBulk}
+                onRevoke={handleRevokeConvidado}
+                atividade={atividade}
+              />
+            )}
           </div>
         </header>
 
@@ -249,6 +267,7 @@ export function QuadroManager({
             quadroId={quadro.id}
             tarefas={tarefas}
             onRemoveFromBoard={removerDoQuadro}
+            membros={equipe?.pessoas.map((p) => p.nome)}
             vistaPadrao={vista}
             onMudarVistaPadrao={mudarVista}
           />

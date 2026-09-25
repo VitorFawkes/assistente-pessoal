@@ -3,6 +3,7 @@
 import { formatDistanceToNowStrict } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import type { AtividadeItem } from "@/lib/quadros";
+import { isTeamMode } from "@/lib/team-mode";
 
 interface ActivityFeedProps {
   items: AtividadeItem[];
@@ -59,7 +60,7 @@ export function ActivityFeed({ items }: ActivityFeedProps) {
   return (
     <ul className="space-y-3.5">
       {items.map((item) => {
-        const author = item.convidado_nome || "Vitor";
+        const author = item.convidado_nome || (isTeamMode() ? "Alguém" : "Vitor");
         const avatar = author.charAt(0).toUpperCase();
         const timeAgo = formatDistanceToNowStrict(new Date(item.criado_em), {
           locale: ptBR,

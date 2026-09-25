@@ -1,5 +1,7 @@
 "use client";
 
+import { isTeamMode } from "@/lib/team-mode";
+
 import { useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -91,7 +93,7 @@ export function BulkActionBar({
       fetch("/api/quadros")
         .then((r) => r.json())
         .then((data) => setQuadros(data.quadros || []))
-        .catch(() => toast.error("Erro ao carregar quadros"))
+        .catch(() => toast.error(isTeamMode() ? "Erro ao carregar projetos" : "Erro ao carregar quadros"))
         .finally(() => setQuadroLoading(false));
     }
   }, [popover, quadros.length]);
@@ -296,13 +298,13 @@ export function BulkActionBar({
             {popover === "quadro" && (
               <div className="space-y-2">
                 <p className="text-[11px] uppercase tracking-wider text-[color:var(--muted)]">
-                  Adicionar a um quadro
+                  {isTeamMode() ? "Pôr num projeto" : "Adicionar a um quadro"}
                 </p>
                 {quadroLoading ? (
                   <p className="text-[13px] text-[color:var(--muted)]">Carregando...</p>
                 ) : quadros.length === 0 ? (
                   <p className="text-[13px] text-[color:var(--muted)]">
-                    Nenhum quadro. <a href="/quadros" className="underline">Criar um.</a>
+                    {isTeamMode() ? "Nenhum projeto." : "Nenhum quadro."} <a href="/quadros" className="underline">Criar um.</a>
                   </p>
                 ) : (
                   <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">

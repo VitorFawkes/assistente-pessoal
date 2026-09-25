@@ -25,6 +25,7 @@ import { RegenerateButton } from "@/components/regenerate-button";
 import { MeetingVisibilitySelector } from "@/components/meeting-visibility-selector";
 import { MeetingGuestView, type ReuniaoCompartilhada } from "@/components/meeting-guest-view";
 import { OwnerTaskProvider } from "@/lib/task-mutations";
+import { comProjetos } from "@/lib/equipe-compartilhado";
 
 export const dynamic = "force-dynamic";
 
@@ -93,13 +94,14 @@ export default async function ReuniaoDetalhePage({
   }
 
   const [tarefas, pessoas, jaExistiam, teamPessoas, teamTimes, teamAcessos] = await Promise.all([
-    tarefasFor(user.id).byMeeting(id) as Promise<Tarefa[]>,
+    tarefasFor(user.id).byMeeting(id).then((l) => comProjetos(user.id, l as Tarefa[])),
     pessoasFor(user.id).listMinimal(),
     tarefasFor(user.id).faladasDeNovoNa(id) as Promise<Tarefa[]>,
     isTeamMode() ? teamAccessFor(user.id).listPessoas() : Promise.resolve([]),
     isTeamMode() ? teamAccessFor(user.id).listTimes() : Promise.resolve([]),
     isTeamMode() && isOwner ? teamAccessFor(user.id).listAcessos(id) : Promise.resolve([]),
   ]);
+  const comOutros = isOwner ? await tarefasFor(user.id).comOutros(tarefas.map((t) => t.id)) : 0;
   const aberta = (t: Tarefa) => t.status !== "concluida" && t.status !== "cancelada";
   const suas = tarefas.filter((t) => aberta(t) && t.acao !== "aguardar");
   const aguardando = tarefas.filter((t) => aberta(t) && t.acao === "aguardar");
@@ -160,7 +162,7 @@ export default async function ReuniaoDetalhePage({
                 printBase={`/reunioes/${meeting.id}/imprimir`}
               />
               <MeetingShareButton meetingId={meeting.id} tokenInicial={meeting.share_token} />
-              <DeleteMeetingButton meetingId={meeting.id} redirectTo="/reunioes" label="Apagar" tarefasCount={tarefas.length} />
+              <DeleteMeetingButton meetingId={meeting.id} redirectTo="/reunioes" label="Apagar" tarefasCount={tarefas.length} comOutros={comOutros} />
             </>
           )}
         </div>

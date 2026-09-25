@@ -62,6 +62,11 @@ export default function PrivacidadePage() {
           <li><strong>Toda a Welcome:</strong> qualquer pessoa da Welcome com acesso ao Ações vê a reunião</li>
         </ul>
         <p className="text-sm leading-relaxed">
+          Uma tarefa que você passa para um colega, ou coloca num projeto com outras pessoas,
+          fica visível para elas. A reunião de onde a tarefa saiu continua só sua: quem recebe
+          não vê a gravação, a transcrição nem o trecho.
+        </p>
+        <p className="text-sm leading-relaxed">
           Você pode mudar essas permissões a qualquer momento na página de cada reunião.
         </p>
       </section>

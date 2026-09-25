@@ -38,10 +38,19 @@ export function SiteHeader({
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  // Em TEAM_MODE: Gravar sempre à mão; não-admin vê só Pendências, Reuniões, Gravar e Pessoas
-  const navEquipe = teamMode ? [...NAV.slice(0, 3), { href: "/reunioes/gravar", label: "Gravar" }, ...NAV.slice(3)] : NAV;
+  // Em TEAM_MODE: Projetos logo depois das Pendências (é o hub da equipe) e Gravar à mão;
+  // não-admin vê Pendências, Projetos, Reuniões, Gravar e Pessoas.
+  const navEquipe = teamMode
+    ? [
+        NAV[0],
+        { href: "/quadros", label: "Projetos" },
+        { href: "/reunioes", label: "Reuniões" },
+        { href: "/reunioes/gravar", label: "Gravar" },
+        ...NAV.filter((i) => !["/", "/quadros", "/reunioes"].includes(i.href)),
+      ]
+    : NAV;
   const filteredNav = teamMode && user && !user.is_admin
-    ? navEquipe.filter((item) => ["/", "/reunioes", "/reunioes/gravar", "/pessoas"].includes(item.href))
+    ? navEquipe.filter((item) => ["/", "/quadros", "/reunioes", "/reunioes/gravar", "/pessoas"].includes(item.href))
     : navEquipe;
 
   useEffect(() => {

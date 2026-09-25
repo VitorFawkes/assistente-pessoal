@@ -1,15 +1,19 @@
-import { requireUserOrRedirect, requireAdminOrRedirect } from "@/lib/auth";
+import { requireUserOrRedirect } from "@/lib/auth";
 import { isTeamMode } from "@/lib/team-mode";
 import { quadrosFor, type QuadroComContagem } from "@/lib/quadros";
+import { listarProjetos } from "@/lib/projetos";
 import { NovoQuadro } from "@/components/novo-quadro";
+import { ProjetosLista } from "@/components/projetos-lista";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
 export default async function QuadrosPage() {
   const user = await requireUserOrRedirect();
-  if (isTeamMode() && !user.is_admin) {
-    await requireAdminOrRedirect();
+  if (isTeamMode()) {
+    // Equipe: "Projetos" — os que a pessoa criou e os em que foi chamada.
+    const projetos = await listarProjetos(user.id);
+    return <ProjetosLista projetos={projetos} />;
   }
   let quadros: QuadroComContagem[] = [];
   let error: string | null = null;

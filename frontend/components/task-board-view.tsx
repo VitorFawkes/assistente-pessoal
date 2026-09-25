@@ -49,6 +49,7 @@ type Arrasto = {
 export function TaskBoardView({
   tarefas,
   onRemoveFromBoard,
+  membros,
   quadroId,
   vistaPadrao = "lista",
   onMudarVistaPadrao,
@@ -56,6 +57,8 @@ export function TaskBoardView({
   tarefas: Tarefa[];
   /** Só o dono "remove do quadro" (desvincula sem apagar). */
   onRemoveFromBoard?: (id: string) => void;
+  /** Equipe: nomes das pessoas do projeto (entram no seletor de dono de cada linha). */
+  membros?: string[];
   /** Necessário pra guardar a ordem que a pessoa montou arrastando. */
   quadroId?: string;
   /** Visão gravada no quadro: 'timeline' é o quadro aberto como plano. */
@@ -92,8 +95,13 @@ export function TaskBoardView({
 
   // Só quem já está no quadro entra no seletor de dono da linha.
   const nomesNoQuadro = useMemo(
-    () => pessoasDoQuadro(tarefas).filter((p) => p.chave !== "__sem__").map((p) => p.nome),
-    [tarefas],
+    () => [
+      ...new Set([
+        ...(membros ?? []),
+        ...pessoasDoQuadro(tarefas).filter((p) => p.chave !== "__sem__").map((p) => p.nome),
+      ]),
+    ],
+    [tarefas, membros],
   );
 
   const grupos: Grupo[] = useMemo(() => {
@@ -253,6 +261,7 @@ export function TaskBoardView({
         <QuadroTarefa
           tarefa={t}
           pessoasDoQuadro={nomesNoQuadro}
+          semDono={!membros}
           onTirarDoQuadro={onRemoveFromBoard ? () => onRemoveFromBoard(t.id) : undefined}
         />
       </div>

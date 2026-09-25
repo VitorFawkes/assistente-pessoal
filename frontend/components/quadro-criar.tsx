@@ -1,5 +1,7 @@
 "use client";
 
+import { isTeamMode } from "@/lib/team-mode";
+
 // "+ Nova tarefa": um botão que abre uma linha igual à das tarefas, com dono,
 // prazo, situação, resumo e tema. Escrevendo "sexta @Giordana #Google Ads" no
 // título, os campos se preenchem sozinhos — é o que o rascunho prometia.
@@ -187,7 +189,8 @@ export function QuadroCriar({
         const ajustes: Record<string, unknown> = {};
         if (situacao !== "aberta") ajustes.status = situacao;
         if (frenteId) ajustes.frente_id = frenteId;
-        if (donoFinal) ajustes.pessoas = [{ nome: donoFinal, principal: true }];
+        // Na equipe o servidor já liga o dono (e passa pro colega, se for um).
+        if (donoFinal && !isTeamMode()) ajustes.pessoas = [{ nome: donoFinal, principal: true }];
         if (Object.keys(ajustes).length) await mut.patch(tarefa.id, ajustes, { silent: true });
         // Pelo login do dono a lista vem do servidor: sem recarregar aqui, a
         // tarefa só aparecia depois de a pessoa atualizar a página na mão — e

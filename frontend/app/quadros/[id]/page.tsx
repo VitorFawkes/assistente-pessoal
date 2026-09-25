@@ -1,7 +1,9 @@
-import { requireUserOrRedirect, requireAdminOrRedirect } from "@/lib/auth";
+import { notFound } from "next/navigation";
+import { requireUserOrRedirect } from "@/lib/auth";
 import { isTeamMode } from "@/lib/team-mode";
 import { quadrosFor, type Quadro, type QuadroConvidado, type AtividadeItem } from "@/lib/quadros";
 import { type Tarefa } from "@/lib/queries";
+import { projetoParaQuemVe } from "@/lib/projetos";
 import { QuadroManager } from "@/components/quadro-manager";
 
 export const dynamic = "force-dynamic";
@@ -13,8 +15,24 @@ export default async function QuadroDetailPage({
 }) {
   const { id } = await params;
   const user = await requireUserOrRedirect();
-  if (isTeamMode() && !user.is_admin) {
-    await requireAdminOrRedirect();
+
+  if (isTeamMode()) {
+    // Equipe: projeto de várias pessoas — só entra quem criou ou foi chamado.
+    const projeto = await projetoParaQuemVe(user.id, id);
+    if (!projeto) notFound();
+    return (
+      <div className="mx-[calc(50%-50vw)] px-5 sm:px-8 overflow-x-clip">
+        <div className="mx-auto max-w-[1400px]">
+          <QuadroManager
+            quadro={projeto.quadro}
+            tarefas={projeto.tarefas}
+            convidados={[]}
+            atividade={projeto.atividade}
+            equipe={{ pessoas: projeto.pessoas, souDono: projeto.sou_dono, eu: user.id }}
+          />
+        </div>
+      </div>
+    );
   }
 
   let quadro: Quadro | null = null;

@@ -1,5 +1,7 @@
 import { withAuth } from "@/lib/auth";
 import { quadrosFor } from "@/lib/quadros";
+import { isTeamMode } from "@/lib/team-mode";
+import { reordenarNoProjeto } from "@/lib/projetos";
 import { type NextRequest, NextResponse } from "next/server";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -25,6 +27,12 @@ export const POST = withAuth<Ctx>(async (user, req, ctx) => {
   }
 
   try {
+    if (isTeamMode()) {
+      if (!(await reordenarNoProjeto(user.id, id, ids))) {
+        return NextResponse.json({ error: "projeto não encontrado" }, { status: 404 });
+      }
+      return NextResponse.json({ ok: true, count: ids.length });
+    }
     await quadrosFor(user.id).reordenarTarefas(id, ids);
     return NextResponse.json({ ok: true, count: ids.length });
   } catch (e) {

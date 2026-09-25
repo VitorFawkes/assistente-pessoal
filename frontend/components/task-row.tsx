@@ -14,6 +14,7 @@ import {
   Dot,
   Paperclip,
   Users,
+  LayoutGrid,
 } from "lucide-react";
 import { cn, formatPrazo, normalizeOwner, type Prioridade } from "@/lib/utils";
 import { meetingDateShort, meetingSubject } from "@/lib/meeting-label";
@@ -120,7 +121,8 @@ export function TaskRow({
   onToggleSelect?: (id: string, e: React.MouseEvent) => void;
 }) {
   const mut = useTaskMutations();
-  const isOwner = mut.scope === "owner";
+  // Tarefa que outra pessoa criou (veio de colega ou do projeto): mexe, mas não apaga.
+  const isOwner = mut.scope === "owner" && !tarefa.compartilhada;
   const [isPending, setIsPending] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -240,8 +242,8 @@ export function TaskRow({
           aria-hidden
         />
 
-        {/* checkbox de seleção em massa */}
-        {onToggleSelect && (
+        {/* checkbox de seleção em massa (só nas suas: a edição em massa não alcança as de colegas) */}
+        {onToggleSelect && !tarefa.compartilhada && (
           <button
             type="button"
             onClick={(e) => {
@@ -343,7 +345,8 @@ export function TaskRow({
                   {tarefa.anexos.length}
                 </span>
               )}
-              <AreaInline tarefa={tarefa} />
+              {/* Tema é de cada conta: numa tarefa de colega não dá pra trocar. */}
+              {!tarefa.compartilhada && <AreaInline tarefa={tarefa} />}
               <PrioridadeInline tarefa={tarefa} />
               {outrasPessoas.length > 0 && (
                 <span
@@ -363,9 +366,34 @@ export function TaskRow({
             </div>
           </div>
 
-          {/* Linha 3 (só se existir): reunião + trecho + "falada de novo" */}
-          {(tarefa.meeting_id || tarefa.evidencia || (tarefa.mencoes?.length ?? 0) > 0) && (
-            <div className="mt-1 flex items-center gap-2 text-[11px] min-w-0">
+          {/* Linha 3 (só se existir): reunião + trecho + "falada de novo"; na equipe,
+              de quem veio a tarefa e em quais projetos ela está. */}
+          {(tarefa.meeting_id ||
+            tarefa.evidencia ||
+            (tarefa.mencoes?.length ?? 0) > 0 ||
+            tarefa.compartilhada ||
+            (tarefa.projetos?.length ?? 0) > 0) && (
+            <div className="mt-1 flex items-center gap-2 text-[11px] min-w-0 flex-wrap">
+              {tarefa.compartilhada && tarefa.criador_nome && (
+                <span
+                  className="shrink-0 inline-flex items-center gap-1 px-1.5 rounded bg-[color:var(--calm-bg)] text-[color:var(--calm)]"
+                  title={`Tarefa criada por ${tarefa.criador_nome}`}
+                >
+                  de {tarefa.criador_nome.split(/\s+/)[0]}
+                </span>
+              )}
+              {(tarefa.projetos ?? []).map((p) => (
+                <Link
+                  key={p.id}
+                  href={`/quadros/${p.id}`}
+                  onClick={(e) => e.stopPropagation()}
+                  title={`No projeto ${p.nome}`}
+                  className="press-feedback shrink-0 inline-flex items-center gap-1 px-1.5 rounded border border-[color:var(--border)] text-[color:var(--muted-strong)] hover:border-[color:var(--foreground)] hover:text-[color:var(--foreground)] transition max-w-[160px]"
+                >
+                  <LayoutGrid size={10} className="shrink-0" />
+                  <span className="truncate">{p.nome}</span>
+                </Link>
+              ))}
               {tarefa.meeting_id && (
                 <Link
                   href={`/reunioes/${tarefa.meeting_id}`}

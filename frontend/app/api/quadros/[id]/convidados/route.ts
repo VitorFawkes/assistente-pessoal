@@ -1,5 +1,6 @@
 import { withAuth } from "@/lib/auth";
 import { quadrosFor } from "@/lib/quadros";
+import { isTeamMode } from "@/lib/team-mode";
 import { NextResponse } from "next/server";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -19,6 +20,10 @@ export const GET = withAuth<Ctx>(async (user, req, ctx) => {
 
 export const POST = withAuth<Ctx>(async (user, req, ctx) => {
   const { id } = await ctx.params;
+  // Equipe: projeto se divide chamando colegas (pessoas do projeto), não por link aberto.
+  if (isTeamMode()) {
+    return NextResponse.json({ error: "Na equipe, chame as pessoas pelo projeto." }, { status: 403 });
+  }
 
   let body: PostBody;
   try {

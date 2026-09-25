@@ -1,6 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
 import { getOwnerSlug } from "@/lib/owner-slug";
+import { withTenant } from "@/lib/db";
+import { isTeamMode } from "@/lib/team-mode";
+import { resolverDono } from "@/lib/compartilhar";
+import { colegasDe } from "@/lib/equipe-compartilhado";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +21,8 @@ type PostBody = Partial<{
   prioridade: (typeof VALID_PRIORIDADE)[number];
   frente_id: string | null;
   pessoas: { nome: string; principal?: boolean }[];
+  /** Equipe: nasce já passada pra este colega. */
+  responsavel_user_id: string | null;
 }>;
 
 // POST /api/tarefas — cria uma tarefa manual (não veio de reunião).
@@ -34,7 +40,7 @@ export const POST = withAuth(async (user, req) => {
     return NextResponse.json({ error: "título obrigatório" }, { status: 400 });
   }
 
-  const acao = body.acao ?? "executar";
+  let acao = body.acao ?? "executar";
   if (!VALID_ACAO.includes(acao)) {
     return NextResponse.json({ error: "acao inválida" }, { status: 400 });
   }
@@ -44,7 +50,22 @@ export const POST = withAuth(async (user, req) => {
     return NextResponse.json({ error: "prioridade inválida" }, { status: 400 });
   }
 
-  const owner = (body.owner ?? "").trim() || getOwnerSlug();
+  let owner = (body.owner ?? "").trim() || getOwnerSlug();
+  let pessoas = Array.isArray(body.pessoas) ? body.pessoas : undefined;
+  let responsavel: string | null = null;
+
+  // Equipe: dono que é colega (escolhido ou digitado) → a tarefa já nasce na lista dele.
+  if (isTeamMode() && (body.owner !== undefined || body.responsavel_user_id)) {
+    const r = resolverDono(
+      { owner: body.owner, acao: body.acao, responsavel_user_id: body.responsavel_user_id ?? undefined },
+      { donoId: user.id, colegas: await colegasDe(user.id), slug: getOwnerSlug() },
+    );
+    if (r.erro) return NextResponse.json({ error: r.erro }, { status: 400 });
+    owner = r.owner ?? owner;
+    acao = r.acao ?? acao;
+    responsavel = r.responsavel ?? null;
+    if (!pessoas && owner !== getOwnerSlug()) pessoas = [{ nome: owner, principal: true }];
+  }
 
   try {
     const { tarefasFor } = await import("@/lib/queries");
@@ -58,10 +79,16 @@ export const POST = withAuth(async (user, req) => {
         prazo_text: body.prazo_text ?? null,
         prioridade,
         frente_id: body.frente_id ?? null,
-        pessoas: Array.isArray(body.pessoas) ? body.pessoas : undefined,
+        pessoas,
       },
       { origem: "manual" },
     );
+    if (responsavel) {
+      await withTenant(user.id, (c) =>
+        c.query("UPDATE tarefas SET responsavel_user_id = $1 WHERE id = $2", [responsavel, created.id]),
+      );
+      created.responsavel_user_id = responsavel;
+    }
     return NextResponse.json(created, { status: 201 });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);

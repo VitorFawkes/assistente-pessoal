@@ -30,7 +30,8 @@ const PUBLIC_PREFIXES = [
 // /termos é semi-público: precisa de sessão, mas SEM consent_terms_at.
 // Tratado inline abaixo, não no PUBLIC_PREFIXES.
 // Modo equipe: só o admin abre estas áreas (páginas e APIs).
-const SO_ADMIN_NA_EQUIPE = ["/plano", "/quadros", "/coach", "/assistente", "/admin", "/api/coach", "/api/quadros", "/api/agent"];
+// Projetos (/quadros) são de todos na equipe: o acesso a cada um é conferido no banco.
+const SO_ADMIN_NA_EQUIPE = ["/plano", "/coach", "/assistente", "/admin", "/api/coach", "/api/agent"];
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const WEBHOOK_TOKEN = process.env.WEBHOOK_TOKEN || "";
 

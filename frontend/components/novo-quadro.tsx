@@ -4,6 +4,11 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
+import { isTeamMode } from "@/lib/team-mode";
+
+// Na equipe o quadro se chama "projeto" (é o que o Vitor pediu: "colocarem em projetos").
+const EQUIPE = isTeamMode();
+const PALAVRA = EQUIPE ? "projeto" : "quadro";
 
 /**
  * Criação de quadro (client). A página /quadros é Server Component; este
@@ -19,7 +24,7 @@ export function NovoQuadro({ autoOpen = false }: { autoOpen?: boolean }) {
   async function criar() {
     const n = nome.trim();
     if (!n) {
-      toast.error("Dá um nome pro quadro");
+      toast.error(`Dá um nome pro ${PALAVRA}`);
       return;
     }
     setSaving(true);
@@ -34,10 +39,10 @@ export function NovoQuadro({ autoOpen = false }: { autoOpen?: boolean }) {
         throw new Error(j.error ?? `erro ${res.status}`);
       }
       const quadro = (await res.json()) as { id: string };
-      toast.success("Quadro criado");
+      toast.success(EQUIPE ? "Projeto criado" : "Quadro criado");
       router.push(`/quadros/${quadro.id}`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erro ao criar quadro");
+      toast.error(e instanceof Error ? e.message : `Erro ao criar ${PALAVRA}`);
       setSaving(false);
     }
   }
@@ -49,7 +54,7 @@ export function NovoQuadro({ autoOpen = false }: { autoOpen?: boolean }) {
         onClick={() => setOpen(true)}
         className="press-feedback inline-flex items-center gap-1.5 rounded-full bg-[color:var(--foreground)] text-[color:var(--background)] px-4 py-2 text-sm font-medium hover:opacity-90 transition"
       >
-        <Plus size={15} strokeWidth={2.5} /> Novo quadro
+        <Plus size={15} strokeWidth={2.5} /> {EQUIPE ? "Novo projeto" : "Novo quadro"}
       </button>
     );
   }
@@ -64,7 +69,7 @@ export function NovoQuadro({ autoOpen = false }: { autoOpen?: boolean }) {
           if (e.key === "Enter") criar();
           if (e.key === "Escape") setOpen(false);
         }}
-        placeholder="Nome do quadro (ex: Tarefas do João)"
+        placeholder={EQUIPE ? "Nome do projeto (ex: Lançamento Weddings 2027)" : "Nome do quadro (ex: Tarefas do João)"}
         className="w-full px-3 py-2 rounded-md border border-[color:var(--border)] bg-transparent text-sm outline-none focus:border-[color:var(--muted)]"
       />
       <input
@@ -84,7 +89,7 @@ export function NovoQuadro({ autoOpen = false }: { autoOpen?: boolean }) {
           disabled={saving}
           className="rounded-full bg-[color:var(--foreground)] text-[color:var(--background)] px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50"
         >
-          {saving ? "Criando…" : "Criar quadro"}
+          {saving ? "Criando…" : EQUIPE ? "Criar projeto" : "Criar quadro"}
         </button>
         <button
           type="button"

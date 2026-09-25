@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/db";
+import { acessoTarefa } from "@/lib/equipe-compartilhado";
 import {
   MAX_FILE_BYTES,
   isAllowedFile,
@@ -8,6 +9,12 @@ import {
   sanitizeFilename,
   normalizeUrl,
 } from "@/lib/anexos";
+
+// Equipe: quem recebeu a tarefa de colega ou a vê num projeto também mexe nos anexos,
+// pelo tenant de quem a criou. Sem acesso, cai no próprio tenant e o RLS devolve nada (404).
+async function donoDaTarefa(userId: string, tarefaId: string): Promise<string> {
+  return (await acessoTarefa(userId, tarefaId))?.donoId ?? userId;
+}
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -21,7 +28,7 @@ const ANEXO_META =
  */
 export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
   const { id } = await ctx.params;
-  const rows = await withTenant(user.id, async (c) => {
+  const rows = await withTenant(await donoDaTarefa(user.id, id), async (c) => {
     const t = await c.query("SELECT id FROM tarefas WHERE id = $1", [id]);
     if (!t.rows.length) return null;
     const r = await c.query(
@@ -74,7 +81,7 @@ export const POST = withAuth<Ctx>(async (user, req, ctx) => {
       const ct = resolveContentType(file.name, file.type);
       const tituloForm = String(form.get("titulo") || "").trim() || null;
 
-      const created = await withTenant(user.id, async (c) => {
+      const created = await withTenant(await donoDaTarefa(user.id, id), async (c) => {
         const t = await c.query("SELECT id FROM tarefas WHERE id = $1", [id]);
         if (!t.rows.length) return null;
         const r = await c.query(
@@ -103,7 +110,7 @@ export const POST = withAuth<Ctx>(async (user, req, ctx) => {
     }
     const titulo = (body.titulo || "").trim().slice(0, 300) || null;
 
-    const created = await withTenant(user.id, async (c) => {
+    const created = await withTenant(await donoDaTarefa(user.id, id), async (c) => {
       const t = await c.query("SELECT id FROM tarefas WHERE id = $1", [id]);
       if (!t.rows.length) return null;
       const r = await c.query(

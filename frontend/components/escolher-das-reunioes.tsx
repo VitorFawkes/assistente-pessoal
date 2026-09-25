@@ -29,6 +29,8 @@ type Props = {
 };
 
 type Reuniao = {
+  /** id da reunião, "__mao__" (criadas na mão) ou "__recebidas__" (passadas por colegas). */
+  chave: string;
   id: string | null; // null = criadas na mão
   nome: string;
   quando: string | null;
@@ -210,15 +212,19 @@ export function EscolherDasReunioes({ quadroId, tarefasNoQuadro, onClose, onAdde
           .includes(q)
       )
         continue;
-      const chave = t.meeting_id ?? "__mao__";
+      // Equipe: as que colegas passaram pra você ficam juntas, num grupo só delas.
+      const chave = t.meeting_id ?? (t.compartilhada ? "__recebidas__" : "__mao__");
       if (!mapa.has(chave)) {
         mapa.set(chave, {
+          chave,
           id: t.meeting_id ?? null,
           nome: t.meeting_id
             ? nomes[t.meeting_id] ??
               meetingSubject(t.meeting_summary, t.meeting_nome) ??
               "Reunião"
-            : "Criadas na mão",
+            : t.compartilhada
+              ? "Passadas pra você por colegas"
+              : "Criadas na mão",
           quando: t.meeting_recorded_at ?? null,
           duracao: t.meeting_duracao ?? null,
           tarefas: [],
@@ -239,7 +245,7 @@ export function EscolherDasReunioes({ quadroId, tarefasNoQuadro, onClose, onAdde
   useEffect(() => {
     if (iniciouRef.current || !reunioes.length) return;
     iniciouRef.current = true;
-    setAbertas(new Set(reunioes.slice(0, 2).map((r) => r.id ?? "__mao__")));
+    setAbertas(new Set(reunioes.slice(0, 2).map((r) => r.chave)));
   }, [reunioes]);
 
   const parecidas = useMemo(() => {
@@ -374,7 +380,7 @@ export function EscolherDasReunioes({ quadroId, tarefasNoQuadro, onClose, onAdde
             </div>
           ) : (
             reunioes.map((r) => {
-              const chave = r.id ?? "__mao__";
+              const chave = r.chave;
               const aberta = abertas.has(chave) || !!busca;
               const todasMarcadas =
                 r.tarefas.length > 0 && r.tarefas.every((t) => marcadas.has(t.id));

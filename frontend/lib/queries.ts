@@ -128,6 +128,17 @@ export type Tarefa = {
   meeting_duracao?: number | null;
   meeting_recorded_at?: string | null;
   meeting_type?: string | null;
+  // ─── Equipe (tarefa compartilhada) ───
+  /** Colega para quem a tarefa foi passada: ela aparece na lista dele. */
+  responsavel_user_id?: string | null;
+  /** Quem está vendo não criou a tarefa (veio de colega ou de projeto). */
+  compartilhada?: boolean;
+  /** Nome de quem criou — só vem quando compartilhada. */
+  criador_nome?: string | null;
+  /** Nome de quem é a tarefa, pra mostrar/agrupar no projeto (onde "eu" não diz nada). */
+  dono_nome?: string | null;
+  /** Projetos (de quem vê) em que a tarefa está. */
+  projetos?: { id: string; nome: string }[];
 };
 
 export type TarefaDraft = {
@@ -279,12 +290,25 @@ export const meetingsFor = (userId: string) => ({
       );
       // Equipe: apagar a reunião leva junto as vozes aprendidas nela (sem isso
       // ficavam órfãs, com source_meeting_id nulo, e continuavam reconhecendo).
+      // Tarefas que já estão com outras pessoas (passadas a colega ou em projeto com
+      // mais gente) ficam com elas: soltam da reunião e perdem o trecho gravado.
+      let mantidas = 0;
       if (isTeamMode()) {
         await db.query(
           `DELETE FROM voice_samples
             WHERE source_meeting_id IN (SELECT id FROM meetings WHERE id = $1 OR parent_meeting_id = $1)`,
           [id],
         );
+        const soltas = await db.query(
+          `UPDATE tarefas SET meeting_id = NULL, evidencia = NULL
+            WHERE id IN (
+              SELECT tarefa_id FROM equipe_tarefas_com_outros(ARRAY(
+                SELECT t.id FROM tarefas t
+                 WHERE t.meeting_id IN (SELECT id FROM meetings WHERE id = $1 OR parent_meeting_id = $1))))
+            RETURNING id`,
+          [id],
+        );
+        mantidas = soltas.rowCount ?? 0;
       }
       const del = await db.query<{ id: string }>(
         `DELETE FROM meetings WHERE id = $1 OR parent_meeting_id = $1 RETURNING id`,
@@ -292,6 +316,7 @@ export const meetingsFor = (userId: string) => ({
       );
       return {
         deleted: del.rowCount ?? 0,
+        mantidas,
         audioPaths: paths.rows
           .map((r) => r.audio_path)
           .filter((p): p is string => Boolean(p)),
@@ -767,6 +792,15 @@ export const tarefasFor = (userId: string) => ({
       );
       return r.rows;
     }),
+
+  /** Equipe: quantas destas tarefas outra pessoa também vê (colega ou projeto com mais gente). */
+  comOutros: (ids: string[]) =>
+    isTeamMode() && ids.length
+      ? withTenant(userId, async (db) => {
+          const r = await db.query(`SELECT tarefa_id FROM equipe_tarefas_com_outros($1::uuid[])`, [ids]);
+          return r.rowCount ?? 0;
+        })
+      : Promise.resolve(0),
 
   /** Tarefas que já existiam e que esta reunião voltou a falar (viraram "falada de novo"). */
   faladasDeNovoNa: (meetingId: string) =>

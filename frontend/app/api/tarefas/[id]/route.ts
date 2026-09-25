@@ -2,6 +2,14 @@ import { type NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/db";
 import { getOwnerSlug, isOwner } from "@/lib/owner-slug";
+import { isTeamMode } from "@/lib/team-mode";
+import { resolverDono } from "@/lib/compartilhar";
+import {
+  acessoTarefa,
+  carregarTarefas,
+  colegasDe,
+  registrarEvento,
+} from "@/lib/equipe-compartilhado";
 
 const VALID_STATUS = ["aberta", "em_andamento", "aguardando_aprovacao", "concluida", "cancelada"] as const;
 const VALID_PRIORIDADE = ["baixa", "media", "alta", "urgente"] as const;
@@ -23,7 +31,13 @@ type PatchBody = Partial<{
   no_plano: boolean;
   ordem: number | null;
   pessoas: { nome: string; principal?: boolean }[];
+  /** Equipe: colega que passa a ser o dono (a tarefa entra na lista dele). */
+  responsavel_user_id: string | null;
 }>;
+
+// O que só quem criou a tarefa muda: plano/ordem pessoais dele e o tema (os temas são
+// de cada pessoa — um tema de outra conta não aparece pra quem criou).
+const SO_DO_CRIADOR = ["no_plano", "ordem", "frente_id", "area_raw"] as const;
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -36,6 +50,18 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
 
+  const acesso = await acessoTarefa(user.id, id);
+  if (!acesso) {
+    return NextResponse.json({ error: "tarefa não encontrada" }, { status: 404 });
+  }
+  const donoId = acesso.donoId;
+  if (acesso.papel !== "dono") {
+    for (const k of SO_DO_CRIADOR) delete body[k];
+  }
+  if (body.acao !== undefined && !VALID_ACAO.includes(body.acao)) {
+    return NextResponse.json({ error: "acao inválida" }, { status: 400 });
+  }
+
   const sets: string[] = [];
   const values: unknown[] = [];
 
@@ -44,13 +70,35 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
     sets.push(`${col} = $${values.length}`);
   };
 
+  // Equipe: o dono pode ser um colega (a tarefa vai pra lista dele). Traduz o pedido
+  // pro que se grava do ponto de vista de quem criou a tarefa.
+  if (
+    isTeamMode() &&
+    (body.owner !== undefined ||
+      body.acao !== undefined ||
+      body.responsavel_user_id !== undefined ||
+      Array.isArray(body.pessoas))
+  ) {
+    const r = resolverDono(
+      {
+        owner: body.owner,
+        acao: body.acao,
+        responsavel_user_id: body.responsavel_user_id,
+        pessoas: Array.isArray(body.pessoas) ? body.pessoas : undefined,
+      },
+      { donoId, colegas: await colegasDe(user.id), slug: getOwnerSlug() },
+    );
+    if (r.erro) return NextResponse.json({ error: r.erro }, { status: 400 });
+    body.owner = r.owner;
+    body.acao = r.acao;
+    if (r.pessoas) body.pessoas = r.pessoas;
+    if (r.responsavel !== undefined) push("responsavel_user_id", r.responsavel);
+  }
+
   if (body.titulo !== undefined) push("titulo", body.titulo);
   if (body.descricao !== undefined) push("descricao", body.descricao);
   if (body.owner !== undefined) push("owner", body.owner);
   if (body.acao !== undefined) {
-    if (!VALID_ACAO.includes(body.acao)) {
-      return NextResponse.json({ error: "acao inválida" }, { status: 400 });
-    }
     push("acao", body.acao);
     // invariante: executar ⇔ a tarefa é do dono da conta. Sem owner explícito, força o slug.
     if (body.acao === "executar" && body.owner === undefined) push("owner", getOwnerSlug());
@@ -110,7 +158,9 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
       "titulo", "descricao", "owner", "acao", "prazo", "prazo_text", "prioridade", "area_raw",
     ] as const;
 
-    const updated = await withTenant(user.id, async (c) => {
+    // Quem não criou a tarefa mexe nela pelo tenant de quem criou (acesso conferido acima).
+    const ator = isTeamMode() ? user.id : null;
+    const updated = await withTenant(donoId, async (c) => {
       let row: Record<string, unknown> | undefined;
       if (sets.length) {
         // pega o estado ANTES p/ registrar a correção (de→para)
@@ -128,10 +178,7 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
               : body.status === "cancelada"
               ? "cancelada"
               : "reaberta";
-          await c.query(
-            "INSERT INTO tarefa_eventos (tarefa_id, evento, payload) VALUES ($1,$2,$3)",
-            [id, evento, JSON.stringify(body)],
-          );
+          await registrarEvento(c, id, evento, body, ator);
         }
         // correção de conteúdo: registra de→para por campo alterado
         if (row && before) {
@@ -142,14 +189,11 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
             }
           }
           if (Object.keys(changed).length) {
-            await c.query(
-              "INSERT INTO tarefa_eventos (tarefa_id, evento, payload) VALUES ($1,'editada',$2)",
-              [id, JSON.stringify({ origem: "correcao_manual", changed })],
-            );
+            await registrarEvento(c, id, "editada", { origem: "correcao_manual", changed }, ator);
             // dataset persistente p/ o loop de feedback (sobrevive à deleção da tarefa)
             await c.query(
               "INSERT INTO extracao_feedback (user_id, meeting_id, tipo, payload) VALUES ($1,$2,'correcao',$3)",
-              [user.id, (before.meeting_id as string) ?? null, JSON.stringify({ changed })],
+              [donoId, (before.meeting_id as string) ?? null, JSON.stringify({ changed })],
             );
           }
         }
@@ -185,7 +229,7 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
               const pr = await c.query<{ id: string }>(
                 `INSERT INTO pessoas (user_id, nome) VALUES ($1,$2)
                  ON CONFLICT (user_id, nome) DO UPDATE SET updated_at = now() RETURNING id`,
-                [user.id, owner],
+                [donoId, owner],
               );
               pessoaId = pr.rows[0].id;
             }
@@ -206,7 +250,7 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
           const pr = await c.query<{ id: string }>(
             `INSERT INTO pessoas (user_id, nome) VALUES ($1,$2)
              ON CONFLICT (user_id, nome) DO UPDATE SET updated_at = now() RETURNING id`,
-            [user.id, nome],
+            [donoId, nome],
           );
           await c.query(
             `INSERT INTO tarefa_pessoas (tarefa_id, pessoa_id, principal) VALUES ($1,$2,$3)
@@ -220,6 +264,11 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
 
     if (!updated) {
       return NextResponse.json({ error: "tarefa não encontrada" }, { status: 404 });
+    }
+    if (acesso.papel !== "dono") {
+      // Quem não criou recebe a tarefa do ponto de vista dele (sem a reunião de origem).
+      const [visto] = await carregarTarefas(user.id, [{ tarefa_id: id, dono_id: donoId }]);
+      return NextResponse.json(visto ?? { id });
     }
     return NextResponse.json(updated);
   } catch (e: unknown) {
@@ -240,6 +289,18 @@ export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
 
 export const DELETE = withAuth<Ctx>(async (user, req, ctx) => {
   const { id } = await ctx.params;
+  // Equipe: só quem criou apaga. Quem recebeu de colega ou vê pelo projeto pode tirar do
+  // projeto ou devolver, mas não some com o trabalho de outra pessoa.
+  if (isTeamMode()) {
+    const acesso = await acessoTarefa(user.id, id);
+    if (!acesso) return NextResponse.json({ error: "tarefa não encontrada" }, { status: 404 });
+    if (acesso.papel !== "dono") {
+      return NextResponse.json(
+        { error: "Só quem criou a tarefa pode apagar. Você pode tirar ela do projeto." },
+        { status: 403 },
+      );
+    }
+  }
   // "não é tarefa": rejeição explícita → guarda exemplo negativo p/ o loop de feedback.
   const motivo = new URL((req as NextRequest).url).searchParams.get("motivo");
   try {

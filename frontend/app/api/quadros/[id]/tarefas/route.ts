@@ -1,5 +1,7 @@
 import { withAuth } from "@/lib/auth";
 import { CANDIDATAS_LIMIT, quadrosFor } from "@/lib/quadros";
+import { isTeamMode } from "@/lib/team-mode";
+import { adicionarAoProjeto, candidatasDoProjeto } from "@/lib/projetos";
 import { type NextRequest, NextResponse } from "next/server";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -14,6 +16,11 @@ export const GET = withAuth<Ctx>(async (user, req, ctx) => {
   const { id } = await ctx.params;
   const url = new URL((req as NextRequest).url);
   const q = url.searchParams.get("q") ?? undefined;
+  if (isTeamMode()) {
+    const lista = await candidatasDoProjeto(user.id, id, q);
+    if (!lista) return NextResponse.json({ error: "projeto não encontrado" }, { status: 404 });
+    return NextResponse.json({ candidatas: lista, truncado: lista.length >= CANDIDATAS_LIMIT });
+  }
   const candidatas = await quadrosFor(user.id).candidatas(id, q);
   // Avisa quando bateu no teto: a tela precisa dizer que há mais fora da lista.
   return NextResponse.json({
@@ -37,6 +44,16 @@ export const POST = withAuth<Ctx>(async (user, req, ctx) => {
       { error: "tarefaIds deve ser um array" },
       { status: 400 },
     );
+  }
+
+  if (isTeamMode()) {
+    const r = await adicionarAoProjeto(
+      user.id,
+      id,
+      body.tarefaIds.filter((x): x is string => typeof x === "string"),
+    );
+    if (!r) return NextResponse.json({ error: "projeto não encontrado" }, { status: 404 });
+    return NextResponse.json(r, { status: 201 });
   }
 
   const result = await quadrosFor(user.id).adicionarTarefas(

@@ -1,5 +1,7 @@
 "use client";
 
+import { isTeamMode } from "@/lib/team-mode";
+
 // A faixa que abre o quadro: quantas atrasadas, quantas até sexta, quantas
 // estão sendo feitas, o quanto já andou — e quem está no quadro.
 // Clicar num nome filtra por ele; o lápis corrige o nome em todas as tarefas.
@@ -170,9 +172,11 @@ export function QuadroResumo({
 
       <div className="w-full pt-2.5 mt-0.5 border-t border-dashed border-[color:var(--border)] flex flex-wrap gap-1.5">
         <span className="w-full mb-0.5 text-[11.5px] font-bold uppercase tracking-wide text-[color:var(--muted)]">
-          Quem está no quadro{" "}
+          {isTeamMode() ? "Quem faz neste projeto" : "Quem está no quadro"}{" "}
           <small className="normal-case tracking-normal font-semibold opacity-80">
-            (clique no nome pra filtrar, no lápis pra corrigir)
+            {isTeamMode()
+              ? "(clique no nome pra filtrar)"
+              : "(clique no nome pra filtrar, no lápis pra corrigir)"}
           </small>
         </span>
         {pessoas.map((p) => (
@@ -185,7 +189,8 @@ export function QuadroResumo({
             ativa={pessoaFiltrada === p.chave}
             onFiltrar={() => onFiltrarPessoa(pessoaFiltrada === p.chave ? "" : p.chave)}
             onRenomear={
-              p.chave === "__sem__" ? undefined : (novo) => void renomear(p.nome, novo)
+              // Na equipe os nomes são de pessoas do Ações: corrigir aqui mexeria em tarefas de colegas.
+              p.chave === "__sem__" || isTeamMode() ? undefined : (novo) => void renomear(p.nome, novo)
             }
           />
         ))}

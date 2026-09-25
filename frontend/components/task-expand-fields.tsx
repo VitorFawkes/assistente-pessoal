@@ -8,6 +8,8 @@ import { useTaskMutations } from "@/lib/task-mutations";
 import { TaskAnexos } from "./task-anexos";
 import { MencoesLista } from "./tarefa-repetida";
 import { OwnerPicker } from "./inline-edit-chips";
+import { TarefaProjetos } from "./tarefa-projetos";
+import { isTeamMode } from "@/lib/team-mode";
 import type { Tarefa, TarefaPessoa } from "@/lib/queries";
 
 // Campos que NÃO cabem na linha compacta (a linha já edita título, prazo,
@@ -116,6 +118,12 @@ export function TaskExpandFields({ tarefa }: { tarefa: Tarefa }) {
         <OwnerField tarefa={tarefa} />
       </Field>
 
+      {isTeamMode() && mut.scope === "owner" && (
+        <Field label="Projetos">
+          <TarefaProjetos tarefa={tarefa} />
+        </Field>
+      )}
+
       <Field label="Links e arquivos">
         <TaskAnexos tarefa={tarefa} />
       </Field>
@@ -187,7 +195,7 @@ export function TaskExpandFields({ tarefa }: { tarefa: Tarefa }) {
         </Field>
         {/* "No plano de ação" mexe no /plano PRIVADO do dono — o convidado não
             controla isso (o endpoint do guest rejeita no_plano). Só o dono vê. */}
-        {mut.scope === "owner" && (
+        {mut.scope === "owner" && !tarefa.compartilhada && (
           <label className="flex items-center gap-2.5 text-[13px] cursor-pointer select-none rounded-lg border border-[color:var(--border)] px-3 self-end h-[38px]">
             <input
               type="checkbox"
@@ -232,6 +240,12 @@ export function TaskExpandFields({ tarefa }: { tarefa: Tarefa }) {
         </p>
       )}
 
+      {tarefa.compartilhada ? (
+        <p className="text-[12px] text-[color:var(--muted)]">
+          Só {tarefa.criador_nome ?? "quem criou"} pode apagar esta tarefa. Você pode passar para
+          outra pessoa ou tirar de um projeto.
+        </p>
+      ) : (
       <button
         type="button"
         onClick={() => {
@@ -254,6 +268,7 @@ export function TaskExpandFields({ tarefa }: { tarefa: Tarefa }) {
             link — dizer "remover do quadro" escondia isso. */}
         {confirmDelete ? "Clique de novo pra confirmar" : "Excluir tarefa"}
       </button>
+      )}
     </div>
   );
 }

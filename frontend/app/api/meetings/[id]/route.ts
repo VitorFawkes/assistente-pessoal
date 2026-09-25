@@ -26,7 +26,7 @@ export const DELETE = withAuth<Ctx>(async (user, _req, ctx) => {
   }
 
   try {
-    const { deleted, audioPaths } = await meetingsFor(user.id).deleteCascade(id);
+    const { deleted, mantidas, audioPaths } = await meetingsFor(user.id).deleteCascade(id);
     if (deleted === 0) {
       return NextResponse.json({ error: "reunião não encontrada" }, { status: 404 });
     }
@@ -42,7 +42,7 @@ export const DELETE = withAuth<Ctx>(async (user, _req, ctx) => {
       }
     }
 
-    return NextResponse.json({ ok: true, deleted });
+    return NextResponse.json({ ok: true, deleted, mantidas });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : String(e) },

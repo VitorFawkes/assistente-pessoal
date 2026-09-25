@@ -5,6 +5,8 @@ import { ABERTAS_LIMIT, tarefasFor, meetingsFor } from "@/lib/queries";
 import { type Tarefa } from "@/lib/queries";
 import { TasksDashboard } from "@/components/tasks-dashboard";
 import { OwnerTaskProvider } from "@/lib/task-mutations";
+import { comProjetos, tarefasParaMim } from "@/lib/equipe-compartilhado";
+import { ordenarPendencias } from "@/lib/compartilhar";
 
 export const dynamic = "force-dynamic";
 
@@ -19,13 +21,20 @@ export default async function HomePage() {
   try {
     // tarefasFor.recentes() retorna abertas + concluídas/canceladas com meeting joinado.
     // RLS filtra por user_id automaticamente. UI filtra por status.
-    const [lista, contagens, meetingsList] = await Promise.all([
+    const [lista, contagens, meetingsList, paraMim] = await Promise.all([
       tarefasFor(user.id).recentes(),
       tarefasFor(user.id).contagens(),
       teamMode ? meetingsFor(user.id).list() : Promise.resolve([]),
+      tarefasParaMim(user.id),
     ]);
-    tarefas = lista as unknown as Tarefa[];
-    totalAbertas = contagens.abertas;
+    // Equipe: as que colegas passaram pra mim entram na mesma lista (já como minhas).
+    tarefas = paraMim.length
+      ? [...(lista as unknown as Tarefa[]), ...paraMim].sort(ordenarPendencias)
+      : (lista as unknown as Tarefa[]);
+    tarefas = await comProjetos(user.id, tarefas);
+    totalAbertas =
+      contagens.abertas +
+      paraMim.filter((t) => t.status === "aberta" || t.status === "em_andamento").length;
     meetings = meetingsList;
   } catch (e: unknown) {
     dbError = e instanceof Error ? e.message : String(e);
@@ -49,7 +58,7 @@ export default async function HomePage() {
   }
 
   // Em TEAM_MODE, se não houver reuniões, mostrar o bloco de primeiro uso
-  if (teamMode && meetings.length === 0) {
+  if (teamMode && meetings.length === 0 && tarefas.length === 0) {
     return (
       <div className="space-y-6 py-6 sm:py-10">
         <header>

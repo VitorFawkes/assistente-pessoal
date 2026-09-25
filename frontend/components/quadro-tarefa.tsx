@@ -28,6 +28,7 @@ import {
 import { TaskAnexos } from "./task-anexos";
 import type { Tarefa } from "@/lib/queries";
 import { getOwnerSlug } from "@/lib/owner-slug";
+import { isTeamMode } from "@/lib/team-mode";
 
 // ── pedacinhos de edição no lugar ──────────────────────────────────────
 
@@ -128,7 +129,16 @@ function TextoVivo({
  *  A lista é a das pessoas DESTE quadro — a agenda inteira de pessoas do app
  *  tem centenas de nomes e não cabe num seletor de linha. Pra chamar alguém de
  *  fora, "outra pessoa…" abre um campo de escrever. */
-function DonoVivo({ tarefa, pessoasDoQuadro }: { tarefa: Tarefa; pessoasDoQuadro: string[] }) {
+function DonoVivo({
+  tarefa,
+  pessoasDoQuadro,
+  semDono = true,
+}: {
+  tarefa: Tarefa;
+  pessoasDoQuadro: string[];
+  /** Equipe: toda tarefa é de alguém (no mínimo de quem criou) — "sem dono" confunde. */
+  semDono?: boolean;
+}) {
   const mut = useTaskMutations();
   const [escrevendo, setEscrevendo] = useState(false);
   const dono = donoDe(tarefa);
@@ -187,7 +197,7 @@ function DonoVivo({ tarefa, pessoasDoQuadro }: { tarefa: Tarefa; pessoasDoQuadro
         title="Trocar o dono"
         className="min-w-0 max-w-[120px] truncate bg-transparent border border-transparent rounded-md px-1 py-0.5 text-[12.5px] font-medium text-[color:var(--muted-strong)] cursor-pointer hover:border-[color:var(--border)] focus:border-[color:var(--muted-strong)] outline-none appearance-none"
       >
-        <option value="__sem__">sem dono</option>
+        {(semDono || !dono) && <option value="__sem__">sem dono</option>}
         {nomes.map((n) => (
           <option key={n} value={n}>
             {n}
@@ -311,6 +321,18 @@ function EtapaViva({ tarefa }: { tarefa: Tarefa }) {
 
 /** Tema aberto: escreveu um que não existe, ele passa a existir. */
 function TemaVivo({ tarefa }: { tarefa: Tarefa }) {
+  // Tema é de cada conta: quem não criou a tarefa só vê o tema de quem criou.
+  if (tarefa.compartilhada) {
+    return tarefa.frente ? (
+      <span className="text-[12px] text-[color:var(--muted-strong)]" title={`Tema de ${tarefa.criador_nome ?? "quem criou"}`}>
+        {tarefa.frente}
+      </span>
+    ) : null;
+  }
+  return <TemaEditavel tarefa={tarefa} />;
+}
+
+function TemaEditavel({ tarefa }: { tarefa: Tarefa }) {
   const mut = useTaskMutations();
   const [frentes, setFrentes] = useState<{ id: string; nome: string }[]>([]);
   const atual = tarefa.frente ?? "";
@@ -406,10 +428,12 @@ export function QuadroTarefa({
   pessoasDoQuadro,
   /** Só o dono "tira do quadro" (desvincula sem apagar). */
   onTirarDoQuadro,
+  semDono = true,
 }: {
   tarefa: Tarefa;
   pessoasDoQuadro: string[];
   onTirarDoQuadro?: () => void;
+  semDono?: boolean;
 }) {
   const mut = useTaskMutations();
   const [aberta, setAberta] = useState(false);
@@ -476,7 +500,7 @@ export function QuadroTarefa({
       </div>
 
       <div className="q-quem">
-        <DonoVivo tarefa={tarefa} pessoasDoQuadro={pessoasDoQuadro} />
+        <DonoVivo tarefa={tarefa} pessoasDoQuadro={pessoasDoQuadro} semDono={semDono} />
       </div>
 
       <div className="q-prazo">
@@ -488,6 +512,8 @@ export function QuadroTarefa({
       </div>
 
       <span className="q-acoes flex items-center justify-end gap-1">
+        {/* Só quem criou apaga; quem vê pelo projeto tira do projeto (lá embaixo). */}
+        {!tarefa.compartilhada && (
         <button
           type="button"
           onClick={(e) => {
@@ -509,6 +535,7 @@ export function QuadroTarefa({
         >
           {confirmando ? "excluir mesmo?" : "🗑"}
         </button>
+        )}
         <span
           className={cn(
             "q-seta text-[color:var(--muted)] text-[15px] leading-none transition",
@@ -667,6 +694,10 @@ export function QuadroTarefa({
                   {meetingDateShort(tarefa.meeting_recorded_at)}{" "}
                   {meetingSubject(tarefa.meeting_summary) || "reunião"}
                 </Link>
+              ) : tarefa.compartilhada ? (
+                <span className="text-[color:var(--muted)]">
+                  tarefa de {tarefa.criador_nome ?? "um colega"}
+                </span>
               ) : (
                 <span className="text-[color:var(--muted)]">criada na mão</span>
               )}
@@ -698,7 +729,7 @@ export function QuadroTarefa({
                 onClick={onTirarDoQuadro}
                 className="text-[12px] text-[color:var(--muted-strong)] underline underline-offset-2 hover:text-[color:var(--foreground)]"
               >
-                Tirar do quadro (a tarefa continua existindo)
+                {isTeamMode() ? "Tirar do projeto" : "Tirar do quadro"} (a tarefa continua existindo)
               </button>
             </div>
           )}

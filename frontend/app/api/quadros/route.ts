@@ -1,11 +1,14 @@
 import { withAuth } from "@/lib/auth";
 import { quadrosFor } from "@/lib/quadros";
+import { isTeamMode } from "@/lib/team-mode";
+import { listarProjetos } from "@/lib/projetos";
 import { NextResponse } from "next/server";
 
 type Ctx = unknown;
 
 export const GET = withAuth<Ctx>(async (user) => {
-  const quadros = await quadrosFor(user.id).list();
+  // Equipe: os projetos da pessoa são os dela e os em que ela foi chamada.
+  const quadros = isTeamMode() ? await listarProjetos(user.id) : await quadrosFor(user.id).list();
   return NextResponse.json({ quadros });
 });
 

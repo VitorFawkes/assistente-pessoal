@@ -11,6 +11,7 @@ export function DeleteMeetingButton({
   label,
   className,
   tarefasCount,
+  comOutros = 0,
 }: {
   meetingId: string;
   /** Se setado, navega pra cá depois de deletar (detalhe). Senão, só refresh (lista). */
@@ -20,6 +21,8 @@ export function DeleteMeetingButton({
   className?: string;
   /** Quantas tarefas somem junto — entra no aviso pra pessoa saber o tamanho do estrago. */
   tarefasCount?: number;
+  /** Equipe: quantas dessas tarefas estão com outras pessoas (essas ficam com elas). */
+  comOutros?: number;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -60,8 +63,13 @@ export function DeleteMeetingButton({
       toast.error(body.error || "Não deu para apagar a reunião. Tente de novo.");
       return;
     }
+    const fim = (await res.json().catch(() => ({}))) as { mantidas?: number };
     setAberto(false);
-    toast.success("Reunião apagada");
+    toast.success(
+      fim.mantidas
+        ? `Reunião apagada. ${fim.mantidas === 1 ? "1 tarefa continua" : `${fim.mantidas} tarefas continuam`} com outras pessoas.`
+        : "Reunião apagada",
+    );
     if (redirectTo) {
       router.push(redirectTo);
     } else {
@@ -70,14 +78,15 @@ export function DeleteMeetingButton({
     }
   };
 
+  const somem = tarefasCount === undefined ? undefined : Math.max(0, tarefasCount - comOutros);
   const tarefas =
-    tarefasCount === undefined
+    somem === undefined
       ? "as tarefas"
-      : tarefasCount === 0
+      : somem === 0
         ? null
-        : tarefasCount === 1
+        : somem === 1
           ? "a tarefa"
-          : `as ${tarefasCount} tarefas`;
+          : `as ${somem} tarefas`;
 
   return (
     <div className="relative shrink-0" ref={caixaRef}>
@@ -112,6 +121,13 @@ export function DeleteMeetingButton({
             Some a gravação, a transcrição, o resumo
             {tarefas ? ` e ${tarefas} dela` : ""}. Não dá para desfazer.
           </p>
+          {comOutros > 0 && (
+            <p className="text-[12.5px] leading-relaxed text-[color:var(--muted-strong)]">
+              {comOutros === 1
+                ? "1 tarefa está com outra pessoa e continua com ela."
+                : `${comOutros} tarefas estão com outras pessoas e continuam com elas.`}
+            </p>
+          )}
           <div className="flex items-center gap-2 pt-1">
             <button
               type="button"

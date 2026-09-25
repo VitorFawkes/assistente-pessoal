@@ -33,6 +33,7 @@ import { useTaskMutations } from "@/lib/task-mutations";
 import { SITUACOES, rotuloSituacao } from "@/lib/quadro-v2";
 import type { Tarefa } from "@/lib/queries";
 import { MiniCalendar } from "./mini-calendar";
+import { carregarColegas, type ColegaCliente } from "@/lib/colegas-client";
 
 // ─── Popover inline (posição fixed → escapa o overflow-hidden do card e o
 //     clipping da lista; fecha no clique-fora / Esc). Reutilizado por todos os chips.
@@ -457,6 +458,10 @@ export function OwnerInline({ tarefa }: { tarefa: Tarefa }) {
         <>
           <UserRound size={10} strokeWidth={2} />
           <span className="max-w-[120px] truncate">{normalizeOwner(tarefa.owner)}</span>
+          {/* Passada a um colega do Ações: está na lista dele também. */}
+          {tarefa.responsavel_user_id && !isOwnerMe(tarefa.owner) && (
+            <Send size={9} strokeWidth={2.25} aria-label="está na lista da pessoa" />
+          )}
         </>
       }
     >
@@ -476,7 +481,10 @@ export function OwnerPicker({
   autoFocus?: boolean;
 }) {
   const mut = useTaskMutations();
+  const equipe = isTeamMode() && mut.scope === "owner";
   const [pessoas, setPessoas] = useState<{ id: string; nome: string }[]>([]);
+  const [colegas, setColegas] = useState<ColegaCliente[]>([]);
+  const [eu, setEu] = useState<string | null>(null);
   const [txt, setTxt] = useState("");
 
   useEffect(() => {
@@ -484,11 +492,24 @@ export function OwnerPicker({
     mut.listPessoas().then((list) => {
       if (alive) setPessoas(list);
     });
+    if (equipe) {
+      carregarColegas().then((d) => {
+        if (!alive) return;
+        setColegas(d.colegas);
+        setEu(d.eu);
+      });
+    }
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Equipe: escolher um colega (ou você mesmo) vai pelo id — a tarefa entra na lista dele.
+  const passarPara = (userId: string) => {
+    mut.patch(tarefa.id, { responsavel_user_id: userId }, { silent: true });
+    close();
+  };
 
   const setOwner = (nome: string) => {
     const owner = nome.trim();
@@ -503,10 +524,16 @@ export function OwnerPicker({
   };
 
   const q = txt.trim().toLowerCase();
+  const daEquipe = colegas.filter((c) => c.id !== eu && c.nome.toLowerCase().includes(q)).slice(0, 6);
+  const nomesDaEquipe = new Set(colegas.map((c) => c.nome.toLowerCase()));
   const sugestoes = pessoas
-    .filter((p) => !isOwnerMe(p.nome) && p.nome.toLowerCase().includes(q))
+    .filter(
+      (p) => !isOwnerMe(p.nome) && !nomesDaEquipe.has(p.nome.toLowerCase()) && p.nome.toLowerCase().includes(q),
+    )
     .slice(0, 6);
   const jaSou = isOwnerMe(tarefa.owner);
+  const ehDoColega = (c: ColegaCliente) =>
+    tarefa.responsavel_user_id === c.id || c.nome.toLowerCase() === (tarefa.owner ?? "").toLowerCase();
 
   return (
     <div className="flex flex-col">
@@ -524,13 +551,35 @@ export function OwnerPicker({
         autoFocus={autoFocus}
         className="mx-1 mb-1 px-2 py-1.5 rounded border border-[color:var(--border)] bg-transparent text-[13px] outline-none focus:border-[color:var(--muted)]"
       />
-      <MenuItem active={jaSou} onClick={() => setOwner(getOwnerSlug())}>
+      <MenuItem
+        active={jaSou}
+        onClick={() => (equipe && eu ? passarPara(eu) : setOwner(getOwnerSlug()))}
+      >
         <span className="inline-flex items-center gap-2">
           <UserRound size={13} className="text-[color:var(--calm)]" />
           {isTeamMode() ? "Você" : "Vitor (você)"}
         </span>
         {jaSou && <Check size={13} />}
       </MenuItem>
+      {daEquipe.length > 0 && (
+        <div className="px-1.5 pt-1.5 pb-0.5 text-[10px] font-medium uppercase tracking-wider text-[color:var(--muted)]">
+          Da equipe · vai pra lista da pessoa
+        </div>
+      )}
+      {daEquipe.map((c) => (
+        <MenuItem key={c.id} active={ehDoColega(c)} onClick={() => passarPara(c.id)}>
+          <span className="inline-flex items-center gap-2 min-w-0">
+            <Send size={12} className="shrink-0 text-[color:var(--calm)]" />
+            <span className="truncate">{c.nome}</span>
+          </span>
+          {ehDoColega(c) && <Check size={13} />}
+        </MenuItem>
+      ))}
+      {equipe && sugestoes.length > 0 && (
+        <div className="px-1.5 pt-1.5 pb-0.5 text-[10px] font-medium uppercase tracking-wider text-[color:var(--muted)]">
+          Outras pessoas
+        </div>
+      )}
       {sugestoes.map((p) => (
         <MenuItem
           key={p.id || p.nome}
@@ -541,7 +590,9 @@ export function OwnerPicker({
           {p.nome.toLowerCase() === (tarefa.owner ?? "").toLowerCase() && <Check size={13} />}
         </MenuItem>
       ))}
-      {txt.trim() && !sugestoes.some((p) => p.nome.toLowerCase() === q) && (
+      {txt.trim() &&
+        !sugestoes.some((p) => p.nome.toLowerCase() === q) &&
+        !daEquipe.some((c) => c.nome.toLowerCase() === q) && (
         <MenuItem onClick={() => setOwner(txt)}>
           <span className="inline-flex items-center gap-2">
             <Send size={12} className="text-[color:var(--warm)]" />

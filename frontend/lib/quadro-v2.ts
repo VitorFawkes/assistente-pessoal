@@ -37,14 +37,16 @@ export function faixaDoPrazo(t: Tarefa, agora: Date | string = new Date()): Faix
   return "depois";
 }
 
+// Na equipe o servidor manda `dono_nome` (quem faz, pelo nome) — a tarefa que o criador
+// faz não tem pessoa principal, e "eu" não diz nada pra quem está no mesmo projeto.
 export const donoDe = (t: Tarefa): string | null =>
-  t.pessoas.find((p) => p.principal)?.nome ?? null;
+  t.pessoas.find((p) => p.principal)?.nome ?? t.dono_nome ?? null;
 
 export const relacionadasDe = (t: Tarefa): string[] =>
   t.pessoas.filter((p) => !p.principal).map((p) => p.nome);
 
 export const envolve = (t: Tarefa, nome: string): boolean =>
-  nome === "__sem__" ? !donoDe(t) : t.pessoas.some((p) => p.nome === nome);
+  nome === "__sem__" ? !donoDe(t) : donoDe(t) === nome || t.pessoas.some((p) => p.nome === nome);
 
 export type Filtros = {
   busca: string;
