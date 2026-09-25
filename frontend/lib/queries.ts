@@ -538,6 +538,39 @@ export const meetingsFor = (userId: string) => ({
     }),
 
   /** Lista todas as reuniões visíveis pro usuário (próprias + compartilhadas) com contagem de tarefas. */
+  /** Telas do Ações dentro do TTARS: as minhas e as que colegas abriram pra mim, com quem falou. */
+  listParaTtars: async () => {
+    const campos = `m.id, m.user_id::text AS user_id, (SELECT u.nome FROM users u WHERE u.id = m.user_id) AS dono_nome,
+           m.nome, m.summary, m.status, m.duration_seconds, m.meeting_type, m.source,
+           to_char(coalesce(m.recorded_at, m.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
+           COALESCE((SELECT array_agg(DISTINCT v) FROM jsonb_each_text(COALESCE(m.speaker_labels, '{}'::jsonb)) AS e(k, v) WHERE v <> ''), '{}') AS falantes,
+           (SELECT count(*) FROM tarefas WHERE meeting_id = m.id)::int AS n_tarefas`;
+    type Linha = {
+      id: string; user_id: string; dono_nome: string | null; nome: string | null; summary: string | null;
+      status: string; duration_seconds: number | null; meeting_type: string | null; source: string;
+      recorded_at: string | null; falantes: string[]; n_tarefas: number;
+    };
+    const [minhas, daEquipe] = await Promise.all([
+      withTenant(userId, (db) =>
+        db.query<Linha>(
+          `SELECT ${campos} FROM meetings m
+            WHERE m.status != 'archived_session' AND m.user_id::text = current_setting('app.current_user_id', true)
+            ORDER BY coalesce(m.recorded_at, m.created_at) DESC LIMIT 200`,
+        ),
+      ),
+      isTeamMode()
+        ? withTenantLeituraEquipe(userId, (db) =>
+            db.query<Linha>(
+              `SELECT ${campos} FROM meetings m
+                WHERE m.status != 'archived_session' AND m.user_id::text <> current_setting('app.current_user_id', true)
+                ORDER BY coalesce(m.recorded_at, m.created_at) DESC LIMIT 200`,
+            ),
+          )
+        : Promise.resolve({ rows: [] as Linha[] }),
+    ]);
+    return { minhas: minhas.rows, daEquipe: daEquipe.rows };
+  },
+
   listVisibleForIndex: () =>
     withTenantLeituraEquipe(userId, async (db) => {
       const r = await db.query<{

@@ -3,6 +3,7 @@ import { withAuth } from "@/lib/auth";
 import { ABERTAS_LIMIT, tarefasFor, type Tarefa } from "@/lib/queries";
 import { comProjetos, tarefasParaMim } from "@/lib/equipe-compartilhado";
 import { ordenarPendencias } from "@/lib/compartilhar";
+import { meetingSubject } from "@/lib/meeting-label";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,10 @@ export const GET = withAuth(async (user) => {
   const juntas = paraMim.length
     ? [...(lista as unknown as Tarefa[]), ...paraMim].sort(ordenarPendencias)
     : (lista as unknown as Tarefa[]);
-  const tarefas = await comProjetos(user.id, juntas);
+  const tarefas = (await comProjetos(user.id, juntas)).map((t) => ({
+    ...t,
+    reuniao_rotulo: t.meeting_id ? meetingSubject(t.meeting_summary, t.meeting_nome) || "Reunião" : null,
+  }));
   const totalAbertas =
     contagens.abertas + paraMim.filter((t) => t.status === "aberta" || t.status === "em_andamento").length;
   return NextResponse.json({
