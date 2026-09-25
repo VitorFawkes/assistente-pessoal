@@ -5,7 +5,7 @@ export class CoachAIError extends Error {}
 /** Rate limit, outage, timeout or network failure before any result: scheduled work may retry later. */
 export class CoachProviderUnavailableError extends CoachAIError {}
 export type CoachProvider = 'openai'|'anthropic'|'kimi';
-export type CoachRole = 'primary'|'reviewer'|'tasks';
+export type CoachRole = 'primary'|'reviewer'|'tasks'|'quick';
 export type CoachReasoningEffort = 'low'|'medium'|'high';
 export type CoachReadTool = {
  name:string; description:string; parameters:unknown;
@@ -43,6 +43,12 @@ function allowedModel(provider:CoachProvider,model:string){
 }
 export function coachModelConfig(role:CoachRole='primary'):{provider:CoachProvider;model:string}{
  // The task interpreter is a short classification: it can use a cheaper model (COACH_TASKS_*), falling back to the primary one.
+ // Answers about tasks and agenda (role quick) run on the cheap model; coaching stays on the primary one.
+ if(role==='quick'){
+  const provider=process.env.COACH_QUICK_PROVIDER||'openai',model=process.env.COACH_QUICK_MODEL||'gpt-6-luna';
+  if((provider!=='openai'&&provider!=='anthropic'&&provider!=='kimi')||!allowedModel(provider,model))throw configError();
+  return {provider,model};
+ }
  const providerValue=role==='reviewer'?process.env.COACH_REVIEW_PROVIDER:role==='tasks'&&process.env.COACH_TASKS_PROVIDER||process.env.COACH_PROVIDER||'openai';
  const model=role==='reviewer'?process.env.COACH_REVIEW_MODEL:role==='tasks'&&process.env.COACH_TASKS_MODEL||process.env.COACH_MODEL||(providerValue==='openai'?'gpt-5.1':undefined);
  if((providerValue!=='openai'&&providerValue!=='anthropic'&&providerValue!=='kimi')||!model||!allowedModel(providerValue,model))throw configError();

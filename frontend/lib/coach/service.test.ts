@@ -3,6 +3,8 @@ import { chatWithCoach, generateReview, generateCheckin, grounded, analyzeMeetin
 import * as stores from "./store";
 import * as commitments from "./coach-commitments";
 import * as budget from "./budget";
+import * as taskActions from "./task-actions";
+import * as quick from "./quick-answer";
 import { CoachAIError } from "./model";
 import type { CoachMeeting, CoachMemory, CoachCommitment, CoachCommitmentReceipt, CoachMessage, CoachReview, ReportSource, ReportPeriodSource, Observation, ReviewContent } from "./types";
 const meeting:CoachMeeting={id:"owned",nome:"QA",original_filename:"qa",recorded_at:null,transcription:"Eu vou concluir uma única prioridade.",segments:[{speaker:"A",start:1,end:5,text:"Eu vou concluir uma única prioridade."}],speaker_labels:{A:"QA"},speaker_pessoas:{A:"self"}};
@@ -822,4 +824,31 @@ test("the answer that reaches the ceiling tells the user",async()=>{
   expect(run.requests()).toBe(2);
   expect(run.saved[1].content).toContain(budget.budgetNotice(3));
  }finally{state.mockRestore();run.restore();}
+});
+
+test("a message about tasks goes through the cheap lane: no coaching call and no verifier",async()=>{
+ const run=fixture([],{answer:"Não deveria chamar o coaching.",observations:[],memories:[]});
+ const handled=spyOn(taskActions,"handleTaskMessage").mockResolvedValue({notes:['Concluí "Enviar proposta".'],lane:"tarefas"});
+ const answer=spyOn(quick,"quickTaskAnswer").mockResolvedValue("Ainda estão atrasadas: Cobrar contrato com a Paula (23/09).");
+ try{
+  await chatWithCoach("synthetic-user","Concluí a proposta. O que mais está atrasado?",new Date("2026-09-25T12:00:00Z"),"task-run");
+  expect(run.requests()).toBe(0);
+  expect(answer).toHaveBeenCalledTimes(1);
+  expect(run.saved.map(message=>message.role)).toEqual(["user","assistant"]);
+  expect(run.saved[1].content).toContain("Ainda estão atrasadas");
+  expect(run.saved[1].content).toContain('Concluí "Enviar proposta".');
+  expect(run.saved[1].idempotency_key).toBe("task-run:assistant");
+ }finally{handled.mockRestore();answer.mockRestore();run.restore();}
+});
+
+test("coaching keeps the full answer with its verifier",async()=>{
+ const run=fixture([],{answer:"Comece pela proposta que destrava o contrato.",observations:[],memories:[]});
+ const handled=spyOn(taskActions,"handleTaskMessage").mockResolvedValue({notes:[],lane:"coach"});
+ const answer=spyOn(quick,"quickTaskAnswer").mockResolvedValue("não deveria ser usado");
+ try{
+  await chatWithCoach("synthetic-user","Estou travado, por onde começo hoje?",new Date("2026-09-25T12:00:00Z"));
+  expect(answer).not.toHaveBeenCalled();
+  expect(run.requests()).toBe(2);
+  expect(run.saved[1].content).toContain("Comece pela proposta");
+ }finally{handled.mockRestore();answer.mockRestore();run.restore();}
 });

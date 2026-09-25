@@ -101,3 +101,9 @@ test("a pergunta de esclarecimento nunca mostra os códigos internos das tarefas
  expect(withoutTaskCodes("Qual das duas (t1, t2) é a certa?")).toBe("Qual das duas é a certa?");
  expect(withoutTaskCodes("Adiar a entrega para terça?")).toBe("Adiar a entrega para terça?");
 });
+
+test("o intérprete também diz se a mensagem é de tarefas (caminho barato) ou de coach", () => {
+ const schema = interpreterSchema(["t1"], ["o que está atrasado?"]) as { required: string[]; properties: { lane: { enum: string[] } } };
+ expect(schema.required).toContain("lane");
+ expect(schema.properties.lane.enum).toEqual(["coach", "tarefas"]);
+});

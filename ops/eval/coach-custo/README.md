@@ -55,6 +55,19 @@ Antes, cada pedido ainda pagava 25% a mais por ir inteiro para o cache (escrita 
 GPT-5.6 em diante) e quase nunca era reaproveitado; agora o Coach pede cache explícito sem pontos
 de gravação.
 
+## Dois caminhos (25/09, pedido do Vitor: "quando ele é coach pode ser o caro, mas pras tarefas não dá")
+
+O leitor de pedidos de tarefa (GPT-6 Sol, ~US$ 0,008) também classifica cada mensagem:
+
+- **tarefas** (concluir, adiar, criar, listar, limpar atrasadas, "o que tenho hoje", "o que falta com a Paula"):
+  resposta pelo caminho barato (`frontend/lib/coach/quick-answer.ts`), GPT-6 Luna, pacote pequeno
+  (lista das atrasadas, tarefas ligadas à mensagem, agenda do dia), sem conferente. ~8.500 tokens,
+  **~US$ 0,008 no total**.
+- **coach** (conselho, prioridades, objetivos, desabafo): o caminho completo, com o conferente (~US$ 0,10–0,40).
+
+No arquivo de cenários, `"caminho": "tarefas"` faz o intérprete falso mandar o chat pelo caminho barato.
+Testes pagos de 25/09: separação tarefas × coach 24/24 (US$ 0,14); 50 frases de pedidos de tarefa 50/50 (US$ 0,30).
+
 ## O que fica no ar (não é só medição)
 
 - **Pacote enxuto** (`frontend/lib/coach/context-budget.ts`): últimas 12 mensagens, 40 tarefas,
