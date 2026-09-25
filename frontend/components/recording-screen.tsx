@@ -442,7 +442,7 @@ export function RecordingScreen({ userId }: { userId: string }) {
             setMode("na-sala");
             setShowGuide(false);
           }}
-          className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--background)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
+          className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--card)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
         >
           <div className="flex items-start gap-4">
             <Mic className="w-8 h-8 text-[color:var(--foreground)] group-hover:scale-110 transition" />
@@ -461,7 +461,7 @@ export function RecordingScreen({ userId }: { userId: string }) {
               setMode("online");
               setShowGuide(true);
             }}
-            className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--background)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
+            className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--card)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
           >
             <div className="flex items-start gap-4">
               <Video className="w-8 h-8 text-[color:var(--foreground)] group-hover:scale-110 transition" />
@@ -477,7 +477,7 @@ export function RecordingScreen({ userId }: { userId: string }) {
 
         <button
           onClick={() => setShowUploader(true)}
-          className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--background)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
+          className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--card)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
         >
           <div className="flex items-start gap-4">
             <Square className="w-8 h-8 text-[color:var(--foreground)] group-hover:scale-110 transition" />
@@ -501,7 +501,7 @@ export function RecordingScreen({ userId }: { userId: string }) {
             setMode("na-sala");
             setShowGuide(false);
           }}
-          className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--background)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
+          className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--card)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
         >
           <div className="flex items-start gap-4">
             <Mic className="w-8 h-8 text-[color:var(--foreground)] group-hover:scale-110 transition" />
@@ -520,7 +520,7 @@ export function RecordingScreen({ userId }: { userId: string }) {
               setMode("online");
               setShowGuide(true);
             }}
-            className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--background)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
+            className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--card)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
           >
             <div className="flex items-start gap-4">
               <Video className="w-8 h-8 text-[color:var(--foreground)] group-hover:scale-110 transition" />
@@ -536,7 +536,7 @@ export function RecordingScreen({ userId }: { userId: string }) {
 
         <button
           onClick={() => setShowUploader(true)}
-          className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--background)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
+          className="w-full rounded-2xl border-2 border-[color:var(--border)] bg-[color:var(--card)] hover:border-[color:var(--foreground)]/50 p-8 text-left transition group"
         >
           <div className="flex items-start gap-4">
             <Square className="w-8 h-8 text-[color:var(--foreground)] group-hover:scale-110 transition" />

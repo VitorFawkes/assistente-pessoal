@@ -58,15 +58,15 @@ export function ProjetosLista({ projetos }: { projetos: ProjetoResumo[] }) {
           <p className="text-[15px] font-medium">Nenhum projeto ainda.</p>
           <ol className="space-y-2 text-[14px] text-[color:var(--muted-strong)]">
             <li>
-              <span className="font-semibold text-[color:var(--foreground)]">1.</span> Crie um
+              <span className="font-semibold text-[color:var(--foreground)]">1.</span>{" "}Crie um
               projeto, por exemplo &ldquo;Lançamento Weddings 2027&rdquo;.
             </li>
             <li>
-              <span className="font-semibold text-[color:var(--foreground)]">2.</span> Chame as
+              <span className="font-semibold text-[color:var(--foreground)]">2.</span>{" "}Chame as
               pessoas que trabalham nele.
             </li>
             <li>
-              <span className="font-semibold text-[color:var(--foreground)]">3.</span> Traga as
+              <span className="font-semibold text-[color:var(--foreground)]">3.</span>{" "}Traga as
               tarefas das suas reuniões.
             </li>
           </ol>
