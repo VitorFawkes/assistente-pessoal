@@ -55,6 +55,20 @@ Antes, cada pedido ainda pagava 25% a mais por ir inteiro para o cache (escrita 
 GPT-5.6 em diante) e quase nunca era reaproveitado; agora o Coach pede cache explícito sem pontos
 de gravação.
 
+## Assistente + Coach (25/09, pedido do Vitor: "o agente assistente inteligente que acha tudo que preciso; o Coach pede dados pra ele")
+
+Toda mensagem passa pelo leitor de pedidos de tarefa (GPT-6 Sol), que aplica mudanças e escolhe o caminho:
+
+- **Assistente** (informação: tarefas, pessoas, reuniões, prazos, agenda): o planejador (`planner.ts`, GPT-6 Luna)
+  escolhe até 4 buscas fixas; o servidor roda (`finder.ts`, SQL, sem IA); o assistente (`assistant.ts`, GPT-6 Luna)
+  responde a partir do dossiê. Sem conferente.
+- **Coach** (conselho, prioridades, objetivos): o mesmo planejador busca o que a conversa precisa e o Coach (GPT-6 Sol)
+  lê o dossiê, sem ferramentas e sem o pacote grande. O conferente lê o mesmo dossiê.
+- **Check-ins** (8h, 18h, cobrança, pós-reunião): lista fixa de buscas, sem planejador.
+
+No arquivo de cenários, `"consultas": [...]` (refs `p0`, `r0` como o planejador de verdade) é o plano que o planejador
+falso devolve.
+
 ## Dois caminhos (25/09, pedido do Vitor: "quando ele é coach pode ser o caro, mas pras tarefas não dá")
 
 O leitor de pedidos de tarefa (GPT-6 Sol, ~US$ 0,008) também classifica cada mensagem:

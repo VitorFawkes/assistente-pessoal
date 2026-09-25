@@ -2,10 +2,10 @@
 // local do banco e imprime tokens e custo por pedido e por parte do pacote. --limite N faz o comando
 // falhar se algum cenário passar de N tokens de entrada: serve de trava antes de publicar.
 import { readFileSync, writeFileSync } from "node:fs";
-import { captured, countTokens, fakeChoices, fakeOpenAI, freshMirror, kindOf, sections, FRONT } from "./medidor";
+import { captured, countTokens, fakeArrays, fakeChoices, fakeOpenAI, freshMirror, kindOf, sections, FRONT } from "./medidor";
 import { requestCostUsd } from "../../../frontend/lib/coach/pricing";
 
-type Scenario = { nome: string; agora: string; tipo: "chat" | "checkin" | "revisao"; mensagem?: string; mensagem_chave?: string; checkin?: "morning" | "evening" | "nudge"; caminho?: "tarefas" | "coach" };
+type Scenario = { nome: string; agora: string; tipo: "chat" | "checkin" | "revisao"; mensagem?: string; mensagem_chave?: string; checkin?: "morning" | "evening" | "nudge"; caminho?: "tarefas" | "coach"; consultas?: unknown[] };
 const args = process.argv.slice(2);
 const flag = (name: string) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
 const scenarios: Scenario[] = JSON.parse(readFileSync(process.env.CENARIOS || flag("--cenarios") || "", "utf8"));
@@ -33,6 +33,8 @@ for (const sc of scenarios.filter(s => !only || s.nome === only)) {
  captured.length = 0;
  // The fake interpreter routes the chat the way the real one would: "tarefas" (cheap lane) or "coach".
  fakeChoices.lane = sc.caminho || "coach";
+ // ...and the fake planner hands back the scenario's plan (refs p0, r0 as the real one), or no lookups.
+ fakeArrays.consultas = sc.consultas ?? [];
  const now = new Date(sc.agora), run = crypto.randomUUID();
  let error = "";
  try {

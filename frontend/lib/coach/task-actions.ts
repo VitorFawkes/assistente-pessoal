@@ -11,7 +11,7 @@ export const TASK_ACTION_TYPES: TaskActionType[] = ["create", "complete", "cance
 const PRIORITIES = ["baixa", "media", "alta", "urgente"] as const;
 export type CandidateTask = { id: string; titulo: string; owner: string | null; is_mine: boolean | null; status: string; prazo: string | null; prioridade: string | null; shared: boolean };
 export type TaskAction = { type: TaskActionType; tarefa_id: string | null; quote: string; due_date: string | null; owner: string | null; title: string | null; priority: string | null };
-/** "tarefas": operational message about tasks, deadlines or agenda, answered by the cheap model. "coach": everything else. */
+/** "tarefas": a task change or a request for recorded information (tasks, people, meetings, agenda), answered by the cheap assistant. "coach": everything else. */
 export type TaskLane = "tarefas" | "coach";
 export type TaskInterpretation = { intent: "none" | "actions" | "clarify"; actions: TaskAction[]; question: string; also_reply: boolean; lane: TaskLane };
 type Snapshot = Pick<Tarefa, "titulo" | "owner" | "acao" | "prazo" | "prioridade" | "status">;
@@ -209,7 +209,7 @@ intent=none: conversa, pergunta, desabafo, pedido de conselho ou planejamento, h
 Tipos: complete (concluir, feito); cancel (não vai mais acontecer; nunca apagar); reopen (voltar uma concluída ou cancelada); reschedule (novo prazo em due_date, AAAA-MM-DD, contado a partir de now_local: "amanhã" é o dia seguinte, "sexta" é a próxima sexta, "semana que vem" é a próxima segunda); reassign (passar para outra pessoa: owner com o nome; para o próprio usuário, owner "eu"); rename (title com o novo título); priority (baixa, media, alta ou urgente); create (title curto começando por verbo; due_date se foi dito; owner só se for de outra pessoa).
 task é o código da tarefa na lista (vazio para create). quote é o trecho da mensagem que pede a ação, escolhido da lista permitida. Campos que não se aplicam ficam vazios.
 also_reply=true só se, além do pedido sobre tarefas, a mensagem também faz uma pergunta ou pede ajuda ao Coach.
-lane (sempre preencha, independente de intent): "tarefas" quando a mensagem é operacional sobre tarefas, prazos, pendências ou agenda: mudar tarefas, perguntar o que tem para hoje ou o que está atrasado, pedir lista, resumo, revisão ou limpeza de tarefas, perguntar o que falta com alguém. "coach" quando pede conselho, ajuda para decidir ou priorizar, reflexão, objetivos, desabafo, conversa ou outro assunto. Mensagem que mistura os dois é "coach". Na dúvida, "coach".`;
+lane (sempre preencha, independente de intent): "tarefas" quando a mensagem pede para mudar tarefas ou pede uma INFORMAÇÃO registrada: tarefas, prazos, pendências, agenda, pessoas e reuniões (o que tem para hoje, o que está atrasado, lista, resumo, revisão ou limpeza de tarefas, o que falta com alguém, quais tarefas foram discutidas com alguém, quando foi a última reunião com alguém, o que ficou decidido ou quem ficou responsável). "coach" quando pede conselho, ajuda para decidir, priorizar ou se preparar, reflexão, objetivos, desabafo, conversa ou outro assunto. Mensagem que mistura informação e pedido de conselho é "coach". Na dúvida, "coach".`;
 
 export function interpreterSchema(codes: string[], spans: string[]) {
  const s = { type: "string" };

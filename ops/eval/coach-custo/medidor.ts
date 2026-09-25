@@ -12,6 +12,8 @@ const DB = new URL("../../../db", import.meta.url).pathname;
 export type Captured = { body: Record<string, any> };
 /** Choices the fake model makes for enum fields, e.g. { lane: "tarefas" } sends chats down the cheap lane. */
 export const fakeChoices: Record<string, string> = {};
+/** Items the fake model returns for array fields, e.g. { consultas: [...] } is the plan the fake planner hands back. */
+export const fakeArrays: Record<string, unknown[]> = {};
 export const captured: Captured[] = [];
 export const realFetch = globalThis.fetch.bind(globalThis);
 
@@ -22,7 +24,7 @@ function minimal(schema: any, key = ""): unknown {
  if (schema.anyOf) return minimal(schema.anyOf[0], key);
  switch (schema.type) {
   case "object": return Object.fromEntries((schema.required || Object.keys(schema.properties || {})).map((k: string) => [k, minimal(schema.properties?.[k], k)]));
-  case "array": return Array.from({ length: schema.minItems || 0 }, () => minimal(schema.items, key));
+  case "array": return fakeArrays[key] ?? Array.from({ length: schema.minItems || 0 }, () => minimal(schema.items, key));
   case "string": return key === "answer" ? "Resposta de teste do medidor." : key === "headline" ? "Teste" : "x".repeat(schema.minLength || 0);
   case "boolean": return key === "supported";
   case "integer": case "number": return schema.minimum ?? 0;
@@ -103,5 +105,5 @@ export function sections(body: Record<string, any>): Record<string, number> {
 
 export function kindOf(body: Record<string, any>) {
  const props = body.text?.format?.schema?.properties ?? {};
- return props.supported ? "verificador" : props.intent ? "leitor-tarefas" : props.answer && Object.keys(props).length === 1 ? "caminho-barato" : "principal";
+ return props.supported ? "verificador" : props.intent ? "leitor-tarefas" : props.consultas ? "planejador" : props.answer && Object.keys(props).length === 1 ? "assistente" : "principal";
 }
