@@ -62,7 +62,7 @@ test("task reads remain available to verification without losing selection limit
   const other=investigationTools("other","America/Sao_Paulo",new Date("2026-09-21T18:00:00Z"),[],[]);
   const result=await owner.tools.find(tool=>tool.name==="read_tasks")!.execute({query:"Aurora"},{signal:new AbortController().signal}) as {tasks:{titulo:string}[]};
   await other.tools.find(tool=>tool.name==="read_tasks")!.execute({query:"outra"},{signal:new AbortController().signal});
-  expect(owner.contextReads).toEqual([{tool:"read_tasks",input:{query:"Aurora"},result:{tasks:[{id:"task-owner",titulo:"Definir preço Aurora",descricao:"Decisão necessária antes de enviar",prazo:"2026-09-22T14:00:00Z"}],events:[{tarefa_id:"task-owner",evento:"updated"}],summary:{total:80},selection:{tasks_selected:1,tasks_total:80,task_limit:64},limitations:["Somente parte das tarefas selecionada; registro não prova execução."]}}]);
+  expect(owner.contextReads).toEqual([{tool:"read_tasks",input:{query:"Aurora"},result:{tasks:[{id:"task-owner",titulo:"Definir preço Aurora",descricao:"Decisão necessária antes de enviar",prazo:"2026-09-22T14:00:00Z"}],events:[{tarefa_id:"task-owner",evento:"updated"}],summary:{total:80},selection:{tasks_selected:1,tasks_total:80,task_limit:25,events_selected:1,event_limit:10},limitations:["Somente parte das tarefas selecionada; registro não prova execução."]}}]);
   expect(JSON.stringify(owner.contextReads)).not.toContain("task-other");
   expect(JSON.stringify(other.contextReads)).not.toContain("task-owner");
   result.tasks[0].titulo="Alterado depois de lido";

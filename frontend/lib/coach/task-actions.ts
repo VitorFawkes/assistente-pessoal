@@ -238,7 +238,7 @@ export async function interpretTaskMessage(input: { message: string; history: { 
  * Runs before the coaching answer. Returns the full reply when the message was only about tasks,
  * notes to append when it also asked something else, or null when it is not about tasks.
  */
-export async function handleTaskMessage(userId: string, message: string, history: { role: string; content: string }[], timezone: string, now = new Date(), runKey?: string): Promise<{ reply: string } | { notes: string[] } | null> {
+export async function handleTaskMessage(userId: string, message: string, history: { role: string; content: string }[], timezone: string, now = new Date(), runKey?: string, options: { ai?: boolean } = {}): Promise<{ reply: string } | { notes: string[] } | null> {
  const pending = await openProposal(userId, now);
  if (pending && isYes(message)) {
   const tasks = new Map((await candidateTasks(userId, "")).map(t => [t.id, t]));
@@ -252,11 +252,11 @@ export async function handleTaskMessage(userId: string, message: string, history
   const lines = await undoLastBatch(userId, now);
   return { reply: lines.length ? lines.join("\n") : "Não encontrei mudança minha nas últimas 24 horas para desfazer." };
  }
- if (!directTaskRequest(message)) return null;
+ if (!directTaskRequest(message) || options.ai === false) return null;
  const candidates = await candidateTasks(userId, message);
  const telemetry: CoachTelemetry[] = [];
  const result = await interpretTaskMessage({ message, history, tasks: candidates, timezone, now, onTelemetry: e => telemetry.push(e) })
-  .finally(() => { if (process.env.COACH_AUDIT_ENABLED === "true") void recordModelRuns(userId, "tasks", runKey ?? null, telemetry).catch(() => {}); });
+  .finally(() => { void recordModelRuns(userId, "tasks", runKey ?? null, telemetry).catch(() => {}); });
  if (result.intent === "clarify") return result.also_reply ? { notes: [result.question] } : { reply: result.question };
  if (result.intent !== "actions") return null;
  const byId = new Map(candidates.map(t => [t.id, t]));

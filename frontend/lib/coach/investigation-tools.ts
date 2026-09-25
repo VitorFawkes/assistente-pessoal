@@ -5,6 +5,7 @@ import { buildSourceBank, selectChunks, chunkTurns, type SelectedChunk } from ".
 import { semanticSearch } from "./retrieval";
 import type { CoachReadTool } from "./model";
 import type { CoachMeeting, Evidence, ReportSource } from "./types";
+import { MODEL_CONTEXT, modelEvents, modelTaskSelection, modelTasks, queryFirst } from "./context-budget";
 const object=(properties:Record<string,unknown>)=>({type:"object",properties,required:Object.keys(properties),additionalProperties:false});
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export type InvestigationContextRead={tool:"read_tasks"|"read_memory";input:Record<string,string>;result:unknown};
@@ -65,8 +66,8 @@ export function investigationTools(userId:string,timezone:string,now:Date,self:s
    found.push(meeting);
   }
   found.forEach(track);
-  const reports=buildMeetingReports(found,20000);reportReads.push(...reports.meetings);
-  return {meeting_reports:reports.meetings,meetings:found.map(m=>({id:m.id,title:m.nome||m.original_filename,recorded_at:m.recorded_at,chunks:chunkMeeting(m).length})),excerpts:selectChunks(found,query,2).map(({meeting,chunk})=>append(meeting,{...chunk,text:chunk.text.slice(0,6000)})),limitations:[...context.limitations,...semantic.limitations]};
+  const reports=buildMeetingReports(found,MODEL_CONTEXT.toolReportChars);reportReads.push(...reports.meetings);
+  return {meeting_reports:reports.meetings,meetings:found.map(m=>({id:m.id,title:m.nome||m.original_filename,recorded_at:m.recorded_at,chunks:chunkMeeting(m).length})),excerpts:selectChunks(found,query,2).map(({meeting,chunk})=>append(meeting,{...chunk,text:chunk.text.slice(0,MODEL_CONTEXT.toolExcerptChars)})),limitations:[...context.limitations,...semantic.limitations]};
  }},
  {name:"open_meeting",description:"Lê uma parte original da reunião e suas falas atribuídas, com citações verificáveis. chunk_index e offset são zero-based; offset avança dentro da parte, até 6000 caracteres por leitura.",parameters:object({meeting_id:{type:"string"},chunk_index:{type:"integer",minimum:0,maximum:10000},offset:{type:"integer",minimum:0,maximum:24000}}),execute:async(args)=>{
   const id=String(args.meeting_id);if(!uuid.test(id))return {error:"Reunião não encontrada."};
@@ -78,7 +79,9 @@ export function investigationTools(userId:string,timezone:string,now:Date,self:s
   const at=String(args.at);return retainContextRead("read_memory",{at},await store.memoryContext(at||undefined));
  }},
  {name:"read_tasks",description:"Consulta compromissos e estado das tarefas por assunto, incluindo contagem global e eventos. Alteração de registro não prova execução.",parameters:object({query:{type:"string",maxLength:500}}),execute:async(args)=>{
-  const query=String(args.query);const c=await store.context(query,{timezone,now});return retainContextRead("read_tasks",{query},{tasks:c.tasks,events:c.events,summary:c.task_summary,selection:c.task_selection,limitations:c.limitations.filter(l=>/tarefa|registro|execuç/.test(l))});
+  const query=String(args.query);const c=await store.context(query,{timezone,now});
+  const tasks=modelTasks(queryFirst(c.tasks),MODEL_CONTEXT.toolTasks),events=modelEvents(c.events,MODEL_CONTEXT.toolEvents);
+  return retainContextRead("read_tasks",{query},{tasks,events,summary:c.task_summary,selection:modelTaskSelection(c.task_selection,tasks.length,events.length,{tasks:MODEL_CONTEXT.toolTasks,events:MODEL_CONTEXT.toolEvents}),limitations:c.limitations.filter(l=>/tarefa|registro|execuç/.test(l))});
  }},
  ];
  return {tools,sources,selected,meetings,reportReads,contextReads,contextSources,reads:()=>reads};

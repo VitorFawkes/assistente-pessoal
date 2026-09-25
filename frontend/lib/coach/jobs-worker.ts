@@ -5,6 +5,7 @@ import { coachStore } from "./store";
 import { reviewPeriod } from "./evidence";
 import { attentionBudget,claimJob,type ClaimedCoachJob,dueCheckins,enqueueJob,extraFollowupAllowed,finishJob,localJobDay,renewJob,type CadenceProfile,type CheckinKind } from "./jobs";
 import { CoachProviderUnavailableError } from "./model";
+import { CoachBudgetError } from "./budget";
 
 /** Scheduled work waits past the next 15-minute runner tick; chat answers stay immediate. */
 export const PROVIDER_RETRY_DELAY_SECONDS=20*60;
@@ -25,6 +26,8 @@ export async function drainJobs(userId:string,options:{maxJobs?:number;deadline?
    else await service.generateCheckin(userId,job.payload.checkin as CheckinKind,new Date(),job.id,typeof job.payload.meeting_id==="string"?job.payload.meeting_id:undefined);
    if(await finishJob(userId,job.id,job.lease_token)){completed++;await whatsapp(userId,job,"deliverJob");}
   }catch(error){
+   // Past the day's AI spend ceiling, scheduled work waits for the next day instead of burning its retries.
+   if(error instanceof CoachBudgetError){await finishJob(userId,job.id,job.lease_token,{error:error.message,retry:true,delaySeconds:error.retryAfterSeconds});continue;}
    const unavailable=job.kind!=="chat"&&error instanceof CoachProviderUnavailableError;
    const waitProvider=unavailable&&job.attempts<3;
    const retry=error instanceof service.CoachBusyError||error instanceof service.CoachPendingError||waitProvider;

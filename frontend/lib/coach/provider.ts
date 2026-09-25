@@ -1,4 +1,5 @@
 import { anthropicSchema, matchesCoachSchema, validCoachSchema, type CoachJsonSchema } from './provider-schema';
+import { requestCostUsd } from './pricing';
 
 export class CoachAIError extends Error {}
 /** Rate limit, outage, timeout or network failure before any result: scheduled work may retry later. */
@@ -13,7 +14,7 @@ export type CoachReadTool = {
 };
 export type CoachTelemetry = {
  provider:CoachProvider; model:string; role:CoachRole; reasoningEffort:CoachReasoningEffort; effectiveReasoningEffort:CoachReasoningEffort|'max';
- requests:number; toolCalls:number; inputTokens:number; outputTokens:number; cachedInputTokens:number;
+ requests:number; toolCalls:number; inputTokens:number; outputTokens:number; cachedInputTokens:number; cacheWriteTokens:number; costUsd:number;
  usageComplete:boolean; latencyMs:number; success:boolean;
  httpStatus?:number; providerErrorType?:string; providerErrorCode?:string; providerErrorParam?:string;
 };
@@ -90,6 +91,8 @@ export async function providerCompletion(system:string,data:unknown,schema:unkno
  const role=options.role||'primary';const {provider,model}=coachModelConfig(role);
  // Protocol is selected before the first request; there is no downgrade/retry.
  const responses=provider==='openai'&&/^gpt-(?:5\.[56]|6)(?:-|$)/.test(model);
+ // GPT-5.6+ writes every prompt to the cache at 1.25× by default; a Coach prompt is almost never reused, so nothing is written.
+ const explicitCache=provider==='openai'&&/^gpt-(?:5\.6|6)(?:-|$)/.test(model);
  const key=process.env[keyName(provider)];
  if(!key)throw new CoachAIError('A IA do coach ainda não está configurada no servidor.');
  const effort=options.reasoningEffort||'low';if(!['low','medium','high'].includes(effort))throw configError();
@@ -100,7 +103,7 @@ export async function providerCompletion(system:string,data:unknown,schema:unkno
  const controller=new AbortController();const abort=()=>controller.abort();const timer=setTimeout(abort,timeoutMs);timer.unref?.();
  options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)abort();
  const signal=controller.signal;const start=Date.now();let usageResponses=0;
- const metrics:CoachTelemetry={provider,model,role,reasoningEffort:effort,effectiveReasoningEffort:effectiveEffort,requests:0,toolCalls:0,inputTokens:0,outputTokens:0,cachedInputTokens:0,usageComplete:true,latencyMs:0,success:false};
+ const metrics:CoachTelemetry={provider,model,role,reasoningEffort:effort,effectiveReasoningEffort:effectiveEffort,requests:0,toolCalls:0,inputTokens:0,outputTokens:0,cachedInputTokens:0,cacheWriteTokens:0,costUsd:0,usageComplete:true,latencyMs:0,success:false};
  try{
   const serialized=JSON.stringify(data);if(typeof serialized!=='string')throw invalid();
   const messages:Record<string,unknown>[]=provider!=='anthropic'?[{role:'system',content:system},{role:'user',content:serialized}]:[{role:'user',content:serialized}];
@@ -110,6 +113,7 @@ export async function providerCompletion(system:string,data:unknown,schema:unkno
    const toolsDisabled=tools.length>0&&!canRead;
    const body=responses?{
     model,store:false,max_output_tokens:7000,reasoning:{effort},input:messages,
+    ...(explicitCache?{prompt_cache_options:{mode:'explicit'}}:{}),
     include:['reasoning.encrypted_content'],
     text:{format:{type:'json_schema',name:'coach_result',strict:true,schema:currentSchema}},
     ...(tools.length?{tools:tools.map(t=>({type:'function',name:t.name,description:t.description,parameters:t.parameters,strict:true})),parallel_tool_calls:false,tool_choice:toolsDisabled?'none':'auto'}:{}),
@@ -139,9 +143,13 @@ export async function providerCompletion(system:string,data:unknown,schema:unkno
    const inputTokenKey=responses||provider==='anthropic'?'input_tokens':'prompt_tokens';
    const outputTokenKey=responses||provider==='anthropic'?'output_tokens':'completion_tokens';
    if(!usage||typeof usage[inputTokenKey]!=='number'||typeof usage[outputTokenKey]!=='number')metrics.usageComplete=false;else usageResponses++;
-   metrics.inputTokens+=count(usage?.[inputTokenKey]);metrics.outputTokens+=count(usage?.[outputTokenKey]);
-   metrics.cachedInputTokens+=responses?count(isObject(usage?.input_tokens_details)?usage.input_tokens_details.cached_tokens:0):provider!=='anthropic'?count(isObject(usage?.prompt_tokens_details)?usage.prompt_tokens_details.cached_tokens:0):count(usage?.cache_read_input_tokens);
-   if(provider==='anthropic')metrics.inputTokens+=count(usage?.cache_read_input_tokens)+count(usage?.cache_creation_input_tokens);
+   const details=responses?usage?.input_tokens_details:provider!=='anthropic'?usage?.prompt_tokens_details:null;
+   const requestCached=isObject(details)?count(details.cached_tokens):count(usage?.cache_read_input_tokens);
+   const requestWritten=isObject(details)?count(details.cache_write_tokens):count(usage?.cache_creation_input_tokens);
+   const requestInput=count(usage?.[inputTokenKey])+(provider==='anthropic'?count(usage?.cache_read_input_tokens)+count(usage?.cache_creation_input_tokens):0);
+   const requestOutput=count(usage?.[outputTokenKey]);
+   metrics.inputTokens+=requestInput;metrics.outputTokens+=requestOutput;metrics.cachedInputTokens+=requestCached;metrics.cacheWriteTokens+=requestWritten;
+   metrics.costUsd+=requestCostUsd(model,{inputTokens:requestInput,cachedTokens:requestCached,cacheWriteTokens:requestWritten,outputTokens:requestOutput});
    let calls:{id:string;name:string;args:unknown}[]=[];let assistantItems:Record<string,unknown>[];
    if(responses){
     if(response.status!=='completed'||!Array.isArray(response.output)||!response.output.every(isObject))throw invalid();

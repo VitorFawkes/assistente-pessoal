@@ -10,6 +10,7 @@ import { indexChunk, semanticSearch, recordModelRuns } from "./retrieval";
 import type { CoachTelemetry } from "./model";
 import { getPool, withTenant } from "../db";
 import type { CoachMeeting, Evidence, Observation, ReviewContent } from "./types";
+import { spentToday } from "./budget";
 
 // Intentionally opt-in: never applies fixtures to the normal DATABASE_URL.
 // COACH_TEST_DATABASE_URL=postgresql://<owner>@localhost:55432/coach_test bun test lib/coach/store.integration.test.ts
@@ -87,6 +88,8 @@ describe.skipIf(!connection)("coach store: real Postgres isolation and lifecycle
     await admin.query(lineageMigration);await admin.query(lineageMigration);
     const goalsMigration=await readFile(new URL("../../../db/0039_coach_goals_areas.sql",import.meta.url),"utf8");
     await admin.query(goalsMigration);await admin.query(goalsMigration);
+    const costMigration=await readFile(new URL("../../../db/0040_coach_model_runs_cost.sql",import.meta.url),"utf8");
+    await admin.query(costMigration);await admin.query(costMigration);
     await admin.query("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS situacao_desde timestamptz");
     await admin.query("INSERT INTO users (id,nome,consent_terms_at) VALUES ($1,'Fixture A',now()),($2,'Fixture B',now())", [userA,userB]);
     await admin.query(`INSERT INTO meetings (id,user_id,nome,original_filename,recorded_at,transcription,segments,speaker_labels,speaker_pessoas,status,summary)
@@ -461,10 +464,14 @@ describe.skipIf(!connection)("coach store: real Postgres isolation and lifecycle
       expect(await indexChunk(userA,meeting,chunk,revision)).toBe(false);invalidate=false;
       expect((await semanticSearch(userA,"delegação")).matches).toEqual([]);
       revision=(await a.profile()).revision;expect(await indexChunk(userA,meeting,chunk,revision)).toBe(true);
-      const event:CoachTelemetry={provider:"openai",model:"fixture",role:"primary",reasoningEffort:"high",effectiveReasoningEffort:"high",requests:1,toolCalls:0,inputTokens:11,outputTokens:7,cachedInputTokens:3,usageComplete:false,latencyMs:12,success:true};
+      const event:CoachTelemetry={provider:"openai",model:"fixture",role:"primary",reasoningEffort:"high",effectiveReasoningEffort:"high",requests:1,toolCalls:0,inputTokens:11,outputTokens:7,cachedInputTokens:3,cacheWriteTokens:2,costUsd:0.0125,usageComplete:false,latencyMs:12,success:true};
       await recordModelRuns(userA,"fixture",null,[event],revision);
-      const recorded=(await withTenant(userA,db=>db.query("SELECT input_tokens,cached_input_tokens,usage_complete FROM coach_model_runs WHERE user_id=$1",[userA]))).rows[0];
-      expect(recorded).toEqual({input_tokens:"11",cached_input_tokens:"3",usage_complete:false});
+      const recorded=(await withTenant(userA,db=>db.query("SELECT input_tokens,cached_input_tokens,cache_write_tokens,cost_usd,usage_complete FROM coach_model_runs WHERE user_id=$1",[userA]))).rows[0];
+      expect(recorded).toEqual({input_tokens:"11",cached_input_tokens:"3",cache_write_tokens:"2",cost_usd:"0.012500",usage_complete:false});
+      // The day's spend is per person and per local day.
+      expect(await spentToday(userA,"America/Sao_Paulo")).toBeCloseTo(0.0125,6);
+      expect(await spentToday(userB,"America/Sao_Paulo")).toBe(0);
+      expect(await spentToday(userA,"America/Sao_Paulo",new Date(Date.now()+2*86400_000))).toBe(0);
       await recordModelRuns(userA,"stale",null,[event],revision-1);
       expect((await withTenant(userA,db=>db.query("SELECT * FROM coach_model_runs WHERE user_id=$1",[userA]))).rowCount).toBe(1);
       expect((await withTenant(userB,db=>db.query("SELECT * FROM coach_model_runs"))).rowCount).toBe(0);
