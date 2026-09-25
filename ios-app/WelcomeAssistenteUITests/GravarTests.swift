@@ -14,6 +14,9 @@ final class GravarTests: XCTestCase {
         let noFundo = UInt32(ambiente["SEGUNDOS_NO_FUNDO"] ?? "30") ?? 30
 
         app.launchArguments = ["-tokenDeTeste", token]
+        if let trecho = ambiente["TRECHO_SEGUNDOS"] {
+            app.launchArguments += ["-trechoSegundos", trecho]
+        }
         app.launch()
 
         let gravar = app.buttons["Começar a gravar"]
