@@ -105,6 +105,24 @@ test("reading: only Ações workflows, oldest first, owner taken from the parent
  expect([reportEntry.meetingId, reportEntry.userId]).toEqual([MEETING, USER]);
 });
 
+test("an execution stuck as running for hours is read as it is and does not block the next ones", async () => {
+ const cursor: Record<string, number> = {};
+ spies.push(spyOn(ledger, "recordAiUsage").mockResolvedValue(true));
+ spies.push(spyOn(db, "query").mockImplementation((async (sql: string, values: unknown[] = []) => {
+  if (sql.startsWith("SELECT last_id")) return [];
+  cursor[String(values[0])] = Number(values[1]);
+  return [];
+ }) as typeof db.query));
+ const old = new Date(Date.now() - 7 * 3600_000).toISOString();
+ const api = async (path: string) => {
+  if (path.startsWith("/workflows")) return { data: [{ id: "WF_INGEST", name: "Acoes - Audio Ingest" }] };
+  if (path.includes("workflowId=")) return { data: [{ id: "20", status: "success", stoppedAt: "x" }, { id: "10", status: "running", startedAt: old, stoppedAt: null }] };
+  return ingest(path.match(/executions\/(\d+)/)![1]);
+ };
+ expect((await syncN8nUsage({ api })).read).toBe(2);
+ expect(cursor["n8n:WF_INGEST"]).toBe(20);
+});
+
 test("without the n8n key nothing is read", async () => {
  const old = process.env.N8N_API_KEY; delete process.env.N8N_API_KEY;
  try { expect(await syncN8nUsage()).toEqual({ read: 0, recorded: 0, skipped: "sem chave do n8n" }); } finally { if (old !== undefined) process.env.N8N_API_KEY = old; }

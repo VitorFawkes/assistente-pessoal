@@ -16,10 +16,11 @@ export type N8nExecution = {
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TRANSCRIPTION_MODEL = "universal-3-5-pro";
+const STUCK_MS = 6 * 3600_000;
 
 function agentFor(workflow: string, node: string): AgentKey {
  if (/relat[oó]rio/i.test(workflow)) return "reuniao_relatorio";
- if (/distill|judge|juiz|fanout|tarefa/i.test(node)) return "reuniao_tarefas";
+ if (/distill|judge|juiz|fanout|tarefa|extract/i.test(node)) return "reuniao_tarefas";
  if (/summary|relat|resumo|stage a/i.test(node)) return "reuniao_relatorio";
  return "reuniao_outros";
 }
@@ -138,10 +139,13 @@ export async function syncN8nUsage(opts: { deadline?: number; maxExecutions?: nu
   const pending: { id: string; finished: boolean }[] = [];
   let cursor: string | undefined;
   do {
-   const page = (await api(`/executions?workflowId=${encodeURIComponent(workflow.id)}&limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`)) as { data?: { id: string; status?: string; stoppedAt?: string | null }[]; nextCursor?: string | null };
+   const page = (await api(`/executions?workflowId=${encodeURIComponent(workflow.id)}&limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`)) as { data?: { id: string; status?: string; startedAt?: string | null; stoppedAt?: string | null }[]; nextCursor?: string | null };
    const rows = page.data ?? [];
-   for (const row of rows) if (Number(row.id) > last) pending.push({ id: row.id, finished: !!row.stoppedAt && !["running", "waiting", "new"].includes(String(row.status)) });
-   cursor = rows.length && Number(rows[rows.length - 1].id) > last ? page.nextCursor ?? undefined : undefined;
+   // An execution left "running" for hours (n8n restarted mid-run) is read as it is, so it never blocks the ones after it.
+   const stuck = (row: { startedAt?: string | null }) => !!row.startedAt && Date.now() - Date.parse(row.startedAt) > STUCK_MS;
+   for (const row of rows) if (Number(row.id) > last) pending.push({ id: row.id, finished: (!!row.stoppedAt && !["running", "waiting", "new"].includes(String(row.status))) || stuck(row) });
+   // Keeps paging while a page still has unread executions, whatever order the pages come in.
+   cursor = rows.some(row => Number(row.id) > last) ? page.nextCursor ?? undefined : undefined;
   } while (cursor && Date.now() < deadline);
   pending.sort((a, b) => Number(a.id) - Number(b.id));
   for (const item of pending) {

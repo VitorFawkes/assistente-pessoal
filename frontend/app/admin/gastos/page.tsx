@@ -72,7 +72,8 @@ export default async function GastosPage({ searchParams }: { searchParams: Promi
         <div className="font-display text-4xl">{usd(r.total)}</div>
         <div className="text-[13px] text-[color:var(--muted-strong)]">{comparacao(r.total, r.anterior, r.comparavel, r.inicio.reunioes ?? r.inicio.coach)}</div>
         <div className="text-[13px] text-[color:var(--muted-strong)]">
-          {new Intl.NumberFormat("pt-BR").format(r.usos)} chamadas · {medidoPct}% com consumo medido
+          {new Intl.NumberFormat("pt-BR").format(r.usos)} chamadas
+          {r.usos ? ` · ${medidoPct}% com consumo medido` : ""}
           {r.estimados ? ` · ${r.estimados} estimadas (veja abaixo por quê)` : ""}
         </div>
       </section>
@@ -115,10 +116,13 @@ export default async function GastosPage({ searchParams }: { searchParams: Promi
         <section className="space-y-3">
           <h2 className={secao}>Por dia</h2>
           <div className="flex items-end gap-1 h-32 rounded-2xl border border-[color:var(--border)] p-3">
-            {r.dias.map((d) => (
+            {r.dias.map((d, i) => (
               <div key={d.dia} className="flex-1 min-w-0 flex flex-col items-center justify-end h-full gap-1" title={`${d.dia.slice(8, 10)}/${d.dia.slice(5, 7)}: ${usd(d.custo)}`}>
                 <div className="w-full rounded-t bg-[color:var(--foreground)]/70" style={{ height: `${maxDia ? Math.max(2, (d.custo / maxDia) * 100) : 0}%` }} />
-                <div className="text-[9px] text-[color:var(--muted)] tabular-nums">{d.dia.slice(8, 10)}</div>
+                {/* With many days only some are labeled, so the numbers never overlap on a phone. */}
+                <div className="text-[9px] leading-none h-2 text-[color:var(--muted)] tabular-nums">
+                  {r.dias.length <= 12 || i % Math.ceil(r.dias.length / 8) === 0 || i === r.dias.length - 1 ? d.dia.slice(8, 10) : ""}
+                </div>
               </div>
             ))}
           </div>
@@ -167,17 +171,17 @@ export default async function GastosPage({ searchParams }: { searchParams: Promi
         {oficial.disponivel ? (
           <div className="rounded-2xl border border-[color:var(--border)] p-3 text-sm space-y-2">
             <div className="flex justify-between gap-3">
-              <span>Registrado aqui (chamadas à OpenAI)</span>
+              <span className="min-w-0 break-words">Registrado aqui, chamadas à OpenAI (mesmos dias em UTC)</span>
               <span className="tabular-nums">{usd(registradoOpenAi)}</span>
             </div>
             <div className="flex justify-between gap-3">
-              <span>Fatura oficial, todos os projetos ({oficial.de} a {oficial.ate}, dias em UTC)</span>
+              <span className="min-w-0 break-words">Fatura oficial, todos os projetos ({oficial.de} a {oficial.ate}, dias em UTC)</span>
               <span className="tabular-nums">{usd(oficial.total)}</span>
             </div>
             <ul className="text-xs text-[color:var(--muted-strong)] space-y-0.5">
               {oficial.projetos.map((p) => (
                 <li key={p.nome} className="flex justify-between gap-3">
-                  <span>{p.nome}</span>
+                  <span className="min-w-0 break-words">{p.nome}</span>
                   <span className="tabular-nums">{usd(p.custo)}</span>
                 </li>
               ))}
