@@ -4,7 +4,7 @@ import { getOwnerSlug } from "@/lib/owner-slug";
 import { withTenant } from "@/lib/db";
 import { isTeamMode } from "@/lib/team-mode";
 import { resolverDono } from "@/lib/compartilhar";
-import { colegasDe } from "@/lib/equipe-compartilhado";
+import { colegasDe, garantirColegaDoTtars } from "@/lib/equipe-compartilhado";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +23,8 @@ type PostBody = Partial<{
   pessoas: { nome: string; principal?: boolean }[];
   /** Equipe: nasce já passada pra este colega. */
   responsavel_user_id: string | null;
+  /** Equipe: pessoa do TTARS pelo e-mail (ganha conta aqui se ainda não tem). */
+  responsavel_email: string;
 }>;
 
 // POST /api/tarefas — cria uma tarefa manual (não veio de reunião).
@@ -53,6 +55,12 @@ export const POST = withAuth(async (user, req) => {
   let owner = (body.owner ?? "").trim() || getOwnerSlug();
   let pessoas = Array.isArray(body.pessoas) ? body.pessoas : undefined;
   let responsavel: string | null = null;
+
+  if (isTeamMode() && typeof body.responsavel_email === "string" && body.responsavel_email.trim()) {
+    const c = await garantirColegaDoTtars(body.responsavel_email);
+    if (!c) return NextResponse.json({ error: "Essa pessoa não está na lista do TTARS." }, { status: 400 });
+    body.responsavel_user_id = c.id;
+  }
 
   // Equipe: dono que é colega (escolhido ou digitado) → a tarefa já nasce na lista dele.
   if (isTeamMode() && (body.owner !== undefined || body.responsavel_user_id)) {

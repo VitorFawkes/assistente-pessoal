@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { isTeamMode } from "@/lib/team-mode";
 import { COOKIE_SESSAO, opcoesCookieSessao, origensQuePodemEmbutir } from "@/lib/cookie-sessao";
+import { corsParaOrigem } from "@/lib/ttars-auth";
 
 // Em Next.js 16, proxy roda em Node.js runtime por padrão (mudou em relação
 // ao middleware do 15 que era Edge). Permite acesso direto ao pg.
@@ -50,6 +51,25 @@ function comMoldura(res: NextResponse): NextResponse {
 
 const METODOS_SEGUROS = new Set(["GET", "HEAD", "OPTIONS"]);
 
+async function sessaoValida(sessionId: string) {
+  if (!/^[0-9a-f-]{36}$/i.test(sessionId)) return null;
+  const cutoff = new Date(Date.now() - SESSION_TTL_MS).toISOString();
+  const rows = await query<{ exists: boolean; consent_terms_at: string | null; is_admin: boolean }>(
+    `SELECT
+       (s.id IS NOT NULL) AS exists,
+       u.consent_terms_at,
+       u.is_admin
+     FROM sessions s
+     JOIN users u ON u.id = s.user_id
+     WHERE s.id = $1
+       AND s.revoked_at IS NULL
+       AND s.last_used_at > $2
+       AND u.deleted_at IS NULL`,
+    [sessionId, cutoff],
+  );
+  return rows[0]?.exists ? rows[0] : null;
+}
+
 export default async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
@@ -64,6 +84,26 @@ export default async function proxy(req: NextRequest) {
     !pathname.startsWith("/api/auth/")
   ) {
     return NextResponse.json({ error: "pedido de outro site recusado" }, { status: 403 });
+  }
+
+  // Telas do Ações dentro do TTARS: chamam as APIs com Authorization: Bearer <sessão>, sem
+  // cookie. O navegador pergunta antes (OPTIONS) se o TTARS pode chamar.
+  if (isTeamMode() && pathname.startsWith("/api/")) {
+    const cors = corsParaOrigem(req.headers.get("origin"));
+    if (req.method === "OPTIONS" && cors["Access-Control-Allow-Origin"]) {
+      return new NextResponse(null, { status: 204, headers: cors });
+    }
+    const bearer = (req.headers.get("authorization") || "").match(/^Bearer\s+(\S+)$/)?.[1];
+    if (bearer && !req.cookies.get(COOKIE_SESSAO)?.value && !PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) {
+      const r = await sessaoValida(bearer);
+      const naoPode =
+        !r || !r.consent_terms_at || (!r.is_admin && SO_ADMIN_NA_EQUIPE.some((p) => pathname === p || pathname.startsWith(p + "/")));
+      const res = naoPode
+        ? NextResponse.json({ error: r ? "forbidden" : "sessão inválida" }, { status: r ? 403 : 401 })
+        : NextResponse.next();
+      for (const [k, v] of Object.entries(cors)) res.headers.set(k, v);
+      return res;
+    }
   }
 
   if (PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) {
@@ -86,22 +126,8 @@ export default async function proxy(req: NextRequest) {
     return comMoldura(NextResponse.redirect(new URL("/sem-acesso", req.url)));
   }
 
-  const cutoff = new Date(Date.now() - SESSION_TTL_MS).toISOString();
   try {
-    const rows = await query<{ exists: boolean; consent_terms_at: string | null; is_admin: boolean }>(
-      `SELECT
-         (s.id IS NOT NULL) AS exists,
-         u.consent_terms_at,
-         u.is_admin
-       FROM sessions s
-       JOIN users u ON u.id = s.user_id
-       WHERE s.id = $1
-         AND s.revoked_at IS NULL
-         AND s.last_used_at > $2
-         AND u.deleted_at IS NULL`,
-      [sessionId, cutoff],
-    );
-    const row = rows[0];
+    const row = await sessaoValida(sessionId);
     if (!row?.exists) {
       const res = NextResponse.redirect(new URL("/sem-acesso", req.url));
       res.cookies.set(COOKIE_SESSAO, "", opcoesCookieSessao(0));

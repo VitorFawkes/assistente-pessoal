@@ -67,17 +67,63 @@ export async function comoDonoDoProjeto<T>(
   return { donoId, valor };
 }
 
-/** Pessoas da equipe que podem receber tarefa: liberadas, que já entraram, e a própria. */
+/**
+ * Pessoas da equipe que podem receber tarefa: a própria, as liberadas e as pessoas do TTARS
+ * que já têm conta aqui (criada quando alguém passou uma tarefa pra elas).
+ */
 export async function colegasDe(userId: string): Promise<Colega[]> {
   return query<Colega>(
     `SELECT u.id::text AS id, u.nome
        FROM users u
       WHERE u.deleted_at IS NULL
         AND (u.id = $1
-             OR EXISTS (SELECT 1 FROM acessos_equipe a WHERE a.email = u.email AND a.liberado))
+             OR EXISTS (SELECT 1 FROM acessos_equipe a WHERE a.email = u.email AND a.liberado)
+             OR EXISTS (SELECT 1 FROM ttars_pessoas p WHERE p.email = LOWER(u.email) AND p.organizacao <> ''))
       ORDER BY u.nome`,
     [userId],
   );
+}
+
+/** Pessoa do TTARS (da Welcome) que pode receber tarefa, com a conta aqui se já existe. */
+export type PessoaDaEquipe = {
+  id: string | null;
+  email: string;
+  nome: string;
+  organizacao: string;
+  times: { id: string; nome: string }[];
+  /** Liberada no Ações: vê o que recebe. Sem isso, a tarefa espera até ela ser liberada. */
+  usa_acoes: boolean;
+};
+
+/** As pessoas do TTARS (fora "Parceiros"), da lista que o admin atualiza ao entrar. */
+export async function pessoasDaEquipe(): Promise<PessoaDaEquipe[]> {
+  return query<PessoaDaEquipe>(
+    `SELECT u.id::text AS id, p.email, p.nome, p.organizacao, COALESCE(p.times, '[]'::jsonb) AS times,
+            (EXISTS (SELECT 1 FROM acessos_equipe a WHERE a.email = p.email AND a.liberado)
+             OR COALESCE(u.is_admin, false)) AS usa_acoes
+       FROM ttars_pessoas p
+       LEFT JOIN users u ON LOWER(u.email) = p.email AND u.deleted_at IS NULL
+      WHERE p.organizacao <> ''
+      ORDER BY p.nome`,
+  );
+}
+
+/**
+ * Conta aqui de uma pessoa do TTARS, criada na hora se ela nunca entrou. Assim a tarefa pode
+ * ser passada pra qualquer pessoa da Welcome; ela vê quando for liberada no Ações.
+ */
+export async function garantirColegaDoTtars(email: string): Promise<Colega | null> {
+  const alvo = email.trim().toLowerCase();
+  if (!alvo) return null;
+  const r = await query<Colega>(
+    `WITH p AS (SELECT email, nome, times FROM ttars_pessoas WHERE email = $1 AND organizacao <> '')
+     INSERT INTO users (nome, email, times, is_admin, consent_terms_at)
+     SELECT nome, email, COALESCE(times, '[]'::jsonb), false, NULL FROM p
+     ON CONFLICT (email) WHERE email IS NOT NULL AND deleted_at IS NULL DO UPDATE SET nome = users.nome
+     RETURNING id::text AS id, nome`,
+    [alvo],
+  );
+  return r[0] ?? null;
 }
 
 export async function nomesDeUsuarios(ids: (string | null | undefined)[]): Promise<Map<string, string>> {

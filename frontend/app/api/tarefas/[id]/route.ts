@@ -8,6 +8,7 @@ import {
   acessoTarefa,
   carregarTarefas,
   colegasDe,
+  garantirColegaDoTtars,
   registrarEvento,
 } from "@/lib/equipe-compartilhado";
 
@@ -33,6 +34,8 @@ type PatchBody = Partial<{
   pessoas: { nome: string; principal?: boolean }[];
   /** Equipe: colega que passa a ser o dono (a tarefa entra na lista dele). */
   responsavel_user_id: string | null;
+  /** Equipe: pessoa do TTARS pelo e-mail (ganha conta aqui se ainda não tem). */
+  responsavel_email: string;
 }>;
 
 // O que só quem criou a tarefa muda: plano/ordem pessoais dele e o tema (os temas são
@@ -61,6 +64,13 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
   if (body.acao !== undefined && !VALID_ACAO.includes(body.acao)) {
     return NextResponse.json({ error: "acao inválida" }, { status: 400 });
   }
+
+  if (isTeamMode() && typeof body.responsavel_email === "string" && body.responsavel_email.trim()) {
+    const c = await garantirColegaDoTtars(body.responsavel_email);
+    if (!c) return NextResponse.json({ error: "Essa pessoa não está na lista do TTARS." }, { status: 400 });
+    body.responsavel_user_id = c.id;
+  }
+  delete body.responsavel_email;
 
   const sets: string[] = [];
   const values: unknown[] = [];

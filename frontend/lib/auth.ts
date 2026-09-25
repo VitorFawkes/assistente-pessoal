@@ -220,7 +220,11 @@ export function withAuth<TCtx = unknown>(
 ): (req: Request, ctx: TCtx) => Promise<Response> {
   return async (req, ctx) => {
     try {
-      const user = opts?.admin ? await requireAdmin() : await requireUser();
+      // Telas do Ações dentro do TTARS chamam com Authorization: Bearer (sem cookie).
+      const user = (req.headers.get("authorization") || "").startsWith("Bearer ")
+        ? await requireUserFromBearer(req)
+        : await requireUser();
+      if (opts?.admin && !user.is_admin) throw new AuthError(403);
       return await fn(user, req, ctx);
     } catch (e) {
       if (e instanceof AuthError) {

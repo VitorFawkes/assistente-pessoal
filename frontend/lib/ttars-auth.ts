@@ -153,13 +153,18 @@ export async function usarCodigoDeEntrada(codigo: string): Promise<PessoaTtars |
 
 /** CORS só para o endereço do TTARS. */
 export function cabecalhosTtars(req: Request): Record<string, string> {
-  const origem = req.headers.get("origin") || "";
+  return corsParaOrigem(req.headers.get("origin"), "POST, OPTIONS");
+}
+
+/** CORS das telas do Ações dentro do TTARS (chamam com Bearer, sem cookie). */
+export function corsParaOrigem(origem: string | null, metodos = "GET, POST, PATCH, PUT, DELETE, OPTIONS"): Record<string, string> {
   const permitidas = (process.env.TTARS_ORIGENS || "").split(",").map((s) => s.trim()).filter(Boolean);
-  if (!permitidas.includes(origem)) return {};
+  if (!origem || !permitidas.includes(origem)) return {};
   return {
     "Access-Control-Allow-Origin": origem,
     "Access-Control-Allow-Headers": "authorization, content-type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Methods": metodos,
+    "Access-Control-Max-Age": "600",
     Vary: "Origin",
   };
 }
