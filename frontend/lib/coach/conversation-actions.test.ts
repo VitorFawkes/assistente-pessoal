@@ -209,3 +209,18 @@ test("a short yes completes only when the coach just asked about the single open
  for(const reply of ["Não.","Sim, mas falta marcar a entrevista.","Ainda não, pode esperar."])expect(allowedActions(reply,{confirmsCompletion:true})).not.toContain("complete_commitment");
  expect(validateAction({type:"complete_commitment",quote:"Sim.",guidance:"",commitment_id:"closer",due_at:null},"Sim.",[agreement,tracked("other","Vou revisar o contrato jurídico.")],{confirmsCompletion:true})).toBeNull();
 });
+
+test("a multi-line message never puts a line break inside a schema literal",()=>{
+ const literals=(schema:unknown):string[]=>{
+  if(!schema||typeof schema!=="object")return [];
+  const node=schema as Record<string,unknown>;
+  const own=[...(Array.isArray(node.enum)?node.enum:[]),...("const" in node?[node.const]:[])].filter((v):v is string=>typeof v==="string");
+  return [...own,...Object.values(node).flatMap(literals)];
+ };
+ const message="Concluí a proposta do cliente.\nCrie uma tarefa para enviar o contrato amanhã\nAmanhã eu vou ligar para o fornecedor de som";
+ const schema=actionSchema(message,[],[]);
+ const values=literals(schema);
+ expect(values.length).toBeGreaterThan(0);
+ expect(values.some(v=>/[\u0000-\u001f]/u.test(v))).toBe(false);
+ expect(validCoachSchema(schema)).toBe(true);
+});
