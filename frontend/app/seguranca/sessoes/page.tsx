@@ -63,7 +63,7 @@ export default async function SessoesPage() {
   ]);
 
   const currentPref =
-    userPrefs.length > 0 ? (userPrefs[0].visibilidade_padrao as "todos" | "so_eu") : "todos";
+    userPrefs.length > 0 ? (userPrefs[0].visibilidade_padrao as "todos" | "so_eu") : "so_eu";
 
   return (
     <div className="mx-auto max-w-2xl space-y-7">

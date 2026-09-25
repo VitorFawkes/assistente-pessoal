@@ -54,12 +54,12 @@ export default function PrivacidadePage() {
       <section className="space-y-4">
         <h2 className="text-lg font-semibold">Quem pode acessar seus dados</h2>
         <p className="text-sm leading-relaxed">
-          Por padrão, todas as reuniões são visíveis para toda a Welcome. Você pode restringir
-          o acesso de duas formas:
+          Por padrão, só você vê as reuniões que gravar. Você pode liberar cada reunião de
+          duas formas:
         </p>
         <ul className="list-disc list-inside space-y-2 ml-2 text-sm leading-relaxed">
-          <li><strong>Só eu:</strong> apenas você pode acessar a reunião</li>
           <li><strong>Escolher pessoas e times:</strong> você escolhe quem na Welcome vê a reunião</li>
+          <li><strong>Toda a Welcome:</strong> qualquer pessoa da Welcome com acesso ao Ações vê a reunião</li>
         </ul>
         <p className="text-sm leading-relaxed">
           Você pode mudar essas permissões a qualquer momento na página de cada reunião.
@@ -92,8 +92,9 @@ export default function PrivacidadePage() {
       <section className="space-y-4">
         <h2 className="text-lg font-semibold">Como solicitar exclusão</h2>
         <p className="text-sm leading-relaxed">
-          Para solicitar a exclusão de suas reuniões e dados pessoais, fale com o Vitor. Suas gravações e transcrições serão permanentemente removidas de
-          nossos servidores.
+          Você mesmo apaga qualquer reunião sua: abra a reunião e toque em &quot;Apagar&quot;. Some tudo
+          dela na hora: a gravação, a transcrição, o resumo, as tarefas e as vozes aprendidas nela.
+          Tarefas também se apagam uma a uma. Para apagar a sua conta inteira, fale com o Vitor.
         </p>
       </section>
 

@@ -140,7 +140,7 @@ export default async function ReuniaoDetalhePage({
           {isTeamMode() && isOwner && (
             <MeetingVisibilitySelector
               meetingId={meeting.id}
-              currentVisibilidade={(meeting.visibilidade as "todos" | "so_eu" | "escolhidos") || "todos"}
+              currentVisibilidade={(meeting.visibilidade as "todos" | "so_eu" | "escolhidos") || "so_eu"}
               pessoas={teamPessoas}
               times={teamTimes}
               acessosIniciais={teamAcessos}
@@ -160,7 +160,7 @@ export default async function ReuniaoDetalhePage({
                 printBase={`/reunioes/${meeting.id}/imprimir`}
               />
               <MeetingShareButton meetingId={meeting.id} tokenInicial={meeting.share_token} />
-              <DeleteMeetingButton meetingId={meeting.id} redirectTo="/reunioes" label="deletar" />
+              <DeleteMeetingButton meetingId={meeting.id} redirectTo="/reunioes" label="Apagar" tarefasCount={tarefas.length} />
             </>
           )}
         </div>

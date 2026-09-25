@@ -130,19 +130,6 @@ export function MeetingVisibilitySelector({
       {isOpen && (
         <div className="absolute left-0 sm:left-auto sm:right-0 top-full mt-2 z-50 bg-[color:var(--background)] border border-[color:var(--border)] rounded-xl shadow-lg w-[min(340px,calc(100vw-2rem))]">
           <div className="p-4 space-y-4">
-            {/* Opção: Toda a Welcome */}
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="radio"
-                name="visibilidade"
-                value="todos"
-                checked={visibilidade === "todos"}
-                onChange={(e) => handleVisibilidadeChange(e.target.value as "todos")}
-                className="w-4 h-4"
-              />
-              <span className="text-[13px]">Toda a Welcome pode ver</span>
-            </label>
-
             {/* Opção: Só eu */}
             <label className="flex items-center gap-3 cursor-pointer">
               <input
@@ -167,6 +154,19 @@ export function MeetingVisibilitySelector({
                 className="w-4 h-4"
               />
               <span className="text-[13px]">Escolher pessoas e times</span>
+            </label>
+
+            {/* Opção: Toda a Welcome */}
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="radio"
+                name="visibilidade"
+                value="todos"
+                checked={visibilidade === "todos"}
+                onChange={(e) => handleVisibilidadeChange(e.target.value as "todos")}
+                className="w-4 h-4"
+              />
+              <span className="text-[13px]">Toda a Welcome pode ver</span>
             </label>
 
             {/* Lista de pessoas e times quando "escolhidos" está selecionado */}

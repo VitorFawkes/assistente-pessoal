@@ -37,20 +37,18 @@ export default async function TermosPage() {
         </p>
         <p>
           A gente armazena os áudios e transcrições enquanto a sua conta existir.
-          Você pode pedir pra deletar tudo a qualquer momento{" "}
           {teamMode ? (
-            "(converse com o Vitor)"
+            "Você apaga qualquer reunião ou tarefa sua a qualquer momento, na própria reunião ou tarefa."
           ) : (
-            "(manda mensagem pro Vitor)"
+            "Você pode pedir pra deletar tudo a qualquer momento (manda mensagem pro Vitor)."
           )}
-          .
         </p>
         <p className="text-[12px] text-[color:var(--muted)] italic">
           {teamMode ? (
             <>
-              Essa é uma ferramenta de equipe da Welcome. Por padrão, as reuniões que você gravar
-              ficam visíveis para toda a Welcome; você pode mudar para só você ou para pessoas e
-              times escolhidos, no menu e em cada reunião.{" "}
+              Essa é uma ferramenta de equipe da Welcome. Por padrão, só você vê as reuniões que
+              gravar; você pode liberar para pessoas e times escolhidos ou para toda a Welcome, no
+              menu e em cada reunião.{" "}
               <a href="/privacidade" className="underline">Política de privacidade</a>.
             </>
           ) : (

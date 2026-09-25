@@ -58,24 +58,24 @@ export function DefaultVisibilityPref({
           <input
             type="radio"
             name="visibilidade_padrao"
-            value="todos"
-            checked={preference === "todos"}
-            onChange={(e) => handleChange(e.target.value as "todos")}
-            className="w-4 h-4"
-          />
-          <span className="text-[13px]">Toda a Welcome pode ver</span>
-        </label>
-
-        <label className="flex items-center gap-3 cursor-pointer">
-          <input
-            type="radio"
-            name="visibilidade_padrao"
             value="so_eu"
             checked={preference === "so_eu"}
             onChange={(e) => handleChange(e.target.value as "so_eu")}
             className="w-4 h-4"
           />
           <span className="text-[13px]">Só eu vejo</span>
+        </label>
+
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input
+            type="radio"
+            name="visibilidade_padrao"
+            value="todos"
+            checked={preference === "todos"}
+            onChange={(e) => handleChange(e.target.value as "todos")}
+            className="w-4 h-4"
+          />
+          <span className="text-[13px]">Toda a Welcome pode ver</span>
         </label>
       </div>
 

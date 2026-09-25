@@ -192,6 +192,7 @@ export function MeetingsList({
             {!somenteLeitura && (
               <DeleteMeetingButton
                 meetingId={m.id}
+                tarefasCount={m.n_tarefas}
                 className="shrink-0 flex items-center justify-center w-10 h-10 rounded-xl border border-[color:var(--border)] text-[color:var(--muted)] hover:text-[color:var(--urgent)] hover:border-[color:var(--urgent)]/40 transition disabled:opacity-50"
               />
             )}

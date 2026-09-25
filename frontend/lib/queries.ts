@@ -277,6 +277,15 @@ export const meetingsFor = (userId: string) => ({
         `SELECT audio_path FROM meetings WHERE id = $1 OR parent_meeting_id = $1`,
         [id],
       );
+      // Equipe: apagar a reunião leva junto as vozes aprendidas nela (sem isso
+      // ficavam órfãs, com source_meeting_id nulo, e continuavam reconhecendo).
+      if (isTeamMode()) {
+        await db.query(
+          `DELETE FROM voice_samples
+            WHERE source_meeting_id IN (SELECT id FROM meetings WHERE id = $1 OR parent_meeting_id = $1)`,
+          [id],
+        );
+      }
       const del = await db.query<{ id: string }>(
         `DELETE FROM meetings WHERE id = $1 OR parent_meeting_id = $1 RETURNING id`,
         [id],

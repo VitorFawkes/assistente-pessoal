@@ -19,7 +19,7 @@ export default async function GravarPage() {
     `SELECT visibilidade_padrao FROM users WHERE id = $1`,
     [user.id],
   );
-  const soEu = pref[0]?.visibilidade_padrao === "so_eu";
+  const soEu = pref[0]?.visibilidade_padrao !== "todos";
 
   return (
     <div className="space-y-7 sm:space-y-9">
