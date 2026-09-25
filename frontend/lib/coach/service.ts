@@ -15,7 +15,7 @@ import { COACH_CONVERSATION_INSTRUCTION, COACH_INVESTIGATION_INSTRUCTION } from 
 import { userMemoryNotes } from "./conversation-memory";
 import { accountabilityFingerprint } from "./follow-up";
 import { formatCommitmentDue, naturalCommitmentDue } from "./commitment-dates";
-import { morningAgenda } from "./morning-agenda";
+import { dueTasks, morningAgenda } from "./morning-agenda";
 import { handleTaskMessage } from "./task-actions";
 import { budgetNotice, budgetReply, budgetState, CoachBudgetError, runCostUsd } from "./budget";
 import { MODEL_CONTEXT, modelCalendar, modelEvents, modelMessages, modelRetrieved, modelReviews, modelTaskSelection, modelTasks } from "./context-budget";
@@ -156,9 +156,11 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
   const retrieved=context.messages.filter(m=>!m.stale&&(m.role==="user"||m.context_freshness!=="unknown"));
   const recentReviews=reviews.filter(r=>!r.stale).slice(0,4);
   const tasksSent=modelTasks(context.tasks),eventsSent=modelEvents(context.events);
+  // The overdue and due-today list the 8h message counts ("Mais 18 no Ações"), by name, so the Coach can go through it.
+  const due=await dueTasks(userId,profile.timezone,now).catch(()=>null);
   const data={profile,trigger:proactive?{kind:proactive,origin:"system_schedule_or_button",not_user_statement:true}:null,...(taskNotes.length?{task_changes_already_done_by_server:taskNotes}:{}),current_time:now.toISOString(),timezone:profile.timezone,local_time:new Intl.DateTimeFormat("pt-BR",{timeZone:profile.timezone,dateStyle:"full",timeStyle:"short"}).format(now),
     memories:usableMemories(memories),memory,commitments,history:modelMessages(recentHistory,MODEL_CONTEXT.history,MODEL_CONTEXT.historyChars),retrieved_conversations:modelRetrieved(retrieved,recentHistory.slice(-MODEL_CONTEXT.history)),question:message,coverage,
-    reviews:modelReviews(recentReviews),tasks:tasksSent,task_events:eventsSent,task_summary:context.task_summary,task_selection:modelTaskSelection(context.task_selection,tasksSent.length,eventsSent.length),context_selection:context.selection,
+    reviews:modelReviews(recentReviews),...(due?{due_tasks:due}:{}),tasks:tasksSent,task_events:eventsSent,task_summary:context.task_summary,task_selection:modelTaskSelection(context.task_selection,tasksSent.length,eventsSent.length),context_selection:context.selection,
     meeting_reports:reports.meetings,historical_meeting_reports:historicalReports.meetings,calendar_context:modelCalendar(calendar),
     analyses:context.analyses,historical_analyses:context.historical_analyses||[],self_person_ids:self,sources,
     transcripts:selected.map(({meeting,chunk})=>({meeting_id:meeting.id,title:meeting.nome||meeting.original_filename,recorded_at:meeting.recorded_at,context_at:(meeting as {context_at?:string}).context_at,date_basis:(meeting as {date_basis?:string}).date_basis,context_period:historicalIds.has(meeting.id)?"historical":period?"requested_period":"historical_search",chunk_index:chunk.index,text:chunk.text,labeled_turns:labeledTurns(meeting,chunk,self)})),limitations:[...context.limitations,...reports.limitations,...historicalReports.limitations,...calendar.limitations,...(omittedMeetings>0?[`${omittedMeetings} reuniões encontradas ficaram fora deste pacote; use search_history ou read_meeting_report se forem necessárias.`]:[])]};

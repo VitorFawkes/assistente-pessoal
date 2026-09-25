@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { modelEvents, modelMessages, modelRetrieved, modelReviews, modelTasks, slimForModel, MODEL_CONTEXT } from "./context-budget";
+import { modelEvents, modelMessages, modelRetrieved, modelReviews, modelTasks, queryFirst, slimForModel, MODEL_CONTEXT } from "./context-budget";
 import type { CoachMessage, CoachReview } from "./types";
 import type { CoachTask } from "./task-context";
 
@@ -51,10 +51,15 @@ test("the last pass drops bookkeeping and the UTC copy of dates, but keeps now a
   tasks: [{ titulo: "T", prazo: "2026-09-28T15:00:00.000Z", prazo_local: "28/09/2026, 12:00:00", updated_at: "2026-09-20T12:00:00.000Z", updated_at_local: "20/09/2026, 09:00:00" }],
   memory: { active_goals: [{ id: "g", user_id: "u", content_hash: hash, content: "Meta" }] },
   meeting_reports: [{ meeting_id: "m", context_hash: hash, recorded_at: "2026-09-24T13:00:00.000Z", recorded_at_local: "24/09/2026, 10:00:00", report: "R" }],
- }) as Record<string, any>;
+ }) as { current_time: string; context_selection: { period: Record<string, string> }; tasks: Record<string, string>[]; memory: { active_goals: Record<string, string>[] }; meeting_reports: Record<string, string>[] };
  expect(slim.current_time).toBe("2026-09-25T12:00:00.000Z");
  expect(slim.context_selection.period).toMatchObject({ from: "2026-09-25T03:00:00.000Z", to: "2026-09-26T03:00:00.000Z" });
  expect(slim.tasks[0]).toEqual({ titulo: "T", prazo_local: "28/09/2026, 12:00:00", updated_at_local: "20/09/2026, 09:00:00" });
  expect(slim.memory.active_goals[0]).toEqual({ id: "g", content: "Meta" });
  expect(slim.meeting_reports[0]).toEqual({ meeting_id: "m", recorded_at_local: "24/09/2026, 10:00:00", report: "R" });
+});
+
+test("a task read puts the tasks that match its query before the open priorities", () => {
+ const t = (id: string, reasons: string[]) => ({ id, context_reasons: reasons }) as unknown as CoachTask;
+ expect(queryFirst([t("p1", ["open_priority"]), t("q1", ["query_match"]), t("p2", ["open_priority", "query_match"]), t("r1", ["recent_activity"])]).map(x => x.id)).toEqual(["q1", "p2", "p1", "r1"]);
 });

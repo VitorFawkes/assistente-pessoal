@@ -49,16 +49,34 @@ export function agendaText(tasks: AgendaTask[], totals: AgendaTotals, events: Pi
  return blocks.join("\n\n");
 }
 
+/** The ordering of the 8h list: due today first, then the most recently overdue, own tasks before follow-ups. */
+const AGENDA_ORDER = `prazo>=$2 DESC,
+    CASE WHEN prazo>=$2 THEN CASE prioridade WHEN 'urgente' THEN 0 WHEN 'alta' THEN 1 WHEN 'media' THEN 2 ELSE 3 END END,
+    CASE WHEN prazo>=$2 THEN prazo END,CASE WHEN prazo<$2 THEN (prazo AT TIME ZONE $4)::date END DESC,is_mine DESC,
+    CASE prioridade WHEN 'urgente' THEN 0 WHEN 'alta' THEN 1 WHEN 'media' THEN 2 ELSE 3 END,prazo DESC,id`;
+
+/** The tasks the 8h list counts, by name and in its order, so the Coach can go through "Mais N no Ações". */
+export async function dueTasks(userId: string, timezone: string, now = new Date(), limit = 30) {
+ const range = localDayRange(timezone, now);
+ const rows = await withTenant(userId, async db => (await db.query<{ id: string; titulo: string; owner: string | null; acao: string | null; prazo: Date; today: boolean; total: number; total_today: number }>(
+  `SELECT id,titulo,owner,acao,prazo,prazo>=$2 AS today,count(*) OVER ()::int AS total,(count(*) FILTER (WHERE prazo>=$2) OVER ())::int AS total_today
+   FROM tarefas WHERE user_id=$1 AND status NOT IN ('concluida','cancelada') AND prazo IS NOT NULL AND prazo<$3 AND (is_mine OR acao='cobrar')
+   ORDER BY ${AGENDA_ORDER} LIMIT $5`, [userId, range.from.toISOString(), range.to.toISOString(), timezone, limit])).rows);
+ const total = rows[0]?.total ?? 0, today = rows[0]?.total_today ?? 0;
+ return {
+  due_today: today, overdue: total - today, listed: rows.length,
+  note: `A lista das 8h mostra as ${Math.min(AGENDA_LIMIT, total)} primeiras (shown_at_8h); "Mais N no Ações" são as demais, na mesma ordem.`,
+  items: rows.map((r, i) => ({ id: r.id, titulo: clip(r.titulo, 160), owner: r.owner, acao: r.acao, prazo: new Date(r.prazo).toISOString(), vence_hoje: r.today, shown_at_8h: i < AGENDA_LIMIT })),
+ };
+}
+
 /** Deterministic part of the 8h check-in: the user's own tasks and follow-ups due today or overdue, plus today's calendar. */
 export async function morningAgenda(userId: string, timezone: string, now = new Date()): Promise<string> {
  const range = localDayRange(timezone, now);
  const rows = await withTenant(userId, async db => (await db.query<AgendaTask & { total: number; total_today: number }>(
   `SELECT titulo,owner,acao,is_mine,prazo,prazo>=$2 AS today,count(*) OVER ()::int AS total,(count(*) FILTER (WHERE prazo>=$2) OVER ())::int AS total_today
    FROM tarefas WHERE user_id=$1 AND status NOT IN ('concluida','cancelada') AND prazo IS NOT NULL AND prazo<$3 AND (is_mine OR acao='cobrar')
-   ORDER BY prazo>=$2 DESC,
-    CASE WHEN prazo>=$2 THEN CASE prioridade WHEN 'urgente' THEN 0 WHEN 'alta' THEN 1 WHEN 'media' THEN 2 ELSE 3 END END,
-    CASE WHEN prazo>=$2 THEN prazo END,CASE WHEN prazo<$2 THEN (prazo AT TIME ZONE $4)::date END DESC,is_mine DESC,
-    CASE prioridade WHEN 'urgente' THEN 0 WHEN 'alta' THEN 1 WHEN 'media' THEN 2 ELSE 3 END,prazo DESC,id
+   ORDER BY ${AGENDA_ORDER}
    LIMIT ${AGENDA_LIMIT}`, [userId, range.from.toISOString(), range.to.toISOString(), timezone])).rows);
  const total = rows[0]?.total ?? 0, totalToday = rows[0]?.total_today ?? 0;
  const events = await calendarContext(userId, { from: range.from.toISOString(), to: range.to.toISOString() }, { timezone }).then(c => c.events).catch(() => []);
