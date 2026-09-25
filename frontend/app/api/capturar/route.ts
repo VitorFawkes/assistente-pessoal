@@ -3,12 +3,14 @@ import { withAuth } from "@/lib/auth";
 import { frentesFor, tarefasFor } from "@/lib/queries";
 import { parseCapture, precisaRevisao, type CaptureDraft } from "@/lib/capture";
 import { ownersFor } from "@/lib/owners";
+import { randomUUID } from "node:crypto";
+import { openAiTranscription, recordAiUsage, withUsageContext } from "@/lib/ai-usage";
 
 export const dynamic = "force-dynamic";
 
 const TZ = "America/Sao_Paulo";
 
-async function transcrever(audio: File): Promise<string> {
+async function transcrever(audio: File, userId: string): Promise<string> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY ausente");
   const form = new FormData();
@@ -21,7 +23,8 @@ async function transcrever(audio: File): Promise<string> {
     signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) throw new Error(`transcrição ${res.status}`);
-  const data = (await res.json()) as { text?: string };
+  const data = (await res.json()) as { text?: string; usage?: unknown };
+  await recordAiUsage({ ref: `ditado_voz:${randomUUID()}`, agent: "ditado", source: "app", userId, ...openAiTranscription(process.env.TRANSCRIBE_MODEL || "gpt-transcribe", data.usage) });
   return (data.text ?? "").trim();
 }
 
@@ -40,7 +43,7 @@ export const POST = withAuth(async (user, req) => {
       if (!(audio instanceof File)) {
         return NextResponse.json({ error: "áudio ausente" }, { status: 400 });
       }
-      texto = await transcrever(audio);
+      texto = await transcrever(audio, user.id);
       origem = "captura_voz";
     } else {
       const body = (await r.json()) as { texto?: string; meeting_id?: string };
@@ -62,11 +65,11 @@ export const POST = withAuth(async (user, req) => {
       frentesFor(user.id).list(),
       ownersFor(user.id).list(),
     ]);
-    draft = await parseCapture(texto, {
+    draft = await withUsageContext({ userId: user.id, meetingId }, () => parseCapture(texto, {
       hoje, tz: TZ,
       frentes: frentes.map((f) => ({ nome: f.nome })),
       owners: owners.map((o) => ({ name: o.name, is_me: o.is_me })),
-    });
+    }));
     confidence = draft.confidence;
   } catch (err) {
     console.error("[capturar] parseCapture falhou, salvando cru:", err);
@@ -94,7 +97,5 @@ export const POST = withAuth(async (user, req) => {
     { origem, raw: texto, confidence },
   );
 
-  // custo (best-effort, não bloqueia)
-  void user; // usage_events opcional — ver nota
   return NextResponse.json(tarefa, { status: 201 });
 });

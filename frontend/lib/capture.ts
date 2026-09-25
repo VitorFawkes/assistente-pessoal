@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { openAiCall, recordAiUsage } from "./ai-usage";
 import type { Acao } from "./queries";
 
 const PRIORIDADES = ["baixa", "media", "alta", "urgente"] as const;
@@ -114,7 +116,8 @@ export async function parseCapture(raw: string, ctx: CaptureCtx): Promise<Captur
   });
 
   if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`);
-  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+  const data = (await res.json()) as { choices?: { message?: { content?: string } }[]; usage?: unknown };
+  await recordAiUsage({ ref: `ditado:${randomUUID()}`, agent: "ditado", source: "app", ...openAiCall(CAPTURE_MODEL, data.usage) });
   const content = data.choices?.[0]?.message?.content;
   if (!content) throw new Error("OpenAI: resposta sem conteúdo");
   return normalizeDraft(JSON.parse(content) as RawDraft);

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/db";
 import { labelSpeakersByContent } from "@/lib/label-speakers";
+import { withUsageContext } from "@/lib/ai-usage";
 
 export const dynamic = "force-dynamic";
 
@@ -67,7 +68,7 @@ export const POST = withAuth<Ctx>(async (user, _req, ctx) => {
         await c.query<{ nome: string }>(`SELECT nome FROM pessoas ORDER BY is_vitor DESC, nome`)
       ).rows.map((r) => r.nome);
 
-      const guesses = await labelSpeakersByContent(transcript, { letters: blanks, knownPeople: known });
+      const guesses = await withUsageContext({ userId: user.id, meetingId: id }, () => labelSpeakersByContent(transcript, { letters: blanks, knownPeople: known }));
 
       const applied: Record<string, string> = {};
       for (const letter of blanks) {

@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { incorporarTarefas, type TarefaExtraida } from "@/lib/tarefas-repetidas-db";
+import { withUsageContext } from "@/lib/ai-usage";
 
 export const dynamic = "force-dynamic";
 // 3 leituras da IA em paralelo + gravação: folga pro n8n não cortar no meio.
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest) {
   }
   const tarefas = Array.isArray(body.tarefas) ? body.tarefas : [];
   try {
-    const r = await incorporarTarefas({ userId, meetingId, tarefas, reprocessar: body.reprocessar === true });
+    const r = await withUsageContext({ userId, meetingId }, () => incorporarTarefas({ userId, meetingId, tarefas, reprocessar: body.reprocessar === true }));
     console.log(
       `[tarefas-repetidas] reunião ${meetingId}: ${r.criadas.length} criadas, ${r.juntadas.length} juntadas, ` +
         `${r.substituidas.length} substituídas, ${r.ignoradas} ignoradas (${r.comparacao})`,

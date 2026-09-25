@@ -22,6 +22,8 @@ const NAV = [
   { href: "/coach", label: "Coach" },
 ];
 
+const ADMIN_NAV = [{ href: "/admin/gastos", label: "Gastos" }];
+
 function isCurrent(pathname: string, href: string): boolean {
   return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/");
 }
@@ -33,6 +35,7 @@ export function SiteHeader({
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const nav = user?.is_admin ? [...NAV, ...ADMIN_NAV] : NAV;
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -70,7 +73,7 @@ export function SiteHeader({
         <div className="flex items-center gap-2 sm:gap-3">
           {user && (
             <nav className="hidden lg:flex items-center gap-0.5 text-[13px]">
-              {NAV.map((item) => {
+              {nav.map((item) => {
                 const current = isCurrent(pathname, item.href);
                 return (
                   <Link
@@ -104,7 +107,7 @@ export function SiteHeader({
               </button>
               {open && (
                 <div className="absolute right-0 mt-2 w-52 rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] shadow-xl p-1.5 z-50">
-                  {NAV.map((item) => {
+                  {nav.map((item) => {
                     const current = isCurrent(pathname, item.href);
                     return (
                       <Link

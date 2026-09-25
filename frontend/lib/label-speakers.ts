@@ -2,6 +2,9 @@
 // quando a voz não bate (ver voice-svc). A IA já faz isso de forma confiável no
 // resumo ("Speaker A (Vitor, …)"); aqui formalizamos num mapa estruturado.
 
+import { randomUUID } from "node:crypto";
+import { openAiCall, recordAiUsage } from "./ai-usage";
+
 const MODEL = process.env.CAPTURE_MODEL || "gpt-6-luna";
 
 export type SpeakerGuess = { nome: string; confidence: number };
@@ -47,7 +50,8 @@ export async function labelSpeakersByContent(
   });
 
   if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`);
-  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+  const data = (await res.json()) as { choices?: { message?: { content?: string } }[]; usage?: unknown };
+  await recordAiUsage({ ref: `falantes:${randomUUID()}`, agent: "nomes_falantes", source: "app", ...openAiCall(MODEL, data.usage) });
   const content = data.choices?.[0]?.message?.content;
   if (!content) throw new Error("OpenAI: resposta sem conteúdo");
 

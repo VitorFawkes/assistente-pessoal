@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { openAiTranscription, recordAiUsage } from "../ai-usage";
 import { query, withClient, withTenant } from "../db";
 import { rateLimit } from "../rate-limit";
 import { reviewPeriod } from "../coach/evidence";
@@ -97,7 +99,7 @@ async function tryLink(sender: WaSender, text: string): Promise<boolean> {
  return true;
 }
 
-async function transcribe(base64: string, mimetype: unknown) {
+async function transcribe(base64: string, mimetype: unknown, userId: string) {
  const apiKey = process.env.OPENAI_API_KEY;
  if (!apiKey) throw new Error("transcription_not_configured");
  const bytes = new Uint8Array(Buffer.from(base64, "base64"));
@@ -108,7 +110,9 @@ async function transcribe(base64: string, mimetype: unknown) {
  form.append("model", process.env.TRANSCRIBE_MODEL || "gpt-transcribe");
  const res = await fetch("https://api.openai.com/v1/audio/transcriptions", { method: "POST", headers: { Authorization: `Bearer ${apiKey}` }, body: form, signal: AbortSignal.timeout(90_000) });
  if (!res.ok) throw new Error(`transcription_${res.status}`);
- return String(((await res.json()) as { text?: string }).text ?? "").trim();
+ const data = (await res.json()) as { text?: string; usage?: unknown };
+ await recordAiUsage({ ref: `whatsapp_audio:${randomUUID()}`, agent: "whatsapp_audio", source: "app", userId, ...openAiTranscription(process.env.TRANSCRIBE_MODEL || "gpt-transcribe", data.usage) });
+ return String(data.text ?? "").trim();
 }
 
 type EvolutionData = {
@@ -146,7 +150,7 @@ export async function handleEvent(raw: unknown): Promise<InboundTicket | null> {
  if (isAudio(data.messageType, data.message)) {
   kind = "audio";
   const media = data.message?.base64;
-  try { content = typeof media === "string" ? await transcribe(media, data.message?.audioMessage?.mimetype) : ""; } catch { content = ""; }
+  try { content = typeof media === "string" ? await transcribe(media, data.message?.audioMessage?.mimetype, link.user_id) : ""; } catch { content = ""; }
   if (!content) { await send(link.user_id, sender.jid, "Não consegui ouvir esse áudio. Pode mandar de novo ou escrever?", "notice"); return null; }
  } else if (!content) {
   await send(link.user_id, sender.jid, "Por enquanto eu entendo texto e áudio. Pode me escrever ou mandar um áudio?", "notice");
