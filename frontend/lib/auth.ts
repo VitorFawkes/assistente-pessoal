@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { timingSafeEqual } from "node:crypto";
 import { query } from "./db";
+import { opcoesCookieSessao } from "./cookie-sessao";
 
 const COOKIE_NAME = "session";
 const SESSION_TTL_DAYS = 30;
@@ -176,18 +177,13 @@ export async function consumeInvite(
 }
 
 export async function setSessionCookie(sessionId: string): Promise<void> {
-  (await cookies()).set(COOKIE_NAME, sessionId, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: SESSION_MAX_AGE,
-  });
+  (await cookies()).set(COOKIE_NAME, sessionId, opcoesCookieSessao(SESSION_MAX_AGE));
 }
 
 export async function destroySession(sessionId: string): Promise<void> {
   await query(`UPDATE sessions SET revoked_at = now() WHERE id = $1`, [sessionId]);
-  (await cookies()).delete(COOKIE_NAME);
+  // Apagar com os mesmos atributos: cookie Partitioned só some se o "apagar" também for.
+  (await cookies()).set(COOKIE_NAME, "", opcoesCookieSessao(0));
 }
 
 /** Revoga todas as sessões ativas do user — "sair de todos os dispositivos". */

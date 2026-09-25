@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { isTeamMode } from "@/lib/team-mode";
+import { COOKIE_SESSAO, opcoesCookieSessao, origensQuePodemEmbutir } from "@/lib/cookie-sessao";
 
 // Em Next.js 16, proxy roda em Node.js runtime por padrão (mudou em relação
 // ao middleware do 15 que era Edge). Permite acesso direto ao pg.
@@ -35,10 +36,38 @@ const SO_ADMIN_NA_EQUIPE = ["/plano", "/coach", "/assistente", "/admin", "/api/c
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const WEBHOOK_TOKEN = process.env.WEBHOOK_TOKEN || "";
 
+// Equipe: o Ações abre dentro do TTARS. Só as páginas do próprio Ações e as do TTARS podem
+// mostrá-lo num quadro — nenhum outro site (evita alguém esconder o Ações atrás de outra tela).
+function comMoldura(res: NextResponse): NextResponse {
+  if (isTeamMode()) {
+    res.headers.set(
+      "Content-Security-Policy",
+      ["frame-ancestors 'self'", ...origensQuePodemEmbutir()].join(" "),
+    );
+  }
+  return res;
+}
+
+const METODOS_SEGUROS = new Set(["GET", "HEAD", "OPTIONS"]);
+
 export default async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  // Equipe: o cookie de sessão vai também pra dentro do TTARS (SameSite=None), então pedido
+  // que muda algo e vem de OUTRO site com a sessão é recusado. O próprio Ações (mesmo dentro
+  // do TTARS) chama como "same-origin"; o app do iPhone não manda Sec-Fetch-Site.
+  if (
+    isTeamMode() &&
+    !METODOS_SEGUROS.has(req.method) &&
+    req.headers.get("sec-fetch-site") === "cross-site" &&
+    req.cookies.get(COOKIE_SESSAO)?.value &&
+    !pathname.startsWith("/api/auth/")
+  ) {
+    return NextResponse.json({ error: "pedido de outro site recusado" }, { status: 403 });
+  }
+
   if (PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) {
-    return NextResponse.next();
+    return comMoldura(NextResponse.next());
   }
 
   // Service-to-service auth: voice-svc/n8n acessam APIs internas com
@@ -54,7 +83,7 @@ export default async function proxy(req: NextRequest) {
   const sessionId = req.cookies.get("session")?.value;
   if (!sessionId) {
     // /termos requer sessão (mas não consent). Sem sessão → /sem-acesso.
-    return NextResponse.redirect(new URL("/sem-acesso", req.url));
+    return comMoldura(NextResponse.redirect(new URL("/sem-acesso", req.url)));
   }
 
   const cutoff = new Date(Date.now() - SESSION_TTL_MS).toISOString();
@@ -75,8 +104,8 @@ export default async function proxy(req: NextRequest) {
     const row = rows[0];
     if (!row?.exists) {
       const res = NextResponse.redirect(new URL("/sem-acesso", req.url));
-      res.cookies.delete("session");
-      return res;
+      res.cookies.set(COOKIE_SESSAO, "", opcoesCookieSessao(0));
+      return comMoldura(res);
     }
 
     // Força aceite dos termos antes do app (exceto /termos e /api/termos)
@@ -103,12 +132,6 @@ export default async function proxy(req: NextRequest) {
   // 30 dias fixos — então o navegador descartava a sessão 30 dias depois
   // de entrar, mesmo em uso diário, e caía em /sem-acesso.
   const res = NextResponse.next();
-  res.cookies.set("session", sessionId, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: SESSION_TTL_MS / 1000,
-  });
-  return res;
+  res.cookies.set(COOKIE_SESSAO, sessionId, opcoesCookieSessao(SESSION_TTL_MS / 1000));
+  return comMoldura(res);
 }

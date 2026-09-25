@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { opcoesCookieSessao } from "@/lib/cookie-sessao";
 
 export const dynamic = "force-dynamic";
 
@@ -38,12 +39,6 @@ export async function GET(
       : "/";
 
   const res = NextResponse.redirect(`${proto}://${host}${safePath}`, 303);
-  res.cookies.set("session", session_id, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 30 * 24 * 60 * 60, // 30 dias
-  });
+  res.cookies.set("session", session_id, { ...opcoesCookieSessao(), secure: true });
   return res;
 }

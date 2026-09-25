@@ -23,11 +23,25 @@ export async function GET(req: NextRequest) {
     times: pessoa.times,
   } as Parameters<typeof upsertUserFromTtars>[0]);
 
+  // Quem já entrou (o Ações abre dentro do TTARS a cada clique na aba) continua na mesma
+  // sessão, em vez de ganhar uma nova a cada visita.
+  const atual = req.cookies.get("session")?.value || "";
+  const ainda = /^[0-9a-f-]{36}$/i.test(atual)
+    ? await query<{ id: string }>(
+        `UPDATE sessions SET last_used_at = now()
+          WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
+            AND last_used_at > now() - interval '30 days'
+          RETURNING id`,
+        [atual, user.id],
+      )
+    : [];
   const ip = clientIp(req.headers);
-  const sessao = await query<{ id: string }>(
-    `INSERT INTO sessions (user_id, ip_address, user_agent) VALUES ($1, $2, $3) RETURNING id`,
-    [user.id, ip === "unknown" ? null : ip, (req.headers.get("user-agent") || "").slice(0, 500)],
-  );
+  const sessao = ainda.length
+    ? ainda
+    : await query<{ id: string }>(
+        `INSERT INTO sessions (user_id, ip_address, user_agent) VALUES ($1, $2, $3) RETURNING id`,
+        [user.id, ip === "unknown" ? null : ip, (req.headers.get("user-agent") || "").slice(0, 500)],
+      );
   await query(`INSERT INTO audit_log (user_id, action, metadata) VALUES ($1, 'ttars.login', $2)`, [
     user.id,
     JSON.stringify({ ttars_user_id: pessoa.ttarsId, times: pessoa.times }),

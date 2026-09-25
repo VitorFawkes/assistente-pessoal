@@ -1,4 +1,5 @@
 import { isTeamMode } from "@/lib/team-mode";
+import { DentroDoTtars } from "@/components/dentro-do-ttars";
 
 export const metadata = {
   title: "Sem acesso — Assistente Pessoal",
@@ -45,12 +46,15 @@ export default async function SemAcessoPage({
         )}
       </p>
       {teamMode && ttars && (
-        <a
-          href={ttars}
-          className="inline-flex items-center justify-center px-6 py-3 rounded-2xl bg-[color:var(--foreground)] text-[color:var(--background)] font-medium"
-        >
-          Abrir o TTARS
-        </a>
+        <DentroDoTtars>
+          <a
+            href={ttars}
+            target="_top"
+            className="inline-flex items-center justify-center px-6 py-3 rounded-2xl bg-[color:var(--foreground)] text-[color:var(--background)] font-medium"
+          >
+            Abrir o TTARS
+          </a>
+        </DentroDoTtars>
       )}
     </div>
   );
