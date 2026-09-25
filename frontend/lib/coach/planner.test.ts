@@ -477,3 +477,12 @@ test("the instruction names every lookup the finder runs", () => {
  for (const kind of ["tarefas_da_pessoa", "tarefas_por_assunto", "tarefas_do_periodo", "pendencias", "reunioes_da_pessoa", "reunioes_por_assunto", "reunioes_do_periodo", "detalhe_da_reuniao", "trechos", "agenda", "conversas"])
   expect(PLANNER_INSTRUCTION).toContain(`- ${kind}`);
 });
+
+test("the same lookup with another status is not a duplicate", async () => {
+ process.env.OPENAI_API_KEY = "test-key";
+ delete process.env.COACH_QUICK_MODEL;
+ const base = { tipo: "tarefas_do_periodo", pessoa: "", reuniao: "", busca: "", periodo: "hoje", campo: "prazo", ordem: "prazo" };
+ globalThis.fetch = (async () => Response.json({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ consultas: [{ ...base, status: "abertas" }, { ...base, status: "todas" }, { ...base, status: "todas" }] }) }] }], usage: { input_tokens: 100, output_tokens: 50 } })) as unknown as typeof fetch;
+ const planned = await planQueries({ message: "o que vence hoje, inclusive as concluídas", recent: [], people, meetings, lane: "tarefas", timezone: "UTC", now: new Date() });
+ expect(planned.map(q => q.status)).toEqual(["abertas", "todas"]);
+});

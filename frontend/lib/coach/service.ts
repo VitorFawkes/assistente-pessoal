@@ -17,7 +17,7 @@ import { accountabilityFingerprint } from "./follow-up";
 import { formatCommitmentDue, naturalCommitmentDue } from "./commitment-dates";
 import { morningAgenda } from "./morning-agenda";
 import { handleTaskMessage, type TaskLane } from "./task-actions";
-import { answerInfo, buildDossier, dossierForModel, proactiveDossier } from "./assistant";
+import { answerInfo, assistantTool, buildDossier, dossierForModel, proactiveDossier } from "./assistant";
 import type { Dossier } from "./assistant-types";
 import { budgetNotice, budgetReply, budgetState, CoachBudgetError, runCostUsd } from "./budget";
 import { MODEL_CONTEXT, modelCalendar, modelEvents, modelMessages, modelReviews, modelTaskSelection, modelTasks } from "./context-budget";
@@ -101,7 +101,7 @@ export async function analyzeMeetings(userId:string,maxChunks=2){
 }
 
 const NO_DOSSIER:Dossier={pessoas_citadas:[],reunioes_citadas:[],consultas:[],limitacoes:["O assistente não conseguiu buscar os dados desta conversa agora."],excerpts:[]};
-export const ASSISTANT_DOSSIER_INSTRUCTION="\nDADOS DESTA RESPOSTA: o assistente do Ações buscou o que esta conversa pede e entregou em assistant_dossier. Cada consulta diz o que foi buscado (consulta), quantos existem (total) e quantos vieram (mostrados); reuniões trazem resumo do relatório gerado (contexto secundário, não fala literal); agenda traz agenda_status; pendencias é a lista do que vence hoje e está atrasado; conversas são mensagens antigas com você, com data (contexto, não fato atual). transcripts e sources só trazem trechos literais quando foram buscados. Não há ferramentas de leitura nesta resposta: se faltar um dado decisivo, diga qual, sem supor.";
+export const ASSISTANT_DOSSIER_INSTRUCTION="\nDADOS DESTA RESPOSTA: o assistente do Ações buscou o que esta conversa pede e entregou em assistant_dossier. Cada consulta diz o que foi buscado (consulta), quantos existem (total) e quantos vieram (mostrados); reuniões trazem resumo do relatório gerado (contexto secundário, não fala literal); agenda traz agenda_status; pendencias é a lista do que vence hoje e está atrasado; conversas são mensagens antigas com você, com data (contexto, não fato atual). transcripts e sources só trazem trechos literais quando foram buscados. As ferramentas read_meeting_report, search_history, open_meeting, read_tasks e read_memory não existem nesta resposta. Se faltar um dado que muda o conselho, peça com pedir_ao_assistente (no máximo 2 pedidos; cada um custa); se não houver a ferramenta ou o dado não vier, diga qual dado falta, sem supor.";
 export async function chatWithCoach(userId:string,message:string,now=new Date(),runId?:string,proactive?:"morning"|"evening"|"nudge"|"meeting",meetingId?:string){
  return withLease(userId,async(store,profile)=>{
   if(runId&&await store.messageByKey(runId+":assistant"))return;
@@ -162,10 +162,12 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
   const selected=dossier.excerpts;
   const investigation=investigationTools(userId,profile.timezone,now,self,selected);
   const sources=investigation.sources;
+  // Scheduled check-ins stay with their fixed list; a conversation may ask the assistant for what is still missing.
+  const ask=proactive?null:assistantTool({userId,timezone:profile.timezone,now,selfPersonIds:self,addExcerpt:investigation.addExcerpt,onTelemetry});
   const recentHistory=history.filter(m=>!m.stale&&(m.role==="user"||m.context_freshness!=="unknown")).slice(-24);
   const recentReviews=reviews.filter(r=>!r.stale).slice(0,4);
-  const reportIds=[...new Set(dossier.consultas.flatMap(entry=>(entry.reunioes||[]).filter(m=>m.resumo).map(m=>m.id)))];
-  const reportCount=reportIds.length;
+  const reportIdsOf=(d:Dossier)=>d.consultas.flatMap(entry=>(entry.reunioes||[]).filter(m=>m.resumo).map(m=>m.id));
+  const reportIds=()=>[...new Set([dossier,...(ask?.reads||[]).map(r=>r.dossier)].flatMap(reportIdsOf))];
   const data={profile,trigger:proactive?{kind:proactive,origin:"system_schedule_or_button",not_user_statement:true}:null,...(taskNotes.length?{task_changes_already_done_by_server:taskNotes}:{}),current_time:now.toISOString(),timezone:profile.timezone,local_time:new Intl.DateTimeFormat("pt-BR",{timeZone:profile.timezone,dateStyle:"full",timeStyle:"short"}).format(now),
     memories:usableMemories(memories),memory,commitments,history:modelMessages(recentHistory,MODEL_CONTEXT.history,MODEL_CONTEXT.historyChars),question:message,coverage,
     reviews:modelReviews(recentReviews),assistant_dossier:dossierForModel(dossier,profile.timezone),self_person_ids:self,sources,
@@ -174,7 +176,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
   try{
    let result=await coachCompletion(COACH_CONVERSATION_INSTRUCTION+"\n"+COACH_INVESTIGATION_INSTRUCTION+ASSISTANT_DOSSIER_INSTRUCTION+(proactive?"\nEste é um acompanhamento proativo. A pergunta é do sistema, não uma declaração do usuário. Não crie user_memories nem actions. Seja breve, não repita cobrança já enviada. Para nudge ou meeting sem novidade útil, answer=SEM_NOVIDADE.":""),data,
     ()=>conversationSchemaWithSources(Object.keys(sources),message,{actions:actionSchema(proactive||taskNotes.length?"":message,memories,commitments,actionContext),detailed:/aprofund|detalh|explique melhor/iu.test(message)}),
-    {reasoningEffort:needsDeepInvestigation(message)?"high":"medium",timeoutMs:180000,onTelemetry});
+    {reasoningEffort:needsDeepInvestigation(message)?"high":"medium",...(ask?{tools:[ask.tool],maxToolRounds:2,maxToolCalls:2}:{}),timeoutMs:180000,onTelemetry});
    const validateCandidate=(result:Record<string,unknown>)=>{
    const validatedActions=(Array.isArray(result.actions)?[...result.actions]:[]).map(rawAction=>{
     const action=validateAction(rawAction,message,commitments,actionContext);if(!action)throw new CoachAIError("Não confirmei a autorização para uma alteração sugerida. Peça a alteração explicitamente.");
@@ -215,7 +217,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
    return {requestedActions,publishable,observations,answer};
    };
    let candidate=validateCandidate(result);
-   const verificationData={...data,sources};
+   const verificationData={...data,sources,...(ask?.reads.length?{additional_dossiers:ask.reads.map(r=>({pedido:r.pedido,...dossierForModel(r.dossier,profile.timezone)})),transcripts:investigation.selected.map(({meeting,chunk})=>({meeting_id:meeting.id,title:meeting.nome||meeting.original_filename,recorded_at:meeting.recorded_at,chunk_index:chunk.index,text:chunk.text,labeled_turns:labeledTurns(meeting,chunk,self)}))}:{})};
    const verifyCandidate=async()=>{
     if(!((proactive==="nudge"||proactive==="meeting")&&candidate.answer==="SEM_NOVIDADE"&&!candidate.observations.length))await verifyCoachResult(verificationData,candidate.publishable,onTelemetry);
    };
@@ -291,7 +293,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
    const agenda=proactive==="morning"?await morningAgenda(userId,profile.timezone,now).catch(()=>""):"";
    // The answer that crosses the day's ceiling says so; the next ones get the short refusal above.
    const reachedCap=budget.spent+runCostUsd(telemetry)>=budget.cap?budgetNotice(budget.cap):"";
-   await store.addMessage("assistant",presentChat([...(proactive?[proactive==="morning"?"Foco do dia":proactive==="evening"?"Fechamento do dia":proactive==="meeting"?"Depois da reunião":"Um ponto de atenção"]:[]),answer,agenda,...taskNotes,...confirmations,reachedCap].filter(Boolean).join("\n\n"),observations,investigation.selected.map(s=>s.meeting.id),coverage,reportCount),observations.flatMap(o=>o.evidence),revision,runId?runId+":assistant":undefined,[...reportSources([...await store.reportMeetings(reportIds),...investigation.meetings.values()]),...inherited.sources],inherited.periods);
+   await store.addMessage("assistant",presentChat([...(proactive?[proactive==="morning"?"Foco do dia":proactive==="evening"?"Fechamento do dia":proactive==="meeting"?"Depois da reunião":"Um ponto de atenção"]:[]),answer,agenda,...taskNotes,...confirmations,reachedCap].filter(Boolean).join("\n\n"),observations,investigation.selected.map(s=>s.meeting.id),coverage,reportIds().length),observations.flatMap(o=>o.evidence),revision,runId?runId+":assistant":undefined,[...reportSources([...await store.reportMeetings(reportIds()),...investigation.meetings.values()]),...inherited.sources],inherited.periods);
   }finally{await recordModelRuns(userId,"chat",runId||null,telemetry,revision).catch(()=>{});}
  });
 }

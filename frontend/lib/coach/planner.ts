@@ -133,10 +133,10 @@ export async function planQueries(input: {
     return true;
    });
 
-  // Remove duplicates (same tipo + pessoa + reuniao + busca + periodo)
+  // Remove exact duplicates (the same lookup with another status or order is a different lookup)
   const seen = new Set<string>();
   const unique = planned.filter(q => {
-   const key = `${q.tipo}:${q.pessoa}:${q.reuniao}:${q.busca}:${q.periodo}`;
+   const key = `${q.tipo}:${q.pessoa}:${q.reuniao}:${q.busca}:${q.periodo}:${q.campo}:${q.status}:${q.ordem}`;
    if (seen.has(key)) return false;
    seen.add(key);
    return true;

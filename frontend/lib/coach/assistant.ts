@@ -2,8 +2,9 @@ import type { Dossier, PlannedQuery } from "./assistant-types";
 import { slimForModel } from "./context-budget";
 import { localContextDates } from "./context-dates";
 import { resolveEntities, runQueries } from "./finder";
+import type { SelectedChunk } from "./investigation";
 import { planQueries } from "./planner";
-import { providerCompletion, type CoachTelemetry } from "./provider";
+import { providerCompletion, type CoachReadTool, type CoachTelemetry } from "./provider";
 
 /**
  * The assistant finds what a message needs: the cheap model picks the lookups (planner), the server runs fixed
@@ -82,4 +83,26 @@ export async function answerInfo(input: { message: string; recent: Recent; notes
  };
  const raw = await providerCompletion(ASSISTANT_INSTRUCTION, slimForModel(localContextDates(data, input.timezone)), assistantSchema, { role: "quick", reasoningEffort: "low", timeoutMs: 90000, onTelemetry: input.onTelemetry });
  return String(raw.answer).trim();
+}
+
+/**
+ * The Coach's way to ask the assistant for data its dossier lacks. Passages found are registered as citable sources
+ * (addExcerpt returns their ids); every dossier read is kept for the verifier and the reply's lineage.
+ */
+export function assistantTool(input: { userId: string; timezone: string; now: Date; selfPersonIds: string[]; addExcerpt: (s: SelectedChunk) => string[]; onTelemetry?: (e: CoachTelemetry) => void }) {
+ const reads: { pedido: string; dossier: Dossier }[] = [];
+ const tool: CoachReadTool = {
+  name: "pedir_ao_assistente",
+  description: "Pede ao assistente do Ações um dado que falta no assistant_dossier: tarefas de uma pessoa ou assunto, reuniões e o que ficou decidido, falas literais, conversas antigas com você, agenda. Escreva em uma frase o que precisa (ex.: \"falas da Ana sobre o papel dela na operação\"). Devolve outro dossiê no mesmo formato.",
+  parameters: { type: "object", properties: { pedido: { type: "string", minLength: 3, maxLength: 300 } }, required: ["pedido"], additionalProperties: false },
+  execute: async args => {
+   const pedido = String(args.pedido).slice(0, 300);
+   const dossier = await buildDossier({ userId: input.userId, message: pedido, recent: [], lane: "tarefas", timezone: input.timezone, now: input.now, selfPersonIds: input.selfPersonIds, onTelemetry: input.onTelemetry });
+   reads.push({ pedido, dossier });
+   const ids = new Map(dossier.excerpts.map(s => [`${s.meeting.id}:${s.chunk.text.slice(0, 1500)}`, input.addExcerpt(s)]));
+   const view = dossierForModel({ ...dossier, consultas: dossier.consultas.map(c => c.trechos ? { ...c, trechos: c.trechos.map(t => ({ ...t, source_ids: ids.get(`${t.meeting_id}:${t.texto}`) ?? [] })) } : c) }, input.timezone);
+   return { pedido, ...view };
+  },
+ };
+ return { tool, reads };
 }

@@ -54,12 +54,12 @@ export function matchPeople(message: string, pessoas: { id: string; nome: string
 }
 
 /** Meetings cited by title or file name, or by a dd/mm date next to the word "reunião". */
-export function matchMeetings<M extends { nome: string | null; original_filename: string; day: string }>(message: string, meetings: M[], year: number): M[] {
+export function matchMeetings<M extends { nome: string | null; original_filename: string; day: string | null }>(message: string, meetings: M[], year: number): M[] {
  const text = ` ${norm(message)} `;
  const days = /reuni/.test(text) ? [...message.matchAll(/\b(\d{1,2})\/(\d{1,2})\b/g)].map(m => `${year}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`) : [];
  return meetings.filter(m => {
   const names = [m.nome, m.original_filename.replace(/\.[a-z0-9]+$/i, "")].map(n => norm(n || "")).filter(n => n.length >= 6);
-  return names.some(n => text.includes(` ${n} `)) || days.includes(m.day);
+  return names.some(n => text.includes(` ${n} `)) || (m.day !== null && days.includes(m.day));
  });
 }
 
@@ -79,7 +79,7 @@ export async function resolveEntities(userId: string, message: string, opts: { t
     FROM pessoas p WHERE p.user_id=$1 AND p.id=ANY($2::uuid[])`, [userId, matched.map(m => m.id)])).rows : [];
   const people = matched.map(m => { const s = stats.find(x => x.id === m.id); return { id: m.id, nome: m.nome, tarefas: s?.tarefas ?? 0, ultima_reuniao: s?.ultima_reuniao ? new Date(s.ultima_reuniao).toISOString() : null, full: m.full }; })
    .sort((a, b) => Number(b.full) - Number(a.full) || b.tarefas - a.tarefas).slice(0, 8).map(p => ({ id: p.id, nome: p.nome, tarefas: p.tarefas, ultima_reuniao: p.ultima_reuniao }));
-  const rows = (await db.query<{ id: string; nome: string | null; original_filename: string; recorded_at: Date | null; day: string }>(
+  const rows = (await db.query<{ id: string; nome: string | null; original_filename: string; recorded_at: Date | null; day: string | null }>(
    `SELECT m.id,m.nome,m.original_filename,m.recorded_at,to_char(m.recorded_at AT TIME ZONE $2,'YYYY-MM-DD') AS day
     FROM meetings m WHERE m.user_id=$1 AND m.status='done' ORDER BY m.recorded_at DESC NULLS LAST`, [userId, timezone])).rows;
   const meetings = matchMeetings(message, rows, Number(localDay(timezone, now).slice(0, 4))).slice(0, 5)

@@ -1,7 +1,7 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import * as finder from "./finder";
 import * as planner from "./planner";
-import { answerInfo, buildDossier, dossierForModel, proactivePlan } from "./assistant";
+import { answerInfo, assistantTool, buildDossier, dossierForModel, proactivePlan } from "./assistant";
 import type { Dossier } from "./assistant-types";
 
 const originalFetch = globalThis.fetch;
@@ -77,4 +77,22 @@ test("information answers are one call to the cheap model, with the dossier and 
  expect(sent).toContain("Definir roadmap e protótipo");
  expect(sent).toContain("Ana Teresa");
  expect(telemetry[0].costUsd).toBeCloseTo((3000 * 0.1 + 120 * 0.5) / 1e6, 10);
+});
+
+test("the Coach's request to the assistant returns a dossier whose passages point to citable sources", async () => {
+ const excerpt = { meeting: { id: "m-ana", nome: "Papel da Ana" }, chunk: { index: 2, text: "Ana: eu assumo a operação a partir de outubro." } } as never;
+ const found: Dossier = { ...dossier, excerpts: [excerpt], consultas: [{ consulta: "trechos literais sobre \"papel\"", tipo: "trechos", total: 1, mostrados: 1, trechos: [{ meeting_id: "m-ana", titulo: "Papel da Ana", data: "2026-09-19T12:57:00.000Z", texto: "Ana: eu assumo a operação a partir de outubro.", source_ids: ["e0"] }] }] };
+ const spies = [spyOn(finder, "resolveEntities").mockResolvedValue({ people: [], meetings: [] }), spyOn(planner, "planQueries").mockResolvedValue([]), spyOn(finder, "runQueries").mockResolvedValue(found)];
+ const registered: unknown[] = [];
+ try {
+  const ask = assistantTool({ userId: "owner", timezone: "America/Sao_Paulo", now: new Date("2026-09-25T15:00:00Z"), selfPersonIds: ["self"], addExcerpt: s => { registered.push(s); return ["e7"]; } });
+  const view = await ask.tool.execute({ pedido: "falas da Ana sobre o papel dela" }, { signal: new AbortController().signal }) as { pedido: string; consultas: { trechos: { source_ids: string[]; data: string }[] }[] };
+  expect(planner.planQueries).toHaveBeenCalledWith(expect.objectContaining({ message: "falas da Ana sobre o papel dela", lane: "tarefas", recent: [] }));
+  expect(registered).toEqual([excerpt]);
+  expect(view.pedido).toBe("falas da Ana sobre o papel dela");
+  expect(view.consultas[0].trechos[0].source_ids).toEqual(["e7"]);
+  expect(view.consultas[0].trechos[0].data).toBe("19/09/2026, 09:57");
+  expect(view).not.toHaveProperty("excerpts");
+  expect(ask.reads.map(r => r.pedido)).toEqual(["falas da Ana sobre o papel dela"]);
+ } finally { for (const spy of spies) spy.mockRestore(); }
 });

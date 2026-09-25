@@ -41,7 +41,8 @@ function fixtureDossier(meetings:CoachMeeting[],question:string):Dossier{
  const reunioes=meetings.map(m=>({id:m.id,titulo:m.nome||m.original_filename,data:m.recorded_at,participantes:[],resumo:meetingReport(m).text?.slice(0,700)||"",resumo_parcial:false,ligacao:"texto" as const}));
  return {pessoas_citadas:[],reunioes_citadas:[],consultas:reunioes.length?[{consulta:"reuniões ligadas à pergunta",tipo:"reunioes_por_assunto",total:reunioes.length,mostrados:reunioes.length,reunioes}]:[],limitacoes:[],excerpts:selectChunks(transcriptFallbackMeetings(meetings),question,6)};
 }
-function fixture(meetings:CoachMeeting[],result:Record<string,unknown>,periodObservations:Observation[]=[],options:{storedMessages?:CoachMessage[];retrievedMessages?:CoachMessage[];storedReviews?:CoachReview[];resynthesis?:Record<string,unknown>;supported?:boolean;receipt?:string;existingAssistantKey?:string;existingUserKey?:string;storedMemories?:CoachMemory[];storedCommitments?:CoachCommitment[];nullMutation?:boolean;allowCommitmentWrites?:boolean;concurrentProfileRevision?:number;periodComplete?:boolean;verificationResults?:boolean[];verificationRepair?:Record<string,unknown>;toolContext?:{query:string;context:Record<string,unknown>;at:string;memory:Record<string,unknown>};verifyContext?:(data:Record<string,unknown>)=>boolean;dossier?:Dossier}={}){
+const toolNames=(tools:unknown)=>((tools as {name?:string;function?:{name:string}}[]|undefined)||[]).map(t=>t.function?.name??t.name);
+function fixture(meetings:CoachMeeting[],result:Record<string,unknown>,periodObservations:Observation[]=[],options:{storedMessages?:CoachMessage[];retrievedMessages?:CoachMessage[];storedReviews?:CoachReview[];resynthesis?:Record<string,unknown>;supported?:boolean;receipt?:string;existingAssistantKey?:string;existingUserKey?:string;storedMemories?:CoachMemory[];storedCommitments?:CoachCommitment[];nullMutation?:boolean;allowCommitmentWrites?:boolean;concurrentProfileRevision?:number;periodComplete?:boolean;verificationResults?:boolean[];verificationRepair?:Record<string,unknown>;toolContext?:{query:string;context:Record<string,unknown>;at:string;memory:Record<string,unknown>};verifyContext?:(data:Record<string,unknown>)=>boolean;dossier?:Dossier;askAssistant?:string}={}){
  const saved:{id:string;role:string;content:string;evidence:unknown[];idempotency_key?:string;context_sources:ReportSource[];context_periods:ReportPeriodSource[]}[]=[];
  const memories:unknown[]=[];
  const reviews:ReviewContent[]=[];
@@ -90,6 +91,9 @@ function fixture(meetings:CoachMeeting[],result:Record<string,unknown>,periodObs
    resynthesisInput=input;output=options.resynthesis||result;
   }else{
    modelInput=input;mainTools=request.tools;
+   if(options.askAssistant&&!request.messages.some((message:{role:string})=>message.role==="tool")){
+    return Response.json({choices:[{finish_reason:"tool_calls",message:{content:null,tool_calls:[{id:"ask",type:"function",function:{name:"pedir_ao_assistente",arguments:JSON.stringify({pedido:options.askAssistant})}}]}}],usage:{prompt_tokens:100,completion_tokens:30}});
+   }
    if(options.toolContext&&!request.messages.some((message:{role:string})=>message.role==="tool")){
     return Response.json({choices:[{finish_reason:"tool_calls",message:{content:null,tool_calls:[
      {id:"read-tasks",type:"function",function:{name:"read_tasks",arguments:JSON.stringify({query:options.toolContext.query})}},
@@ -451,7 +455,7 @@ test("report-first chat reads the reports the assistant found, without transcrip
   expect(run.input().sources).toEqual({});
   expect((run.input().assistant_dossier as {consultas:{reunioes:unknown[]}[]}).consultas[0].reunioes).toHaveLength(12);
   expect(run.input()).not.toHaveProperty("meeting_reports");
-  expect(run.mainTools()).toBeUndefined();
+  expect(toolNames(run.mainTools())).toEqual(["pedir_ao_assistente"]);
   expect(run.saved[1].evidence).toEqual([]);
   expect(run.saved[1].content).toContain("relatórios/resumos de 12 reuniões");
   // The reply goes stale if any report it read changes later.
@@ -686,7 +690,7 @@ function hasDecisionReadFacts(data:Record<string,unknown>):boolean{
   &&reads.some(read=>read.tool==="read_memory"&&read.input.at==="2026-09-01T12:00:00Z"&&read.result.active_goals?.some(goal=>goal.content==="Expandir aquisição"));
 }
 
-test("the verifier and its bounded repair read the same assistant dossier the Coach read, with no tools",async()=>{
+test("the verifier and its bounded repair read the same assistant dossier the Coach read, with no tools of their own",async()=>{
  const initial={answer:"Aurora ainda é sua prioridade atual e você já resolveu o preço.",observations:[],memories:[]};
  const repaired={answer:"A tarefa Aurora depende da sua decisão de preço; confirme se ainda vale antes de priorizar o envio.",observations:[],memories:[]};
  const dossier:Dossier={pessoas_citadas:[],reunioes_citadas:[],limitacoes:[],excerpts:[],consultas:[{consulta:"tarefas sobre Aurora",tipo:"tarefas_por_assunto",total:1,mostrados:1,tarefas:[{titulo:"Definir preço Aurora",owner:"vitor",status:"aberta",prazo:"2026-09-22T14:00:00Z",prioridade:"alta",criada_em:"2026-09-10T12:00:00Z",concluida_em:null,reuniao:null}]}]};
@@ -695,7 +699,7 @@ test("the verifier and its bounded repair read the same assistant dossier the Co
  try{
   await chatWithCoach("synthetic-user","Como deve ser minha rotina amanhã?",new Date("2026-09-21T18:00:00Z"));
   expect(hasAurora(run.input())).toBe(true);
-  expect(run.mainTools()).toBeUndefined();
+  expect(toolNames(run.mainTools())).toEqual(["pedir_ao_assistente"]);
   expect(run.checkerInputs()).toHaveLength(2);
   for(const check of run.checkerInputs())expect(hasAurora(check.data as Record<string,unknown>)).toBe(true);
   expect(hasAurora(run.repairInput())).toBe(true);
@@ -704,6 +708,20 @@ test("the verifier and its bounded repair read the same assistant dossier the Co
   expect(run.saved[1].content).toContain("A tarefa Aurora depende da sua decisão de preço");
   expect(run.saved[1].content).not.toContain("você já resolveu o preço");
  }finally{run.restore();}
+});
+test("the Coach asks the assistant for data its dossier lacks; the verifier reads what came back",async()=>{
+ const extra:Dossier={pessoas_citadas:[],reunioes_citadas:[],limitacoes:[],excerpts:[],consultas:[{consulta:"reuniões com Ana",tipo:"reunioes_da_pessoa",total:1,mostrados:1,reunioes:[{id:meeting.id,titulo:"Papel da Ana",data:"2026-09-19T12:57:00Z",participantes:["Ana"],resumo:"Relatório: Ana assume projetos e operação.",resumo_parcial:false,ligacao:"participou"}]}]};
+ const run=fixture([meeting],{answer:"Segundo o relatório de 19/09, a Ana assume projetos e operação: comece confirmando o que isso muda na rotina dela.",observations:[],memories:[]},[],{askAssistant:"reuniões com a Ana sobre o papel dela",dossier:{pessoas_citadas:[],reunioes_citadas:[],limitacoes:[],excerpts:[],consultas:[]}});
+ const lookups=spyOn(assistant,"buildDossier").mockImplementation(async input=>input.message==="reuniões com a Ana sobre o papel dela"?extra:{pessoas_citadas:[],reunioes_citadas:[],limitacoes:[],excerpts:[],consultas:[]});
+ try{
+  await chatWithCoach("synthetic-user","Me ajuda a preparar a conversa com a Ana sobre o papel dela");
+  expect(lookups.mock.calls.map(([input])=>[input.message,input.lane])).toEqual([["Me ajuda a preparar a conversa com a Ana sobre o papel dela","coach"],["reuniões com a Ana sobre o papel dela","tarefas"]]);
+  expect(run.requests()).toBe(3);
+  const checked=run.checkerInputs()[0].data as {additional_dossiers:{pedido:string}[]};
+  expect(checked.additional_dossiers.map(d=>d.pedido)).toEqual(["reuniões com a Ana sobre o papel dela"]);
+  expect(JSON.stringify(checked.additional_dossiers)).toContain("Ana assume projetos e operação");
+  expect(run.saved[1].context_sources.map(source=>source.meeting_id)).toEqual([meeting.id]);
+ }finally{lookups.mockRestore();run.restore();}
 });
 test("forwarded task and memory reads survive weekly correction resynthesis and repair without restoring vetoed evidence",async()=>{
  const first={...independentWeekly,observations:[{...observation,evidence:undefined,evidence_ids:["e0"],experiment:""},...independentWeekly.observations]};
@@ -797,7 +815,7 @@ test("the package a chat sends stays bounded with a long history and a full doss
   expect(sent.length).toBeLessThan(45000);
   expect(sent).not.toContain(lineage);
   expect(run.input().history).toHaveLength(12);
-  expect(run.mainTools()).toBeUndefined();
+  expect(toolNames(run.mainTools())).toEqual(["pedir_ao_assistente"]);
  }finally{run.restore();}
 });
 test("past the day's AI spend ceiling a message gets a short refusal without any model call",async()=>{
