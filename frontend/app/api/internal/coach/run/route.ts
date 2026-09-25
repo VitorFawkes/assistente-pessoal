@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { enabledUserIds,coachStore } from "@/lib/coach/store";
 import { coachModelAvailable } from "@/lib/coach/model";
 import { drainJobs,scheduleCoachJobs } from "@/lib/coach/jobs-worker";
+import { syncN8nUsage } from "@/lib/ai-usage-n8n";
 export const dynamic="force-dynamic";
 export const maxDuration=600;
 export async function POST(req:Request){
@@ -20,5 +21,7 @@ export async function POST(req:Request){
  await channel.refreshChannelState().catch(()=>null);
  for(const user of users)await channel.retryDeliveries(user.id).catch(()=>0);
  let remainingMeetings=0;for(const user of users)remainingMeetings+=(await coachStore(user.id).coverage()).pending_meetings;
- return NextResponse.json({ok:failed===0,processed,completed,failed,remaining_meetings:remainingMeetings,enabled:enabled.length},{status:failed?503:200,headers:{"Cache-Control":"no-store"}});
+ // What n8n spent on meetings goes into the spend ledger (read-only on n8n; bounded so the run keeps its budget).
+ const spend=await syncN8nUsage({deadline:Math.min(deadline,Date.now()+60000),maxExecutions:15}).catch(e=>{console.error("ai usage n8n sync failed",e instanceof Error?e.message:"");return null;});
+ return NextResponse.json({ok:failed===0,processed,completed,failed,remaining_meetings:remainingMeetings,enabled:enabled.length,spend_read:spend?.read??null},{status:failed?503:200,headers:{"Cache-Control":"no-store"}});
 }

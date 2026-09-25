@@ -23,6 +23,9 @@ export default async function AdminLayout({
         <Link href="/admin/convites" className="hover:text-[color:var(--foreground)] transition">
           Convites
         </Link>
+        <Link href="/admin/gastos" className="hover:text-[color:var(--foreground)] transition">
+          Gastos
+        </Link>
       </nav>
       {children}
     </div>

@@ -2,6 +2,8 @@ import { type NextRequest, NextResponse } from "next/server";
 import { readFile, stat } from "node:fs/promises";
 import { resolve as resolvePath } from "node:path";
 import { withTenant } from "@/lib/db";
+import { recordAiUsage } from "@/lib/ai-usage";
+import { audioCostUsd } from "@/lib/coach/pricing";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +38,7 @@ type Utterance = { speaker?: string; start?: number; end?: number; text?: string
 
 async function transcribeAssemblyAI(
   filePath: string,
+  usage: { userId: string | null; meetingId: string },
 ): Promise<{ text: string; segments: Segment[] }> {
   const aaiHeaders = { Authorization: ASSEMBLYAI_API_KEY };
   // 1) upload
@@ -72,8 +75,14 @@ async function transcribeAssemblyAI(
       text?: string;
       error?: string;
       utterances?: Utterance[];
+      audio_duration?: number;
+      speech_model_used?: string;
     };
     if (j.status === "completed") {
+      const seconds = typeof j.audio_duration === "number" ? j.audio_duration : 0;
+      const model = j.speech_model_used || "universal-3-5-pro";
+      await recordAiUsage({ ref: `transcricao:${id}`, agent: "transcricao", provider: "assemblyai", model, source: "app", userId: usage.userId, meetingId: usage.meetingId,
+        audioSeconds: seconds, costUsd: audioCostUsd("assemblyai", model, seconds, true), basis: seconds ? "medido" : "estimado", note: seconds ? "Reprocessamento da reunião." : "Reprocessamento: a AssemblyAI não informou a duração." });
       const segments: Segment[] = (j.utterances || [])
         .filter((u) => /^[A-Z]+$/.test(u.speaker || ""))
         .map((u) => ({
@@ -154,7 +163,7 @@ export async function POST(
   // trabalho pesado em background — não bloqueia a resposta
   void (async () => {
     try {
-      const { text, segments } = await transcribeAssemblyAI(phys);
+      const { text, segments } = await transcribeAssemblyAI(phys, { userId, meetingId: id });
       await fetch(REPROCESS_WEBHOOK, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-auth": WEBHOOK_TOKEN },

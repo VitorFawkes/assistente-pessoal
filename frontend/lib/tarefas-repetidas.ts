@@ -23,7 +23,8 @@
 // Calibrado no ensaio de 23/09/2026 com 130 reuniões reais: aviso com 1 voto só
 // quase nunca era repetida de verdade, e as junções erradas eram em card antigo.
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { openAiCall, recordAiUsage } from "./ai-usage";
 import { dataBR as dataBRFmt, ehDataValida } from "./data-br";
 
 export const MODELO_VETOR = "text-embedding-3-small";
@@ -112,7 +113,8 @@ export async function vetorizar(textos: string[], signal?: AbortSignal): Promise
       signal: signal ?? AbortSignal.timeout(60_000),
     });
     if (!res.ok) throw new Error(`OpenAI embeddings ${res.status}: ${(await res.text()).slice(0, 300)}`);
-    const data = (await res.json()) as { data?: { index: number; embedding: number[] }[] };
+    const data = (await res.json()) as { data?: { index: number; embedding: number[] }[]; usage?: unknown };
+    await recordAiUsage({ ref: `vetor:${randomUUID()}`, agent: "tarefas_repetidas", source: "app", ...openAiCall(MODELO_VETOR, data.usage) });
     const rows = (data.data ?? []).sort((a, b) => a.index - b.index);
     if (rows.length !== lote.length) throw new Error("OpenAI embeddings: resposta incompleta");
     for (const r of rows) out.push(r.embedding);
@@ -280,6 +282,7 @@ export function juizOpenAI(opts?: { modelo?: string; esforco?: string; timeoutMs
       choices?: { message?: { content?: string } }[];
       usage?: { prompt_tokens?: number; completion_tokens?: number };
     };
+    await recordAiUsage({ ref: `repetidas:${randomUUID()}`, agent: "tarefas_repetidas", source: "app", ...openAiCall(modelo, data.usage) });
     const content = data.choices?.[0]?.message?.content;
     if (!content) throw new Error("OpenAI: resposta sem conteúdo");
     return {

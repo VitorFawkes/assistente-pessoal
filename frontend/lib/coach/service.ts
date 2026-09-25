@@ -294,7 +294,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
    // The answer that crosses the day's ceiling says so; the next ones get the short refusal above.
    const reachedCap=budget.spent+runCostUsd(telemetry)>=budget.cap?budgetNotice(budget.cap):"";
    await store.addMessage("assistant",presentChat([...(proactive?[proactive==="morning"?"Foco do dia":proactive==="evening"?"Fechamento do dia":proactive==="meeting"?"Depois da reunião":"Um ponto de atenção"]:[]),answer,agenda,...taskNotes,...confirmations,reachedCap].filter(Boolean).join("\n\n"),observations,investigation.selected.map(s=>s.meeting.id),coverage,reportIds().length),observations.flatMap(o=>o.evidence),revision,runId?runId+":assistant":undefined,[...reportSources([...await store.reportMeetings(reportIds()),...investigation.meetings.values()]),...inherited.sources],inherited.periods);
-  }finally{await recordModelRuns(userId,"chat",runId||null,telemetry,revision).catch(()=>{});}
+  }finally{await recordModelRuns(userId,proactive?`checkin_${proactive}`:"chat",runId||null,telemetry,revision).catch(()=>{});}
  });
 }
 
