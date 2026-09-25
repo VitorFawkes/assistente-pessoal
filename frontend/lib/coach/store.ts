@@ -354,6 +354,9 @@ export function coachStore(userId: string) {
        FROM meetings WHERE user_id = $1 AND ${ELIGIBLE} AND coalesce(recorded_at, created_at) >= $2::timestamptz
        ORDER BY coalesce(recorded_at, created_at), id LIMIT 20`, [userId, since])),
 
+    /** Full rows of the meetings whose reports a reply read, so the reply goes stale when one of them changes. */
+    reportMeetings: (ids: string[]) => tenant(async (db) => ids.length ? rows<CoachMeeting>(db,
+      `SELECT ${MEETING_COLUMNS} FROM meetings WHERE user_id = $1 AND id = ANY($2::uuid[]) AND ${ELIGIBLE}`, [userId, [...new Set(ids)]]) : []),
     meetingById: (id: string) => tenant(async (db) => (await rows<CoachMeetingContext>(db,
       `SELECT ${MEETING_COLUMNS},${contextDateColumns()} FROM meetings WHERE user_id = $1 AND id = $2 AND ${ELIGIBLE}`, [userId, id]))[0] ?? null),
 

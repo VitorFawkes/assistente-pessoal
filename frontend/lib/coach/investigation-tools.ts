@@ -84,5 +84,5 @@ export function investigationTools(userId:string,timezone:string,now:Date,self:s
   return retainContextRead("read_tasks",{query},{tasks,events,summary:c.task_summary,selection:modelTaskSelection(c.task_selection,tasks.length,events.length,{tasks:MODEL_CONTEXT.toolTasks,events:MODEL_CONTEXT.toolEvents}),limitations:c.limitations.filter(l=>/tarefa|registro|execuç/.test(l))});
  }},
  ];
- return {tools,sources,selected,meetings,reportReads,contextReads,contextSources,reads:()=>reads};
+ return {tools,sources,selected,meetings,reportReads,contextReads,contextSources,reads:()=>reads,addExcerpt:({meeting,chunk}:SelectedChunk)=>Object.keys(append(meeting,chunk).sources)};
 }
