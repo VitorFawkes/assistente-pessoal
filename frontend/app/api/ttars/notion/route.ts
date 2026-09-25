@@ -6,7 +6,7 @@ import { estadoDoNotion, ligarNotion } from "@/lib/notion-sync";
 export const dynamic = "force-dynamic";
 
 // Como está a ligação com o Notion do marketing.
-export const GET = withAuth(async () => NextResponse.json(await estadoDoNotion()));
+export const GET = withAuth(async (user) => NextResponse.json({ ...(await estadoDoNotion()), pode_ligar: user.is_admin }));
 
 // O admin cola o segredo da conexão que a dona do Notion criou.
 export const POST = withAuth(
