@@ -57,26 +57,35 @@ de gravação.
 
 ## Assistente + Coach (25/09, pedido do Vitor: "o agente assistente inteligente que acha tudo que preciso; o Coach pede dados pra ele")
 
-Toda mensagem passa pelo leitor de pedidos de tarefa (GPT-6 Sol), que aplica mudanças e escolhe o caminho:
+Toda mensagem passa pelo leitor de pedidos de tarefa (GPT-6 Sol), que aplica mudanças e escolhe o caminho. Ele fica no
+Sol de propósito: com GPT-6 Luna errou 4 das 50 frases de pedido de tarefa, 3 delas concluindo ou cancelando sem
+perguntar qual ("conclui a do Notion"); com Sol, 50/50 e 30/30 na separação informação × coach.
 
-- **Assistente** (informação: tarefas, pessoas, reuniões, prazos, agenda): o planejador (`planner.ts`, GPT-6 Luna)
-  escolhe até 4 buscas fixas; o servidor roda (`finder.ts`, SQL, sem IA); o assistente (`assistant.ts`, GPT-6 Luna)
-  responde a partir do dossiê. Sem conferente.
+- **Assistente** (informação: tarefas, pessoas, reuniões, decisões, prazos, agenda, conversas antigas): o servidor acha
+  as pessoas e reuniões citadas (`finder.ts` `resolveEntities`; numa pergunta de continuação usa as mensagens
+  anteriores), o planejador (`planner.ts`, GPT-6 Luna) escolhe até 4 buscas fixas, o servidor roda (`finder.ts`, SQL,
+  sem IA) e o assistente (`assistant.ts`, GPT-6 Luna) responde a partir do dossiê. Sem conferente. **~US$ 0,009 por
+  pergunta** (US$ 0,008 é o leitor).
 - **Coach** (conselho, prioridades, objetivos): o mesmo planejador busca o que a conversa precisa e o Coach (GPT-6 Sol)
-  lê o dossiê, sem ferramentas e sem o pacote grande. O conferente lê o mesmo dossiê.
-- **Check-ins** (8h, 18h, cobrança, pós-reunião): lista fixa de buscas, sem planejador.
+  lê o dossiê, sem o pacote grande. Se faltar um dado que muda o conselho, ele pede ao assistente
+  (`pedir_ao_assistente`, no máximo 2 pedidos). O conferente lê o mesmo dossiê e o que veio dos pedidos. Trechos de
+  transcrição vêm recortados em volta do assunto (~3.500 caracteres, no máximo 4 por resposta).
+- **Check-ins** (8h, 18h, cobrança, pós-reunião): lista fixa de buscas, sem planejador nem pedidos.
 
 No arquivo de cenários, `"consultas": [...]` (refs `p0`, `r0` como o planejador de verdade) é o plano que o planejador
-falso devolve.
+falso devolve. Ponha `trechos` em pelo menos um cenário: foi o que escondeu o pacote de 74 mil tokens no primeiro teste
+ao vivo (trechos inteiros de 24 mil caracteres).
+
+Teste ao vivo de 25/09 (9 perguntas reais com gabarito, cópia do banco): as 6 de informação certas (~US$ 0,009 cada);
+coach entre US$ 0,05 e 0,10, depois do recorte dos trechos.
 
 ## Dois caminhos (25/09, pedido do Vitor: "quando ele é coach pode ser o caro, mas pras tarefas não dá")
 
 O leitor de pedidos de tarefa (GPT-6 Sol, ~US$ 0,008) também classifica cada mensagem:
 
 - **tarefas** (concluir, adiar, criar, listar, limpar atrasadas, "o que tenho hoje", "o que falta com a Paula"):
-  resposta pelo caminho barato (`frontend/lib/coach/quick-answer.ts`), GPT-6 Luna, pacote pequeno
-  (lista das atrasadas, tarefas ligadas à mensagem, agenda do dia), sem conferente. ~8.500 tokens,
-  **~US$ 0,008 no total**.
+  resposta pelo caminho barato, GPT-6 Luna, sem conferente, **~US$ 0,008 no total**. Desde 25/09 esse caminho é o
+  assistente (seção acima), que também responde sobre pessoas e reuniões.
 - **coach** (conselho, prioridades, objetivos, desabafo): o caminho completo, com o conferente (~US$ 0,10–0,40).
 
 No arquivo de cenários, `"caminho": "tarefas"` faz o intérprete falso mandar o chat pelo caminho barato.
