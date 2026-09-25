@@ -11,7 +11,9 @@ export const TASK_ACTION_TYPES: TaskActionType[] = ["create", "complete", "cance
 const PRIORITIES = ["baixa", "media", "alta", "urgente"] as const;
 export type CandidateTask = { id: string; titulo: string; owner: string | null; is_mine: boolean | null; status: string; prazo: string | null; prioridade: string | null; shared: boolean };
 export type TaskAction = { type: TaskActionType; tarefa_id: string | null; quote: string; due_date: string | null; owner: string | null; title: string | null; priority: string | null };
-export type TaskInterpretation = { intent: "none" | "actions" | "clarify"; actions: TaskAction[]; question: string; also_reply: boolean };
+/** "tarefas": operational message about tasks, deadlines or agenda, answered by the cheap model. "coach": everything else. */
+export type TaskLane = "tarefas" | "coach";
+export type TaskInterpretation = { intent: "none" | "actions" | "clarify"; actions: TaskAction[]; question: string; also_reply: boolean; lane: TaskLane };
 type Snapshot = Pick<Tarefa, "titulo" | "owner" | "acao" | "prazo" | "prioridade" | "status">;
 
 export const MAX_TASK_ACTIONS = 6;
@@ -206,7 +208,8 @@ intent=clarify: pede uma mudança, mas duas ou mais tarefas são igualmente prov
 intent=none: conversa, pergunta, desabafo, pedido de conselho ou planejamento, hipótese ("e se eu adiasse?"), negação ("não cancela") ou pedido que não é sobre tarefas.
 Tipos: complete (concluir, feito); cancel (não vai mais acontecer; nunca apagar); reopen (voltar uma concluída ou cancelada); reschedule (novo prazo em due_date, AAAA-MM-DD, contado a partir de now_local: "amanhã" é o dia seguinte, "sexta" é a próxima sexta, "semana que vem" é a próxima segunda); reassign (passar para outra pessoa: owner com o nome; para o próprio usuário, owner "eu"); rename (title com o novo título); priority (baixa, media, alta ou urgente); create (title curto começando por verbo; due_date se foi dito; owner só se for de outra pessoa).
 task é o código da tarefa na lista (vazio para create). quote é o trecho da mensagem que pede a ação, escolhido da lista permitida. Campos que não se aplicam ficam vazios.
-also_reply=true só se, além do pedido sobre tarefas, a mensagem também faz uma pergunta ou pede ajuda ao Coach.`;
+also_reply=true só se, além do pedido sobre tarefas, a mensagem também faz uma pergunta ou pede ajuda ao Coach.
+lane (sempre preencha, independente de intent): "tarefas" quando a mensagem é operacional sobre tarefas, prazos, pendências ou agenda: mudar tarefas, perguntar o que tem para hoje ou o que está atrasado, pedir lista, resumo, revisão ou limpeza de tarefas, perguntar o que falta com alguém. "coach" quando pede conselho, ajuda para decidir ou priorizar, reflexão, objetivos, desabafo, conversa ou outro assunto. Mensagem que mistura os dois é "coach". Na dúvida, "coach".`;
 
 export function interpreterSchema(codes: string[], spans: string[]) {
  const s = { type: "string" };
@@ -214,8 +217,9 @@ export function interpreterSchema(codes: string[], spans: string[]) {
   type: { type: "string", enum: TASK_ACTION_TYPES }, task: { type: "string", enum: ["", ...codes] }, quote: { type: "string", enum: spans },
   due_date: s, owner: s, title: s, priority: { type: "string", enum: ["", ...PRIORITIES] },
  } };
- return { type: "object", additionalProperties: false, required: ["intent", "actions", "question", "also_reply"], properties: {
+ return { type: "object", additionalProperties: false, required: ["intent", "actions", "question", "also_reply", "lane"], properties: {
   intent: { type: "string", enum: ["none", "actions", "clarify"] }, actions: { type: "array", items: action, maxItems: MAX_TASK_ACTIONS }, question: s, also_reply: { type: "boolean" },
+  lane: { type: "string", enum: ["coach", "tarefas"] },
  } };
 }
 
@@ -227,7 +231,7 @@ export async function interpretTaskMessage(input: { message: string; history: { 
  const codes = input.tasks.map((_, i) => `t${i + 1}`);
  const byCode = new Map(input.tasks.map((t, i) => [codes[i], t]));
  const spans = messageSpans(input.message);
- if (!spans.length) return { intent: "none", actions: [], question: "", also_reply: false } as TaskInterpretation;
+ if (!spans.length) return { intent: "none", actions: [], question: "", also_reply: false, lane: "coach" } as TaskInterpretation;
  const data = {
   now_local: new Intl.DateTimeFormat("pt-BR", { timeZone: input.timezone, dateStyle: "full", timeStyle: "short" }).format(input.now),
   message: input.message,
@@ -239,14 +243,14 @@ export async function interpretTaskMessage(input: { message: string; history: { 
  const intent = raw.intent === "actions" || raw.intent === "clarify" ? raw.intent : "none";
  const actions = intent === "actions" ? validateTaskActions(raw.actions, input.message, byCode, input.timezone, input.now) : [];
  const question = typeof raw.question === "string" ? clip(withoutTaskCodes(raw.question), 400) : "";
- return { intent: intent === "actions" && !actions.length ? "none" : intent === "clarify" && !question ? "none" : intent, actions, question, also_reply: raw.also_reply === true } as TaskInterpretation;
+ return { intent: intent === "actions" && !actions.length ? "none" : intent === "clarify" && !question ? "none" : intent, actions, question, also_reply: raw.also_reply === true, lane: raw.lane === "tarefas" ? "tarefas" : "coach" } as TaskInterpretation;
 }
 
 /**
- * Runs before the coaching answer. Returns the full reply when the message was only about tasks,
- * notes to append when it also asked something else, or null when it is not about tasks.
+ * Runs before the coaching answer. Returns the full reply when the message was only about task changes, or the
+ * notes to carry (changes made, a question) with the lane that answers the rest; null when the interpreter did not run.
  */
-export async function handleTaskMessage(userId: string, message: string, history: { role: string; content: string }[], timezone: string, now = new Date(), runKey?: string, options: { ai?: boolean } = {}): Promise<{ reply: string } | { notes: string[] } | null> {
+export async function handleTaskMessage(userId: string, message: string, history: { role: string; content: string }[], timezone: string, now = new Date(), runKey?: string, options: { ai?: boolean } = {}): Promise<{ reply: string } | { notes: string[]; lane: TaskLane } | null> {
  const pending = await openProposal(userId, now);
  if (pending && isYes(message)) {
   const tasks = new Map((await candidateTasks(userId, "")).map(t => [t.id, t]));
@@ -265,14 +269,14 @@ export async function handleTaskMessage(userId: string, message: string, history
  const telemetry: CoachTelemetry[] = [];
  const result = await interpretTaskMessage({ message, history, tasks: candidates, timezone, now, onTelemetry: e => telemetry.push(e) })
   .finally(() => { void recordModelRuns(userId, "tasks", runKey ?? null, telemetry).catch(() => {}); });
- if (result.intent === "clarify") return result.also_reply ? { notes: [result.question] } : { reply: result.question };
- if (result.intent !== "actions") return null;
+ if (result.intent === "clarify") return result.also_reply ? { notes: [result.question], lane: result.lane } : { reply: result.question };
+ if (result.intent !== "actions") return { notes: [], lane: result.lane };
  const byId = new Map(candidates.map(t => [t.id, t]));
  const direct = result.actions.filter(a => !needsConfirmation(a, a.tarefa_id ? byId.get(a.tarefa_id) : undefined, result.actions));
  const confirm = result.actions.filter(a => !direct.includes(a));
  const lines = direct.length ? await applyTaskActions(userId, direct, byId, timezone, runKey) : [];
  if (lines.length) lines.push('Se não era isso, responda "desfaz".');
  if (confirm.length) lines.push(await propose(userId, confirm, byId, timezone, now, runKey));
- if (!lines.length) return null;
- return result.also_reply ? { notes: lines } : { reply: lines.join("\n") };
+ if (!lines.length) return { notes: [], lane: result.lane };
+ return result.also_reply ? { notes: lines, lane: result.lane } : { reply: lines.join("\n") };
 }

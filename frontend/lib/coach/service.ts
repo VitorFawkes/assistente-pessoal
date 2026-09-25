@@ -16,7 +16,8 @@ import { userMemoryNotes } from "./conversation-memory";
 import { accountabilityFingerprint } from "./follow-up";
 import { formatCommitmentDue, naturalCommitmentDue } from "./commitment-dates";
 import { dueTasks, morningAgenda } from "./morning-agenda";
-import { handleTaskMessage } from "./task-actions";
+import { handleTaskMessage, type TaskLane } from "./task-actions";
+import { quickTaskAnswer } from "./quick-answer";
 import { budgetNotice, budgetReply, budgetState, CoachBudgetError, runCostUsd } from "./budget";
 import { MODEL_CONTEXT, modelCalendar, modelEvents, modelMessages, modelRetrieved, modelReviews, modelTaskSelection, modelTasks } from "./context-budget";
 import type { CoachMeeting, CoachProfile, CoachState, Evidence, Observation, ReviewContent } from "./types";
@@ -109,21 +110,32 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
   // Past the day's AI spend ceiling nothing calls the model; "sim", "não" and "desfaz" still work because they need none.
   const budget=await budgetState(userId,profile.timezone,now);
   // Direct requests on tasks run first: a message only about tasks gets a short server-written reply, without a coaching answer.
-  let taskNotes:string[]=[];
+  let taskNotes:string[]=[];let lane:TaskLane="coach";
+  const recent=history.filter(m=>!m.stale).map(m=>({role:m.role,content:m.role==="assistant"?splitChatPresentation(m.content).answer:m.content}));
   if(!proactive){
-   const recent=history.filter(m=>!m.stale).map(m=>({role:m.role,content:m.role==="assistant"?splitChatPresentation(m.content).answer:m.content}));
    const handled=await handleTaskMessage(userId,message,recent,profile.timezone,now,runId,{ai:!budget.exceeded}).catch(()=>{console.error("coach task actions failed");return null;});
    if(handled&&"reply" in handled){
     await store.addMessage("user",message,[],profile.revision,runId?runId+":user":undefined);
     await store.addMessage("assistant",presentChat(handled.reply,[],[],await store.coverage(),0),[],profile.revision,runId?runId+":assistant":undefined);
     return;
    }
-   if(handled)taskNotes=handled.notes;
+   if(handled){taskNotes=handled.notes;lane=handled.lane;}
   }
   if(budget.exceeded){
    if(proactive)return;
    await store.addMessage("user",message,[],profile.revision,runId?runId+":user":undefined);
    await store.addMessage("assistant",budgetReply(budget.cap),[],profile.revision,runId?runId+":assistant":undefined);
+   return;
+  }
+  // Tasks and agenda go through the cheap lane; only coaching pays for the full, verified answer.
+  if(lane==="tarefas"){
+   const telemetry:CoachTelemetry[]=[];
+   try{
+    const answer=await quickTaskAnswer({userId,message,history:recent,notes:taskNotes,timezone:profile.timezone,now,onTelemetry:e=>telemetry.push(e)});
+    const reachedCap=budget.spent+runCostUsd(telemetry)>=budget.cap?budgetNotice(budget.cap):"";
+    await store.addMessage("user",message,[],profile.revision,runId?runId+":user":undefined);
+    await store.addMessage("assistant",presentChat([answer,...taskNotes.filter(note=>!answer.includes(note)),reachedCap].filter(Boolean).join("\n\n"),[],[],await store.coverage(),0),[],profile.revision,runId?runId+":assistant":undefined);
+   }finally{await recordModelRuns(userId,"quick",runId||null,telemetry,profile.revision).catch(()=>{});}
    return;
   }
   const search=conversationSearch(message,history);

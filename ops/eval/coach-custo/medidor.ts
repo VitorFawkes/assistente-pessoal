@@ -10,13 +10,15 @@ export const FRONT = new URL("../../../frontend", import.meta.url).pathname;
 const DB = new URL("../../../db", import.meta.url).pathname;
 
 export type Captured = { body: Record<string, any> };
+/** Choices the fake model makes for enum fields, e.g. { lane: "tarefas" } sends chats down the cheap lane. */
+export const fakeChoices: Record<string, string> = {};
 export const captured: Captured[] = [];
 export const realFetch = globalThis.fetch.bind(globalThis);
 
 /** Smallest answer that satisfies the strict schema; the verifier always approves. */
 function minimal(schema: any, key = ""): unknown {
  if (!schema || typeof schema !== "object") return null;
- if (Array.isArray(schema.enum)) return key === "intent" ? "none" : schema.enum[0];
+ if (Array.isArray(schema.enum)) return fakeChoices[key] && schema.enum.includes(fakeChoices[key]) ? fakeChoices[key] : key === "intent" ? "none" : schema.enum[0];
  if (schema.anyOf) return minimal(schema.anyOf[0], key);
  switch (schema.type) {
   case "object": return Object.fromEntries((schema.required || Object.keys(schema.properties || {})).map((k: string) => [k, minimal(schema.properties?.[k], k)]));
@@ -101,5 +103,5 @@ export function sections(body: Record<string, any>): Record<string, number> {
 
 export function kindOf(body: Record<string, any>) {
  const props = body.text?.format?.schema?.properties ?? {};
- return props.supported ? "verificador" : props.intent ? "leitor-tarefas" : "principal";
+ return props.supported ? "verificador" : props.intent ? "leitor-tarefas" : props.answer && Object.keys(props).length === 1 ? "caminho-barato" : "principal";
 }
