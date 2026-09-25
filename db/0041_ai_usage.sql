@@ -2,7 +2,7 @@
 -- dictation, WhatsApp audio, repeated tasks), read by the admin "Gastos" page.
 -- Append-only: the app roles can insert and read, never update or delete, so resetting the Coach or deleting
 -- a meeting never erases what was spent. One row per call, keyed by `ref` (a replay never counts twice).
--- Additive: new tables, plus a copy of the Coach calls already recorded in coach_model_runs.
+-- Additive: new tables, plus a copy of the Coach calls already recorded in coach_model_runs (needs 0040).
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS ai_usage (

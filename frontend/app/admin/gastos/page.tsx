@@ -14,8 +14,9 @@ function usd(v: number): string {
   return `US$ ${new Intl.NumberFormat("pt-BR", { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(v)}`;
 }
 
-function comparacao(total: number, anterior: number): string {
-  if (!anterior) return "sem gasto registrado no período anterior";
+function comparacao(total: number, anterior: number, comparavel: boolean, inicio: string | null): string {
+  if (!comparavel) return inicio ? `o registro começa em ${inicio}; ainda não dá para comparar com o período anterior` : "ainda não há registro";
+  if (!anterior) return "nada gasto no período anterior";
   const diff = (total - anterior) / anterior;
   if (Math.abs(diff) < 0.05) return `igual ao período anterior (${usd(anterior)})`;
   return `${diff > 0 ? "+" : "−"}${Math.round(Math.abs(diff) * 100)}% em relação ao período anterior (${usd(anterior)})`;
@@ -69,7 +70,7 @@ export default async function GastosPage({ searchParams }: { searchParams: Promi
       <section className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-5 space-y-1">
         <div className="text-[13px] text-[color:var(--muted-strong)]">Total no período</div>
         <div className="font-display text-4xl">{usd(r.total)}</div>
-        <div className="text-[13px] text-[color:var(--muted-strong)]">{comparacao(r.total, r.anterior)}</div>
+        <div className="text-[13px] text-[color:var(--muted-strong)]">{comparacao(r.total, r.anterior, r.comparavel, r.inicio.reunioes ?? r.inicio.coach)}</div>
         <div className="text-[13px] text-[color:var(--muted-strong)]">
           {new Intl.NumberFormat("pt-BR").format(r.usos)} chamadas · {medidoPct}% com consumo medido
           {r.estimados ? ` · ${r.estimados} estimadas (veja abaixo por quê)` : ""}
@@ -197,7 +198,11 @@ export default async function GastosPage({ searchParams }: { searchParams: Promi
           <li>Cada chamada paga fica registrada uma vez, com o consumo que a própria IA devolveu e o preço oficial do dia 25/09/2026. O registro não é apagado nem alterado, nem quando o Coach é zerado.</li>
           <li>Relatório e tarefas das reuniões são lidos do n8n a cada 15 minutos. Nas etapas em que o n8n não informa o que veio do cache, a entrada é contada pelo preço cheio (pode ficar um pouco acima do real).</li>
           <li>Transcrição (AssemblyAI) é cobrada pela duração do áudio enviado, que vai sem os silêncios. A duração é a da última fala da reunião.</li>
-          <li>Registro completo desde {r.registroDesde ?? "—"}. Antes disso, só o Coach tinha registro. O n8n guarda cerca de 2 semanas, então a leitura das reuniões começa por aí.</li>
+          <li>
+            Começo do registro: Coach em {r.inicio.coach ?? "—"}; reuniões em {r.inicio.reunioes ?? "—"} (o n8n guarda cerca de 2
+            semanas); ditado, áudios do WhatsApp, tarefas repetidas e nomes de quem falou em {r.inicio.demais ?? "—"}, quando esta aba
+            foi publicada.
+          </li>
           <li>Última leitura do n8n: {r.leituraN8n ?? "ainda não houve"}.</li>
         </ul>
         <form action={atualizarGastos}>

@@ -19,7 +19,11 @@ export type UsageReport = {
  dias: { dia: string; custo: number }[];
  modelos: { provider: string; model: string; usos: number; custo: number }[];
  maiores: { agente: string; model: string; custo: number; quando: string; reuniao: string | null; detalhe: string; basis: string; note: string | null }[];
- registroDesde: string | null; leituraN8n: string | null;
+ /** false while the ledger does not cover the whole previous period, so there is nothing fair to compare with. */
+ comparavel: boolean;
+ /** When each part starts: the Coach, the meetings (n8n keeps about two weeks) and the rest (since the ledger exists). */
+ inicio: { coach: string | null; reunioes: string | null; demais: string | null };
+ leituraN8n: string | null;
 };
 
 const num = (v: unknown) => Number(v) || 0;
@@ -29,7 +33,7 @@ export async function usageReport(periodo: Periodo, timezone: string, adminId: s
  const span = to.getTime() - from.getTime();
  const prevFrom = periodo === "mes" ? periodRange("mes_passado", timezone, now).from : new Date(from.getTime() - span);
  const range = [from.toISOString(), to.toISOString()];
- const [agentes, dias, modelos, maiores, anterior, status] = [
+ const [agentes, porDia, modelos, maiores, anterior, status] = [
   await query<{ agent: string; usos: number; custo: string; estimados: number }>(
    `SELECT agent,count(*)::int AS usos,sum(cost_usd) AS custo,(count(*) FILTER (WHERE basis='estimado'))::int AS estimados
     FROM ai_usage WHERE occurred_at>=$1 AND occurred_at<$2 GROUP BY agent ORDER BY sum(cost_usd) DESC,agent`, range),
@@ -43,20 +47,25 @@ export async function usageReport(periodo: Periodo, timezone: string, adminId: s
    `SELECT agent,model,cost_usd,occurred_at,meeting_id,input_tokens,cached_tokens,output_tokens,audio_seconds,basis,note
     FROM ai_usage WHERE occurred_at>=$1 AND occurred_at<$2 ORDER BY cost_usd DESC,occurred_at DESC LIMIT 12`, range),
   await query<{ total: string }>("SELECT coalesce(sum(cost_usd),0) AS total FROM ai_usage WHERE occurred_at>=$1 AND occurred_at<$2", [prevFrom.toISOString(), from.toISOString()]),
-  await query<{ desde: Date | null; leitura: Date | null }>("SELECT (SELECT min(occurred_at) FROM ai_usage) AS desde,(SELECT max(updated_at) FROM ai_usage_sync) AS leitura"),
+  await query<{ desde: Date | null; coach: Date | null; reunioes: Date | null; demais: Date | null; leitura: Date | null }>(
+   `SELECT (SELECT min(occurred_at) FROM ai_usage) AS desde,(SELECT min(occurred_at) FROM ai_usage WHERE agent LIKE 'coach%') AS coach,
+     (SELECT min(occurred_at) FROM ai_usage WHERE source IN ('n8n','mac')) AS reunioes,(SELECT min(recorded_at) FROM ai_usage) AS demais,
+     (SELECT max(updated_at) FROM ai_usage_sync) AS leitura`),
  ];
  // Meeting titles only for the admin's own meetings (the others stay unnamed).
  const ids = [...new Set(maiores.map(m => m.meeting_id).filter((id): id is string => !!id))];
  const titulos = new Map(ids.length ? (await withTenant(adminId, db => db.query<{ id: string; titulo: string }>(
   "SELECT id,coalesce(nome,original_filename) AS titulo FROM meetings WHERE user_id=$1 AND id=ANY($2::uuid[])", [adminId, ids]))).rows.map(r => [r.id, r.titulo]) : []);
  const fmt = new Intl.DateTimeFormat("pt-BR", { timeZone: timezone, day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+ const dias = new Intl.DateTimeFormat("pt-BR", { timeZone: timezone, day: "2-digit", month: "2-digit" });
+ const dia = (d: Date | null | undefined) => (d ? dias.format(new Date(d)) : null);
  const nomeDe = (agent: string) => AGENTS[agent as AgentKey] ?? { nome: agent, descricao: "" };
  const mil = (n: string) => num(n) >= 1000 ? `${new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }).format(num(n) / 1000)} mil` : String(num(n));
  const lines = agentes.map(a => ({ agent: a.agent, ...nomeDe(a.agent), usos: a.usos, custo: num(a.custo), estimados: a.estimados }));
  return {
   de: from, ate: to, total: lines.reduce((s, a) => s + a.custo, 0), anterior: num(anterior[0]?.total), usos: lines.reduce((s, a) => s + a.usos, 0), estimados: lines.reduce((s, a) => s + a.estimados, 0),
   agentes: lines,
-  dias: dias.map(d => ({ dia: d.dia, custo: num(d.custo) })),
+  dias: porDia.map(d => ({ dia: d.dia, custo: num(d.custo) })),
   modelos: modelos.map(m => ({ provider: m.provider, model: m.model, usos: m.usos, custo: num(m.custo) })),
   maiores: maiores.map(m => ({
    agente: nomeDe(m.agent).nome, model: m.model, custo: num(m.cost_usd), quando: fmt.format(new Date(m.occurred_at)),
@@ -64,7 +73,8 @@ export async function usageReport(periodo: Periodo, timezone: string, adminId: s
    detalhe: num(m.audio_seconds) ? `${Math.max(1, Math.round(num(m.audio_seconds) / 60))} min de áudio` : `leu ${mil(m.input_tokens)}${num(m.cached_tokens) ? ` (${mil(m.cached_tokens)} já guardados)` : ""}, escreveu ${mil(m.output_tokens)}`,
    basis: m.basis, note: m.note,
   })),
-  registroDesde: status[0]?.desde ? fmt.format(new Date(status[0].desde)) : null,
+  comparavel: !!status[0]?.desde && new Date(status[0].desde) <= prevFrom,
+  inicio: { coach: dia(status[0]?.coach), reunioes: dia(status[0]?.reunioes), demais: dia(status[0]?.demais) },
   leituraN8n: status[0]?.leitura ? fmt.format(new Date(status[0].leitura)) : null,
  };
 }

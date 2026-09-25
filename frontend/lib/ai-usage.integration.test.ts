@@ -72,6 +72,9 @@ describe.skipIf(!connection)("Registro de gastos no banco real: só inclui, nunc
   expect(hoje.agentes.map(a => [a.agent, a.usos, +a.custo.toFixed(5), a.estimados])).toEqual([["transcricao", 1, 0.17697, 1], ["coach_mensagens", 1, 0.02, 0], ["ditado", 1, 0.00015, 0]]);
   expect(+hoje.total.toFixed(5)).toBe(0.19712);
   expect(hoje.anterior).toBeCloseTo(0.023, 6);
+  // The ledger starts on 24/09 13:00, after the previous day began: not a fair comparison yet.
+  expect(hoje.comparavel).toBe(false);
+  expect(hoje.inicio.coach).toBe("24/09");
   expect(hoje.maiores.map(m => m.reuniao)).toEqual(["reunião de outra pessoa", null, "Roadmap Trips"]);
   expect(hoje.maiores[0].detalhe).toBe("46 min de áudio");
   const semana = await usageReport("7d", "America/Sao_Paulo", admin, now);
