@@ -117,7 +117,7 @@ private struct Relogio: View {
         if estado.pausada {
             Text(Duration.seconds(estado.segundos).formatted(.time(pattern: estado.segundos >= 3600 ? .hourMinuteSecond : .minuteSecond)))
         } else {
-            Text(estado.desde, style: .timer)
+            Text(timerInterval: estado.desde...Date.distantFuture, countsDown: false)
         }
     }
 }
