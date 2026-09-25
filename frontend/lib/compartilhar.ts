@@ -145,10 +145,14 @@ export function paraQuemVe(
   let owner = t.owner;
   let acao: Acao = t.acao;
   let isMine = false;
+  let pessoas = t.pessoas;
   if (t.responsavel_user_id === ctx.viewerId) {
     owner = ctx.slug;
     acao = "executar";
     isMine = true;
+    // O nome dele é a pessoa principal na conta de quem criou; pra ele, isso já é o "Você".
+    const eu = slugNome(ctx.nomes.get(ctx.viewerId));
+    pessoas = (t.pessoas ?? []).filter((p) => !eu || slugNome(p.nome) !== eu);
   } else if (ehDoCriador) {
     owner = criador;
     acao = "cobrar";
@@ -160,6 +164,7 @@ export function paraQuemVe(
     owner,
     acao,
     is_mine: isMine,
+    pessoas,
     compartilhada: true,
     criador_nome: criador,
     ...(donoNome !== undefined ? { dono_nome: donoNome } : {}),

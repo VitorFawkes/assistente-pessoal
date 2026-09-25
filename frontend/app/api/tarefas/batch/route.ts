@@ -2,6 +2,9 @@ import { type NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/db";
 import { getOwnerSlug, isOwner } from "@/lib/owner-slug";
+import { isTeamMode } from "@/lib/team-mode";
+import { resolverDono } from "@/lib/compartilhar";
+import { colegasDe } from "@/lib/equipe-compartilhado";
 
 export const dynamic = "force-dynamic";
 
@@ -91,6 +94,20 @@ export const PATCH = withAuth(async (user, req) => {
     return NextResponse.json({ error: "nada para atualizar" }, { status: 400 });
   }
 
+  // Equipe: dono que é colega (digitado na barra) → as tarefas vão pra lista dele, igual
+  // à troca de dono de uma tarefa só.
+  let responsavel: string | null | undefined;
+  if (isTeamMode() && patch.acao !== undefined) {
+    const r = resolverDono(
+      { owner: patch.acao === "executar" ? getOwnerSlug() : patch.owner, acao: patch.acao },
+      { donoId: user.id, colegas: await colegasDe(user.id), slug: getOwnerSlug() },
+    );
+    if (r.erro) return NextResponse.json({ error: r.erro }, { status: 400 });
+    patch.acao = r.acao ?? patch.acao;
+    patch.owner = r.owner ?? patch.owner;
+    responsavel = r.responsavel;
+  }
+
   try {
     await withTenant(user.id, async (c) => {
       // 1) Campos genéricos num único UPDATE escopado por RLS.
@@ -125,6 +142,12 @@ export const PATCH = withAuth(async (user, req) => {
           `UPDATE tarefas SET acao = $1, owner = $2 WHERE id = ANY($3::uuid[])`,
           [acao, owner, ids],
         );
+        if (responsavel !== undefined) {
+          await c.query(`UPDATE tarefas SET responsavel_user_id = $1 WHERE id = ANY($2::uuid[])`, [
+            responsavel,
+            ids,
+          ]);
+        }
 
         if (acao === "executar") {
           // ninguém é principal (agrupa em "Você")

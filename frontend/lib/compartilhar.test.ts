@@ -101,7 +101,10 @@ describe("a tarefa vista por outra pessoa", () => {
     expect(paraQuemVe(t, { viewerId: VITOR.id, slug: "eu", nomes })).toBe(t);
   });
   it("passada pra mim: vira minha, com o nome de quem mandou, sem a reunião", () => {
-    const t = tarefa({ owner: "Marina Souza", acao: "cobrar", is_mine: false, responsavel_user_id: MARINA.id });
+    const t = tarefa({
+      owner: "Marina Souza", acao: "cobrar", is_mine: false, responsavel_user_id: MARINA.id,
+      pessoas: [{ id: "p1", nome: "Marina Souza", principal: true }, { id: "p2", nome: "Ana", principal: false }],
+    });
     const v = paraQuemVe(t, { viewerId: MARINA.id, slug: "eu", nomes });
     expect(v).toMatchObject({ owner: "eu", acao: "executar", is_mine: true, compartilhada: true, criador_nome: "Vitor Gambetti" });
     expect(v.meeting_id).toBeNull();
@@ -109,6 +112,8 @@ describe("a tarefa vista por outra pessoa", () => {
     expect(v.meeting_summary).toBeNull();
     expect(v.meeting_nome).toBeNull();
     expect(v.no_plano).toBe(false);
+    // o próprio nome não aparece de novo como "pessoa da tarefa"
+    expect(v.pessoas.map((p) => p.nome)).toEqual(["Ana"]);
   });
   it("no projeto, a tarefa que o criador faz aparece com o nome dele", () => {
     const v = paraQuemVe(tarefa(), { viewerId: MARINA.id, slug: "eu", nomes, donoNome: true });
