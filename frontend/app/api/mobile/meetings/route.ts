@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { withBearerAuth } from "@/lib/auth";
 import { meetingsFor } from "@/lib/queries";
+import { isTeamMode } from "@/lib/team-mode";
 
 type MobileStatus = "processing" | "ready" | "failed" | "archived";
 
@@ -27,7 +28,7 @@ export const GET = withBearerAuth(async (user, req) => {
   const rows = await meetingsFor(user.id).listForIndex();
   const meetings = rows.slice(0, limit).map((m) => {
     const target = `/reunioes/${m.id}`;
-    const webUrl = bearer
+    const webUrl = bearer && !isTeamMode()
       ? `${baseUrl}/api/admin/login/${bearer}?next=${encodeURIComponent(target)}`
       : `${baseUrl}${target}`;
     return {

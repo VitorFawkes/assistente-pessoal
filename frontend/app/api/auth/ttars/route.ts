@@ -33,5 +33,6 @@ export async function GET(req: NextRequest) {
     JSON.stringify({ ttars_user_id: pessoa.ttarsId, times: pessoa.times }),
   ]);
   await setSessionCookie(sessao[0].id);
-  return ir("/");
+  const para = req.nextUrl.searchParams.get("para") || "/";
+  return ir(/^\/[A-Za-z0-9/_-]*$/.test(para) ? para : "/");
 }

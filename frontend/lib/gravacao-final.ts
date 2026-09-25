@@ -47,7 +47,12 @@ function ffmpeg(args: string[]): Promise<void> {
  * Junta os pedaços de uma gravação (ou de um arquivo enviado), converte e manda
  * para o ingest-svc com o dono certo. O segredo do ingest fica só no servidor.
  */
-export async function finalizarGravacao(userId: string, gravacaoId: string, nomeOriginal?: string) {
+export async function finalizarGravacao(
+  userId: string,
+  gravacaoId: string,
+  nomeOriginal?: string,
+  origem: "macbook" | "ios-app" = "macbook",
+) {
   if (!idDeGravacaoValido(gravacaoId) || !idDeGravacaoValido(userId)) throw new Error("id inválido");
   // Reserva a finalização (o "parar" e a varredura automática podem chegar juntos)
   const sessao = await query<{ created_at: string }>(
@@ -87,7 +92,7 @@ export async function finalizarGravacao(userId: string, gravacaoId: string, nome
   form.append("audio", new Blob([await readFile(final)], { type: "audio/mpeg" }), nome);
   form.append("recorded_at", inicio.toISOString());
   form.append("original_filename", nome);
-  form.append("source", "macbook");
+  form.append("source", origem);
   const r = await fetch(`${process.env.INGEST_INTERNAL_URL || "http://ingest-svc:8000"}/upload`, {
     method: "POST",
     headers: { "X-Auth": process.env.WEBHOOK_TOKEN || "", "X-User-Id": userId },
