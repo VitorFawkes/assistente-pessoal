@@ -28,7 +28,8 @@ const selfOwner = (owner: string | null | undefined) => !owner?.trim() || /^(?:v
 export function messageSpans(message: string): string[] {
  const whole = message.trim();
  const parts = whole.split(/(?<=[.!?;])\s+|\n+/u).map(s => s.trim());
- return [...new Set([whole, ...parts])].filter(s => s.length >= 2 && s.length <= 1500).slice(0, 24);
+ // Strict schemas reject control characters in enum values: a multi-line message (WhatsApp joins bursts with "\n") is quoted by its lines.
+ return [...new Set([whole, ...parts])].filter(s => s.length >= 2 && s.length <= 1500 && !/[\u0000-\u001f]/u.test(s)).slice(0, 24);
 }
 export const isUndo = (message: string) => /^(?:desfaz|desfazer|desfaca|desfaz isso|desfaz isso ai|volta como estava|voltar como estava|pode desfazer|desfaz por favor)[.!]*$/u.test(normalized(message));
 export const isYes = (message: string) => /^(?:sim|s|pode|pode sim|pode fazer|confirmo|confirma|confirmado|isso|isso mesmo|ok|beleza|fechado|faz|faca|manda ver|claro|sim pode|sim por favor)[.!]*$/u.test(normalized(message));

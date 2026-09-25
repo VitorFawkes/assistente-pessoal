@@ -31,6 +31,12 @@ describe("respostas curtas que o servidor entende sozinho", () => {
  test("trechos citáveis são a mensagem inteira e cada frase", () => {
   expect(messageSpans("Conclui a proposta. Adia o contrato pra sexta!")).toEqual(["Conclui a proposta. Adia o contrato pra sexta!", "Conclui a proposta.", "Adia o contrato pra sexta!"]);
  });
+ test("mensagem em várias linhas é citada pelas linhas: o schema estrito recusa quebra de linha", () => {
+  const message = "Diversas dessas 18 ações atrasadas já passaram e eu só não marquei como feitas\nAnalise para limpar e me diga quais você tem dúvida";
+  expect(messageSpans(message)).toEqual(["Diversas dessas 18 ações atrasadas já passaram e eu só não marquei como feitas", "Analise para limpar e me diga quais você tem dúvida"]);
+  const enums = JSON.stringify(interpreterSchema(["t1"], messageSpans(message)));
+  expect(/\\[nrt]/.test(enums)).toBe(false);
+ });
 });
 
 describe("o servidor confere o que o modelo propôs", () => {
