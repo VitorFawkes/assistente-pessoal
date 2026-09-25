@@ -7,6 +7,10 @@ import { isTeamMode } from "@/lib/team-mode";
 import { SiteHeader } from "@/components/site-header";
 import { DonoProvider } from "@/components/dono-context";
 import { Toaster } from "sonner";
+import { Suspense } from "react";
+import { peleAtual } from "@/lib/pele";
+import { origensQuePodemEmbutir } from "@/lib/cookie-sessao";
+import { PonteTtars } from "@/components/ponte-ttars";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -53,6 +57,31 @@ export default async function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   const user = await getCurrentUser();
   const teamMode = isTeamMode();
+  const pele = await peleAtual();
+  const dono = teamMode ? { nome: user?.nome || "Você", rotulo: "Você" } : { nome: "Vitor", rotulo: "Vitor" };
+
+  // Dentro do TTARS: sem cabeçalho nem rodapé do Ações, cores e letra do TTARS, e a
+  // ponte que mantém o endereço do TTARS igual à tela. Claro sempre, como o TTARS.
+  if (pele) {
+    return (
+      <html
+        lang="pt-BR"
+        data-pele={pele}
+        data-tema="claro"
+        className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} h-full antialiased`}
+      >
+        <body className="min-h-full flex flex-col font-sans">
+          <main className="flex-1 w-full px-4 sm:px-6 py-4 sm:py-5">
+            <DonoProvider value={dono}>{children}</DonoProvider>
+          </main>
+          <Suspense fallback={null}>
+            <PonteTtars origens={origensQuePodemEmbutir()} />
+          </Suspense>
+          <Toaster />
+        </body>
+      </html>
+    );
+  }
 
   return (
     <html
@@ -74,7 +103,7 @@ export default async function RootLayout({
       <body className="min-h-full flex flex-col font-sans">
         <SiteHeader user={user} teamMode={teamMode} />
         <main className="flex-1 mx-auto max-w-3xl w-full px-5 sm:px-6 py-6 sm:py-10">
-          <DonoProvider value={teamMode ? { nome: user?.nome || "Você", rotulo: "Você" } : { nome: "Vitor", rotulo: "Vitor" }}>
+          <DonoProvider value={dono}>
             {children}
           </DonoProvider>
         </main>

@@ -439,3 +439,62 @@ body {
    Na Lista e na Tabela a informação vive dentro da tarefa aberta. */
 .q-aqui { display: none; }
 .q-colunas .q-aqui { display: block; grid-column: 2; margin-top: 2px; }
+
+/* ─── Pele TTARS ──────────────────────────────────────────────────────────
+   O Ações aberto dentro do TTARS veste as cores e a letra do TTARS (lib/pele.ts).
+   Tokens do TTARS: fundo surface-secondary, cartão branco, borda slate-200, texto
+   slate-900/500, letra do sistema, títulos pequenos e firmes. CSS "solto" (sem layer)
+   pra vencer as utilitárias do Tailwind, como o resto do quadro. */
+:root[data-pele^="ttars"] {
+  color-scheme: light;
+  --background: #f1f5f9;
+  --foreground: #0f172a;
+  --muted: #64748b;
+  --muted-strong: #475569;
+  --border: #e2e8f0;
+  --card: #ffffff;
+  --accent: #eef2f7;
+  --urgent: #dc2626;
+  --urgent-bg: #fef2f2;
+  --warm: #d97706;
+  --warm-bg: #fef3c7;
+  --calm: #0f4c81;
+  --calm-bg: #e0e7ff;
+  --done: #16a34a;
+  --done-bg: #dcfce7;
+  --letra-ttars: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+:root[data-pele="ttars-ww"] {
+  --background: #fbf8f4;
+  --border: #eae1d3;
+  --accent: #f5efe6;
+  --calm: #a37f47;
+  --calm-bg: #f3eadb;
+}
+[data-pele^="ttars"] body {
+  font-family: var(--letra-ttars);
+  font-feature-settings: normal;
+}
+[data-pele^="ttars"] .font-display {
+  font-family: var(--letra-ttars);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+[data-pele^="ttars"] h1.font-display {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+}
+[data-pele^="ttars"] .font-display .italic {
+  font-style: normal;
+  font-weight: inherit;
+  color: inherit;
+}
+[data-pele^="ttars"] .paper-card {
+  background-image: none;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+}
+/* Páginas do Ações foram feitas pra uma coluna: dentro do TTARS elas encostam à esquerda
+   (como as telas do TTARS) com um teto de largura. O projeto (quadro) usa a largura toda. */
+[data-pele^="ttars"] main > :not([class*="50vw"]) {
+  max-width: 64rem;
+}

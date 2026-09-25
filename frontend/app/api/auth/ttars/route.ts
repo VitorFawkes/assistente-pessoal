@@ -4,6 +4,9 @@ import { estaLiberado, usarCodigoDeEntrada } from "@/lib/ttars-auth";
 import { setSessionCookie } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { clientIp } from "@/lib/rate-limit";
+import { COOKIE_PELE, peleDoPedido } from "@/lib/pele";
+import { opcoesCookieSessao } from "@/lib/cookie-sessao";
+import { cookies } from "next/headers";
 
 // Entrada pela aba do TTARS com o código de uso único gerado em /api/auth/ttars/entrar.
 export async function GET(req: NextRequest) {
@@ -47,6 +50,9 @@ export async function GET(req: NextRequest) {
     JSON.stringify({ ttars_user_id: pessoa.ttarsId, times: pessoa.times }),
   ]);
   await setSessionCookie(sessao[0].id);
+  // Aberto pela aba do TTARS: veste o Ações de TTARS (cor de Trips ou de Weddings).
+  const pele = peleDoPedido(req.nextUrl.searchParams.get("pele"));
+  if (pele) (await cookies()).set(COOKIE_PELE, pele, opcoesCookieSessao());
   const para = req.nextUrl.searchParams.get("para") || "/";
   return ir(/^\/[A-Za-z0-9/_-]*$/.test(para) ? para : "/");
 }
