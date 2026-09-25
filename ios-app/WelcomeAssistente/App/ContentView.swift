@@ -9,8 +9,8 @@ struct ContentView: View {
             case .checking:
                 ProgressView()
             case .unauthenticated:
-                OnboardingView()
-            case .authenticated:
+                LoginView()
+            case .authenticated, .demonstracao:
                 MainTabView()
             }
         }
@@ -19,20 +19,19 @@ struct ContentView: View {
 }
 
 struct MainTabView: View {
+    @State private var aba = 0
+
     var body: some View {
-        TabView {
-            RecordView()
-                .tabItem {
-                    Label("Gravar", systemImage: "mic.circle.fill")
-                }
+        TabView(selection: $aba) {
+            RecordView(verReunioes: { aba = 1 })
+                .tabItem { Label("Gravar", systemImage: "mic.circle.fill") }
+                .tag(0)
             HistoryView()
-                .tabItem {
-                    Label("Histórico", systemImage: "list.bullet.rectangle")
-                }
+                .tabItem { Label("Reuniões", systemImage: "list.bullet.rectangle") }
+                .tag(1)
             SettingsView()
-                .tabItem {
-                    Label("Ajustes", systemImage: "gearshape")
-                }
+                .tabItem { Label("Ajustes", systemImage: "gearshape") }
+                .tag(2)
         }
     }
 }

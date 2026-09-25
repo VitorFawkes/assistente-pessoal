@@ -8,6 +8,8 @@ final class AuthStore {
         case checking
         case unauthenticated
         case authenticated(user: AuthenticatedUser)
+        /// "Conhecer o app": grava no aparelho, não envia nada, sem conta.
+        case demonstracao
     }
 
     struct AuthenticatedUser: Equatable, Codable {
@@ -15,13 +17,10 @@ final class AuthStore {
         let nome: String
         let email: String?
         let token: String
-        let consentTermsAt: String?
     }
 
     private(set) var state: State = .checking
-    /// Quando o app recebe um Universal Link com /c/CODE, guarda o código aqui
-    /// pra Onboarding pré-preencher o campo.
-    var pendingInviteCode: String?
+    private(set) var configRemota: ConfigRemota?
 
     var sessionToken: String? {
         if case .authenticated(let user) = state { return user.token }
@@ -33,73 +32,75 @@ final class AuthStore {
         return nil
     }
 
-    // MARK: - Restore from Keychain
+    var emDemonstracao: Bool { state == .demonstracao }
 
+    // MARK: - Abrir o app
+
+    /// Entra direto com o acesso guardado; confere no servidor em seguida.
+    /// Sem internet, continua entrado (a gravação não pode depender de rede).
     func restoreFromKeychain() async {
-        guard let token = KeychainStorage.get(.sessionToken) else {
+        guard let token = KeychainStorage.get(.sessionToken),
+              let id = KeychainStorage.get(.userId) else {
             state = .unauthenticated
+            await carregarConfig()
             return
         }
-        // Re-valida no servidor — se inválido/expirado/revogado, volta pra onboarding.
+        state = .authenticated(user: AuthenticatedUser(
+            id: id,
+            nome: KeychainStorage.get(.userName) ?? "",
+            email: KeychainStorage.get(.userEmail),
+            token: token
+        ))
         do {
-            let resp = try await APIClient.shared.exchange(.refresh(token: token))
-            persist(resp)
+            let remoto = try await APIClient.shared.eu(token: token)
+            guardar(token: token, usuario: remoto)
+        } catch APIError.http(let status, _) where status == 401 {
+            sairLocal()
         } catch {
-            KeychainStorage.clearAll()
-            state = .unauthenticated
+            // Sem internet ou servidor fora: mantém o acesso guardado.
         }
     }
 
-    // MARK: - Login by invite
-
-    func loginWithInvite(code: String, nome: String) async throws {
-        let resp = try await APIClient.shared.exchange(
-            .invite(code: code, nome: nome)
-        )
-        persist(resp)
+    func carregarConfig() async {
+        if configRemota == nil {
+            configRemota = try? await APIClient.shared.configRemota()
+        }
     }
 
-    // MARK: - Logout
+    // MARK: - Entrar
 
-    func logoutLocal() {
+    func entrar(email: String, senha: String) async throws {
+        let resposta = try await APIClient.shared.entrarComTtars(email: email, senha: senha)
+        guardar(token: resposta.access_token, usuario: resposta.user)
+    }
+
+    func entrarNaDemonstracao() {
+        state = .demonstracao
+    }
+
+    // MARK: - Sair
+
+    func sairLocal() {
         KeychainStorage.clearAll()
         state = .unauthenticated
     }
 
-    func logoutAllDevices() async {
+    func sair() async {
         if let token = sessionToken {
-            _ = try? await APIClient.shared.revokeAllSessions(token: token)
+            await APIClient.shared.sair(token: token)
         }
-        logoutLocal()
-    }
-
-    // MARK: - Universal Link handler
-
-    /// Chamado pelo @main App quando iOS entrega https://acoes.../c/CODE.
-    /// Path esperado: /c/<CODE>
-    func handleIncomingURL(_ url: URL) {
-        let parts = url.pathComponents
-        guard parts.count >= 3, parts[1] == "c" else { return }
-        let code = parts[2]
-        if code.isEmpty { return }
-        pendingInviteCode = code
+        sairLocal()
     }
 
     // MARK: - private
 
-    private func persist(_ resp: ExchangeResponse) {
-        let user = AuthenticatedUser(
-            id: resp.user.id,
-            nome: resp.user.nome,
-            email: resp.user.email,
-            token: resp.access_token,
-            consentTermsAt: resp.user.consent_terms_at
-        )
-        KeychainStorage.set(user.token, for: .sessionToken)
-        KeychainStorage.set(user.id, for: .userId)
-        KeychainStorage.set(user.nome, for: .userName)
-        KeychainStorage.set(user.email, for: .userEmail)
-        state = .authenticated(user: user)
-        pendingInviteCode = nil
+    private func guardar(token: String, usuario: UsuarioRemoto) {
+        KeychainStorage.set(token, for: .sessionToken)
+        KeychainStorage.set(usuario.id, for: .userId)
+        KeychainStorage.set(usuario.nome, for: .userName)
+        KeychainStorage.set(usuario.email, for: .userEmail)
+        state = .authenticated(user: AuthenticatedUser(
+            id: usuario.id, nome: usuario.nome, email: usuario.email, token: token
+        ))
     }
 }

@@ -53,7 +53,7 @@ targets:
     info:
       path: WelcomeAssistente/Resources/Info.plist
       properties:
-        CFBundleDisplayName: TTARS BR
+        CFBundleDisplayName: Ações
         CFBundleDevelopmentRegion: pt-BR
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
@@ -62,13 +62,13 @@ targets:
         UILaunchScreen:
           UIColorName: AccentColor
         UIRequiredDeviceCapabilities:
-          - armv7
+          - arm64
           - microphone
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UIBackgroundModes:
           - audio
-        NSMicrophoneUsageDescription: TTARS BR usa o microfone pra gravar suas reuniões e extrair tarefas automaticamente.
+        NSMicrophoneUsageDescription: O Ações usa o microfone para gravar suas reuniões e transformar em resumo e tarefas.
         # App não usa criptografia além da padrão do sistema (HTTPS) — evita
         # bloqueio MISSING_EXPORT_COMPLIANCE em cada build novo no TestFlight.
         ITSAppUsesNonExemptEncryption: false
@@ -76,16 +76,12 @@ targets:
         # O $() workaround é necessário no xcconfig porque `//` é comentário lá;
         # aqui no plist viraria string normal "https://host" no build.
         WelcomeBaseURL: $(WELCOME_BASE_URL)
-        WelcomeIngestURL: $(WELCOME_INGEST_URL)
     entitlements:
       path: WelcomeAssistente/Resources/WelcomeAssistente.entitlements
-      properties:
-        com.apple.developer.associated-domains:
-          - applinks:acoes.vitorgambetti.com.br
-          - applinks:n8n-assistente-frontend.tatetz.easypanel.host
+      properties: {}
     settings:
       base:
-        PRODUCT_NAME: TTARS BR
+        PRODUCT_NAME: Acoes
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_OBJC_BRIDGING_HEADER: ""

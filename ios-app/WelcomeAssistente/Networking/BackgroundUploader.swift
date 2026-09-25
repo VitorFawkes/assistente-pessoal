@@ -1,29 +1,26 @@
 import Foundation
 
-/// Upload de áudio via *background* `URLSession` — sobrevive à suspensão do app e
-/// a relançamentos. Necessário pra gravações grandes (centenas de MB), onde um
-/// upload em foreground falharia se a tela bloqueasse ou o app fosse suspenso.
+/// Envio via *background* `URLSession`: continua com a tela bloqueada, com o app
+/// suspenso e depois de o iOS relançar o app. Cada envio leva uma descrição
+/// (`taskDescription`) que a `UploadQueue` usa para saber o que terminou.
 ///
-/// O servidor (ingest-svc) responde **202 assim que recebe os bytes** e processa
-/// em background — então aqui só esperamos a transferência, não a transcrição.
-/// Qualquer 2xx = sucesso (o app marca `.uploaded` e apaga o local, sem re-enviar).
-///
-/// IMPORTANTE: background sessions exigem `uploadTask(with:fromFile:)` (não aceitam
-/// body em memória). O multipart é montado em arquivo por streaming, sem carregar
-/// o áudio inteiro na RAM.
+/// Background sessions só aceitam `uploadTask(with:fromFile:)`: o corpo é montado
+/// em arquivo (sem carregar o áudio inteiro na memória).
 final class BackgroundUploader: NSObject, @unchecked Sendable {
     static let shared = BackgroundUploader()
 
     static let sessionIdentifier = "com.welcome.assistente.upload"
 
-    /// Reconciliação de estado — setado pela `UploadQueue`.
-    /// (recordingId, success, statusCode, errorMessage)
-    var onComplete: (@Sendable (String, Bool, Int, String?) -> Void)?
+    typealias Conclusao = @Sendable (String, Int, String?) -> Void
+
+    /// (descrição, status HTTP — 0 se não chegou resposta, mensagem de erro)
+    private var onComplete: Conclusao?
+    /// Conclusões que chegaram antes de a fila se registrar (app relançado em segundo plano).
+    private var guardadas: [(String, Int, String?)] = []
 
     /// Guardado pelo AppDelegate em `handleEventsForBackgroundURLSession`.
     var backgroundCompletionHandler: (@Sendable () -> Void)?
 
-    /// Corpo de resposta acumulado por task (pra logar erro do servidor).
     private var responseData: [Int: Data] = [:]
     private let lock = NSLock()
 
@@ -31,7 +28,7 @@ final class BackgroundUploader: NSObject, @unchecked Sendable {
         let config = URLSessionConfiguration.background(withIdentifier: Self.sessionIdentifier)
         config.isDiscretionary = false             // não esperar Wi-Fi/carga
         config.sessionSendsLaunchEvents = true      // relançar o app pra entregar conclusão
-        config.timeoutIntervalForResource = 6 * 60 * 60  // 6h pra transferir os bytes
+        config.timeoutIntervalForResource = 6 * 60 * 60
         config.allowsCellularAccess = true
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }()
@@ -41,83 +38,94 @@ final class BackgroundUploader: NSObject, @unchecked Sendable {
     /// Força a criação da sessão (re-anexa às tasks em voo após relançamento).
     func activate() { _ = session }
 
-    /// Lista os recordingIds que ainda estão em transferência (pra reconciliar no launch).
-    func inflightRecordingIds() async -> Set<String> {
+    /// A fila se registra aqui; recebe também o que terminou antes do registro.
+    func aoConcluir(_ fn: @escaping Conclusao) {
+        lock.lock()
+        onComplete = fn
+        let atrasadas = guardadas
+        guardadas = []
+        lock.unlock()
+        for (d, s, m) in atrasadas { fn(d, s, m) }
+    }
+
+    /// Descrições dos envios ainda em andamento (sobrevivem a relançamento).
+    func emAndamento() async -> Set<String> {
         let tasks = await session.allTasks
         return Set(tasks.compactMap { $0.taskDescription })
     }
 
-    /// Monta o multipart em arquivo e dispara o upload em background.
-    /// Retorna a URL do arquivo de corpo (a `UploadQueue` apaga após conclusão).
-    @discardableResult
-    func upload(
-        recordingId: String,
-        audioURL: URL,
-        bodyFileURL: URL,
-        to url: URL,
-        authToken: String,
-        fields: [String: String],
-        filename: String
-    ) throws -> URL {
+    /// Sobe um arquivo de áudio como campo "audio" de um formulário.
+    func enviarAudio(
+        descricao: String,
+        arquivo: URL,
+        corpoTemporario: URL,
+        para url: URL,
+        token: String,
+        nomeDoArquivo: String
+    ) throws {
         let boundary = "Boundary-\(UUID().uuidString)"
-        try Self.writeMultipart(
+        try Self.escreverFormulario(
             boundary: boundary,
-            fields: fields,
-            fileFieldName: "audio",
-            audioURL: audioURL,
-            filename: filename,
-            mimeType: Self.mimeType(for: audioURL.pathExtension),
-            destURL: bodyFileURL
+            arquivo: arquivo,
+            nomeDoArquivo: nomeDoArquivo,
+            destino: corpoTemporario
         )
-
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
-        request.setValue(
-            "multipart/form-data; boundary=\(boundary)",
-            forHTTPHeaderField: "Content-Type"
-        )
-        request.setValue("*/*", forHTTPHeaderField: "Accept")
-
-        let task = session.uploadTask(with: request, fromFile: bodyFileURL)
-        task.taskDescription = recordingId
-        task.resume()
-        return bodyFileURL
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        iniciar(request, corpo: corpoTemporario, descricao: descricao)
     }
 
-    // MARK: - Multipart streaming (não carrega o áudio inteiro na RAM)
+    /// Manda um JSON pequeno (ex.: fechar a gravação) pelo mesmo caminho de fundo.
+    func enviarJSON(
+        descricao: String,
+        json: [String: String],
+        corpoTemporario: URL,
+        para url: URL,
+        token: String
+    ) throws {
+        try JSONSerialization.data(withJSONObject: json).write(to: corpoTemporario, options: .atomic)
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        iniciar(request, corpo: corpoTemporario, descricao: descricao)
+    }
 
-    private static func writeMultipart(
+    private func iniciar(_ request: URLRequest, corpo: URL, descricao: String) {
+        let task = session.uploadTask(with: request, fromFile: corpo)
+        task.taskDescription = descricao
+        task.resume()
+    }
+
+    // MARK: - Formulário em arquivo (não carrega o áudio inteiro na RAM)
+
+    private static func escreverFormulario(
         boundary: String,
-        fields: [String: String],
-        fileFieldName: String,
-        audioURL: URL,
-        filename: String,
-        mimeType: String,
-        destURL: URL
+        arquivo: URL,
+        nomeDoArquivo: String,
+        destino: URL
     ) throws {
         let nl = "\r\n"
-        if FileManager.default.fileExists(atPath: destURL.path) {
-            try FileManager.default.removeItem(at: destURL)
+        if FileManager.default.fileExists(atPath: destino.path) {
+            try FileManager.default.removeItem(at: destino)
         }
-        FileManager.default.createFile(atPath: destURL.path, contents: nil)
-        let out = try FileHandle(forWritingTo: destURL)
+        FileManager.default.createFile(atPath: destino.path, contents: nil)
+        let out = try FileHandle(forWritingTo: destino)
         defer { try? out.close() }
 
         func write(_ s: String) throws {
             if let d = s.data(using: .utf8) { try out.write(contentsOf: d) }
         }
 
-        for (key, value) in fields {
-            try write("--\(boundary)\(nl)")
-            try write("Content-Disposition: form-data; name=\"\(key)\"\(nl)\(nl)")
-            try write("\(value)\(nl)")
-        }
         try write("--\(boundary)\(nl)")
-        try write("Content-Disposition: form-data; name=\"\(fileFieldName)\"; filename=\"\(filename)\"\(nl)")
-        try write("Content-Type: \(mimeType)\(nl)\(nl)")
+        try write("Content-Disposition: form-data; name=\"audio\"; filename=\"\(nomeDoArquivo)\"\(nl)")
+        try write("Content-Type: application/octet-stream\(nl)\(nl)")
 
-        let input = try FileHandle(forReadingFrom: audioURL)
+        let input = try FileHandle(forReadingFrom: arquivo)
         defer { try? input.close() }
         while true {
             let chunk = input.readData(ofLength: 1024 * 1024)
@@ -127,17 +135,6 @@ final class BackgroundUploader: NSObject, @unchecked Sendable {
 
         try write(nl)
         try write("--\(boundary)--\(nl)")
-    }
-
-    private static func mimeType(for ext: String) -> String {
-        switch ext.lowercased() {
-        case "m4a": return "audio/mp4"
-        case "mp3": return "audio/mpeg"
-        case "wav": return "audio/wav"
-        case "aac": return "audio/aac"
-        case "mp4": return "video/mp4"
-        default:    return "application/octet-stream"
-        }
     }
 }
 
@@ -151,25 +148,26 @@ extension BackgroundUploader: URLSessionDataDelegate {
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        let recordingId = task.taskDescription
         lock.lock()
         let body = responseData.removeValue(forKey: task.taskIdentifier) ?? Data()
         lock.unlock()
 
         let status = (task.response as? HTTPURLResponse)?.statusCode ?? 0
-        let success = error == nil && (200..<300).contains(status)
         let message: String?
         if let error {
             message = error.localizedDescription
-        } else if !success {
+        } else if !(200..<300).contains(status) {
             message = "Erro \(status): \(String(data: body, encoding: .utf8)?.prefix(140) ?? "")"
         } else {
             message = nil
         }
-
-        if let recordingId {
-            onComplete?(recordingId, success, status, message)
-        }
+        guard let descricao = task.taskDescription else { return }
+        let codigo = error == nil ? status : 0
+        lock.lock()
+        let fn = onComplete
+        if fn == nil { guardadas.append((descricao, codigo, message)) }
+        lock.unlock()
+        fn?(descricao, codigo, message)
     }
 
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {

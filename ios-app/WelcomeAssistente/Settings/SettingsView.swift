@@ -1,11 +1,12 @@
 import SwiftUI
-import SafariServices
 
 struct SettingsView: View {
     @Environment(AuthStore.self) private var auth
-    @State private var showTerms = false
-    @State private var showLogoutAllConfirm = false
-    @State private var isLoggingOut = false
+    @Environment(UploadQueue.self) private var queue
+    @State private var aberto: EnderecoAberto?
+    @State private var confirmarSaida = false
+    @State private var saindo = false
+    @State private var erro: String?
 
     var body: some View {
         NavigationStack {
@@ -14,68 +15,75 @@ struct SettingsView: View {
                     Section("Conta") {
                         LabeledContent("Nome", value: user.nome)
                         if let email = user.email, !email.isEmpty {
-                            LabeledContent("Email", value: email)
+                            LabeledContent("E-mail", value: email)
                         }
+                    }
+                    Section {
+                        Button("Abrir o Ações") { abrir("/") }
+                        Button("Quem vê minhas reuniões") { abrir("/seguranca/sessoes") }
+                    } footer: {
+                        if let erro { Text(erro).foregroundStyle(.red) }
                     }
                 }
 
                 Section("Privacidade") {
-                    Button("Ler termos & privacidade") {
-                        showTerms = true
+                    Button("Termos de uso e privacidade") {
+                        Task {
+                            await auth.carregarConfig()
+                            if let raw = auth.configRemota?.termos_url, let url = URL(string: raw) {
+                                aberto = EnderecoAberto(url: url)
+                            }
+                        }
                     }
                 }
 
                 Section {
-                    Button("Sair deste dispositivo") {
-                        auth.logoutLocal()
-                    }
-                    .foregroundStyle(.red)
-
-                    Button(role: .destructive) {
-                        showLogoutAllConfirm = true
-                    } label: {
-                        if isLoggingOut {
-                            ProgressView()
-                        } else {
-                            Text("Sair de todos os dispositivos")
+                    if auth.emDemonstracao {
+                        Button("Sair da demonstração") { auth.sairLocal() }
+                    } else {
+                        Button(role: .destructive) {
+                            confirmarSaida = true
+                        } label: {
+                            if saindo { ProgressView() } else { Text("Sair deste iPhone") }
                         }
+                        .disabled(saindo)
                     }
-                    .disabled(isLoggingOut)
                 }
 
                 Section("Sobre") {
-                    LabeledContent("Versão",
-                                   value: "\(Configuration.appVersion) (\(Configuration.buildNumber))")
-                    LabeledContent("Servidor",
-                                   value: Configuration.baseURL.host ?? "")
+                    LabeledContent("Versão", value: "\(Configuration.appVersion) (\(Configuration.buildNumber))")
                 }
             }
             .navigationTitle("Ajustes")
-            .sheet(isPresented: $showTerms) {
-                SafariView(url: Configuration.baseURL.appendingPathComponent("/termos"))
-                    .ignoresSafeArea()
+            .sheet(item: $aberto) { endereco in
+                SafariView(url: endereco.url).ignoresSafeArea()
             }
-            .alert("Sair de todos os dispositivos?",
-                   isPresented: $showLogoutAllConfirm) {
+            .alert("Sair deste iPhone?", isPresented: $confirmarSaida) {
                 Button("Cancelar", role: .cancel) {}
                 Button("Sair", role: .destructive) {
                     Task {
-                        isLoggingOut = true
-                        await auth.logoutAllDevices()
-                        isLoggingOut = false
+                        saindo = true
+                        await auth.sair()
+                        saindo = false
                     }
                 }
             } message: {
-                Text("Você precisará entrar de novo em todos os aparelhos com o seu convite.")
+                Text(queue.temAlgoSubindo
+                     ? "Ainda há gravação subindo. Ela fica guardada neste iPhone e só sobe quando você entrar de novo."
+                     : "Para gravar de novo, entre com o e-mail e a senha do TTARS.")
             }
         }
     }
-}
 
-private struct SafariView: UIViewControllerRepresentable {
-    let url: URL
-    func makeUIViewController(context: Context) -> SFSafariViewController {
-        SFSafariViewController(url: url)
+    private func abrir(_ caminho: String) {
+        guard let token = auth.sessionToken else { return }
+        erro = nil
+        Task {
+            do {
+                aberto = EnderecoAberto(url: try await APIClient.shared.enderecoDoSite(token: token, para: caminho))
+            } catch {
+                erro = "Sem internet. Tente de novo."
+            }
+        }
     }
-    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
 }

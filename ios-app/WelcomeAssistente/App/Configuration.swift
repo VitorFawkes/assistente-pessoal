@@ -12,17 +12,6 @@ enum Configuration {
         return url
     }()
 
-    static let ingestURL: URL = {
-        guard
-            let raw = Bundle.main.object(forInfoDictionaryKey: "WelcomeIngestURL") as? String,
-            let url = URL(string: raw),
-            !raw.isEmpty
-        else {
-            fatalError("WelcomeIngestURL não definido no Info.plist — configure no .xcconfig")
-        }
-        return url
-    }()
-
     static let appVersion: String =
         (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0.0"
 

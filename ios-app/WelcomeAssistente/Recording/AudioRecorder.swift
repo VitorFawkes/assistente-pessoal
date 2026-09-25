@@ -1,25 +1,69 @@
 import AVFoundation
 import Foundation
 import Observation
+import UserNotifications
 
+/// Grava o microfone em trechos de 5 minutos (arquivos .m4a completos).
+///
+/// - Continua com a tela bloqueada (UIBackgroundModes = audio + sessão .playAndRecord).
+/// - Cada trecho fechado vai para `aoFecharTrecho`, que sobe na hora.
+/// - Ligação, Siri ou outro app pegando o microfone: o trecho em andamento é fechado
+///   (nada se perde) e, quando a interrupção acaba, o gravador tenta continuar sozinho.
+///   Se o iOS não deixar, fica "interrompido" até a pessoa tocar em Continuar.
 @Observable
 @MainActor
 final class AudioRecorder: NSObject {
     enum State: Equatable {
         case idle
-        case recording(startedAt: Date)
-        case stopping
+        case recording
+        case interrompido
     }
 
     private(set) var state: State = .idle
     private(set) var meterLevel: Double = 0    // 0...1
     private(set) var elapsedSeconds: Double = 0
+    private(set) var gravacaoId: String?
+
+    /// (id da gravação, parte = ms do início do trecho, arquivo)
+    var aoFecharTrecho: ((String, Int64, URL) -> Void)?
+
+    static let duracaoDoTrecho: TimeInterval = 5 * 60
 
     private var recorder: AVAudioRecorder?
-    private var meterTimer: Timer?
-    private var currentURL: URL?
+    private var parteAtual: Int64 = 0
+    private var inicioDoTrecho: Date?
+    private var acumulado: TimeInterval = 0     // segundos de trechos já fechados
+    private var timer: Timer?
+    private var observadores: [NSObjectProtocol] = []
 
-    /// Pede permissão de microfone (iOS 17+ API).
+    private let ajustes: [String: Any] = [
+        AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+        AVSampleRateKey: 44100.0,
+        AVNumberOfChannelsKey: 1,
+        AVEncoderBitRateKey: 64000,
+        AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
+    ]
+
+    override init() {
+        super.init()
+        let centro = NotificationCenter.default
+        observadores.append(centro.addObserver(
+            forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
+        ) { [weak self] nota in
+            let tipo = (nota.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt)
+                .flatMap(AVAudioSession.InterruptionType.init(rawValue:))
+            MainActor.assumeIsolated { self?.tratarInterrupcao(tipo) }
+        })
+        observadores.append(centro.addObserver(
+            forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.tratarInterrupcao(.began)
+                self?.tratarInterrupcao(.ended)
+            }
+        })
+    }
+
     func requestMicPermission() async -> Bool {
         await withCheckedContinuation { cont in
             AVAudioApplication.requestRecordPermission { granted in
@@ -32,148 +76,161 @@ final class AudioRecorder: NSObject {
         AVAudioApplication.shared.recordPermission
     }
 
-    /// Inicia gravação em <Documents>/pending/<uuid>.m4a. Retorna URL ou throws.
-    @discardableResult
-    func start() async throws -> URL {
-        let session = AVAudioSession.sharedInstance()
-
-        // Config minimalista pra evitar incompatibilidades iOS 26:
-        // - mode .default em vez de .spokenAudio (.spokenAudio rejeita em alguns hw)
-        // - sem .duckOthers (interage com Now Playing system de forma errática)
-        // - .defaultToSpeaker direciona playback apenas (não afeta input)
-        do {
-            try session.setCategory(.playAndRecord, mode: .default,
-                                    options: [.defaultToSpeaker])
-        } catch {
-            throw NSError(domain: "AudioRecorder", code: -2,
-                userInfo: [NSLocalizedDescriptionKey:
-                    "setCategory falhou: \(error.localizedDescription)"])
+    /// Começa (ou continua) a gravação `gravacaoId`, com os trechos na pasta dela.
+    func iniciar(gravacaoId: String) throws {
+        try ativarSessao()
+        if self.gravacaoId != gravacaoId {
+            acumulado = 0
         }
+        self.gravacaoId = gravacaoId
+        try iniciarTrecho()
+        state = .recording
+        iniciarTimer()
+    }
+
+    /// Continua depois de uma interrupção (ligação etc.).
+    func continuar() throws {
+        guard let gravacaoId, state == .interrompido else { return }
+        try iniciar(gravacaoId: gravacaoId)
+    }
+
+    /// Para de vez. Devolve a duração total gravada.
+    @discardableResult
+    func parar() -> TimeInterval {
+        fecharTrecho()
+        pararTimer()
+        let total = acumulado
+        state = .idle
+        gravacaoId = nil
+        acumulado = 0
+        elapsedSeconds = 0
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        return total
+    }
+
+    // MARK: - trechos
+
+    private func ativarSessao() throws {
+        let session = AVAudioSession.sharedInstance()
         do {
+            // .default em vez de .spokenAudio (rejeitado em alguns aparelhos);
+            // sem Bluetooth: fone sem fio roubaria o microfone da sala.
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
             try session.setActive(true)
         } catch {
-            throw NSError(domain: "AudioRecorder", code: -3,
-                userInfo: [NSLocalizedDescriptionKey:
-                    "setActive falhou: \(error.localizedDescription) (categoria=\(session.category.rawValue), sampleRate=\(session.sampleRate))"])
+            throw NSError(domain: "AudioRecorder", code: -2, userInfo: [
+                NSLocalizedDescriptionKey: "Não consegui usar o microfone agora. Feche outros apps que estejam gravando ou numa ligação e tente de novo.",
+            ])
         }
+    }
 
-        let pendingDir = try ensurePendingDir()
-        let id = UUID().uuidString
-        let url = pendingDir.appendingPathComponent("\(id).m4a")
-
-        // Sample rate 44100 é mais universal em hardware iOS — 16kHz nativo pode
-        // ser rejeitado pelo AVAudioRecorder em alguns iPhones, exige resampling
-        // manual. ingest-svc reencoda pra 16kHz no ffmpeg de qualquer jeito.
-        let settings: [String: Any] = [
-            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey: 44100.0,
-            AVNumberOfChannelsKey: 1,
-            AVEncoderBitRateKey: 64000,
-            AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
-        ]
-
-        let rec: AVAudioRecorder
-        do {
-            rec = try AVAudioRecorder(url: url, settings: settings)
-        } catch {
-            throw NSError(domain: "AudioRecorder", code: -4,
-                userInfo: [NSLocalizedDescriptionKey:
-                    "AVAudioRecorder init falhou: \(error.localizedDescription)"])
-        }
+    private func iniciarTrecho() throws {
+        guard let gravacaoId else { return }
+        let parte = Int64(Date().timeIntervalSince1970 * 1000)
+        let url = UploadQueue.pasta(da: gravacaoId).appendingPathComponent("\(parte).m4a")
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let rec = try AVAudioRecorder(url: url, settings: ajustes)
         rec.delegate = self
         rec.isMeteringEnabled = true
-
-        // Logging detalhado pra debug remoto via Xcode console
-        let perm = AVAudioApplication.shared.recordPermission
-        let route = session.currentRoute.inputs.map { "\($0.portName)(\($0.portType.rawValue))" }.joined(separator: ",")
-        print("[Recorder] permission=\(perm.rawValue) inputs=[\(route)] cat=\(session.category.rawValue) mode=\(session.mode.rawValue)")
-
-        if !rec.record() {
-            let info: [String: Any] = [
-                NSLocalizedDescriptionKey: "Gravação falhou. Permission=\(perm.rawValue), inputs=[\(route.isEmpty ? "nenhum" : route)]. Tente: feche outros apps que usam áudio (gravador, chamada, Spotify) e tente de novo.",
-                "permission": perm.rawValue,
-                "inputs": route,
-                "category": session.category.rawValue,
-                "mode": session.mode.rawValue
-            ]
-            throw NSError(domain: "AudioRecorder", code: -6, userInfo: info)
+        guard rec.record() else {
+            throw NSError(domain: "AudioRecorder", code: -6, userInfo: [
+                NSLocalizedDescriptionKey: "Não consegui começar a gravar. Feche outros apps que usam o microfone e tente de novo.",
+            ])
         }
-
         recorder = rec
-        currentURL = url
-        state = .recording(startedAt: Date())
-        startMeter()
-        return url
+        parteAtual = parte
+        inicioDoTrecho = Date()
     }
 
-    /// Para gravação e retorna URL + duração. Não move arquivo — só finaliza.
-    @discardableResult
-    func stop() -> (url: URL, duration: TimeInterval)? {
-        guard let rec = recorder, let url = currentURL else { return nil }
-        state = .stopping
+    /// Fecha o arquivo do trecho em andamento e manda subir.
+    private func fecharTrecho() {
+        guard let rec = recorder, let gravacaoId else { return }
+        let url = rec.url
+        let duracao = inicioDoTrecho.map { Date().timeIntervalSince($0) } ?? rec.currentTime
         rec.stop()
-        let duration = rec.currentTime
-        stopMeter()
         recorder = nil
-        currentURL = nil
-        state = .idle
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        return (url, duration)
+        inicioDoTrecho = nil
+        acumulado += duracao
+        aoFecharTrecho?(gravacaoId, parteAtual, url)
     }
 
-    func cancel() {
-        guard let rec = recorder, let url = currentURL else { return }
-        rec.stop()
-        try? FileManager.default.removeItem(at: url)
-        stopMeter()
-        recorder = nil
-        currentURL = nil
-        state = .idle
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    private func girarTrecho() {
+        fecharTrecho()
+        do {
+            try iniciarTrecho()
+        } catch {
+            state = .interrompido
+            pararTimer()
+            avisarQueParou()
+        }
     }
 
-    // MARK: - meter
+    /// Pede (uma vez) para poder avisar quando a gravação parar sozinha.
+    func pedirPermissaoDeAviso() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
 
-    private func startMeter() {
-        meterTimer?.invalidate()
-        meterTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, let rec = self.recorder else { return }
-                rec.updateMeters()
-                let avg = rec.averagePower(forChannel: 0)         // dB, -160...0
-                // Mapeia -50dB...0dB → 0...1 (clamp)
-                let clamped = max(-50, min(0, avg))
-                self.meterLevel = Double((clamped + 50) / 50)
-                if case .recording(let start) = self.state {
-                    self.elapsedSeconds = Date().timeIntervalSince(start)
-                }
+    /// Ligação ou outro app tirou o microfone e o iOS não deixou continuar sozinho.
+    private func avisarQueParou() {
+        let conteudo = UNMutableNotificationContent()
+        conteudo.title = "A gravação parou"
+        conteudo.body = "O que foi gravado está salvo. Abra o Ações e toque em Continuar."
+        conteudo.sound = .default
+        let pedido = UNNotificationRequest(identifier: "gravacao-parou", content: conteudo, trigger: nil)
+        UNUserNotificationCenter.current().add(pedido)
+    }
+
+    private func tratarInterrupcao(_ tipo: AVAudioSession.InterruptionType?) {
+        switch tipo {
+        case .began:
+            guard state == .recording else { return }
+            fecharTrecho()
+            pararTimer()
+            state = .interrompido
+        case .ended:
+            guard state == .interrompido else { return }
+            do {
+                try continuar()
+            } catch {
+                avisarQueParou()
             }
+        default:
+            break
         }
     }
 
-    private func stopMeter() {
-        meterTimer?.invalidate()
-        meterTimer = nil
+    // MARK: - timer (nível do microfone, tempo e troca de trecho)
+
+    private func iniciarTimer() {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tique() }
+        }
+    }
+
+    private func tique() {
+        guard let rec = recorder, let inicio = inicioDoTrecho else { return }
+        rec.updateMeters()
+        let avg = rec.averagePower(forChannel: 0)
+        let clamped = max(-50, min(0, avg))
+        meterLevel = Double((clamped + 50) / 50)
+        let noTrecho = Date().timeIntervalSince(inicio)
+        elapsedSeconds = acumulado + noTrecho
+        if noTrecho >= Self.duracaoDoTrecho {
+            girarTrecho()
+        }
+    }
+
+    private func pararTimer() {
+        timer?.invalidate()
+        timer = nil
         meterLevel = 0
-        elapsedSeconds = 0
-    }
-
-    // MARK: - filesystem helpers
-
-    static var pendingDirectoryURL: URL {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return docs.appendingPathComponent("pending", isDirectory: true)
-    }
-
-    private func ensurePendingDir() throws -> URL {
-        let dir = Self.pendingDirectoryURL
-        if !FileManager.default.fileExists(atPath: dir.path) {
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        }
-        return dir
     }
 }
 
 extension AudioRecorder: AVAudioRecorderDelegate {
-    // Sem ação por enquanto — UploadQueue cuida da pós-gravação.
+    nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
+        Task { @MainActor in self.tratarInterrupcao(.began) }
+    }
 }
