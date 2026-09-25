@@ -1,0 +1,9 @@
+{
+  "name": "coach-custo",
+  "private": true,
+  "description": "Medidor de custo do Coach: repete conversas reais numa cópia local do banco, sem chamar a IA.",
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "@electric-sql/pglite-socket": "0.2.11"
+  }
+}

@@ -44,8 +44,8 @@ export async function recordModelRuns(userId:string,purpose:string,runKey:string
   await withTenant(userId,async db=>{
    const profile=(await db.query("SELECT revision,enabled FROM coach_profiles WHERE user_id=$1 FOR SHARE",[userId])).rows[0];
    if(!profile?.enabled||(revision!==undefined&&profile.revision!==revision))return;
-   await db.query("INSERT INTO coach_model_runs(user_id,run_key,purpose,provider,model,input_tokens,output_tokens,duration_ms,tool_calls,success,cached_input_tokens,usage_complete) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
-    [userId,runKey,purpose,event.provider,event.model,event.inputTokens,event.outputTokens,event.latencyMs,event.toolCalls,event.success,event.cachedInputTokens,event.usageComplete]);
+   await db.query("INSERT INTO coach_model_runs(user_id,run_key,purpose,provider,model,input_tokens,output_tokens,duration_ms,tool_calls,success,cached_input_tokens,usage_complete,cache_write_tokens,cost_usd) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
+    [userId,runKey,purpose,event.provider,event.model,event.inputTokens,event.outputTokens,event.latencyMs,event.toolCalls,event.success,event.cachedInputTokens,event.usageComplete,event.cacheWriteTokens||0,event.costUsd||0]);
   });
  }
 }

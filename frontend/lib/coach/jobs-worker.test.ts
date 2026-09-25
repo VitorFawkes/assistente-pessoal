@@ -5,6 +5,7 @@ import * as commitmentStore from "./coach-commitments";
 import {drainJobs,PROVIDER_RETRY_DELAY_SECONDS,scheduleCoachJobs} from "./jobs-worker";
 import * as service from "./service";
 import {CoachProviderUnavailableError} from "./model";
+import {CoachBudgetError} from "./budget";
 test("backfill can advance twice in one cron slot; the weekly review is queued once per week and never refreshed",async()=>{
  const list=spyOn(commitmentStore,"listCommitments").mockResolvedValue([]);
  let analyzed=2,reviews:{week_start:string}[]=[];
@@ -93,4 +94,16 @@ test("a meeting held after an open agreement and touching its topic queues one f
   await scheduleCoachJobs("owner",new Date("2026-09-23T20:30:00Z"));expect(requests).toEqual([]);
   await scheduleCoachJobs("owner",now);expect(requests).toHaveLength(1);
  }finally{store.mockRestore();enqueue.mockRestore();list.mockRestore();attention.mockRestore();}
+});
+
+test("past the day's AI spend ceiling scheduled work waits for the next day without failing",async()=>{
+ const finished:unknown[]=[];let next:unknown={id:"weekly",kind:"review",attempts:1,lease_token:"token",payload:{}};
+ const claim=spyOn(jobs,"claimJob").mockImplementation(async()=>{const job=next;next=null;return job as jobs.ClaimedCoachJob|null;});
+ const finish=spyOn(jobs,"finishJob").mockImplementation(async(_user,_id,_token,result)=>{finished.push(result);return true;});
+ const error=new CoachBudgetError(3,"America/Sao_Paulo",new Date("2026-09-25T20:00:00Z"));
+ const review=spyOn(service,"generateReview").mockRejectedValue(error);
+ try{
+  expect(await drainJobs("owner")).toEqual({attempted:1,completed:0,failed:0});
+  expect(finished).toEqual([{error:error.message,retry:true,delaySeconds:7*3600+5*60}]);
+ }finally{claim.mockRestore();finish.mockRestore();review.mockRestore();}
 });

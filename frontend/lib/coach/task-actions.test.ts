@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { describeAction, directTaskRequest, interpreterSchema, isNo, isUndo, isYes, messageSpans, needsConfirmation, validateTaskActions, type CandidateTask, type TaskAction } from "./task-actions";
+import { describeAction, directTaskRequest, interpreterSchema, isNo, isUndo, isYes, messageSpans, needsConfirmation, validateTaskActions, withoutTaskCodes, type CandidateTask, type TaskAction } from "./task-actions";
 
 const SP = "America/Sao_Paulo";
 const now = new Date("2026-09-24T20:00:00Z"); // quinta, 17h em São Paulo
@@ -93,4 +93,11 @@ describe("formato de resposta pedido ao modelo", () => {
   expect(schema.properties.actions.items.properties.task.enum).toEqual(["", "t1", "t2"]);
   expect(schema.properties.actions.items.properties.quote.enum).toEqual(["adia a proposta"]);
  });
+});
+
+test("a pergunta de esclarecimento nunca mostra os códigos internos das tarefas", () => {
+ expect(withoutTaskCodes("Quais você concluiu? Por exemplo, analisar CVs de closer (t7), terminar a nova página de Produção (t38) ou pedir passagens (t39).")).toBe("Quais você concluiu? Por exemplo, analisar CVs de closer, terminar a nova página de Produção ou pedir passagens.");
+ expect(withoutTaskCodes("Você quer concluir t3 ou t12?")).toBe("Você quer concluir ou?");
+ expect(withoutTaskCodes("Qual das duas (t1, t2) é a certa?")).toBe("Qual das duas é a certa?");
+ expect(withoutTaskCodes("Adiar a entrega para terça?")).toBe("Adiar a entrega para terça?");
 });

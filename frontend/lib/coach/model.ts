@@ -1,4 +1,5 @@
 import {localContextDates,contextTimezone} from "./context-dates";
+import { slimForModel } from "./context-budget";
 import { COACH_SYSTEM } from "./framework";
 import { userMemoryCandidates, userMemoryKind } from "./conversation-memory";
 import { providerCompletion, type CoachCompletionOptions } from "./provider";
@@ -38,6 +39,6 @@ export function analysisSchemaWithSources(ids:string[]){
 }
 export async function coachCompletion(instruction:string,data:unknown,schema:unknown,options:CoachCompletionOptions={}):Promise<Record<string,unknown>>{
  const timezone=contextTimezone(data);
- const tools=options.tools?.map(tool=>({...tool,execute:async(args:Record<string,unknown>,context:{signal:AbortSignal})=>localContextDates(await tool.execute(args,context),timezone)}));
- return providerCompletion(COACH_SYSTEM+"\n"+instruction,localContextDates(data,timezone),schema,{...options,tools});
+ const tools=options.tools?.map(tool=>({...tool,execute:async(args:Record<string,unknown>,context:{signal:AbortSignal})=>slimForModel(localContextDates(await tool.execute(args,context),timezone))}));
+ return providerCompletion(COACH_SYSTEM+"\n"+instruction,slimForModel(localContextDates(data,timezone)),schema,{...options,tools});
 }

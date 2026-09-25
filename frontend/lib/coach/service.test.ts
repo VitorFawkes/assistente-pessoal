@@ -2,6 +2,7 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { chatWithCoach, generateReview, generateCheckin, grounded, analyzeMeetings } from "./service";
 import * as stores from "./store";
 import * as commitments from "./coach-commitments";
+import * as budget from "./budget";
 import { CoachAIError } from "./model";
 import type { CoachMeeting, CoachMemory, CoachCommitment, CoachCommitmentReceipt, CoachMessage, CoachReview, ReportSource, ReportPeriodSource, Observation, ReviewContent } from "./types";
 const meeting:CoachMeeting={id:"owned",nome:"QA",original_filename:"qa",recorded_at:null,transcription:"Eu vou concluir uma única prioridade.",segments:[{speaker:"A",start:1,end:5,text:"Eu vou concluir uma única prioridade."}],speaker_labels:{A:"QA"},speaker_pessoas:{A:"self"}};
@@ -169,7 +170,9 @@ test("today questions use the user's timezone and include dates on retrieved tra
   expect(run.contextRequest()).toEqual({search:"Como foi meu dia hoje?",options:{timezone:"America/Sao_Paulo",now}});
   expect(run.input().current_time).toBe(now.toISOString());
   expect(run.input().timezone).toBe("America/Sao_Paulo");
-  expect(run.input().transcripts).toMatchObject([{recorded_at:dated.recorded_at}]);
+  // The model reads each record date once, in the user's timezone.
+  expect(run.input().transcripts).toMatchObject([{recorded_at_local:"19/09/2026, 09:00:00 (America/Sao_Paulo)"}]);
+  expect((run.input().transcripts as Record<string,unknown>[])[0]).not.toHaveProperty("recorded_at");
  }finally{run.restore();}
 });
 
@@ -427,16 +430,17 @@ test("when every weekly quote is vetoed the resynthesis may reflect on goals wit
 });
 
 
-test("report-first chat sends existing reports for all supplied meetings without transcript by default",async()=>{
+test("report-first chat sends up to 10 existing reports without transcript and says how many were left out",async()=>{
  const meetings=Array.from({length:12},(_,index)=>({...meeting,id:`reported-${index}`,summary:"Resumo curto",executive_summary:`## Decisões\nFrente ${index}: preparar proposta.`}));
  const run=fixture(meetings,{answer:"Pelos relatórios, escolha a proposta mais ligada ao objetivo antes de abrir outra frente.",observations:[],memories:[]});
  try{
   await chatWithCoach("synthetic-user","Como organizar hoje?");
   expect(run.input().transcripts).toEqual([]);
   expect(run.input().sources).toEqual({});
-  expect(run.input().meeting_reports).toHaveLength(12);
+  expect(run.input().meeting_reports).toHaveLength(10);
+  expect(run.input().limitations).toContain("2 reuniões encontradas ficaram fora deste pacote; use search_history ou read_meeting_report se forem necessárias.");
   expect(run.saved[1].evidence).toEqual([]);
-  expect(run.saved[1].content).toContain("relatórios/resumos de 12 reuniões");
+  expect(run.saved[1].content).toContain("relatórios/resumos de 10 reuniões");
  }finally{run.restore();}
 });
 test("weekly uses reports even while full behavioral analysis backlog is incomplete",async()=>{
@@ -538,7 +542,9 @@ test("weekly review receives accepted agreements and their latest outcomes witho
  const run=fixture([],{headline:"Destravar a proposta",focus:"Confirmar o preço pendente",observations:[],progress:"Pelo seu relato, o preço ainda falta.",experiment:"Pedir o preço antes de outra frente",question:"",limitations:[]},[],{storedCommitments:[commitment]});
  try{
   await generateReview("synthetic-user",new Date("2026-09-21T12:00:00Z"));
-  expect(run.input().commitments).toMatchObject([commitment]);
+  const {created_at,updated_at,user_id,...rest}=commitment;
+  expect(run.input().commitments).toMatchObject([{...rest,created_at_local:"20/09/2026, 07:00:00 (America/Sao_Paulo)",updated_at_local:"20/09/2026, 09:00:00 (America/Sao_Paulo)"}]);
+  expect(created_at&&updated_at&&user_id).toBeTruthy();
   expect(run.reviews).toHaveLength(1);
  }finally{run.restore();}
 });
@@ -759,4 +765,61 @@ test("two quoted questions in action guidance receive one repair before persisti
   expect(run.saved[1].content).not.toContain("Quer ajuda para pedir o preço");
   expect(run.commitmentWrites()).toBe(0);expect(run.memories).toEqual([]);
  }finally{run.restore();}
+});
+
+test("the package a chat sends stays bounded with a long history, many tasks and many reports",async()=>{
+ const lineage="b".repeat(64);
+ const storedMessages=Array.from({length:24},(_,i)=>({id:`h${i}`,role:i%2?"assistant":"user",content:i%2?`**Orientação**\n\n${"Resposta longa. ".repeat(200)}`:`Pergunta ${i}`,evidence:[],created_at:`2026-09-2${i%5}T12:00:00Z`,context_freshness:"current",context_sources:Array.from({length:30},(_,j)=>({meeting_id:`m${j}`,context_hash:lineage}))})) as CoachMessage[];
+ const meetings=Array.from({length:17},(_,i)=>({...meeting,id:`reported-${i}`,summary:"Resumo",executive_summary:"## Decisões\n"+"Detalhe da reunião. ".repeat(400)}));
+ const tasks=Array.from({length:64},(_,i)=>({id:`t${i}`,titulo:`Tarefa ${i}`,descricao:"Descrição longa. ".repeat(200),owner:"Ana",is_mine:false,acao:"cobrar",status:"aberta",prioridade:"alta",prazo:"2026-09-28T15:00:00Z",meeting_id:null,frente:null,concluida_em:null,cancelada_em:null,created_at:"2026-09-01T12:00:00Z",updated_at:"2026-09-20T12:00:00Z",context_reasons:["open_priority"],frentes:[]}));
+ const events=Array.from({length:40},(_,i)=>({id:`e${i}`,tarefa_id:"t0",tarefa_titulo:"Tarefa 0",evento:"cancelada",payload:{pedido:"p".repeat(500)},created_at:"2026-09-24T21:43:37Z"}));
+ const question="Como organizar hoje?";
+ const run=fixture(meetings,{answer:"Comece pela proposta.",observations:[],memories:[]},[],{storedMessages,retrievedMessages:storedMessages.slice(0,8),toolContext:{query:question,context:{tasks,events},at:"never",memory:{}}});
+ try{
+  await chatWithCoach("synthetic-user",question,new Date("2026-09-25T12:00:00Z"));
+  const sent=JSON.stringify(run.input());
+  // Before the bound this package was about 480 thousand characters, re-sent to the verifier.
+  expect(sent.length).toBeLessThan(90000);
+  expect(sent).not.toContain(lineage);
+  expect(run.input().history).toHaveLength(12);
+  expect(run.input().retrieved_conversations).toHaveLength(4);
+  expect(run.input().tasks).toHaveLength(40);
+  expect(run.input().task_events).toHaveLength(20);
+  expect(run.input().meeting_reports).toHaveLength(10);
+ }finally{run.restore();}
+});
+
+test("past the day's AI spend ceiling a message gets a short refusal without any model call",async()=>{
+ const run=fixture([],{answer:"Não deveria chamar a IA.",observations:[],memories:[]});
+ const state=spyOn(budget,"budgetState").mockResolvedValue({cap:3,spent:3.4,exceeded:true});
+ try{
+  await chatWithCoach("synthetic-user","Me ajuda a escolher o foco de hoje?",new Date("2026-09-25T12:00:00Z"),"capped-run");
+  expect(run.requests()).toBe(0);
+  expect(run.saved.map(message=>message.role)).toEqual(["user","assistant"]);
+  expect(run.saved[1]).toMatchObject({content:budget.budgetReply(3),idempotency_key:"capped-run:assistant"});
+ }finally{state.mockRestore();run.restore();}
+});
+
+test("past the ceiling a scheduled check-in stays silent and the weekly review waits for the next day",async()=>{
+ const run=fixture([],{answer:"Não deveria chamar a IA.",observations:[],memories:[]});
+ const state=spyOn(budget,"budgetState").mockResolvedValue({cap:3,spent:3,exceeded:true});
+ try{
+  await generateCheckin("synthetic-user","morning",new Date("2026-09-25T11:00:00Z"),"morning-run");
+  expect(run.requests()).toBe(0);expect(run.saved).toEqual([]);
+  const error=await generateReview("synthetic-user",new Date("2026-09-25T20:00:00Z")).catch(e=>e);
+  expect(error).toBeInstanceOf(budget.CoachBudgetError);
+  // 17h in São Paulo: it tries again at 00:05.
+  expect((error as budget.CoachBudgetError).retryAfterSeconds).toBe(7*3600+5*60);
+  expect(run.requests()).toBe(0);
+ }finally{state.mockRestore();run.restore();}
+});
+
+test("the answer that reaches the ceiling tells the user",async()=>{
+ const run=fixture([],{answer:"Comece pela proposta.",observations:[],memories:[]});
+ const state=spyOn(budget,"budgetState").mockResolvedValue({cap:3,spent:2.9999,exceeded:false});
+ try{
+  await chatWithCoach("synthetic-user","Como organizar hoje?",new Date("2026-09-25T12:00:00Z"));
+  expect(run.requests()).toBe(2);
+  expect(run.saved[1].content).toContain(budget.budgetNotice(3));
+ }finally{state.mockRestore();run.restore();}
 });
