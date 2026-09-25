@@ -8,9 +8,11 @@ import {
   acessoTarefa,
   carregarTarefas,
   colegasDe,
-  garantirColegaDoTtars,
   registrarEvento,
 } from "@/lib/equipe-compartilhado";
+import { resolverEscolha } from "@/lib/escolha-de-dono";
+import { pedirEnvio } from "@/lib/notion-sync";
+import { buDoWorkspace } from "@/lib/notion-mapa";
 
 const VALID_STATUS = ["aberta", "em_andamento", "aguardando_aprovacao", "concluida", "cancelada"] as const;
 const VALID_PRIORIDADE = ["baixa", "media", "alta", "urgente"] as const;
@@ -34,8 +36,10 @@ type PatchBody = Partial<{
   pessoas: { nome: string; principal?: boolean }[];
   /** Equipe: colega que passa a ser o dono (a tarefa entra na lista dele). */
   responsavel_user_id: string | null;
-  /** Equipe: pessoa do TTARS pelo e-mail (ganha conta aqui se ainda não tem). */
+  /** Equipe: pessoa do TTARS pelo e-mail (ganha conta aqui se ainda não tem) ou "notion:<id>". */
   responsavel_email: string;
+  /** Workspace do TTARS de quem pede (área no Notion do marketing). */
+  workspace: string;
 }>;
 
 // O que só quem criou a tarefa muda: plano/ordem pessoais dele e o tema (os temas são
@@ -65,11 +69,11 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
     return NextResponse.json({ error: "acao inválida" }, { status: 400 });
   }
 
-  if (isTeamMode() && typeof body.responsavel_email === "string" && body.responsavel_email.trim()) {
-    const c = await garantirColegaDoTtars(body.responsavel_email);
-    if (!c) return NextResponse.json({ error: "Essa pessoa não está na lista do TTARS." }, { status: 400 });
-    body.responsavel_user_id = c.id;
-  }
+  // Quem faz escolhido na lista das telas do TTARS: pessoa da Welcome (e-mail) ou pessoa que
+  // só existe no Notion do marketing ("notion:<id>"). Quem é do marketing manda a ação pro Notion.
+  const escolha = await resolverEscolha(body.responsavel_email);
+  if (escolha && "erro" in escolha) return NextResponse.json({ error: escolha.erro }, { status: 400 });
+  if (escolha) Object.assign(body, escolha.corpo);
   delete body.responsavel_email;
 
   const sets: string[] = [];
@@ -274,6 +278,15 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
 
     if (!updated) {
       return NextResponse.json({ error: "tarefa não encontrada" }, { status: 404 });
+    }
+    if (escolha?.notionUserId) {
+      await pedirEnvio({
+        tarefaId: id,
+        donoId,
+        pedidoPor: user.id,
+        notionUserId: escolha.notionUserId,
+        bu: buDoWorkspace(body.workspace),
+      });
     }
     if (acesso.papel !== "dono") {
       // Quem não criou recebe a tarefa do ponto de vista dele (sem a reunião de origem).

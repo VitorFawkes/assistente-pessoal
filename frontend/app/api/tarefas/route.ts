@@ -4,7 +4,10 @@ import { getOwnerSlug } from "@/lib/owner-slug";
 import { withTenant } from "@/lib/db";
 import { isTeamMode } from "@/lib/team-mode";
 import { resolverDono } from "@/lib/compartilhar";
-import { colegasDe, garantirColegaDoTtars } from "@/lib/equipe-compartilhado";
+import { colegasDe } from "@/lib/equipe-compartilhado";
+import { resolverEscolha } from "@/lib/escolha-de-dono";
+import { pedirEnvio } from "@/lib/notion-sync";
+import { buDoWorkspace } from "@/lib/notion-mapa";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +26,10 @@ type PostBody = Partial<{
   pessoas: { nome: string; principal?: boolean }[];
   /** Equipe: nasce já passada pra este colega. */
   responsavel_user_id: string | null;
-  /** Equipe: pessoa do TTARS pelo e-mail (ganha conta aqui se ainda não tem). */
+  /** Equipe: pessoa do TTARS pelo e-mail (ganha conta aqui se ainda não tem) ou "notion:<id>". */
   responsavel_email: string;
+  /** Workspace do TTARS de quem pede (área no Notion do marketing). */
+  workspace: string;
 }>;
 
 // POST /api/tarefas — cria uma tarefa manual (não veio de reunião).
@@ -56,11 +61,9 @@ export const POST = withAuth(async (user, req) => {
   let pessoas = Array.isArray(body.pessoas) ? body.pessoas : undefined;
   let responsavel: string | null = null;
 
-  if (isTeamMode() && typeof body.responsavel_email === "string" && body.responsavel_email.trim()) {
-    const c = await garantirColegaDoTtars(body.responsavel_email);
-    if (!c) return NextResponse.json({ error: "Essa pessoa não está na lista do TTARS." }, { status: 400 });
-    body.responsavel_user_id = c.id;
-  }
+  const escolha = await resolverEscolha(body.responsavel_email);
+  if (escolha && "erro" in escolha) return NextResponse.json({ error: escolha.erro }, { status: 400 });
+  if (escolha) Object.assign(body, escolha.corpo);
 
   // Equipe: dono que é colega (escolhido ou digitado) → a tarefa já nasce na lista dele.
   if (isTeamMode() && (body.owner !== undefined || body.responsavel_user_id)) {
@@ -96,6 +99,15 @@ export const POST = withAuth(async (user, req) => {
         c.query("UPDATE tarefas SET responsavel_user_id = $1 WHERE id = $2", [responsavel, created.id]),
       );
       created.responsavel_user_id = responsavel;
+    }
+    if (escolha?.notionUserId) {
+      await pedirEnvio({
+        tarefaId: created.id,
+        donoId: user.id,
+        pedidoPor: user.id,
+        notionUserId: escolha.notionUserId,
+        bu: buDoWorkspace(body.workspace),
+      });
     }
     return NextResponse.json(created, { status: 201 });
   } catch (e: unknown) {
