@@ -149,6 +149,9 @@ soft_deleted_at IS NULL` — se passar de ~10k, está na hora de migrar.
   - Modelos (24/09): Distiller e Judge em GPT-6 Luna; Coach (`COACH_MODEL`) e tarefas repetidas
     (`DEDUP_MODEL`) em GPT-6 Sol; ditado e sugestão de quem falou (`CAPTURE_MODEL`) em GPT-6 Luna.
     Regra do Vitor: nada de GPT-5.x ou anterior em nenhuma parte.
+  - Custo do Coach (25/09): pacote enxuto por chamada (`frontend/lib/coach/context-budget.ts`), custo de
+    cada chamada em `coach_model_runs.cost_usd` e teto diário `COACH_DAILY_BUDGET_USD` (padrão US$ 3).
+    Antes de mudar o que o Coach lê, medir com `ops/eval/coach-custo/` (grátis, cópia local do banco).
   - `Acoes - Reprocess Tarefas` — disparado pelo PATCH `/api/meetings/[id]/speakers`
     quando user corrige rotulação.
   - Pra sincronizar JSON local → live: `source .env && ./n8n-workflows/apply.sh`.
