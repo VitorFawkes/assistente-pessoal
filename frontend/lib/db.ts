@@ -12,7 +12,7 @@ function makePool(): Pool {
   }
   return new Pool({
     connectionString,
-    max: 5,
+    max: Number(process.env.PG_POOL_MAX) || 5, // 1 na prova local (pglite atende uma conexão por vez)
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 5_000,
   });

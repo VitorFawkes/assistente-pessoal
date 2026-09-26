@@ -12,7 +12,7 @@ import { ordenarPendencias } from "./compartilhar";
 import { listarProjetos, projetoParaQuemVe, adicionarAoProjeto, tirarDoProjeto, type ProjetoResumo } from "./projetos";
 import { meetingSubject } from "./meeting-label";
 import { trocarFalantes } from "./falantes";
-import { paraTela } from "./ttars-tela";
+import { paraTela, tarefaNaTela } from "./ttars-tela";
 import { criarAcao } from "./nova-acao";
 import { acharPessoaPorNome, ehEu } from "./pessoa-por-nome";
 import { chamarModelo, IaIndisponivel, type Ferramenta, type Item } from "./ia";
@@ -258,6 +258,8 @@ function instrucoes(nome: string): string {
     "O RETRATO (primeira mensagem) tem as ações, projetos, reuniões e pessoas. Use só isso e o que as ferramentas devolverem. Nunca invente ação, pessoa, data ou reunião; se não achar, diga que não achou.",
     "Responda curto e simples, em português do Brasil, sem jargão. Liste no máximo 8 ações; se houver mais, diga quantas são.",
     "Datas: use o 'hoje' do retrato. 'esta semana' vai até fim_desta_semana. Converta 'sexta', 'amanhã', 'semana que vem' para AAAA-MM-DD. Mostre datas como 'sex 03/10'.",
+    "Quando perguntarem o que vence (hoje, esta semana, este mês), conte também as atrasadas, dizendo que estão atrasadas.",
+    "A tela mostra a lista das ações que você puser em acoes_citadas: no texto, resuma em uma ou duas frases (quantas, quais as mais urgentes) em vez de repetir a lista inteira.",
     "Para criar ou mudar, use as ferramentas. Só diga que fez depois da ferramenta responder ok. Se ela devolver 'aguardando_confirmacao', diga que é só apertar Confirmar. Se devolver erro, explique em uma frase.",
     "Se o pedido puder ser mais de uma ação, ou o nome da pessoa for de mais de uma pessoa, pergunte antes citando as opções. Não mude nada que a pessoa não pediu.",
     "Só crie ação quando a pessoa pedir pra criar, anotar, lembrar ou pedir algo a alguém. Se ela pediu pra mudar, concluir ou passar uma ação que não está no retrato, diga que não achou essa ação entre as dela e NÃO crie outra no lugar.",
@@ -404,6 +406,9 @@ async function executar(
     const r = await patchTarefa(requisicaoInterna(req, pedido.caminho, "PATCH", corpo), { params: Promise.resolve({ id: t.id }) });
     if (!r.ok) return { erro: await lerErro(r) };
     pendente.feitas.push({ descricao, tarefa_id: t.id, desfazer: desfazerPedidos });
+    // O retrato passa a ter a ação como ficou (a lista que a tela mostra no fim já sai certa).
+    const atual = await tarefaNaTela(user.id, t.id).catch(() => null);
+    if (atual) retrato.tarefas.set(ref, atual.tarefa as TarefaVista);
     return { ok: true };
   }
 
@@ -527,7 +532,7 @@ export async function conversar(
         texto: texto.trim() || "Pronto.",
         citadas: [...new Set(citadas)]
           .map((ref) => retrato.tarefas.get(ref))
-          .filter((t): t is TarefaVista => !!t)
+          .filter((t): t is TarefaVista => !!t && !pendente.feitas.some((f) => f.tarefa_id === t.id) && !pendente.propostas.some((p) => p.tarefa_id === t.id))
           .slice(0, 12)
           .map((t) => ({ id: t.id, titulo: t.titulo, quem_faz: linhaDoRetrato("", t).quem_faz, prazo: diaDoPrazo(t.prazo), situacao: t.status })),
         feitas: pendente.feitas,
