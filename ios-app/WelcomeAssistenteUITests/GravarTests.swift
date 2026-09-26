@@ -152,7 +152,8 @@ final class GravarTests: XCTestCase {
         continuar.tap()
 
         let pausar = springboard.buttons["Pausar"]
-        XCTAssertTrue(pausar.waitForExistence(timeout: 20), "tocar em Continuar com o app fechado não começou a gravar")
+        // O iOS pode levar dezenas de segundos para abrir o app escondido num Mac carregado.
+        XCTAssertTrue(pausar.waitForExistence(timeout: 90), "tocar em Continuar com o app fechado não começou a gravar")
         fotoDaTela("fechado-2-gravando")
         XCUIDevice.shared.perform(NSSelectorFromString("pressLockButton"))
         sleep(UInt32(bloqueado))
