@@ -6,6 +6,7 @@ import { meetingSubject } from "@/lib/meeting-label";
 import { buildSpeakerCards } from "@/lib/speakers";
 import { comProjetos } from "@/lib/equipe-compartilhado";
 import { notionDasAcoes } from "@/lib/notion-sync";
+import { trocarFalantes } from "@/lib/falantes";
 
 export const dynamic = "force-dynamic";
 
@@ -57,11 +58,12 @@ export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
       : [];
 
   const acessos = souDono && isTeamMode() ? await teamAccessFor(user.id).listAcessos(id) : [];
+  const rotulo = trocarFalantes(meetingSubject(m.summary, m.nome), m.speaker_labels) || "Reunião";
 
   return NextResponse.json({
     reuniao: {
       id: m.id,
-      rotulo: meetingSubject(m.summary, m.nome) || "Reunião",
+      rotulo,
       nome: m.nome ?? null,
       recorded_at: m.recorded_at ?? m.created_at,
       duration_seconds: m.duration_seconds,
@@ -71,14 +73,14 @@ export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
       visibilidade: m.visibilidade ?? "so_eu",
       sou_dono: souDono,
       dono_nome: m.user_nome,
-      resumo: m.executive_summary,
+      resumo: trocarFalantes(m.executive_summary, m.speaker_labels),
       secoes: m.sections ?? [],
     },
     falantes,
     acessos,
     tarefas: tarefas.map((t) => ({
       ...t,
-      reuniao_rotulo: meetingSubject(m.summary, m.nome) || "Reunião",
+      reuniao_rotulo: rotulo,
       notion: notion.get(t.id) ?? null,
     })),
   });

@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/db";
+import { trocarFalantes } from "@/lib/falantes";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -174,6 +175,10 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
       reprocessed = false;
     }
 
+    // O reprocesso acerta os donos mas não reescreve o texto: "Speaker A" continuava nos
+    // títulos. Troca direta pelos nomes escolhidos (as tarefas da reunião são de quem gravou).
+    await trocarFalantesNasTarefas(user.id, id, result.speaker_labels).catch(() => undefined);
+
     return NextResponse.json({
       ok: true,
       reprocessed,
@@ -186,3 +191,18 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
     return NextResponse.json({ error: "falha ao salvar speaker_labels", message: msg }, { status });
   }
 });
+
+async function trocarFalantesNasTarefas(userId: string, meetingId: string, labels: Record<string, string>) {
+  await withTenant(userId, async (c) => {
+    const r = await c.query<{ id: string; titulo: string; descricao: string | null }>(
+      "SELECT id, titulo, descricao FROM tarefas WHERE meeting_id = $1",
+      [meetingId],
+    );
+    for (const t of r.rows) {
+      const titulo = trocarFalantes(t.titulo, labels);
+      const descricao = trocarFalantes(t.descricao, labels);
+      if (titulo === t.titulo && descricao === t.descricao) continue;
+      await c.query("UPDATE tarefas SET titulo = $1, descricao = $2 WHERE id = $3", [titulo, descricao, t.id]);
+    }
+  });
+}
