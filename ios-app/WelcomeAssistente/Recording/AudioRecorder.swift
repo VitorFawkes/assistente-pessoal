@@ -5,7 +5,8 @@ import UserNotifications
 
 /// Grava o microfone em trechos de 5 minutos (arquivos .m4a completos).
 ///
-/// - Continua com a tela bloqueada (UIBackgroundModes = audio + sessão .playAndRecord).
+/// - Continua com a tela bloqueada (UIBackgroundModes = audio + sessão .playAndRecord que se mistura
+///   com outros sons: sessão exclusiva é recusada pelo iPhone quando o app está escondido).
 /// - Cada trecho fechado vai para `aoFecharTrecho`, que sobe na hora.
 /// - Ligação, Siri ou outro app pegando o microfone: o trecho em andamento é fechado
 ///   (nada se perde) e, quando a interrupção acaba, o gravador tenta continuar sozinho.
@@ -30,6 +31,8 @@ final class AudioRecorder: NSObject {
     var aoFecharTrecho: ((String, Int64, URL) -> Void)?
     /// Qualquer mudança de estado, venha da tela, da tela bloqueada ou de uma ligação.
     var aoMudarEstado: (() -> Void)?
+    /// Antes de voltar a gravar (pausa, fim de ligação, parada do iPhone): abre o aviso da tela bloqueada.
+    var antesDeContinuar: (() throws -> Void)?
 
     static let duracaoDoTrecho: TimeInterval = {
         #if DEBUG
@@ -48,6 +51,9 @@ final class AudioRecorder: NSObject {
     private var inicioDoTrecho: Date?
     private var acumulado: TimeInterval = 0     // segundos de trechos já fechados
     private var proximaTroca: Date?             // troca que falhou: tenta de novo a partir daqui
+    private var proximoSinal: Date?             // próxima linha "ainda gravando" no registro
+    private var ultimaRetomada: Date?           // gravador desligado pelo iPhone: última tentativa de continuar
+    private var emInterrupcao = false           // ligação etc. em andamento: o fim dela é que retoma
     private var timer: Timer?
     private var observadores: [NSObjectProtocol] = []
 
@@ -67,12 +73,25 @@ final class AudioRecorder: NSObject {
         ) { [weak self] nota in
             let tipo = (nota.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt)
                 .flatMap(AVAudioSession.InterruptionType.init(rawValue:))
-            MainActor.assumeIsolated { self?.tratarInterrupcao(tipo) }
+            let motivo = nota.userInfo?[AVAudioSessionInterruptionReasonKey] as? UInt
+            MainActor.assumeIsolated {
+                Registro.anotar("microfone interrompido: \(tipo == .began ? "começou" : "acabou") (motivo \(motivo.map(String.init) ?? "-"))")
+                self?.emInterrupcao = tipo == .began
+                self?.tratarInterrupcao(tipo)
+            }
+        })
+        observadores.append(centro.addObserver(
+            forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
+        ) { nota in
+            let motivo = nota.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+            let entrada = AVAudioSession.sharedInstance().currentRoute.inputs.first?.portType.rawValue ?? "nenhuma"
+            Registro.anotar("microfone trocado (motivo \(motivo.map(String.init) ?? "-"), entrada \(entrada))")
         })
         observadores.append(centro.addObserver(
             forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
+                Registro.anotar("serviço de áudio do iPhone reiniciou")
                 self?.tratarInterrupcao(.began)
                 self?.tratarInterrupcao(.ended)
             }
@@ -101,12 +120,15 @@ final class AudioRecorder: NSObject {
         proximaTroca = nil
         try iniciarTrecho()
         iniciarTimer()
+        proximoSinal = Date().addingTimeInterval(60)
+        Registro.anotar("gravando (já gravado: \(Int(acumulado)) s)")
         mudarEstado(.recording)
     }
 
     /// Continua depois de uma pausa ou de uma interrupção (ligação etc.).
     func continuar() throws {
         guard let gravacaoId, state == .pausado || state == .interrompido else { return }
+        try antesDeContinuar?()
         try iniciar(gravacaoId: gravacaoId)
     }
 
@@ -116,6 +138,7 @@ final class AudioRecorder: NSObject {
         fecharTrecho()
         pararTimer()
         elapsedSeconds = acumulado
+        Registro.anotar("pausado (\(Int(acumulado)) s)")
         mudarEstado(.pausado)
     }
 
@@ -130,6 +153,7 @@ final class AudioRecorder: NSObject {
         proximaTroca = nil
         elapsedSeconds = 0
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        Registro.anotar("parado (\(Int(total)) s no total)")
         mudarEstado(.idle)
         return total
     }
@@ -146,10 +170,12 @@ final class AudioRecorder: NSObject {
         let session = AVAudioSession.sharedInstance()
         do {
             // .default em vez de .spokenAudio (rejeitado em alguns aparelhos);
-            // sem Bluetooth: fone sem fio roubaria o microfone da sala.
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+            // sem Bluetooth: fone sem fio roubaria o microfone da sala;
+            // .mixWithOthers: com o app escondido (tela bloqueada) o iPhone recusa sessão exclusiva.
+            try session.setCategory(.playAndRecord, mode: .default, options: [.mixWithOthers, .defaultToSpeaker])
             try session.setActive(true)
         } catch {
+            Registro.anotar("microfone recusado: \((error as NSError).code) \(error.localizedDescription)")
             throw NSError(domain: "AudioRecorder", code: -2, userInfo: [
                 NSLocalizedDescriptionKey: "Não consegui usar o microfone agora. Feche outros apps que estejam gravando ou numa ligação e tente de novo.",
             ])
@@ -168,6 +194,7 @@ final class AudioRecorder: NSObject {
         rec.delegate = self
         rec.isMeteringEnabled = true
         guard rec.record() else {
+            Registro.anotar("gravador não começou")
             rec.deleteRecording()
             throw NSError(domain: "AudioRecorder", code: -6, userInfo: [
                 NSLocalizedDescriptionKey: "Não consegui começar a gravar. Feche outros apps que usam o microfone e tente de novo.",
@@ -183,6 +210,7 @@ final class AudioRecorder: NSObject {
         guard let rec = recorder, let gravacaoId else { return }
         let url = rec.url
         let duracao = inicioDoTrecho.map { Date().timeIntervalSince($0) } ?? rec.currentTime
+        Registro.anotar("trecho fechado: \(Int(duracao)) s no relógio, \(Int(rec.currentTime)) s no gravador")
         rec.stop()
         recorder = nil
         inicioDoTrecho = nil
@@ -200,9 +228,11 @@ final class AudioRecorder: NSObject {
         do {
             try iniciarTrecho()
         } catch {
+            Registro.anotar("troca de trecho falhou; o trecho atual segue gravando")
             proximaTroca = Date().addingTimeInterval(30)
             return
         }
+        Registro.anotar("trecho trocado: \(Int(antigo.currentTime)) s no gravador")
         proximaTroca = nil
         acumulado += inicioAntigo.map { Date().timeIntervalSince($0) } ?? antigo.currentTime
         antigo.stop()
@@ -261,6 +291,10 @@ final class AudioRecorder: NSObject {
         meterLevel = Double((clamped + 50) / 50)
         let noTrecho = Date().timeIntervalSince(inicio)
         elapsedSeconds = acumulado + noTrecho
+        if let sinal = proximoSinal, Date() >= sinal {
+            proximoSinal = sinal.addingTimeInterval(60)
+            Registro.anotar("ainda gravando: \(Int(elapsedSeconds)) s, gravador \(rec.isRecording ? "ligado" : "DESLIGADO"), nível \(Int(avg)) dB")
+        }
         if noTrecho >= Self.duracaoDoTrecho, proximaTroca.map({ Date() >= $0 }) ?? true {
             girarTrecho()
         }
@@ -271,10 +305,38 @@ final class AudioRecorder: NSObject {
         timer = nil
         meterLevel = 0
     }
+
+    /// O iPhone desligou o gravador sem a gente pedir: trata como interrupção (fecha o trecho, nada se perde).
+    private func gravadorParouSozinho(_ id: ObjectIdentifier, ok: Bool) {
+        guard let rec = recorder, ObjectIdentifier(rec) == id else { return }
+        Registro.anotar("o iPhone desligou o gravador (ok: \(ok))")
+        tratarInterrupcao(.began)
+        // Se foi uma ligação, o aviso dela chega logo depois e o fim dela retoma sozinho.
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            self?.retomarDepoisDeParar()
+        }
+    }
+
+    /// Tenta continuar uma vez (não fica em círculo); se o iPhone não deixar, avisa.
+    private func retomarDepoisDeParar() {
+        guard state == .interrompido, !emInterrupcao else { return }
+        if ultimaRetomada.map({ Date().timeIntervalSince($0) > 30 }) ?? true {
+            ultimaRetomada = Date()
+            if (try? continuar()) != nil { return }
+        }
+        avisarQueParou()
+    }
 }
 
 extension AudioRecorder: AVAudioRecorderDelegate {
     nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
-        Task { @MainActor [weak self] in self?.tratarInterrupcao(.began) }
+        let id = ObjectIdentifier(recorder)
+        Task { @MainActor [weak self] in self?.gravadorParouSozinho(id, ok: false) }
+    }
+
+    nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
+        let id = ObjectIdentifier(recorder)
+        Task { @MainActor [weak self] in self?.gravadorParouSozinho(id, ok: flag) }
     }
 }

@@ -37,6 +37,10 @@ final class AuthStore {
     /// Já nasce entrado com o acesso guardado: o iOS pode abrir o app escondido
     /// para atender o botão da tela bloqueada, sem tela nenhuma.
     init() {
+        #if DEBUG
+        // Só em testes no simulador: começa sem conta (-semConta), mesmo que outro teste tenha entrado.
+        if CommandLine.arguments.contains("-semConta") { KeychainStorage.clearAll() }
+        #endif
         if let token = KeychainStorage.get(.sessionToken), let id = KeychainStorage.get(.userId) {
             state = .authenticated(user: AuthenticatedUser(
                 id: id,

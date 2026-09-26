@@ -56,6 +56,7 @@ struct SettingsView: View {
 
                 Section("Sobre") {
                     LabeledContent("Versão", value: "\(Configuration.appVersion) (\(Configuration.buildNumber))")
+                    NavigationLink("Registro do gravador") { RegistroView() }
                 }
             }
             .navigationTitle("Ajustes")
@@ -89,5 +90,31 @@ struct SettingsView: View {
                 erro = "Sem internet. Tente de novo."
             }
         }
+    }
+}
+
+/// O que o gravador anotou (para mandar ao suporte quando uma gravação parar sozinha).
+private struct RegistroView: View {
+    @State private var texto = ""
+    @State private var copiado = false
+
+    var body: some View {
+        ScrollView {
+            Text(texto.isEmpty ? "Nada anotado ainda." : texto)
+                .font(.caption.monospaced())
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+        }
+        .navigationTitle("Registro do gravador")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            Button(copiado ? "Copiado" : "Copiar") {
+                UIPasteboard.general.string = texto
+                copiado = true
+            }
+            .disabled(texto.isEmpty)
+        }
+        .task { texto = Registro.ler() }
     }
 }
