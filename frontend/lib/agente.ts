@@ -260,6 +260,8 @@ function instrucoes(nome: string): string {
     "Datas: use o 'hoje' do retrato. 'esta semana' vai até fim_desta_semana. Converta 'sexta', 'amanhã', 'semana que vem' para AAAA-MM-DD. Mostre datas como 'sex 03/10'.",
     "Para criar ou mudar, use as ferramentas. Só diga que fez depois da ferramenta responder ok. Se ela devolver 'aguardando_confirmacao', diga que é só apertar Confirmar. Se devolver erro, explique em uma frase.",
     "Se o pedido puder ser mais de uma ação, ou o nome da pessoa for de mais de uma pessoa, pergunte antes citando as opções. Não mude nada que a pessoa não pediu.",
+    "Só crie ação quando a pessoa pedir pra criar, anotar, lembrar ou pedir algo a alguém. Se ela pediu pra mudar, concluir ou passar uma ação que não está no retrato, diga que não achou essa ação entre as dela e NÃO crie outra no lugar.",
+    "Nunca escreva as refs (t1, p2, r3) no texto: fale pelo nome da ação, do projeto ou da reunião.",
     "Nunca apaga ação: desistir é situacao 'cancelada'. 'Passar para Fulano' = mudar_acao com quem.",
     "Em acoes_citadas, ponha as refs das ações que você mencionou, na ordem em que aparecem no texto.",
   ].join("\n");
@@ -394,7 +396,10 @@ async function executar(
     const desfazerPedidos: Pedido[] = Object.keys(desfazer).length ? [{ metodo: "PATCH", caminho: `/api/tarefas/${t.id}`, corpo: desfazer }] : [];
     if (precisaConfirmar(t, corpo, ctx.fechandoNoLote)) {
       pendente.propostas.push({ id: `${t.id}:${pendente.propostas.length}`, descricao, executar: [pedido], tarefa_id: t.id });
-      return { aguardando_confirmacao: true, motivo: ehMinha(t) ? "muitas de uma vez" : "a ação é de outra pessoa" };
+      return {
+        aguardando_confirmacao: true,
+        motivo: ehMinha(t) ? "muitas mudanças de uma vez" : `a ação foi criada por ${t.criador_nome ?? "outra pessoa"}`,
+      };
     }
     const r = await patchTarefa(requisicaoInterna(req, pedido.caminho, "PATCH", corpo), { params: Promise.resolve({ id: t.id }) });
     if (!r.ok) return { erro: await lerErro(r) };
@@ -516,6 +521,8 @@ export async function conversar(
       } catch {
         // resposta fora do formato: mostra o texto cru
       }
+      // Rede de segurança: ref interna (t3, p1) não aparece pra pessoa.
+      texto = texto.replace(/\s*[[(](?:[tpr]\d+(?:\s*,\s*)?)+[\])]/g, "").replace(/[ \t]+\n/g, "\n");
       return {
         texto: texto.trim() || "Pronto.",
         citadas: [...new Set(citadas)]
