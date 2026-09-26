@@ -158,7 +158,8 @@ export async function lerFrase(userId: string, texto: string): Promise<FraseLida
     "Você transforma UMA frase de alguém da Welcome em UMA tarefa.",
     `Hoje é ${DIAS[diaDaSemanaBR()]}, ${hoje} (horário de Brasília).`,
     "titulo: preserve as palavras de quem escreveu; tire de dentro a pessoa, a data e a urgência. Ex.: 'pedir pra Paula revisar o orçamento até sexta' → 'Revisar o orçamento'.",
-    "quem: o nome de quem vai FAZER a tarefa, se for outra pessoa ('pedir pra Paula', 'cobrar do João', 'Ana precisa mandar'). null se quem escreveu é quem faz.",
+    "quem: o nome de quem vai FAZER a tarefa, SÓ quando a frase disser que outra pessoa faz: 'pedir pra Paula', 'pede pra Paula', 'cobrar do João', 'Ana precisa mandar', 'Ana vai revisar'. Um nome solto (no começo, numa etiqueta ou como assunto: 'TESTE Claude montar…', 'reunião com a Paula') NÃO é quem faz. Na dúvida, null (quem escreveu faz).",
+    "titulo: não tire da frase palavras que não sejam pessoa, data ou urgência.",
     `prazo: a data em AAAA-MM-DD. 'sexta' = a próxima sexta a partir de hoje (se hoje é sexta, a de hoje só se disser 'hoje'); 'semana que vem' = a segunda da semana que vem (${proximaSegunda()}); 'fim do mês' = último dia do mês. null se não disse.`,
     "prioridade: 'urgente' para hoje/agora/urgente; 'alta' para amanhã; 'baixa' para talvez/algum dia; senão 'media'.",
   ].join("\n");
@@ -170,8 +171,9 @@ export async function lerFrase(userId: string, texto: string): Promise<FraseLida
     maxSaida: 800,
   });
   const d = JSON.parse(r.texto) as FraseLida;
+  const titulo = (d.titulo || texto).trim();
   return {
-    titulo: (d.titulo || texto).trim(),
+    titulo: titulo.charAt(0).toUpperCase() + titulo.slice(1),
     quem: d.quem?.trim() || null,
     prazo: d.prazo && DIA.test(d.prazo) && d.prazo >= hoje ? d.prazo : null,
     prioridade: PRIORIDADES.includes(d.prioridade) ? d.prioridade : "media",
