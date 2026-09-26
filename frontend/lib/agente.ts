@@ -5,7 +5,7 @@
 // rotas das telas (chamadas aqui dentro com o acesso de quem pede), então quem pode o quê
 // é exatamente o das telas. Regras de confirmar/desfazer em lib/agente-regras.ts.
 import type { User } from "./auth";
-import { hojeBR, diaDaSemanaBR, maisDiasBR } from "./data-br";
+import { dataCurtaBR, hojeBR, diaDaSemanaBR, maisDiasBR } from "./data-br";
 import { tarefasFor, meetingsFor, type Tarefa } from "./queries";
 import { tarefasParaMim, pessoasDaEquipe, type PessoaDaEquipe } from "./equipe-compartilhado";
 import { ordenarPendencias } from "./compartilhar";
@@ -134,7 +134,7 @@ async function montarRetrato(user: User, ctx: Contexto): Promise<Retrato> {
     fim_desta_semana: domingo,
     tela: tela.join(" ") || null,
     acoes_abertas: abertas.length > MAX_ABERTAS ? `${abertas.length} (mostrando as ${MAX_ABERTAS} com prazo mais perto)` : abertas.length,
-    acoes: escolhidas.map((t) => linhaDoRetrato(refDe.get(t.id)!, t)),
+    acoes: escolhidas.map((t) => linhaDoRetrato(refDe.get(t.id)!, t, hoje)),
     projetos: [...refsProjeto.entries()].map(([ref, p]) => ({
       ref,
       nome: p.nome,
@@ -258,7 +258,7 @@ function instrucoes(nome: string): string {
     "O RETRATO (primeira mensagem) tem as ações, projetos, reuniões e pessoas. Use só isso e o que as ferramentas devolverem. Nunca invente ação, pessoa, data ou reunião; se não achar, diga que não achou.",
     "Responda curto e simples, em português do Brasil, sem jargão. Liste no máximo 8 ações; se houver mais, diga quantas são.",
     "Datas: use o 'hoje' do retrato. 'esta semana' vai até fim_desta_semana. Converta 'sexta', 'amanhã', 'semana que vem' para AAAA-MM-DD. Mostre datas como 'sex 03/10'.",
-    "Quando perguntarem o que vence (hoje, esta semana, este mês), conte também as atrasadas, dizendo que estão atrasadas.",
+    "Cada ação tem 'vence' já calculado (atrasada N dias, hoje, amanhã, esta semana, semana que vem, depois). Use esse campo, não faça conta de data. Quando perguntarem o que vence (hoje, esta semana), conte também as atrasadas, dizendo que estão atrasadas.",
     "A tela mostra a lista das ações que você puser em acoes_citadas: no texto, resuma em uma ou duas frases (quantas, quais as mais urgentes) em vez de repetir a lista inteira.",
     "Para criar ou mudar, use as ferramentas. Só diga que fez depois da ferramenta responder ok. Se ela devolver 'aguardando_confirmacao', diga que é só apertar Confirmar. Se devolver erro, explique em uma frase.",
     "Se o pedido puder ser mais de uma ação, ou o nome da pessoa for de mais de uma pessoa, pergunte antes citando as opções. Não mude nada que a pessoa não pediu.",
@@ -358,7 +358,7 @@ async function executar(
     retrato.refDe.set(t.id, ref);
     const partes = [
       quem_email || quem_nome_fora ? `com ${t.acao === "executar" ? "você" : (t.pessoas?.find((p) => (p as { principal?: boolean }).principal)?.nome ?? t.owner)}` : null,
-      diaDoPrazo(t.prazo) ? `prazo ${diaDoPrazo(t.prazo)!.split("-").reverse().slice(0, 2).join("/")}` : null,
+      t.prazo ? `prazo ${dataCurtaBR(t.prazo)}` : null,
       projeto ? `no projeto ${projeto.nome}` : null,
     ].filter(Boolean);
     const descricao = `Criei "${tituloCurto(t.titulo)}"${partes.length ? `, ${partes.join(", ")}` : ""}.`;
@@ -511,7 +511,10 @@ export async function conversar(
       userId: user.id,
       instrucoes: instrucoes(user.nome),
       entrada: entradaModelo,
-      ferramentas: ultima ? undefined : FERRAMENTAS,
+      // Na última volta as ferramentas continuam declaradas (a conversa já tem chamadas delas),
+      // mas o modelo só pode responder.
+      ferramentas: FERRAMENTAS,
+      usarFerramentas: ultima ? "none" : "auto",
       formato: { nome: "resposta", schema: RESPOSTA },
       maxSaida: 3000,
     });

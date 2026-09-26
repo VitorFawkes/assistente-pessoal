@@ -177,7 +177,9 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
 
     // O reprocesso acerta os donos mas não reescreve o texto: "Speaker A" continuava nos
     // títulos. Troca direta pelos nomes escolhidos (as tarefas da reunião são de quem gravou).
-    await trocarFalantesNasTarefas(user.id, id, result.speaker_labels).catch(() => undefined);
+    await trocarFalantesNasTarefas(user.id, id, result.speaker_labels).catch((e) =>
+      console.error("[speakers] trocar Speaker X pelos nomes nas tarefas:", e),
+    );
 
     return NextResponse.json({
       ok: true,

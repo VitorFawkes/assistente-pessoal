@@ -45,14 +45,32 @@ export function diaDoPrazo(prazo: string | null | undefined): string | null {
   return prazo && ehDataValida(prazo) ? diaBR(prazo) : null;
 }
 
+/** Quando vence, já calculado (o modelo erra conta de data): "atrasada 2 dias", "hoje", "amanhã",
+ *  "esta semana", "semana que vem", "depois" ou null sem prazo. Semana termina no domingo. */
+export function quandoVence(prazo: string | null | undefined, hoje: string): string | null {
+  const dia = diaDoPrazo(prazo);
+  if (!dia) return null;
+  const dias = Math.round((Date.parse(`${dia}T12:00:00Z`) - Date.parse(`${hoje}T12:00:00Z`)) / 86_400_000);
+  if (dias < 0) return dias === -1 ? "atrasada 1 dia" : `atrasada ${-dias} dias`;
+  if (dias === 0) return "hoje";
+  if (dias === 1) return "amanhã";
+  const dow = new Date(`${hoje}T12:00:00Z`).getUTCDay();
+  const ateDomingo = dow === 0 ? 0 : 7 - dow;
+  if (dias <= ateDomingo) return "esta semana";
+  if (dias <= ateDomingo + 7) return "semana que vem";
+  return "depois";
+}
+
 /** Linha compacta da tarefa pro modelo. `ref` curto (t1, t2…) no lugar do id. */
-export function linhaDoRetrato(ref: string, t: TarefaVista) {
+export function linhaDoRetrato(ref: string, t: TarefaVista, hoje?: string) {
+  const fechada = t.status === "concluida" || t.status === "cancelada";
   return {
     ref,
     titulo: t.titulo,
     quem_faz: quemFazNaTela(t),
     tipo: TIPO[t.acao] ?? t.acao,
     prazo: diaDoPrazo(t.prazo),
+    ...(hoje && !fechada ? { vence: quandoVence(t.prazo, hoje) } : {}),
     situacao: ROTULO_SITUACAO[t.status as Situacao] ?? t.status,
     prioridade: t.prioridade,
     ...(t.projetos?.length ? { projetos: t.projetos.map((p) => p.nome) } : {}),

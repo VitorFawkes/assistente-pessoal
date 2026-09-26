@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { desfazerQuem, linhaDoRetrato, montarMudanca, precisaConfirmar, quemFazNaTela, type TarefaVista } from "./agente-regras";
+import { desfazerQuem, linhaDoRetrato, montarMudanca, precisaConfirmar, quandoVence, quemFazNaTela, type TarefaVista } from "./agente-regras";
 
 function t(over: Partial<TarefaVista> = {}): TarefaVista {
   return {
@@ -67,5 +67,20 @@ describe("desfazerQuem", () => {
       owner: "Paula Klotz", acao: "cobrar", responsavel_user_id: "u-paula",
     });
     expect(desfazerQuem(t())).toEqual({ owner: "eu", acao: "executar", responsavel_user_id: null });
+  });
+});
+
+describe("quandoVence", () => {
+  // 26/09/2026 é sábado; o prazo vale o dia de Brasília (23:59 BRT = 02:59Z do dia seguinte).
+  const fim = (dia: string) => new Date(`${dia}T23:59:00-03:00`).toISOString();
+  it("conta pelo dia de Brasília", () => {
+    expect(quandoVence(fim("2026-09-26"), "2026-09-26")).toBe("hoje");
+    expect(quandoVence(fim("2026-09-24"), "2026-09-26")).toBe("atrasada 2 dias");
+    expect(quandoVence(fim("2026-09-25"), "2026-09-26")).toBe("atrasada 1 dia");
+    expect(quandoVence(fim("2026-09-27"), "2026-09-26")).toBe("amanhã");
+    expect(quandoVence(fim("2026-10-02"), "2026-09-26")).toBe("semana que vem");
+    expect(quandoVence(fim("2026-10-05"), "2026-09-26")).toBe("depois");
+    expect(quandoVence(fim("2026-10-01"), "2026-09-28")).toBe("esta semana");
+    expect(quandoVence(null, "2026-09-26")).toBeNull();
   });
 });

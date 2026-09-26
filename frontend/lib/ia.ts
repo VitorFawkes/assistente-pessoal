@@ -61,6 +61,8 @@ export async function chamarModelo(opts: {
   entrada: Item[];
   ferramentas?: Ferramenta[];
   formato?: { nome: string; schema: Record<string, unknown> };
+  /** "none" = responde sem chamar ferramenta (as chamadas anteriores continuam na conversa). */
+  usarFerramentas?: "auto" | "none";
   maxSaida?: number;
   signal?: AbortSignal;
 }): Promise<Resposta> {
@@ -85,7 +87,7 @@ export async function chamarModelo(opts: {
       ? {
           tools: opts.ferramentas.map((f) => ({ type: "function", strict: true, ...f })),
           parallel_tool_calls: true,
-          tool_choice: "auto",
+          tool_choice: opts.usarFerramentas ?? "auto",
         }
       : {}),
   };
