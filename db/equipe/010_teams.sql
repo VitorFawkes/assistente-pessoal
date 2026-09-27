@@ -8,8 +8,9 @@
 -- 2. Quem foi chamado para a reunião do Teams (acesso explícito em meeting_acessos) pode puxar
 --    uma ação dela para a própria lista. A ação continua de quem criou; o app age no tenant dele, no
 --    mesmo desenho de equipe_acesso_tarefa (008).
--- 3. equipe_teams_paradas(): reunião do Teams que ficou analisando há 40+ min (servidor reiniciou
+-- 3. equipe_teams_paradas(): reunião do Teams que ficou analisando há 50+ min (servidor reiniciou
 --    no meio): com as ações gravadas fica pronta; sem, tenta uma vez de novo; depois vira erro.
+--    "Tentar de novo" marca done_at como o começo da nova tentativa (a conta recomeça dali).
 
 BEGIN;
 
@@ -67,7 +68,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
     FROM meetings m
    WHERE m.source = 'teams'
      AND m.status = 'analyzing'
-     AND m.created_at < now() - interval '40 minutes'
+     AND COALESCE(m.done_at, m.created_at) < now() - interval '50 minutes'
      AND m.created_at > now() - interval '2 days'
    ORDER BY m.created_at
    LIMIT 3

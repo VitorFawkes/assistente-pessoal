@@ -170,7 +170,9 @@ export async function receber(p: PedidoDaReuniao): Promise<{ meeting_id?: string
 const analisando = new Set<string>();
 const FALHOU = 'O resumo e as ações não saíram. Toque em "Tentar de novo".';
 
-function analisarDepois(meetingId: string, userId: string) {
+/** Roda o resumo e as ações em segundo plano; quem fecha a situação (pronta/erro) é esta função
+ *  ou a retomada. Também é o "Tentar de novo" da reunião do Teams que deu erro. */
+export function analisarDepois(meetingId: string, userId: string) {
   if (analisando.has(meetingId)) return;
   analisando.add(meetingId);
   void (async () => {
@@ -181,7 +183,7 @@ function analisarDepois(meetingId: string, userId: string) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ meeting_id: meetingId, user_id: userId }),
-        signal: AbortSignal.timeout(15 * 60_000),
+        signal: AbortSignal.timeout(25 * 60_000),
       });
       // Resposta de erro, mas as ações já foram gravadas = o fluxo terminou (quem cortou foi o
       // caminho). O resumo sozinho não prova: o fluxo grava o resumo antes das ações.
@@ -207,7 +209,7 @@ function analisarDepois(meetingId: string, userId: string) {
 }
 
 /**
- * Reunião do Teams parada em "analisando" há mais de 40 min (o servidor reiniciou no meio, ou a
+ * Reunião do Teams parada em "analisando" há mais de 50 min (o servidor reiniciou no meio, ou a
  * resposta se perdeu): com as ações gravadas, fica pronta; sem, tenta UMA vez de novo; parada de
  * novo depois disso vira erro com "Tentar de novo" (nunca paga a IA uma terceira vez sozinha).
  */
