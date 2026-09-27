@@ -348,9 +348,12 @@ export const meetingsFor = (userId: string) => ({
         segments_removidos_count: number;
         share_token: string | null;
         visibilidade: string | null;
+        nome: string | null;
+        tem_audio: boolean;
       }>(
         `SELECT
            m.id, m.user_id, u.nome AS user_nome, m.source, m.meeting_type, m.original_filename, m.share_token,
+           m.nome, (m.audio_path IS NOT NULL) AS tem_audio,
            to_char(coalesce(m.recorded_at, m.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
            to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
            m.status, m.status_error, m.transcription, m.summary,

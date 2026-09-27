@@ -11,7 +11,7 @@
 import type { PoolClient } from "pg";
 import { query, withTenant } from "./db";
 import { isTeamMode } from "./team-mode";
-import { getOwnerSlug } from "./owner-slug";
+import { getOwnerSlug, isOwner } from "./owner-slug";
 import { TAREFA_SELECT, TAREFA_SELECT_CONVIDADO, type Tarefa } from "./queries";
 import { type Colega, ordenarPendencias, paraQuemVe } from "./compartilhar";
 
@@ -211,6 +211,47 @@ export async function comProjetos<T extends Tarefa>(userId: string, tarefas: T[]
 }
 
 /** Evento de tarefa com quem fez (quando quem fez não é o dono). */
+/**
+ * Depois de trocar quem faz a tarefa: a pessoa principal (a que agrupa "por pessoa") passa a
+ * ser a do dono novo. Espelha a trigger resolve_tarefa_pessoas:
+ *   executar        → ninguém é principal (agrupa em "Você")
+ *   cobrar/aguardar → principal = a pessoa do owner (cria/vincula se preciso)
+ */
+export async function ajustarPrincipal(
+  c: PoolClient,
+  tarefaId: string,
+  donoId: string,
+  acao: string,
+  owner: string,
+) {
+  if (acao === "executar") {
+    await c.query("UPDATE tarefa_pessoas SET principal = false WHERE tarefa_id = $1 AND principal", [tarefaId]);
+    return;
+  }
+  await c.query("UPDATE tarefa_pessoas SET principal = false WHERE tarefa_id = $1", [tarefaId]);
+  if (!owner || owner === "?" || isOwner(owner)) return;
+  const found = await c.query<{ pessoa_id: string }>(
+    `SELECT tp.pessoa_id FROM tarefa_pessoas tp
+       JOIN pessoas p ON p.id = tp.pessoa_id
+      WHERE tp.tarefa_id = $1 AND app_slugify(p.nome) = app_slugify($2) LIMIT 1`,
+    [tarefaId, owner],
+  );
+  let pessoaId = found.rows[0]?.pessoa_id;
+  if (!pessoaId) {
+    const pr = await c.query<{ id: string }>(
+      `INSERT INTO pessoas (user_id, nome) VALUES ($1,$2)
+       ON CONFLICT (user_id, nome) DO UPDATE SET updated_at = now() RETURNING id`,
+      [donoId, owner],
+    );
+    pessoaId = pr.rows[0].id;
+  }
+  await c.query(
+    `INSERT INTO tarefa_pessoas (tarefa_id, pessoa_id, principal) VALUES ($1,$2,true)
+     ON CONFLICT (tarefa_id, pessoa_id) DO UPDATE SET principal = true`,
+    [tarefaId, pessoaId],
+  );
+}
+
 export async function registrarEvento(
   c: PoolClient,
   tarefaId: string,

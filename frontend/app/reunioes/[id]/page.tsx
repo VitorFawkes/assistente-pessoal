@@ -51,6 +51,7 @@ type Meeting = {
   segments_removidos_count: number;
   share_token: string | null;
   visibilidade: string | null;
+  tem_audio: boolean;
 };
 
 function MeetingTypeIcon({ type }: { type: string | null }) {
@@ -176,7 +177,7 @@ export default async function ReuniaoDetalhePage({
             {typeLabel}
           </span>
           <span>·</span>
-          <span>via {meeting.source}</span>
+          <span>via {meeting.source === "teams" ? "Teams" : meeting.source}</span>
           {meeting.duration_seconds && meeting.duration_seconds > 0 ? (
             <>
               <span>·</span>
@@ -205,17 +206,23 @@ export default async function ReuniaoDetalhePage({
           <p className="sr-only">{meeting.original_filename}</p>
         </div>
 
-        {/* Player de áudio — full width abaixo do título */}
-        <div className="paper-card rounded-2xl border border-[color:var(--border)] p-3 sm:p-4">
-          <audio
-            controls
-            className="w-full"
-            preload="metadata"
-            src={`/api/audio/${meeting.id}`}
-          >
-            seu navegador não suporta áudio
-          </audio>
-        </div>
+        {/* Player de áudio — full width abaixo do título. Reunião do Teams: a gravação fica lá. */}
+        {meeting.tem_audio ? (
+          <div className="paper-card rounded-2xl border border-[color:var(--border)] p-3 sm:p-4">
+            <audio
+              controls
+              className="w-full"
+              preload="metadata"
+              src={`/api/audio/${meeting.id}`}
+            >
+              seu navegador não suporta áudio
+            </audio>
+          </div>
+        ) : (
+          <p className="text-[13px] text-[color:var(--muted-strong)]">
+            Gravada no Teams: o vídeo continua lá. Aqui ficam a conversa, o resumo e as ações.
+          </p>
+        )}
 
         {meeting.status_error && (
           <div className="rounded-2xl border border-[color:var(--urgent)]/30 bg-[color:var(--urgent-bg)] p-4">
@@ -227,7 +234,7 @@ export default async function ReuniaoDetalhePage({
       </header>
 
       {/* SPEAKERS INLINE — escutar/identificar sem sair da página */}
-      {speakerCards.length > 0 && (
+      {speakerCards.length > 0 && meeting.tem_audio && (
         <div className="space-y-2">
           <SpeakersStrip
             meetingId={meeting.id}
