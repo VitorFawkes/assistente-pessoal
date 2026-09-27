@@ -120,12 +120,13 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
         id: string;
         speaker_labels: Record<string, string>;
         speaker_pessoas: Record<string, string>;
+        audio_path: string | null;
       }>(
         `UPDATE meetings
            SET speaker_labels = $1::jsonb,
                speaker_pessoas = $2::jsonb
          WHERE id = $3::uuid
-         RETURNING id, speaker_labels, speaker_pessoas`,
+         RETURNING id, speaker_labels, speaker_pessoas, audio_path`,
         [JSON.stringify(speakerLabels), JSON.stringify(speakerPessoas), id],
       );
       if (!upd.rows.length) {
@@ -138,7 +139,8 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
     // (meeting, letter, pessoa) — manda o mapping completo sem se preocupar com duplicação.
     // Se o user curou turnos específicos, propaga em turns_by_letter pra pular outlier rejection.
     const enrollMapping = result.speaker_pessoas;
-    if (enrollMapping && Object.keys(enrollMapping).length > 0) {
+    // Reunião do Teams não tem áudio aqui: não há voz para aprender.
+    if (result.audio_path && enrollMapping && Object.keys(enrollMapping).length > 0) {
       const enrollBody: {
         meeting_id: string;
         user_id: string;

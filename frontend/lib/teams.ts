@@ -22,11 +22,11 @@ export type ContextoDaDecisao = {
   welcome: Set<string>;
   /** `organizador|chave` das reuniões do Teams que já estão aqui. */
   jaTem: Set<string>;
-  /** Começo (ms) das gravações feitas pela aba ou pelo celular, por e-mail de quem gravou. */
+  /** Começo (ms) das gravações feitas pelo próprio Ações (aba, celular), por e-mail de quem gravou. */
   gravadasAqui: Map<string, number[]>;
 };
 
-// Gravação pela aba que começou até 15 min antes do horário marcado conta como a mesma reunião.
+// Gravação pelo Ações que começou até 15 min antes do horário marcado conta como a mesma reunião.
 const FOLGA_DA_GRAVACAO_MS = 15 * 60_000;
 
 export const normalizarEmail = (e: string | null | undefined) => String(e ?? "").trim().toLowerCase();
@@ -37,17 +37,29 @@ export function pessoasDaReuniao(c: Candidato, welcome: Set<string>): string[] {
   return [...new Set(todas)].filter((e) => welcome.has(e));
 }
 
+/** A pessoa gravou esta mesma reunião pelo Ações (aba ou celular): ela já tem a dela. */
+export function gravouAqui(email: string, c: Candidato, ctx: ContextoDaDecisao): boolean {
+  const inicio = Date.parse(c.inicio);
+  const fim = Date.parse(c.fim);
+  return (ctx.gravadasAqui.get(email) ?? []).some((t) => t >= inicio - FOLGA_DA_GRAVACAO_MS && t <= fim);
+}
+
+/** Quem da Welcome estava no convite (fora quem marcou) e não gravou a mesma reunião pelo Ações. */
+export function chamadosDaReuniao(c: Candidato, ctx: ContextoDaDecisao): string[] {
+  const org = normalizarEmail(c.organizador);
+  return pessoasDaReuniao(c, ctx.welcome).filter((e) => e !== org && !gravouAqui(e, c, ctx));
+}
+
 export function decidir(c: Candidato, ctx: ContextoDaDecisao): { quero: boolean; motivo: string } {
   const org = normalizarEmail(c.organizador);
   if (!ctx.welcome.has(org)) return { quero: false, motivo: "quem marcou não é da Welcome" };
-  if (!pessoasDaReuniao(c, ctx.welcome).some((e) => ctx.liberados.has(e))) {
-    return { quero: false, motivo: "ninguém da reunião usa o Ações" };
-  }
+  const pessoas = pessoasDaReuniao(c, ctx.welcome);
+  if (!pessoas.some((e) => ctx.liberados.has(e))) return { quero: false, motivo: "ninguém da reunião usa o Ações" };
   if (ctx.jaTem.has(`${org}|${c.chave}`)) return { quero: false, motivo: "já está no Ações" };
-  const inicio = Date.parse(c.inicio);
-  const fim = Date.parse(c.fim);
-  const gravou = (ctx.gravadasAqui.get(org) ?? []).some((t) => t >= inicio - FOLGA_DA_GRAVACAO_MS && t <= fim);
-  if (gravou) return { quero: false, motivo: "quem marcou já gravou pelo Ações" };
+  if (gravouAqui(org, c, ctx)) return { quero: false, motivo: "quem marcou já gravou pelo Ações" };
+  // Só vale criar se alguém que usa o Ações vai recebê-la sem ter a própria gravação.
+  const recebem = [org, ...chamadosDaReuniao(c, ctx)].filter((e) => ctx.liberados.has(e));
+  if (!recebem.length) return { quero: false, motivo: "quem usa o Ações já gravou pelo Ações" };
   return { quero: true, motivo: "nova" };
 }
 

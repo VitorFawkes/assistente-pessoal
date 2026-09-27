@@ -1,9 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { decidir, lerLegenda, montarConversa, nomeLimpo, pessoasDaReuniao, type Candidato, type ContextoDaDecisao } from "./teams";
+import { chamadosDaReuniao, decidir, lerLegenda, montarConversa, nomeLimpo, pessoasDaReuniao, type Candidato, type ContextoDaDecisao } from "./teams";
 
 const VITOR = "vitor@welcometrips.com.br";
 const TIAGO = "tiago@welcometrips.com.br";
 const PAULA = "paula@welcometrips.com.br";
+const V_GRAVOU = VITOR;
 
 const reuniao = (x: Partial<Candidato> = {}): Candidato => ({
   chave: "AAMk-1",
@@ -47,6 +48,17 @@ describe("decidir", () => {
     expect(decidir(reuniao(), ctx({ gravadasAqui: new Map([[TIAGO, [antes]]]) })).motivo).toBe("quem marcou já gravou pelo Ações");
     const outraHora = Date.parse("2026-09-28T15:00:00Z");
     expect(decidir(reuniao(), ctx({ gravadasAqui: new Map([[TIAGO, [outraHora]]]) })).quero).toBe(true);
+  });
+
+  it("quem usa o Ações e gravou a mesma reunião pela aba não recebe a cópia do Teams", () => {
+    const naHora = Date.parse("2026-09-28T13:05:00Z");
+    const vitorGravou = ctx({ gravadasAqui: new Map([[V_GRAVOU, [naHora]]]) });
+    // Vitor era o único que usa o Ações: ninguém precisa da cópia
+    expect(decidir(reuniao(), vitorGravou)).toEqual({ quero: false, motivo: "quem usa o Ações já gravou pelo Ações" });
+    // com a Paula liberada, a reunião vem, mas só a Paula é chamada
+    const comPaula = ctx({ liberados: new Set([VITOR, PAULA]), gravadasAqui: new Map([[VITOR, [naHora]]]) });
+    expect(decidir(reuniao(), comPaula).quero).toBe(true);
+    expect(chamadosDaReuniao(reuniao(), comPaula)).toEqual([PAULA]);
   });
 
   it("e-mail em maiúscula conta igual", () => {

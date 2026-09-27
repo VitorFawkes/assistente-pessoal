@@ -26,7 +26,7 @@ export function lerCandidato(v: unknown): Candidato | null {
 const MAX_LEGENDA = 4 * 1024 * 1024;
 
 export function lerLegendas(v: unknown): Legenda[] | null {
-  if (!Array.isArray(v) || !v.length || v.length > 10) return null;
+  if (!Array.isArray(v) || !v.length || v.length > 30) return null;
   const out: Legenda[] = [];
   for (const l of v) {
     const o = (l ?? {}) as Record<string, unknown>;

@@ -62,7 +62,7 @@ export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
       const aberta = t.status !== "concluida" && t.status !== "cancelada";
       return {
         ...vista,
-        pode_puxar: chamado && aberta && !t.responsavel_user_id,
+        pode_puxar: chamado && m.source === "teams" && aberta && !t.responsavel_user_id,
         com_voce: t.responsavel_user_id === user.id,
       };
     });

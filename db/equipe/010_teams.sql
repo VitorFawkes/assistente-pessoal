@@ -5,11 +5,11 @@
 --
 -- 1. meetings.source ganha 'teams' e meetings.teams_evento guarda o compromisso do Teams (uma
 --    reunião do Teams entra uma vez só por conta); audio_path pode ficar vazio.
--- 2. Quem foi chamado para a reunião (acesso explícito em meeting_acessos) pode puxar uma ação
---    dela para a própria lista. A ação continua de quem criou; o app age no tenant dele, no
+-- 2. Quem foi chamado para a reunião do Teams (acesso explícito em meeting_acessos) pode puxar
+--    uma ação dela para a própria lista. A ação continua de quem criou; o app age no tenant dele, no
 --    mesmo desenho de equipe_acesso_tarefa (008).
--- 3. equipe_teams_paradas(): reunião do Teams que ficou analisando (servidor reiniciou no meio)
---    volta para a fila.
+-- 3. equipe_teams_paradas(): reunião do Teams que ficou analisando (servidor reiniciou no meio):
+--    com resumo gravado fica pronta; sem, tenta uma vez de novo; depois vira erro.
 
 BEGIN;
 
@@ -44,21 +44,22 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   )
 $$;
 
--- A ação de uma reunião para a qual quem pergunta foi chamado (e que ele não criou).
+-- A ação de uma reunião do Teams para a qual quem pergunta foi chamado (e que ele não criou).
 CREATE OR REPLACE FUNCTION equipe_posso_puxar(p_tarefa UUID)
 RETURNS TABLE (dono_id UUID, responsavel_id UUID, status TEXT)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT t.user_id, t.responsavel_user_id, t.status
     FROM tarefas t
+    JOIN meetings m ON m.id = t.meeting_id AND m.source = 'teams'
    WHERE t.id = p_tarefa
-     AND t.meeting_id IS NOT NULL
      AND t.user_id <> equipe_eu()
      AND equipe_chamado_na_reuniao(t.meeting_id)
 $$;
 
-CREATE OR REPLACE FUNCTION equipe_teams_paradas() RETURNS TABLE (meeting_id UUID, user_id UUID)
+CREATE OR REPLACE FUNCTION equipe_teams_paradas()
+RETURNS TABLE (meeting_id UUID, user_id UUID, tem_resumo BOOLEAN, ja_retomada BOOLEAN)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT m.id, m.user_id
+  SELECT m.id, m.user_id, m.summary IS NOT NULL, COALESCE(m.status_error = 'retomada', false)
     FROM meetings m
    WHERE m.source = 'teams'
      AND m.status = 'analyzing'

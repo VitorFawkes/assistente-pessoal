@@ -12,6 +12,7 @@ import {
   type Candidato,
   type ContextoDaDecisao,
   type Legenda,
+  chamadosDaReuniao,
   decidir,
   LETRAS_MINIMAS,
   montarConversa,
@@ -33,7 +34,7 @@ export function chaveDoTtarsConfere(req: Request): boolean {
 // passa a ser "não quero" sem refazer a conta (some se o servidor reiniciar, sem problema).
 const recusadas = new Map<string, string>();
 
-async function contexto(candidatos: Candidato[]): Promise<ContextoDaDecisao & { usuarios: Map<string, string> }> {
+async function contexto(candidatos: Candidato[]): Promise<ContextoDaDecisao> {
   const [lib, pessoas] = await Promise.all([
     query<{ email: string }>(
       `SELECT LOWER(email) AS email FROM acessos_equipe WHERE liberado
@@ -41,24 +42,26 @@ async function contexto(candidatos: Candidato[]): Promise<ContextoDaDecisao & { 
     ),
     query<{ email: string }>(`SELECT email FROM ttars_pessoas WHERE organizacao <> ''`),
   ]);
-  const ctx = {
+  const ctx: ContextoDaDecisao = {
     liberados: new Set(lib.map((r) => r.email)),
     welcome: new Set(pessoas.map((r) => normalizarEmail(r.email))),
     jaTem: new Set<string>(),
     gravadasAqui: new Map<string, number[]>(),
-    usuarios: new Map<string, string>(),
   };
-  const orgs = [...new Set(candidatos.map((c) => normalizarEmail(c.organizador)))];
-  if (!orgs.length) return ctx;
+  if (!candidatos.length) return ctx;
+  // Quem marcou (reunião do Teams já trazida) e quem da Welcome estava (gravou pelo Ações?).
+  const emails = [...new Set(candidatos.flatMap((c) => pessoasDaReuniao(c, ctx.welcome)))];
+  if (!emails.length) return ctx;
   const users = await query<{ id: string; email: string }>(
     `SELECT id::text AS id, LOWER(email) AS email FROM users WHERE LOWER(email) = ANY($1) AND deleted_at IS NULL`,
-    [orgs],
+    [emails],
   );
+  const anotar = (email: string, t: number) => ctx.gravadasAqui.set(email, [...(ctx.gravadasAqui.get(email) ?? []), t]);
   for (const u of users) {
-    ctx.usuarios.set(u.email, u.id);
-    const dele = candidatos.filter((c) => normalizarEmail(c.organizador) === u.email);
-    const de = new Date(Math.min(...dele.map((c) => Date.parse(c.inicio))) - 3600_000).toISOString();
-    const ate = new Date(Math.max(...dele.map((c) => Date.parse(c.fim)))).toISOString();
+    const dela = candidatos.filter((c) => pessoasDaReuniao(c, ctx.welcome).includes(u.email));
+    const de = new Date(Math.min(...dela.map((c) => Date.parse(c.inicio))) - 3600_000).toISOString();
+    const ate = new Date(Math.max(...dela.map((c) => Date.parse(c.fim)))).toISOString();
+    const chaves = dela.filter((c) => normalizarEmail(c.organizador) === u.email).map((c) => c.chave);
     const r = await withTenant(u.id, (c) =>
       c.query<{ teams_evento: string | null; t: string | null }>(
         `SELECT teams_evento,
@@ -66,13 +69,20 @@ async function contexto(candidatos: Candidato[]): Promise<ContextoDaDecisao & { 
            FROM meetings
           WHERE user_id = $1
             AND (teams_evento = ANY($2) OR (source <> 'teams' AND recorded_at BETWEEN $3 AND $4))`,
-        [u.id, dele.map((c) => c.chave), de, ate],
+        [u.id, chaves, de, ate],
       ),
     );
     for (const row of r.rows) {
       if (row.teams_evento) ctx.jaTem.add(`${u.email}|${row.teams_evento}`);
-      if (row.t) ctx.gravadasAqui.set(u.email, [...(ctx.gravadasAqui.get(u.email) ?? []), Number(row.t)]);
+      if (row.t) anotar(u.email, Number(row.t));
     }
+    // Gravação pelo Ações ainda em andamento ou virando reunião (a reunião só nasce depois).
+    const sessoes = await query<{ t: string }>(
+      `SELECT (extract(epoch FROM created_at) * 1000)::bigint::text AS t FROM gravacao_sessoes
+        WHERE user_id = $1 AND created_at BETWEEN $2 AND $3 AND COALESCE(chunks_count, 0) > 0`,
+      [u.id, de, ate],
+    );
+    for (const row of sessoes) anotar(u.email, Number(row.t));
   }
   return ctx;
 }
@@ -108,7 +118,8 @@ export async function receber(p: PedidoDaReuniao): Promise<{ meeting_id?: string
 
   const dono = await garantirColegaDoTtars(org);
   if (!dono) return { ignorada: "quem marcou não é da Welcome" };
-  const convidados = pessoasDaReuniao(p, ctx.welcome).filter((e) => e !== org);
+  // Quem gravou a mesma reunião pelo Ações já tem a dele: não recebe esta também.
+  const convidados = chamadosDaReuniao(p, ctx);
   const chamados: string[] = [];
   for (const email of convidados) {
     const colega = await garantirColegaDoTtars(email);
@@ -157,6 +168,7 @@ export async function receber(p: PedidoDaReuniao): Promise<{ meeting_id?: string
 
 // ── resumo e ações: o mesmo fluxo da reunião gravada ──────────────────────────────────────
 const analisando = new Set<string>();
+const FALHOU = 'O resumo e as ações não saíram. Use "Refazer".';
 
 function analisarDepois(meetingId: string, userId: string) {
   if (analisando.has(meetingId)) return;
@@ -171,19 +183,19 @@ function analisarDepois(meetingId: string, userId: string) {
         body: JSON.stringify({ meeting_id: meetingId, user_id: userId }),
         signal: AbortSignal.timeout(15 * 60_000),
       });
+      // Resposta de erro com o resumo gravado = o fluxo terminou (quem cortou foi o caminho).
       await withTenant(userId, (c) =>
-        r.ok
-          ? c.query(
-              `UPDATE meetings SET status = 'done', done_at = now(), status_error = NULL WHERE id = $1 AND status = 'analyzing'`,
-              [meetingId],
-            )
-          : c.query(
-              `UPDATE meetings SET status = 'error', status_error = $2 WHERE id = $1 AND status = 'analyzing'`,
-              [meetingId, `O resumo e as ações não saíram (n8n ${r.status}). Use "Refazer".`],
-            ),
+        c.query(
+          `UPDATE meetings
+              SET status = CASE WHEN $2 OR summary IS NOT NULL THEN 'done' ELSE 'error' END,
+                  done_at = CASE WHEN $2 OR summary IS NOT NULL THEN now() END,
+                  status_error = CASE WHEN $2 OR summary IS NOT NULL THEN NULL ELSE $3 END
+            WHERE id = $1 AND status = 'analyzing'`,
+          [meetingId, r.ok, FALHOU],
+        ),
       );
     } catch (e) {
-      // Sem resposta: fica "analisando" e a próxima pergunta do TTARS tenta de novo (equipe_teams_paradas).
+      // Sem resposta: fica "analisando" e a próxima pergunta do TTARS confere (retomarParadas).
       console.error("[teams] análise", meetingId, e instanceof Error ? e.message : e);
     } finally {
       analisando.delete(meetingId);
@@ -191,13 +203,33 @@ function analisarDepois(meetingId: string, userId: string) {
   })();
 }
 
-/** Reunião do Teams que ficou analisando (o servidor reiniciou no meio): tenta de novo. */
+/**
+ * Reunião do Teams parada em "analisando" há mais de 20 min (o servidor reiniciou no meio, ou a
+ * resposta se perdeu): se o resumo já foi gravado, fica pronta; senão tenta UMA vez de novo;
+ * parada de novo depois disso vira erro com "Refazer" (nunca paga a IA uma terceira vez sozinha).
+ */
 async function retomarParadas() {
   try {
-    const r = await query<{ meeting_id: string; user_id: string }>(
-      `SELECT meeting_id::text, user_id::text FROM equipe_teams_paradas()`,
+    const r = await query<{ meeting_id: string; user_id: string; tem_resumo: boolean; ja_retomada: boolean }>(
+      `SELECT meeting_id::text, user_id::text, tem_resumo, ja_retomada FROM equipe_teams_paradas()`,
     );
-    for (const p of r) analisarDepois(p.meeting_id, p.user_id);
+    for (const p of r) {
+      if (analisando.has(p.meeting_id)) continue;
+      if (p.tem_resumo || p.ja_retomada) {
+        await withTenant(p.user_id, (c) =>
+          c.query(
+            `UPDATE meetings SET status = $2, done_at = CASE WHEN $2 = 'done' THEN now() END, status_error = $3
+              WHERE id = $1 AND status = 'analyzing'`,
+            [p.meeting_id, p.tem_resumo ? "done" : "error", p.tem_resumo ? null : FALHOU],
+          ),
+        );
+        continue;
+      }
+      await withTenant(p.user_id, (c) =>
+        c.query(`UPDATE meetings SET status_error = 'retomada' WHERE id = $1 AND status = 'analyzing'`, [p.meeting_id]),
+      );
+      analisarDepois(p.meeting_id, p.user_id);
+    }
   } catch (e) {
     console.error("[teams] retomar", e instanceof Error ? e.message : e);
   }
