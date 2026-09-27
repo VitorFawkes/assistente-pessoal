@@ -57,9 +57,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
      AND equipe_chamado_na_reuniao(t.meeting_id)
 $$;
 
--- O que ela devolve mudou durante a construção: apagar antes de criar (reaplicar não falha).
-DROP FUNCTION IF EXISTS equipe_teams_paradas();
-CREATE FUNCTION equipe_teams_paradas()
+CREATE OR REPLACE FUNCTION equipe_teams_paradas()
 RETURNS TABLE (meeting_id UUID, user_id UUID, tem_tarefas BOOLEAN, ja_retomada BOOLEAN)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT m.id, m.user_id,
