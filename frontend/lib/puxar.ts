@@ -7,7 +7,7 @@
 // do dono, no mesmo desenho das outras telas da equipe.
 
 import { withTenant } from "./db";
-import { ajustarPrincipal, registrarEvento } from "./equipe-compartilhado";
+import { acessoTarefa, ajustarPrincipal, registrarEvento } from "./equipe-compartilhado";
 import { getOwnerSlug } from "./owner-slug";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -58,10 +58,12 @@ export async function puxarAcao(eu: { id: string; nome: string }, tarefaId: stri
   return mudou ? { ok: true } : { ok: false, status: 409, erro: "Essa ação já está com outra pessoa." };
 }
 
-/** Devolve a ação puxada: volta a quem fazia antes de puxar (ou a quem criou). */
+/** Devolve a ação puxada: volta a quem fazia antes de puxar (ou a quem criou). Basta a ação
+ *  estar com a pessoa: vale mesmo se quem marcou depois fechou a reunião ("Só eu"). */
 export async function devolverAcao(eu: { id: string; nome: string }, tarefaId: string): Promise<Resultado> {
-  const t = await podePuxar(eu.id, tarefaId);
-  if (!t || t.responsavel_id !== eu.id) return { ok: false, status: 404, erro: "Essa ação não está com você." };
+  const acesso = UUID_RE.test(tarefaId) ? await acessoTarefa(eu.id, tarefaId) : null;
+  if (!acesso || acesso.papel !== "responsavel") return { ok: false, status: 404, erro: "Essa ação não está com você." };
+  const t = { dono_id: acesso.donoId };
 
   await withTenant(t.dono_id, async (c) => {
     const puxada = (

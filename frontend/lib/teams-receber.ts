@@ -168,7 +168,7 @@ export async function receber(p: PedidoDaReuniao): Promise<{ meeting_id?: string
 
 // ── resumo e ações: o mesmo fluxo da reunião gravada ──────────────────────────────────────
 const analisando = new Set<string>();
-const FALHOU = 'O resumo e as ações não saíram. Use "Refazer".';
+const FALHOU = 'O resumo e as ações não saíram. Toque em "Tentar de novo".';
 
 function analisarDepois(meetingId: string, userId: string) {
   if (analisando.has(meetingId)) return;
@@ -183,13 +183,16 @@ function analisarDepois(meetingId: string, userId: string) {
         body: JSON.stringify({ meeting_id: meetingId, user_id: userId }),
         signal: AbortSignal.timeout(15 * 60_000),
       });
-      // Resposta de erro com o resumo gravado = o fluxo terminou (quem cortou foi o caminho).
+      // Resposta de erro, mas as ações já foram gravadas = o fluxo terminou (quem cortou foi o
+      // caminho). O resumo sozinho não prova: o fluxo grava o resumo antes das ações.
       await withTenant(userId, (c) =>
         c.query(
-          `UPDATE meetings
-              SET status = CASE WHEN $2 OR summary IS NOT NULL THEN 'done' ELSE 'error' END,
-                  done_at = CASE WHEN $2 OR summary IS NOT NULL THEN now() END,
-                  status_error = CASE WHEN $2 OR summary IS NOT NULL THEN NULL ELSE $3 END
+          `WITH fim AS (SELECT $2::boolean OR EXISTS (SELECT 1 FROM tarefas WHERE meeting_id = $1) AS ok)
+           UPDATE meetings
+              SET status = CASE WHEN fim.ok THEN 'done' ELSE 'error' END,
+                  done_at = CASE WHEN fim.ok THEN now() END,
+                  status_error = CASE WHEN fim.ok THEN NULL ELSE $3 END
+             FROM fim
             WHERE id = $1 AND status = 'analyzing'`,
           [meetingId, r.ok, FALHOU],
         ),
@@ -204,23 +207,23 @@ function analisarDepois(meetingId: string, userId: string) {
 }
 
 /**
- * Reunião do Teams parada em "analisando" há mais de 20 min (o servidor reiniciou no meio, ou a
- * resposta se perdeu): se o resumo já foi gravado, fica pronta; senão tenta UMA vez de novo;
- * parada de novo depois disso vira erro com "Refazer" (nunca paga a IA uma terceira vez sozinha).
+ * Reunião do Teams parada em "analisando" há mais de 40 min (o servidor reiniciou no meio, ou a
+ * resposta se perdeu): com as ações gravadas, fica pronta; sem, tenta UMA vez de novo; parada de
+ * novo depois disso vira erro com "Tentar de novo" (nunca paga a IA uma terceira vez sozinha).
  */
 async function retomarParadas() {
   try {
-    const r = await query<{ meeting_id: string; user_id: string; tem_resumo: boolean; ja_retomada: boolean }>(
-      `SELECT meeting_id::text, user_id::text, tem_resumo, ja_retomada FROM equipe_teams_paradas()`,
+    const r = await query<{ meeting_id: string; user_id: string; tem_tarefas: boolean; ja_retomada: boolean }>(
+      `SELECT meeting_id::text, user_id::text, tem_tarefas, ja_retomada FROM equipe_teams_paradas()`,
     );
     for (const p of r) {
       if (analisando.has(p.meeting_id)) continue;
-      if (p.tem_resumo || p.ja_retomada) {
+      if (p.tem_tarefas || p.ja_retomada) {
         await withTenant(p.user_id, (c) =>
           c.query(
             `UPDATE meetings SET status = $2, done_at = CASE WHEN $2 = 'done' THEN now() END, status_error = $3
               WHERE id = $1 AND status = 'analyzing'`,
-            [p.meeting_id, p.tem_resumo ? "done" : "error", p.tem_resumo ? null : FALHOU],
+            [p.meeting_id, p.tem_tarefas ? "done" : "error", p.tem_tarefas ? null : FALHOU],
           ),
         );
         continue;

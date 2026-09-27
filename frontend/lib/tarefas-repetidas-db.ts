@@ -171,6 +171,34 @@ async function lerContexto(
       concluida_em: x.concluida_em ? new Date(x.concluida_em).toISOString() : null,
       reuniao_em: x.reuniao_em ? new Date(x.reuniao_em).toISOString() : null,
     }));
+  } else if (reprocessar) {
+    // Refazendo sem a comparação ligada: a ação desta reunião que ficou porque está com alguém
+    // (puxada ou passada) é comparada, para a mesma ação não nascer de novo com outras palavras.
+    const r = await c.query<{
+      id: string;
+      titulo: string;
+      descricao: string | null;
+      owner: string | null;
+      status: string;
+      criada_em: string;
+      concluida_em: string | null;
+      reuniao_em: string | null;
+      meeting_id: string | null;
+    }>(
+      `SELECT t.id, t.titulo, t.descricao, t.owner, t.status, t.meeting_id,
+              t.created_at AS criada_em, t.concluida_em,
+              COALESCE(mt.recorded_at, mt.created_at) AS reuniao_em
+         FROM tarefas t LEFT JOIN meetings mt ON mt.id = t.meeting_id
+        WHERE t.user_id = $1 AND t.meeting_id = $2 AND t.status = ANY($3::text[])
+          AND t.responsavel_user_id IS NOT NULL`,
+      [userId, meetingId, ABERTAS],
+    );
+    candidatas = r.rows.map((x) => ({
+      ...x,
+      criada_em: new Date(x.criada_em).toISOString(),
+      concluida_em: x.concluida_em ? new Date(x.concluida_em).toISOString() : null,
+      reuniao_em: x.reuniao_em ? new Date(x.reuniao_em).toISOString() : null,
+    }));
   }
 
   const fb = await c.query<{ tipo: "repetida" | "diferente"; payload: { nova?: { titulo?: string }; existente?: { titulo?: string } } }>(

@@ -40,6 +40,15 @@ export async function regenerateMeeting(
       signal: AbortSignal.timeout(150_000),
     });
     reprocessed = rp.ok;
+    // Reunião que tinha dado erro (a do Teams, por exemplo) e foi refeita: fica pronta.
+    if (rp.ok) {
+      await withTenant(userId, (db) =>
+        db.query(
+          `UPDATE meetings SET status = 'done', done_at = now(), status_error = NULL WHERE id = $1::uuid AND status = 'error'`,
+          [meetingId],
+        ),
+      );
+    }
   } catch {
     // timeout/erro: o reprocesso pode terminar em background; a UI avisa e o
     // user recarrega. Mesmo comportamento da rota de speakers.
