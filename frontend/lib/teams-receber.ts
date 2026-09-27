@@ -108,9 +108,9 @@ export async function receber(p: PedidoDaReuniao): Promise<{ meeting_id?: string
 
   const dono = await garantirColegaDoTtars(org);
   if (!dono) return { ignorada: "quem marcou não é da Welcome" };
+  const convidados = pessoasDaReuniao(p, ctx.welcome).filter((e) => e !== org);
   const chamados: string[] = [];
-  for (const email of pessoasDaReuniao(p, ctx.welcome)) {
-    if (email === org) continue;
+  for (const email of convidados) {
     const colega = await garantirColegaDoTtars(email);
     if (colega && colega.id !== dono.id) chamados.push(colega.id);
   }
@@ -124,8 +124,8 @@ export async function receber(p: PedidoDaReuniao): Promise<{ meeting_id?: string
     if (ja.rows.length) return null;
     const r = await c.query<{ id: string }>(
       `INSERT INTO meetings (user_id, source, meeting_type, original_filename, nome, recorded_at, duration_seconds,
-                             status, transcription, segments, speaker_labels, visibilidade, teams_evento)
-       VALUES ($1, 'teams', 'online', $2, $3, $4, $5, 'analyzing', $6, $7::jsonb, $8::jsonb, $9, $10)
+                             status, transcription, segments, speaker_labels, visibilidade, teams_evento, teams_convidados)
+       VALUES ($1, 'teams', 'online', $2, $3, $4, $5, 'analyzing', $6, $7::jsonb, $8::jsonb, $9, $10, $11)
        RETURNING id::text AS id`,
       [
         dono.id,
@@ -138,6 +138,7 @@ export async function receber(p: PedidoDaReuniao): Promise<{ meeting_id?: string
         JSON.stringify(conversa.labels),
         chamados.length ? "escolhidos" : "so_eu",
         p.chave,
+        convidados,
       ],
     );
     const meetingId = r.rows[0].id;

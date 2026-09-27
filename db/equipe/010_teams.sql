@@ -18,18 +18,29 @@ ALTER TABLE meetings ADD CONSTRAINT meetings_source_check
   CHECK (source = ANY (ARRAY['macbook', 'iphone', 'ios-app', 'segmented', 'teams']));
 
 ALTER TABLE meetings ADD COLUMN IF NOT EXISTS teams_evento TEXT;
+-- Quem da Welcome estava no convite do Teams (e-mail em minúscula). Continua podendo puxar as
+-- ações mesmo se quem marcou abrir a reunião para toda a Welcome (o que apaga os escolhidos).
+ALTER TABLE meetings ADD COLUMN IF NOT EXISTS teams_convidados TEXT[];
 -- Reunião do Teams não tem áudio aqui (o vídeo fica no Teams). No banco da equipe a coluna já
 -- aceita vazio (conferido em 27/09); aqui fica escrito, para o repositório bater com o banco.
 ALTER TABLE meetings ALTER COLUMN audio_path DROP NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS meetings_teams_evento_unico
   ON meetings (user_id, teams_evento) WHERE teams_evento IS NOT NULL;
 
--- Quem pergunta foi chamado para a reunião (pessoa escolhida ou quem estava nela no Teams).
+-- Quem pergunta foi chamado para a reunião: pessoa escolhida em "Quem vê", ou quem estava no
+-- convite do Teams enquanto a reunião está aberta para toda a Welcome. "Só eu" tira todo mundo.
 CREATE OR REPLACE FUNCTION equipe_chamado_na_reuniao(p_meeting UUID) RETURNS BOOLEAN
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT equipe_eu() IS NOT NULL AND EXISTS (
-    SELECT 1 FROM meeting_acessos ma
-     WHERE ma.meeting_id = p_meeting AND ma.user_id = equipe_eu()
+  SELECT equipe_eu() IS NOT NULL AND (
+    EXISTS (
+      SELECT 1 FROM meeting_acessos ma
+       WHERE ma.meeting_id = p_meeting AND ma.user_id = equipe_eu()
+    )
+    OR EXISTS (
+      SELECT 1 FROM meetings m JOIN users u ON u.id = equipe_eu()
+       WHERE m.id = p_meeting AND m.visibilidade = 'todos'
+         AND LOWER(u.email) = ANY (m.teams_convidados)
+    )
   )
 $$;
 
