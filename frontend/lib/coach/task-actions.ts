@@ -24,7 +24,8 @@ export type BulkType = (typeof BULK_TYPES)[number];
 export type BulkSelection = { type: BulkType; filter: TaskFilter; due_date: string | null; days: number; owner: string | null; wait: boolean; priority: Priority | null; order: ListOrder; quote: string; label: string };
 /** "tarefas": a task change or a request for recorded information (tasks, people, meetings, agenda), answered by the cheap assistant. "coach": everything else. */
 export type TaskLane = "tarefas" | "coach";
-export type TaskInterpretation = { intent: "none" | "actions" | "clarify"; actions: TaskAction[]; bulk: BulkSelection[]; listings: BulkSelection[]; question: string; unsupported: string; also_reply: boolean; lane: TaskLane };
+/** authorized: the message itself says to go ahead without asking again ("já pode fazer sem pedir autorização"). */
+export type TaskInterpretation = { intent: "none" | "actions" | "clarify"; actions: TaskAction[]; bulk: BulkSelection[]; listings: BulkSelection[]; question: string; unsupported: string; also_reply: boolean; authorized: boolean; lane: TaskLane };
 /** What the server did with a message (done), what still waits for the user (a proposal or a question) and the lists the answer must show. */
 export type TaskNotes = { done: string[]; waiting: string[]; lane: TaskLane; listings?: BulkSelection[] };
 type Snapshot = Pick<Tarefa, "titulo" | "owner" | "acao" | "prazo" | "prioridade" | "status">;
@@ -80,6 +81,13 @@ export function afterConfirmation(message: string) {
  rest = rest.replace(/^[\s,.;:!-]*(?:e\s+)?/iu, "").trim();
  return /[\p{L}\p{N}]{2}/u.test(rest) ? rest : "";
 }
+
+/**
+ * Words that give permission up front. The interpreter must also say so (it reads negation: "não faça sem me
+ * perguntar" has the words but is not permission); only both together skip the question.
+ */
+const AUTHORIZES = /\b(?:ja pode (?:fazer|concluir|cancelar|mudar|aplicar|marcar|passar|adiar|seguir|mexer|tirar)|pode (?:fazer|concluir|cancelar|mudar|aplicar|marcar|passar|adiar|seguir|tirar) (?:direto|sem (?:me )?(?:perguntar|pedir|confirmar))|(?:faz|faca|conclui|cancela|muda|aplica|marca|adia) direto|sem (?:me )?(?:perguntar|pedir (?:outra |mais )?(?:autorizacao|confirmacao|permissao)|confirmar|confirmacao)|nao precisa (?:me )?(?:perguntar|confirmar|pedir)|(?:ja )?(?:te )?autorizo|esta autorizad[oa]|pode considerar autorizado)\b/u;
+export const givesPermission = (message: string) => AUTHORIZES.test(normalized(message));
 
 /** Messages the interpreter must not act on: examples, hypotheses and attempts to rewrite its rules. */
 export function directTaskRequest(message: string) {
@@ -434,7 +442,8 @@ type em bulk: complete, cancel, reopen (status done, cancelled ou closed), resch
 ${FILTER_GUIDE}
 "essas", "todas essas", "as que você listou": repita os critérios da lista anterior da conversa. Pedido de mudança por critério precisa de pelo menos um critério ou all=true. Tarefas citadas uma a uma continuam em actions. Sem pedido por critério, bulk=[].
 unsupported: o que a mensagem pede sobre tarefas e o Coach não faz (anexar arquivo ou link, colocar ou tirar de quadro ou de área, pôr em andamento, anotar ou mudar a descrição, marcar pessoas envolvidas, mudar a data de início, mandar mensagem para alguém), em poucas palavras ("colocar no quadro Marketing"); senão "".
-also_reply=true só se, além do pedido de mudança, a mensagem também faz uma pergunta ou pede para ver algo ("e me mostra as que sobraram").
+also_reply=true só se, além do pedido de mudança, a mensagem também faz uma pergunta ou pede para ver algo ("e me mostra as que sobraram", "depois me fala as que ficaram abertas"); nesse caso ponha também o item list do que ela quer ver.
+authorized=true só quando a própria mensagem autoriza fazer sem perguntar de novo ("já pode fazer", "pode fazer direto", "sem me perguntar", "sem pedir outra autorização", "não precisa confirmar", "está autorizado"). Negação ou pedido de cuidado ("não faça sem me perguntar", "me pergunta antes") é false.
 lane (sempre preencha, independente de intent): "tarefas" quando a mensagem pede para mudar tarefas ou pede uma INFORMAÇÃO registrada: tarefas, prazos, pendências, agenda, pessoas e reuniões (o que tem para hoje, o que está atrasado, lista, resumo, revisão ou limpeza de tarefas, o que falta com alguém, quais tarefas foram discutidas com alguém, quando foi a última reunião com alguém, o que ficou decidido ou quem ficou responsável). "coach" quando pede conselho, ajuda para decidir, priorizar ou se preparar, reflexão, objetivos, desabafo, conversa ou outro assunto. Mensagem que mistura informação e pedido de conselho é "coach". Na dúvida, "coach".`;
 
 export function interpreterSchema(codes: string[], spans: string[], ctx: FilterContext = EMPTY_CONTEXT) {
@@ -449,12 +458,27 @@ export function interpreterSchema(codes: string[], spans: string[], ctx: FilterC
  };
  const properties = { ...change, ...filterProperties(ctx, codes) };
  const bulk = { type: "object", additionalProperties: false, required: Object.keys(properties), properties };
- return { type: "object", additionalProperties: false, required: ["intent", "actions", "bulk", "question", "unsupported", "also_reply", "lane"], properties: {
+ return { type: "object", additionalProperties: false, required: ["intent", "actions", "bulk", "question", "unsupported", "also_reply", "authorized", "lane"], properties: {
   intent: { type: "string", enum: ["none", "actions", "clarify"] }, actions: { type: "array", items: action, maxItems: MAX_TASK_ACTIONS },
-  bulk: { type: "array", items: bulk, maxItems: 5 }, question: s, unsupported: { type: "string", maxLength: 200 }, also_reply: { type: "boolean" },
+  bulk: { type: "array", items: bulk, maxItems: 5 }, question: s, unsupported: { type: "string", maxLength: 200 }, also_reply: { type: "boolean" }, authorized: { type: "boolean" },
   lane: { type: "string", enum: ["coach", "tarefas"] },
  } };
 }
+const contentWords = (s: string) => new Set(normalized(s).replace(/[^a-z0-9 ]+/g, " ").split(" ").filter(w => w.length >= 3).map(w => (w.length >= 4 ? w.replace(/s$/, "") : w)));
+/**
+ * The answer written after the server's lines must not say them again ("Não achei tarefa aberta sem prazo." then
+ * "Não achei tarefas abertas sem prazo."): a sentence that repeats one of them is dropped.
+ */
+export function withoutRepeats(answer: string, notes: string[]) {
+ const said = notes.map(contentWords).filter(w => w.size >= 3);
+ if (!said.length) return answer;
+ const repeats = (sentence: string) => {
+  const w = contentWords(sentence);
+  return w.size >= 3 && said.some(n => { const shared = [...w].filter(x => n.has(x)).length; return shared / new Set([...w, ...n]).size >= 0.7; });
+ };
+ return answer.split(/(?<=[.!?])[ \t]+/u).filter(s => !repeats(s)).join(" ").trim();
+}
+
 /** The t1, t2… codes only exist inside the interpreter call; the user never sees them. */
 export const withoutTaskCodes = (text: string) => text.replace(/\s*\((?:t\d{1,3}(?:\s*(?:,|e|ou)\s*)?)+\)/gu, "").replace(/\bt\d{1,3}\b\s*/gu, "").replace(/\s{2,}/g, " ").replace(/\s+([,.?!;:])/g, "$1").trim();
 
@@ -464,7 +488,7 @@ export async function interpretTaskMessage(input: { message: string; history: { 
  const codes = input.tasks.map((_, i) => `t${i + 1}`);
  const byCode = new Map(input.tasks.map((t, i) => [codes[i], t]));
  const spans = messageSpans(input.message);
- if (!spans.length) return { intent: "none", actions: [], bulk: [], listings: [], question: "", unsupported: "", also_reply: false, lane: "coach" };
+ if (!spans.length) return { intent: "none", actions: [], bulk: [], listings: [], question: "", unsupported: "", also_reply: false, authorized: false, lane: "coach" };
  const data = {
   now_local: new Intl.DateTimeFormat("pt-BR", { timeZone: input.timezone, dateStyle: "full", timeStyle: "short" }).format(input.now),
   message: input.message,
@@ -482,7 +506,7 @@ export async function interpretTaskMessage(input: { message: string; history: { 
  const question = typeof raw.question === "string" ? clip(withoutTaskCodes(raw.question), 400) : "";
  const unsupported = typeof raw.unsupported === "string" ? clip(withoutTaskCodes(raw.unsupported), 160) : "";
  const finalIntent = intent === "actions" && !actions.length && !bulk.length ? "none" : intent === "clarify" && !question ? "none" : intent;
- return { intent: finalIntent, actions, bulk, listings, question, unsupported, also_reply: raw.also_reply === true, lane: raw.lane === "tarefas" ? "tarefas" : "coach" };
+ return { intent: finalIntent, actions, bulk, listings, question, unsupported, also_reply: raw.also_reply === true, authorized: raw.authorized === true && givesPermission(input.message), lane: raw.lane === "tarefas" ? "tarefas" : "coach" };
 }
 
 /**
@@ -543,15 +567,18 @@ export async function handleTaskMessage(userId: string, message: string, history
   const picked = selection.tasks.filter(t => fresh.some(a => a.tarefa_id === t.id));
   const shared = picked.filter(t => t.shared).length;
   const notes = [noDue ? `Outras ${noDue} ${noDue === 1 ? "está sem prazo e fica como está" : "estão sem prazo e ficam como estão"}.` : "", unchanged ? `Outras ${unchanged} já ${unchanged === 1 ? "está" : "estão"} assim.` : "",
-   overflow ? `Outras ${overflow} ficam para um próximo pedido.` : "", shared ? `${shared === picked.length ? (shared === 1 ? "Ela está" : "Todas estão") : `${shared} ${shared === 1 ? "está" : "estão"}`} em quadro que convidados veem.` : ""].filter(Boolean);
+   overflow ? `Outras ${overflow} ficam para um próximo pedido.` : ""].filter(Boolean);
+  // Guests seeing the change matters for the decision, so it goes in the question only.
+  const sharedNote = shared ? `${shared === picked.length ? (shared === 1 ? "Ela está" : "Todas estão") : `${shared} ${shared === 1 ? "está" : "estão"}`} em quadro que convidados veem.` : "";
   const counts = { suas: picked.filter(t => t.mine).length, cobrar: picked.filter(t => !t.mine && t.acao !== "aguardar").length, aguardando: picked.filter(t => !t.mine && t.acao === "aguardar").length };
-  if (fresh.length > BULK_LIMIT || fresh.some(a => needsConfirmation(a, byId.get(a.tarefa_id!), fresh))) {
-   headers.push([bulkHeader(sel, fresh.length, timezone, { ...selection.counts, ...counts }), ...notes].join(" "));
+  if (!result.authorized && (fresh.length > BULK_LIMIT || fresh.some(a => needsConfirmation(a, byId.get(a.tarefa_id!), fresh)))) {
+   headers.push([bulkHeader(sel, fresh.length, timezone, { ...selection.counts, ...counts }), ...notes, sharedNote].filter(Boolean).join(" "));
    bulkAsk.push(...fresh);
   } else { bulkDirect.push(...fresh); directNotes.push(...notes); }
  }
  const single = result.actions;
- const direct = single.filter(a => !needsConfirmation(a, a.tarefa_id ? byId.get(a.tarefa_id) : undefined, single));
+ // Permission given up front skips the question, except "pode estar feita?" (check), which asks whether it is done.
+ const direct = single.filter(a => !a.check && (result.authorized ? !!a.tarefa_id || a.type === "create" : !needsConfirmation(a, a.tarefa_id ? byId.get(a.tarefa_id) : undefined, single)));
  const apply = [...direct, ...bulkDirect];
  const ask = [...single.filter(a => !direct.includes(a)), ...bulkAsk];
  // A confirmation earlier in this message already used the run key for its own changes.

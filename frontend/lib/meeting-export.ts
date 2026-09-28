@@ -38,6 +38,7 @@ export type ExportContent = keyof typeof CONTENTS;
 /** Linha crua vinda de meetingsFor(...).forExport / do resolver do convidado. */
 export type MeetingExportRow = {
   summary: string | null;
+  nome?: string | null;
   executive_summary: string | null;
   duration_seconds: number | null;
   recorded_at: string | null;
@@ -126,7 +127,7 @@ export function buildMeetingExport(m: MeetingExportRow, req: ExportRequest): Exp
   const dateLabel = m.recorded_at ? fmtDate(m.recorded_at) : "sem data";
   // Na tela o título é o assunto e o parágrafo da IA vem logo abaixo — o
   // arquivo repete essa ordem pra abrir igual ao que ele viu.
-  const subject = meetingSubject(m.summary) || "Reunião";
+  const subject = meetingSubject(m.summary, m.nome) || "Reunião";
   const intro = m.summary ? `${m.summary}\n\n` : "";
   const exec = m.executive_summary || "";
 

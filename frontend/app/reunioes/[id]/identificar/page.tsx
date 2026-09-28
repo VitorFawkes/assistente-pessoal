@@ -15,6 +15,7 @@ type Segment = { speaker: string; start: number; end: number; text: string };
 type MeetingRow = {
   id: string;
   summary: string | null;
+  nome?: string | null;
   recorded_at: string | null;
   segments: Segment[] | null;
   speaker_labels: Record<string, string> | null;
@@ -23,7 +24,7 @@ type MeetingRow = {
 async function fetchMeeting(userId: string, id: string): Promise<MeetingRow | null> {
   return withTenant(userId, async (db) => {
     const r = await db.query<MeetingRow>(
-      `SELECT id, summary,
+      `SELECT id, summary, nome,
               to_char(coalesce(recorded_at, created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
               segments, speaker_labels
        FROM meetings WHERE id = $1`,
@@ -72,7 +73,7 @@ export default async function IdentificarPage({
         </h1>
         {meeting.summary && (
           <p className="text-[13px] text-[color:var(--muted)] line-clamp-2">
-            {meetingLabel(meeting.summary, meeting.recorded_at)}
+            {meetingLabel(meeting.summary, meeting.recorded_at, { nome: meeting.nome })}
           </p>
         )}
         <p className="text-[13px] text-[color:var(--muted-strong)] max-w-md">

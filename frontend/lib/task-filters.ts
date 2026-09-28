@@ -109,7 +109,7 @@ export function principalPersonOf(t: Tarefa): string {
 // uma coluna de itens idênticos em filtro/agrupamento (ver lib/meeting-label).
 export function reuniaoOf(t: Tarefa): string {
   if (!t.meeting_id) return "Sem reunião";
-  return meetingLabel(t.meeting_summary, t.meeting_recorded_at);
+  return meetingLabel(t.meeting_summary, t.meeting_recorded_at, { nome: t.meeting_nome });
 }
 
 // Busca livre (AND entre os tokens) sobre os campos textuais relevantes.

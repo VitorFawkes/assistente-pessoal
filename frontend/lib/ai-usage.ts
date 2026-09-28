@@ -23,6 +23,7 @@ export const AGENTS = {
  ditado: { nome: "Ditado e captura", descricao: "Tarefa criada por voz ou texto" },
  whatsapp_audio: { nome: "Áudios no WhatsApp", descricao: "Áudios mandados ao Coach no WhatsApp" },
  nomes_falantes: { nome: "Nomes de quem falou", descricao: "Sugestão de quem é cada voz pelo conteúdo" },
+ nomes_reunioes: { nome: "Nomes das reuniões", descricao: "Nome curto das reuniões que ninguém batizou" },
 } as const;
 export type AgentKey = keyof typeof AGENTS;
 
