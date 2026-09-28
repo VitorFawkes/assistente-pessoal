@@ -136,36 +136,86 @@ describe("sim com mais texto confirma; sim com restrição volta para o intérpr
  });
 });
 
-describe("pedido em lote: o servidor acha todas, o modelo só dá o critério", () => {
- const bulk = (b: Partial<Record<string, unknown>>) => ({ type: "complete", due_from: "", due_until: "2026-09-24", owner: "", due_date: "", except: [], quote: "Pode marcar como feitas TODAS do dia 24/09 pra trás", ...b });
- const msg = "Pode marcar como feitas TODAS do dia 24/09 pra trás";
- test("aceita data com trecho literal e traduz as exceções para ids", () => {
-  expect(validateBulk([bulk({ except: ["t1", "t9"] })], msg, tasks, SP, now)).toEqual([{ type: "complete", due_from: null, due_until: "2026-09-24", owner: null, due_date: null, except: ["11111111-0000-0000-0000-000000000001"], quote: msg }]);
+describe("pedido por critério: o modelo só dá o critério, o servidor acha todas", () => {
+ const msg = "Pode concluir TODAS sem prazo";
+ const blank = { type: "complete", due_date: "", days: 0, owner: "", wait: false, priority: "", order: "prazo", quote: msg,
+  all: false, status: "open", due: "", due_from: "", due_until: "", who: "", people: [], not_people: [], kind: "", priorities: [], boards: [], not_boards: [], areas: [], not_areas: [],
+  meetings: [], meeting_from: "", meeting_until: "", source: "", words: [], not_words: [], created_from: "", created_until: "", closed_from: "", closed_until: "", idle_days: 0, repeated: false, except: [] };
+ const item = (b: Partial<Record<string, unknown>>) => ({ ...blank, ...b });
+ const one = (b: Partial<Record<string, unknown>>, message = msg) => validateBulk([item({ quote: message, ...b })], message, tasks, SP, now)[0];
+ test("'sem prazo' é um critério: o pedido de 28/09 que o Coach não conseguia", () => {
+  const sel = one({ due: "none" });
+  expect(sel).toMatchObject({ type: "complete", label: "sem prazo" });
+  expect(sel.filter).toMatchObject({ due: "none", who: "", all: false });
  });
- test("sem critério, com trecho inventado, datas trocadas ou adiamento sem data futura, descarta", () => {
-  expect(validateBulk([bulk({ due_until: "" })], msg, tasks, SP, now)).toEqual([]);
-  expect(validateBulk([bulk({ quote: "conclui tudo" })], msg, tasks, SP, now)).toEqual([]);
-  expect(validateBulk([bulk({ due_from: "2026-09-25" })], msg, tasks, SP, now)).toEqual([]);
-  expect(validateBulk([bulk({ type: "reschedule" })], msg, tasks, SP, now)).toEqual([]);
-  expect(validateBulk([bulk({ type: "reschedule", due_date: "2026-09-20" })], msg, tasks, SP, now)).toEqual([]);
-  expect(validateBulk([bulk({ type: "delete" })], msg, tasks, SP, now)).toEqual([]);
-  expect(validateBulk([bulk({})], "por exemplo, conclui tudo até 24/09", tasks, SP, now)).toEqual([]);
+ test("'todas' sem outro critério vale com all=true; sem critério nenhum, descarta", () => {
+  expect(one({ all: true })?.label).toBe("abertas");
+  expect(one({})).toBeUndefined();
  });
- test("só pessoa também é critério", () => {
-  expect(validateBulk([bulk({ due_until: "", owner: "Tiago" })], msg, tasks, SP, now)[0]).toMatchObject({ owner: "Tiago", due_until: null });
+ test("cada mudança exige o que precisa: data futura, dias, pessoa, prioridade", () => {
+  expect(one({ type: "reschedule", due: "none" })).toBeUndefined();
+  expect(one({ type: "reschedule", due: "none", due_date: "2026-09-20" })).toBeUndefined();
+  expect(one({ type: "reschedule", due: "none", due_date: "2026-10-02" })?.due_date).toBe("2026-10-02");
+  expect(one({ type: "shift", due: "range", due_until: "2026-09-23" })).toBeUndefined();
+  expect(one({ type: "shift", due: "range", due_until: "2026-09-23", days: 7 })?.days).toBe(7);
+  expect(one({ type: "clear_due", areas: [] , due: "any" })?.type).toBe("clear_due");
+  expect(one({ type: "reassign", people: ["Binho"] })).toBeUndefined();
+  expect(one({ type: "reassign", people: ["Binho"], owner: "Diana", wait: true })).toMatchObject({ owner: "Diana", wait: true });
+  expect(one({ type: "reassign", people: ["Binho"], owner: "eu", wait: true })).toMatchObject({ owner: "eu", wait: false });
+  expect(one({ type: "priority", due: "none" })).toBeUndefined();
+  expect(one({ type: "priority", due: "none", priority: "urgente" })?.priority).toBe("urgente");
+  expect(one({ type: "delete", due: "none" })).toBeUndefined();
  });
- test("o cabeçalho diz o que vai acontecer e com quantas", () => {
-  const base = { type: "complete" as const, due_from: null, due_until: "2026-09-24", owner: null, due_date: null, except: [], quote: msg };
-  expect(bulkHeader(base, 18, SP)).toBe("Vou concluir 18 tarefas com prazo até 24/09.");
-  expect(bulkHeader({ ...base, due_from: "2026-09-28", due_until: "2026-09-28" }, 3, SP)).toBe("Vou concluir 3 tarefas com prazo em 28/09.");
-  expect(bulkHeader({ ...base, type: "cancel", owner: "Tiago", due_until: null }, 1, SP)).toBe("Vou cancelar 1 tarefa de Tiago.");
-  expect(bulkHeader({ ...base, type: "reschedule", due_date: "2026-10-02" }, 5, SP)).toBe("Vou mudar para sex, 02/10 o prazo de 5 tarefas com prazo até 24/09.");
+ test("reabrir só olha as fechadas; as outras mudanças só as abertas", () => {
+  expect(one({ type: "reopen", closed_from: "2026-09-24", closed_until: "2026-09-24" })?.filter.status).toBe("closed");
+  expect(one({ type: "complete", status: "done", due: "none" })).toBeUndefined();
+  expect(one({ type: "list", status: "done", closed_from: "2026-09-21" })?.filter.status).toBe("done");
  });
- test("o formato pedido ao modelo tem o lote e as exceções só com códigos da lista", () => {
-  const schema = interpreterSchema(["t1", "t2"], [msg]) as { required: string[]; properties: { bulk: { maxItems: number; items: { properties: { except: { items: { enum: string[] } }; quote: { enum: string[] } } } } } };
-  expect(schema.required).toContain("bulk");
+ test("trecho inventado, exemplo ou hipótese não mudam nada; ver uma lista não depende disso", () => {
+  expect(one({ due: "none", quote: "conclui tudo" })).toBeUndefined();
+  expect(one({ due: "none" }, "por exemplo, conclui todas sem prazo")).toBeUndefined();
+  expect(one({ type: "list", due: "none" }, "por exemplo, quais estão sem prazo?")?.type).toBe("list");
+ });
+ test("as exceções citadas viram ids e nomes no texto", () => {
+  const sel = one({ due: "none", except: ["t1"] });
+  expect(sel.filter.except).toEqual(["11111111-0000-0000-0000-000000000001"]);
+  expect(sel.label).toBe('sem prazo, menos "Enviar proposta da closer"');
+ });
+ test("o cabeçalho diz o que vai acontecer, com quantas e de que tipo", () => {
+  const sel = one({ due: "none" });
+  expect(bulkHeader(sel, 154, SP, { suas: 77, cobrar: 63, aguardando: 14 } as never)).toBe("Vou concluir 154 tarefas sem prazo. São 77 suas, 63 para você cobrar e 14 que você está aguardando.");
+  expect(bulkHeader(one({ due: "range", due_until: "2026-09-24" }), 18, SP)).toBe("Vou concluir 18 tarefas com prazo até 24/09.");
+  expect(bulkHeader(one({ type: "cancel", people: ["Tiago"] }), 1, SP)).toBe("Vou cancelar 1 tarefa de Tiago.");
+  expect(bulkHeader(one({ type: "reschedule", due_date: "2026-10-02", due: "range", due_until: "2026-09-24" }), 5, SP)).toBe("Vou mudar para sex, 02/10 o prazo de 5 tarefas com prazo até 24/09.");
+  expect(bulkHeader(one({ type: "shift", days: 7, due: "range", due_until: "2026-09-23" }), 4, SP)).toBe("Vou adiar em 7 dias o prazo de 4 tarefas atrasadas. As atrasadas contam a partir de hoje.");
+  expect(bulkHeader(one({ type: "clear_due", areas: [], due: "any", people: ["Paula"] }), 2, SP)).toBe("Vou tirar o prazo de 2 tarefas com prazo, de Paula.");
+  expect(bulkHeader(one({ type: "reassign", people: ["Binho"], owner: "Diana" }), 6, SP)).toBe("Vou passar para Diana 6 tarefas de Binho.");
+  expect(bulkHeader(one({ type: "priority", priority: "media", who: "me" }), 3, SP)).toBe("Vou mudar para média a prioridade de 3 tarefas suas.");
+  expect(bulkHeader(one({ type: "reopen", status: "done", closed_from: "2026-09-24", closed_until: "2026-09-24" }), 18, SP)).toBe("Vou reabrir 18 tarefas concluídas em 24/09.");
+ });
+ test("o formato pedido ao modelo tem o lote com critérios e exceções só com códigos da lista", () => {
+  const schema = interpreterSchema(["t1", "t2"], [msg]) as unknown as { required: string[]; properties: { bulk: { maxItems: number; items: { required: string[]; properties: { except: { items: { enum: string[] } }; quote: { enum: string[] }; type: { enum: string[] } } } } } };
+  expect(schema.required).toEqual(expect.arrayContaining(["bulk", "unsupported"]));
   expect(schema.properties.bulk.items.properties.except.items.enum).toEqual(["t1", "t2"]);
   expect(schema.properties.bulk.items.properties.quote.enum).toEqual([msg]);
+  expect(schema.properties.bulk.items.properties.type.enum).toEqual(["complete", "cancel", "reopen", "reschedule", "shift", "clear_due", "reassign", "priority", "list"]);
+  expect(schema.properties.bulk.items.required).toEqual(expect.arrayContaining(["due", "who", "people", "boards", "areas", "meetings", "words", "idle_days", "all"]));
+ });
+});
+
+describe("tirar prazo e passar para alguém que você só aguarda", () => {
+ test("tirar prazo só de tarefa que tem prazo", () => {
+  const withDue = new Map(tasks); withDue.set("t4", task("11111111-0000-0000-0000-000000000004", { titulo: "Revisar site", prazo: "2026-09-30T15:00:00.000Z" }));
+  expect(validateTaskActions([action({ type: "clear_due", task: "t4", quote: "tira o prazo" })], "tira o prazo", withDue, SP, now)).toHaveLength(1);
+  expect(validateTaskActions([action({ type: "clear_due", task: "t1", quote: "tira o prazo" })], "tira o prazo", withDue, SP, now)).toEqual([]);
+ });
+ test("aguardar só vale ao passar para outra pessoa", () => {
+  const msg = "passa pra Paula, só vou aguardar";
+  expect(validateTaskActions([action({ type: "reassign", owner: "Paula", wait: true, quote: msg })], msg, tasks, SP, now)[0]).toMatchObject({ owner: "Paula", wait: true });
+  expect(validateTaskActions([action({ type: "reassign", owner: "eu", wait: true, quote: msg })], msg, tasks, SP, now)[0].wait).toBeUndefined();
+  const base = { quote: "x", owner: "Paula", title: null, priority: null, due_date: null, tarefa_id: "1", wait: true };
+  expect(describeAction({ ...base, type: "reassign" }, { titulo: "Contrato" }, SP, true)).toBe('"Contrato" agora é com Paula (você só aguarda).');
+  expect(describeAction({ ...base, type: "clear_due" }, { titulo: "Contrato" }, SP, true)).toBe('Tirei o prazo de "Contrato".');
  });
 });
 

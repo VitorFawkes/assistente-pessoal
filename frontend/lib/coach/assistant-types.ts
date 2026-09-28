@@ -41,6 +41,8 @@ export type DossierTask = {
  criada_em: string; concluida_em: string | null;
  reuniao: { titulo: string; data: string | null } | null;
  ligacao?: "responsavel" | "envolvida";
+ /** Only in tarefas_filtradas: what the user does with it (the app's rule: "fazer" is the user's own). */
+ modo?: "fazer" | "cobrar" | "aguardar";
 };
 export type DossierMeeting = {
  id: string; titulo: string; data: string | null; participantes: string[]; resumo: string; resumo_parcial: boolean;
@@ -52,13 +54,15 @@ export type DossierPassage = { meeting_id: string; titulo: string; data: string 
 
 export type DossierEntry = {
  consulta: string;   // what was looked up, in words ("tarefas ligadas a Ana, da mais nova")
- tipo: QueryKind;
+ /** tarefas_filtradas: a list by criteria the task interpreter read in the message (the same selection a change in bulk uses). */
+ tipo: QueryKind | "tarefas_filtradas";
  total: number;      // how many exist
  mostrados: number;  // how many are in this entry
  tarefas?: DossierTask[];
  reunioes?: DossierMeeting[];
  eventos?: DossierEvent[];
  agenda_status?: string;
+ contagem?: { atrasadas: number; vence_hoje: number; prazo_depois_de_hoje: number; sem_prazo: number; suas: number; para_cobrar: number; aguardando: number; concluidas?: number; canceladas?: number };
  pendencias?: { vence_hoje: number; atrasadas: number; outras_abertas?: { sem_prazo: number; prazo_depois_de_hoje: number }; itens: { titulo: string; owner: string | null; prazo: string; vence_hoje: boolean; mostrada_as_8h: boolean }[] };
  trechos?: DossierPassage[];
  conversas?: { papel: "usuario" | "coach"; data: string; texto: string }[];

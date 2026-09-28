@@ -1,3 +1,4 @@
+import type { PoolClient } from "pg";
 import { withTenant } from "./db";
 import { randomBytes } from "node:crypto";
 
@@ -231,6 +232,158 @@ export const TAREFA_SELECT = `${TAREFA_COLUNAS}${TAREFA_COLUNAS_DONO}${TAREFA_FR
 
 /** Igual ao TAREFA_SELECT, sem o que cita outras reuniões — pro link de convidado. */
 export const TAREFA_SELECT_CONVIDADO = `${TAREFA_COLUNAS}${TAREFA_FROM}`;
+
+export type AtualizarTarefa = Partial<{
+  titulo: string;
+  descricao: string | null;
+  owner: string;
+  acao: Acao;
+  prazo: string | null;
+  prazo_text: string | null;
+  prioridade: Tarefa["prioridade"];
+  status: Tarefa["status"];
+  frente_id: string | null;
+  pessoas: { nome: string; principal?: boolean }[];
+}>;
+
+/** O corpo de `atualizar`, dentro de uma transação que o chamador já abriu (o Coach aplica um lote inteiro
+ *  de uma vez: ou muda tudo, ou nada). Devolve false se a tarefa não existe (RLS escopa ao user). */
+export async function atualizarTarefaCom(
+  c: PoolClient,
+  userId: string,
+  id: string,
+  patch: AtualizarTarefa,
+  origem = "agente",
+): Promise<boolean> {
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  const push = (col: string, val: unknown) => {
+    values.push(val);
+    sets.push(`${col} = $${values.length}`);
+  };
+
+  if (patch.titulo !== undefined) push("titulo", patch.titulo);
+  if (patch.descricao !== undefined) push("descricao", patch.descricao);
+  if (patch.owner !== undefined) push("owner", patch.owner);
+  if (patch.acao !== undefined) {
+    push("acao", patch.acao);
+    // invariante: executar ⇔ tarefa é do Vitor. Sem owner explícito, força "vitor".
+    if (patch.acao === "executar" && patch.owner === undefined) push("owner", "vitor");
+  }
+  if (patch.prazo !== undefined) push("prazo", patch.prazo);
+  if (patch.prazo_text !== undefined) push("prazo_text", patch.prazo_text);
+  if (patch.prioridade !== undefined) push("prioridade", patch.prioridade);
+  if (patch.status !== undefined) {
+    push("status", patch.status);
+    // desde quando está nesta situação — é o "entrou nesta coluna" do quadro
+    sets.push("situacao_desde = now()");
+    if (patch.status === "concluida") sets.push("concluida_em = now()");
+    if (patch.status === "cancelada") sets.push("cancelada_em = now()");
+    if (patch.status === "aberta" || patch.status === "em_andamento") {
+      sets.push("concluida_em = NULL", "cancelada_em = NULL");
+    }
+  }
+  if (patch.frente_id !== undefined) {
+    push("frente_id", patch.frente_id);
+    if (patch.frente_id) sets.push("frente_proposta = NULL");
+  }
+
+  const hasPessoas = Array.isArray(patch.pessoas);
+
+  if (sets.length) {
+    values.push(id);
+    const r = await c.query<{ id: string }>(
+      `UPDATE tarefas SET ${sets.join(", ")} WHERE id = $${values.length} RETURNING id`,
+      values,
+    );
+    if (!r.rows[0]) return false;
+    if (patch.status) {
+      const evento =
+        patch.status === "concluida"
+          ? "concluida"
+          : patch.status === "cancelada"
+          ? "cancelada"
+          : "reaberta";
+      await c.query(
+        "INSERT INTO tarefa_eventos (tarefa_id, evento, payload) VALUES ($1,$2,$3)",
+        [id, evento, JSON.stringify({ origem, status: patch.status })],
+      );
+    } else {
+      await c.query(
+        "INSERT INTO tarefa_eventos (tarefa_id, evento, payload) VALUES ($1,'editada',$2)",
+        [id, JSON.stringify({ origem })],
+      );
+    }
+  } else if (!hasPessoas) {
+    // nada pra setar nem pessoas → confirma existência e devolve atual
+    const r = await c.query<{ id: string }>("SELECT id FROM tarefas WHERE id = $1", [id]);
+    if (!r.rows[0]) return false;
+  } else {
+    const r = await c.query<{ id: string }>("SELECT id FROM tarefas WHERE id = $1", [id]);
+    if (!r.rows[0]) return false;
+  }
+
+  // mudou dono/ação sem pessoas explícitas → recalcula `principal` (espelha trigger)
+  if (!hasPessoas && (patch.owner !== undefined || patch.acao !== undefined)) {
+    const cur = (
+      await c.query<{ acao: string; owner: string }>(
+        "SELECT acao, owner FROM tarefas WHERE id = $1",
+        [id],
+      )
+    ).rows[0];
+    const acao = String(cur?.acao ?? "");
+    const owner = String(cur?.owner ?? "").trim();
+    if (acao === "executar") {
+      await c.query(
+        "UPDATE tarefa_pessoas SET principal = false WHERE tarefa_id = $1 AND principal",
+        [id],
+      );
+    } else {
+      await c.query("UPDATE tarefa_pessoas SET principal = false WHERE tarefa_id = $1", [id]);
+      if (owner && owner !== "?" && owner.toLowerCase() !== "vitor") {
+        const found = await c.query<{ pessoa_id: string }>(
+          `SELECT tp.pessoa_id FROM tarefa_pessoas tp
+             JOIN pessoas p ON p.id = tp.pessoa_id
+            WHERE tp.tarefa_id = $1 AND app_slugify(p.nome) = app_slugify($2) LIMIT 1`,
+          [id, owner],
+        );
+        let pessoaId = found.rows[0]?.pessoa_id;
+        if (!pessoaId) {
+          const pr = await c.query<{ id: string }>(
+            `INSERT INTO pessoas (user_id, nome) VALUES ($1,$2)
+             ON CONFLICT (user_id, nome) DO UPDATE SET updated_at = now() RETURNING id`,
+            [userId, owner],
+          );
+          pessoaId = pr.rows[0].id;
+        }
+        await c.query(
+          `INSERT INTO tarefa_pessoas (tarefa_id, pessoa_id, principal) VALUES ($1,$2,true)
+           ON CONFLICT (tarefa_id, pessoa_id) DO UPDATE SET principal = true`,
+          [id, pessoaId],
+        );
+      }
+    }
+  }
+
+  if (hasPessoas) {
+    await c.query("DELETE FROM tarefa_pessoas WHERE tarefa_id = $1", [id]);
+    for (const p of patch.pessoas!) {
+      const nome = (p.nome || "").trim();
+      if (!nome || nome === "?") continue;
+      const pr = await c.query<{ id: string }>(
+        `INSERT INTO pessoas (user_id, nome) VALUES ($1,$2)
+         ON CONFLICT (user_id, nome) DO UPDATE SET updated_at = now() RETURNING id`,
+        [userId, nome],
+      );
+      await c.query(
+        `INSERT INTO tarefa_pessoas (tarefa_id, pessoa_id, principal) VALUES ($1,$2,$3)
+         ON CONFLICT (tarefa_id, pessoa_id) DO UPDATE SET principal = EXCLUDED.principal`,
+        [id, pr.rows[0].id, !!p.principal],
+      );
+    }
+  }
+  return true;
+}
 
 // ─── meetingsFor ──────────────────────────────────────────────────────
 // Queries NÃO precisam de WHERE user_id — RLS filtra automaticamente.
@@ -647,151 +800,9 @@ export const tarefasFor = (userId: string) => ({
   /** Atualização do AGENTE: campos + status (com evento) + pessoas + recalcula
    *  `principal`. Espelha o PATCH /api/tarefas/[id], marcando `origem` na auditoria.
    *  Retorna a Tarefa serializada ou null se não existe (RLS escopa ao user). */
-  atualizar: (
-    id: string,
-    patch: Partial<{
-      titulo: string;
-      descricao: string | null;
-      owner: string;
-      acao: Acao;
-      prazo: string | null;
-      prazo_text: string | null;
-      prioridade: Tarefa["prioridade"];
-      status: Tarefa["status"];
-      frente_id: string | null;
-      pessoas: { nome: string; principal?: boolean }[];
-    }>,
-    origem = "agente",
-  ) =>
+  atualizar: (id: string, patch: AtualizarTarefa, origem = "agente") =>
     withTenant(userId, async (c) => {
-      const sets: string[] = [];
-      const values: unknown[] = [];
-      const push = (col: string, val: unknown) => {
-        values.push(val);
-        sets.push(`${col} = $${values.length}`);
-      };
-
-      if (patch.titulo !== undefined) push("titulo", patch.titulo);
-      if (patch.descricao !== undefined) push("descricao", patch.descricao);
-      if (patch.owner !== undefined) push("owner", patch.owner);
-      if (patch.acao !== undefined) {
-        push("acao", patch.acao);
-        // invariante: executar ⇔ tarefa é do Vitor. Sem owner explícito, força "vitor".
-        if (patch.acao === "executar" && patch.owner === undefined) push("owner", "vitor");
-      }
-      if (patch.prazo !== undefined) push("prazo", patch.prazo);
-      if (patch.prazo_text !== undefined) push("prazo_text", patch.prazo_text);
-      if (patch.prioridade !== undefined) push("prioridade", patch.prioridade);
-      if (patch.status !== undefined) {
-        push("status", patch.status);
-        // desde quando está nesta situação — é o "entrou nesta coluna" do quadro
-        sets.push("situacao_desde = now()");
-        if (patch.status === "concluida") sets.push("concluida_em = now()");
-        if (patch.status === "cancelada") sets.push("cancelada_em = now()");
-        if (patch.status === "aberta" || patch.status === "em_andamento") {
-          sets.push("concluida_em = NULL", "cancelada_em = NULL");
-        }
-      }
-      if (patch.frente_id !== undefined) {
-        push("frente_id", patch.frente_id);
-        if (patch.frente_id) sets.push("frente_proposta = NULL");
-      }
-
-      const hasPessoas = Array.isArray(patch.pessoas);
-
-      if (sets.length) {
-        values.push(id);
-        const r = await c.query<{ id: string }>(
-          `UPDATE tarefas SET ${sets.join(", ")} WHERE id = $${values.length} RETURNING id`,
-          values,
-        );
-        if (!r.rows[0]) return null;
-        if (patch.status) {
-          const evento =
-            patch.status === "concluida"
-              ? "concluida"
-              : patch.status === "cancelada"
-              ? "cancelada"
-              : "reaberta";
-          await c.query(
-            "INSERT INTO tarefa_eventos (tarefa_id, evento, payload) VALUES ($1,$2,$3)",
-            [id, evento, JSON.stringify({ origem, status: patch.status })],
-          );
-        } else {
-          await c.query(
-            "INSERT INTO tarefa_eventos (tarefa_id, evento, payload) VALUES ($1,'editada',$2)",
-            [id, JSON.stringify({ origem })],
-          );
-        }
-      } else if (!hasPessoas) {
-        // nada pra setar nem pessoas → confirma existência e devolve atual
-        const r = await c.query<{ id: string }>("SELECT id FROM tarefas WHERE id = $1", [id]);
-        if (!r.rows[0]) return null;
-      } else {
-        const r = await c.query<{ id: string }>("SELECT id FROM tarefas WHERE id = $1", [id]);
-        if (!r.rows[0]) return null;
-      }
-
-      // mudou dono/ação sem pessoas explícitas → recalcula `principal` (espelha trigger)
-      if (!hasPessoas && (patch.owner !== undefined || patch.acao !== undefined)) {
-        const cur = (
-          await c.query<{ acao: string; owner: string }>(
-            "SELECT acao, owner FROM tarefas WHERE id = $1",
-            [id],
-          )
-        ).rows[0];
-        const acao = String(cur?.acao ?? "");
-        const owner = String(cur?.owner ?? "").trim();
-        if (acao === "executar") {
-          await c.query(
-            "UPDATE tarefa_pessoas SET principal = false WHERE tarefa_id = $1 AND principal",
-            [id],
-          );
-        } else {
-          await c.query("UPDATE tarefa_pessoas SET principal = false WHERE tarefa_id = $1", [id]);
-          if (owner && owner !== "?" && owner.toLowerCase() !== "vitor") {
-            const found = await c.query<{ pessoa_id: string }>(
-              `SELECT tp.pessoa_id FROM tarefa_pessoas tp
-                 JOIN pessoas p ON p.id = tp.pessoa_id
-                WHERE tp.tarefa_id = $1 AND app_slugify(p.nome) = app_slugify($2) LIMIT 1`,
-              [id, owner],
-            );
-            let pessoaId = found.rows[0]?.pessoa_id;
-            if (!pessoaId) {
-              const pr = await c.query<{ id: string }>(
-                `INSERT INTO pessoas (user_id, nome) VALUES ($1,$2)
-                 ON CONFLICT (user_id, nome) DO UPDATE SET updated_at = now() RETURNING id`,
-                [userId, owner],
-              );
-              pessoaId = pr.rows[0].id;
-            }
-            await c.query(
-              `INSERT INTO tarefa_pessoas (tarefa_id, pessoa_id, principal) VALUES ($1,$2,true)
-               ON CONFLICT (tarefa_id, pessoa_id) DO UPDATE SET principal = true`,
-              [id, pessoaId],
-            );
-          }
-        }
-      }
-
-      if (hasPessoas) {
-        await c.query("DELETE FROM tarefa_pessoas WHERE tarefa_id = $1", [id]);
-        for (const p of patch.pessoas!) {
-          const nome = (p.nome || "").trim();
-          if (!nome || nome === "?") continue;
-          const pr = await c.query<{ id: string }>(
-            `INSERT INTO pessoas (user_id, nome) VALUES ($1,$2)
-             ON CONFLICT (user_id, nome) DO UPDATE SET updated_at = now() RETURNING id`,
-            [userId, nome],
-          );
-          await c.query(
-            `INSERT INTO tarefa_pessoas (tarefa_id, pessoa_id, principal) VALUES ($1,$2,$3)
-             ON CONFLICT (tarefa_id, pessoa_id) DO UPDATE SET principal = EXCLUDED.principal`,
-            [id, pr.rows[0].id, !!p.principal],
-          );
-        }
-      }
-
+      if (!(await atualizarTarefaCom(c, userId, id, patch, origem))) return null;
       const out = await c.query<Tarefa>(`${TAREFA_SELECT} WHERE t.id = $1`, [id]);
       return out.rows[0] ?? null;
     }),
