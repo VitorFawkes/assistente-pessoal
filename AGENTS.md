@@ -15,6 +15,34 @@ Leia também:
 
 ---
 
+## 📱 App do iPhone "CASE" — NÃO QUEBRAR (em uso real desde 28/09/2026)
+
+O app (`ios-app/`, TestFlight, bundle `br.com.ttars`) é usado de verdade pela equipe (Vitor, Tiago).
+Ele fala **só com o servidor do Ações da equipe** (`srv2007125.hstgr.cloud`, compose em
+`/opt/acoes-equipe`, branches `claude/equipe-*`). O visual e a navegação do Ações dentro do
+TTARS **não** afetam o app. Ele depende de (mudar = nova versão do app na Apple; fale com o
+Vitor antes):
+
+- `frontend/app/api/mobile/*`: config, entrar, eu, sair, abrir, meetings, sessao/revoke-all,
+  gravacao/[id]/pedaco e /fim (`lib/gravacao-rotas.ts`: multipart campo `audio`, `?chunk&parte`;
+  409 depois do fim = o app começa gravação nova). `status` da reunião só pode ser
+  processing/ready/failed/archived.
+- Login: e-mail + senha do TTARS (Supabase do TTARS, `grant_type=password`, chave pública vinda
+  de `/api/mobile/config`) + `estaLiberado` / `acessos_equipe`.
+- Páginas que o app abre logado (`/api/mobile/abrir` → `/api/auth/ttars?c=&para=`): `/`,
+  `/reunioes/[id]` e `/seguranca/sessoes`. Mudou de endereço? Deixe o antigo redirecionando.
+- ingest-svc + fluxo n8n "Audio Ingest" da equipe (a gravação vira reunião).
+
+**Publicar o frontend do Ações da equipe SÓ por**
+`/opt/acoes-equipe/publicar-frontend.sh acoes-equipe-frontend:<tag>`: troca a imagem, roda
+`/opt/acoes-equipe/testa-app-iphone.sh` (imita o app de ponta a ponta com a conta sintética
+`teste-app@exemplo.invalid`) e, se o app quebrar, volta sozinho para a imagem anterior.
+Teste avulso: `testa-app-iphone.sh` (completo) ou `testa-app-iphone.sh --leve` (sem gravação).
+Fonte dos scripts: `ops/app-iphone/`. A reunião "fixture-teste-app-iphone" da conta teste-app
+é do teste: não apagar.
+
+---
+
 ## 🏢 Multi-tenant (foundation v2 — **AO VIVO EM PROD 2026-05-22/23**)
 
 **Status DB:** `0007_multitenant.sql` aplicada.
