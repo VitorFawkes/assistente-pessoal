@@ -147,6 +147,8 @@ export type Tarefa = {
   meeting_source?: string | null;
   /** Saiu de uma reunião (também para quem recebe, que não vê a reunião). */
   de_reuniao?: boolean;
+  /** Um colega marcou quem vê esta ação para ver (não é quem faz). */
+  marcada_para_mim?: boolean;
 };
 
 export type TarefaDraft = {
@@ -1271,11 +1273,11 @@ export const teamAccessFor = (userId: string) => ({
   /** Quem já foi escolhido para ver esta reunião (só o dono enxerga). */
   listAcessos: (meetingId: string) =>
     withTenant(userId, async (db) => {
-      const r = await db.query<{ user_id: string | null; time_id: string | null }>(
-        `SELECT user_id, time_id FROM meeting_acessos WHERE meeting_id = $1`,
+      const r = await db.query<{ user_id: string | null; time_id: string | null; motivo: string }>(
+        `SELECT user_id, time_id, motivo FROM meeting_acessos WHERE meeting_id = $1`,
         [meetingId],
       );
-      return r.rows.map((a) => (a.user_id ? { user_id: a.user_id } : { time_id: a.time_id! }));
+      return r.rows.map((a) => (a.user_id ? { user_id: a.user_id, motivo: a.motivo } : { time_id: a.time_id!, motivo: a.motivo }));
     }),
 
   /** Lista times únicos de todos os usuários liberados. */

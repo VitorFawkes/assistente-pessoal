@@ -11,6 +11,7 @@ import { comProjetos, nomesDeUsuarios } from "@/lib/equipe-compartilhado";
 import { notionDasAcoes } from "@/lib/notion-sync";
 import { trocarFalantes } from "@/lib/falantes";
 import { nomesDosObjetivos } from "@/lib/hub";
+import { quemVeDaReuniao } from "@/lib/quem-ve";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +48,7 @@ type TarefaNaReuniao = Tarefa & {
 
 // A reunião como a tela do TTARS mostra: resumo, ações e (só pra quem gravou) quem falou e
 // quem vê. Reunião de colega aberta pra mim: só leitura, sem conversa e sem vozes; quem foi
-// chamado para ela (quem estava na reunião do Teams, ou escolhido) pode puxar uma ação.
+// chamado para ela (quem estava: convite do Teams, voz em "Quem falou" ou marcado; ou escolhido) pode puxar uma ação.
 export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
   const { id } = await ctx.params;
   if (!UUID_RE.test(id)) return NextResponse.json({ error: "id inválido" }, { status: 400 });
@@ -68,7 +69,7 @@ export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
       const aberta = t.status !== "concluida" && t.status !== "cancelada";
       return {
         ...vista,
-        pode_puxar: chamado && m.source === "teams" && aberta && !t.responsavel_user_id,
+        pode_puxar: chamado && aberta && !t.responsavel_user_id,
         com_voce: t.responsavel_user_id === user.id,
       };
     });
@@ -92,7 +93,9 @@ export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
         }))
       : [];
 
-  const acessos = souDono && isTeamMode() ? await teamAccessFor(user.id).listAcessos(id) : [];
+  const [acessos, quemVe] = souDono && isTeamMode()
+    ? await Promise.all([teamAccessFor(user.id).listAcessos(id), quemVeDaReuniao(user.id, id)])
+    : [[], null];
   const rotulo = trocarFalantes(meetingSubject(m.summary, m.nome), m.speaker_labels) || "Reunião";
 
   return NextResponse.json({
@@ -115,6 +118,8 @@ export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
     },
     falantes,
     acessos,
+    // Só para quem gravou: quem estava (convite, voz ou marcado) e quem mais foi marcado para ver.
+    quem_ve: quemVe,
     tarefas: tarefas.map((t) => ({
       ...t,
       reuniao_rotulo: rotulo,

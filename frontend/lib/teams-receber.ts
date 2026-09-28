@@ -147,7 +147,8 @@ export async function receber(p: PedidoDaReuniao): Promise<{ meeting_id?: string
         conversa.texto,
         JSON.stringify(conversa.segments),
         JSON.stringify(conversa.labels),
-        chamados.length ? "escolhidos" : "so_eu",
+        // Quem estava no convite vê (e puxa); ninguém mais sem quem marcou escolher (pedido do Vitor, 28/09).
+        "escolhidos",
         p.chave,
         convidados,
       ],
@@ -155,7 +156,7 @@ export async function receber(p: PedidoDaReuniao): Promise<{ meeting_id?: string
     const meetingId = r.rows[0].id;
     for (const uid of chamados) {
       await c.query(
-        `INSERT INTO meeting_acessos (meeting_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        `INSERT INTO meeting_acessos (meeting_id, user_id, motivo) VALUES ($1, $2, 'convidado') ON CONFLICT DO NOTHING`,
         [meetingId, uid],
       );
     }

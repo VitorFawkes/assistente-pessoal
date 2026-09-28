@@ -37,7 +37,7 @@ export default async function GravarPage() {
           Escolha se é uma reunião na sala ou online e comece a gravar.
         </p>
         <p className="text-[13px] text-[color:var(--muted)] max-w-md">
-          Quem vê o que você gravar: <strong className="font-medium text-[color:var(--muted-strong)]">{soEu ? "só você" : "toda a Welcome"}</strong>.{" "}
+          Quem vê o que você gravar: <strong className="font-medium text-[color:var(--muted-strong)]">{soEu ? "você e quem estava na reunião" : "toda a Welcome"}</strong>.{" "}
           <Link href="/seguranca/sessoes#quem-ve" className="underline hover:no-underline">
             Mudar
           </Link>{" "}

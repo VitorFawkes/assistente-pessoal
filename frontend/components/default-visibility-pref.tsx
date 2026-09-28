@@ -63,7 +63,7 @@ export function DefaultVisibilityPref({
             onChange={(e) => handleChange(e.target.value as "so_eu")}
             className="w-4 h-4"
           />
-          <span className="text-[13px]">Só eu vejo</span>
+          <span className="text-[13px]">Eu e quem estava na reunião</span>
         </label>
 
         <label className="flex items-center gap-3 cursor-pointer">

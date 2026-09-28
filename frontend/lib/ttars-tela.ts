@@ -57,6 +57,7 @@ const CAMPO: Record<string, string> = {
   status: "a situação",
   time_id: "o time",
   objetivo_id: "o objetivo",
+  quem_ve: "quem vê",
 };
 
 function juntar(xs: string[]): string {

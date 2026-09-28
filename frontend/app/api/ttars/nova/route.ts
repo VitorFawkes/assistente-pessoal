@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
 import { criarPelaCaixa } from "@/lib/nova-acao";
+import { mudarQuemVeDaTarefa } from "@/lib/quem-ve";
 
 export const dynamic = "force-dynamic";
 
 // Caixa "Nova ação" das telas do Ações no TTARS. Corpo: { texto, quem_email?, prazo? (AAAA-MM-DD),
-// projeto_id?, meeting_id?, workspace?, time_id?, objetivo_id? }. Devolve a ação criada do ponto de vista de quem criou.
+// projeto_id?, meeting_id?, workspace?, time_id?, objetivo_id?, pessoas? (e-mails que também veem) }. Devolve a ação
+// criada do ponto de vista de quem criou.
 export const POST = withAuth(async (user, req) => {
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body || typeof body.texto !== "string") {
@@ -23,5 +25,7 @@ export const POST = withAuth(async (user, req) => {
     objetivo_id: txt(body.objetivo_id),
   });
   if (!r.ok) return NextResponse.json({ error: r.erro }, { status: r.status });
+  const pessoas = Array.isArray(body.pessoas) ? body.pessoas.filter((e): e is string => typeof e === "string").slice(0, 50) : [];
+  if (pessoas.length) await mudarQuemVeDaTarefa(user.id, r.tarefa.id, { juntar: pessoas });
   return NextResponse.json({ tarefa: r.tarefa, aviso: r.aviso }, { status: 201 });
 });

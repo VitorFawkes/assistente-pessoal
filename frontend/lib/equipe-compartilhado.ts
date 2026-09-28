@@ -17,7 +17,7 @@ import { type Colega, ordenarPendencias, paraQuemVe } from "./compartilhar";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export type Papel = "dono" | "responsavel" | "projeto" | "time";
+export type Papel = "dono" | "responsavel" | "projeto" | "time" | "pessoa";
 export type AcessoTarefa = { donoId: string; papel: Papel };
 
 /** Quem pode mexer na tarefa e em nome de quem. Fora da equipe: sempre o próprio. */
@@ -180,6 +180,17 @@ export async function tarefasParaMim(userId: string): Promise<Tarefa[]> {
   if (!r.rows.length) return [];
   const lista = await carregarTarefas(userId, r.rows);
   return lista.sort(ordenarPendencias);
+}
+
+/** Tarefas que colegas marcaram para `userId` ver (as passadas a ele já vêm em tarefasParaMim). */
+export async function tarefasMarcadasParaMim(userId: string): Promise<Tarefa[]> {
+  if (!isTeamMode()) return [];
+  const r = await withTenant(userId, (c) =>
+    c.query<Par>(`SELECT tarefa_id, dono_id FROM equipe_tarefas_marcadas_para_mim()`),
+  );
+  if (!r.rows.length) return [];
+  const lista = await carregarTarefas(userId, r.rows);
+  return lista.map((t) => ({ ...t, marcada_para_mim: true })).sort(ordenarPendencias);
 }
 
 /** Em quais projetos (de quem vê) cada tarefa está. */
