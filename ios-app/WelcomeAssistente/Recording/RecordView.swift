@@ -39,7 +39,7 @@ struct RecordView: View {
                 Spacer()
             }
             .padding()
-            .navigationTitle("Ações")
+            .navigationTitle("CASE")
             .sheet(isPresented: $mostrarGuia) {
                 NavigationStack {
                     BotaoTelaBloqueadaView()
@@ -50,7 +50,7 @@ struct RecordView: View {
                 Button("Abrir Ajustes") { openSettings() }
                 Button("Cancelar", role: .cancel) {}
             } message: {
-                Text("Para gravar reuniões, ligue o microfone em Ajustes → Ações.")
+                Text("Para gravar reuniões, ligue o microfone em Ajustes → CASE.")
             }
             .alert("Não deu para gravar", isPresented: Binding(
                 get: { errorMessage != nil },
@@ -156,7 +156,7 @@ struct RecordView: View {
                 .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
         } else if terminou && !auth.emDemonstracao {
             VStack(spacing: 10) {
-                Text("Pronto! A reunião aparece no Ações em alguns minutos.")
+                Text("Pronto! A reunião aparece em Reuniões em alguns minutos.")
                     .font(.subheadline).multilineTextAlignment(.center)
                 Button("Ver minhas reuniões") { verReunioes() }
             }

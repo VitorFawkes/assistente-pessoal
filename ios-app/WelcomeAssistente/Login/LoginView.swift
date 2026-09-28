@@ -44,12 +44,13 @@ struct LoginView: View {
 
     private var cabecalho: some View {
         VStack(spacing: 8) {
-            Image(systemName: "waveform.circle.fill")
-                .font(.system(size: 64))
-                .foregroundStyle(.tint)
-            Text("Ações")
+            Image("Logo")
+                .resizable()
+                .frame(width: 88, height: 88)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            Text("CASE")
                 .font(.largeTitle.weight(.bold))
-            Text("Grave suas reuniões. O resumo e as tarefas aparecem no Ações.")
+            Text("Grave suas reuniões. O resumo e as tarefas aparecem no TTARS, em Ações.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

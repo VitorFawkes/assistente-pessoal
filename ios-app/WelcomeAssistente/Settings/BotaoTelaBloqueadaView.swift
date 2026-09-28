@@ -8,7 +8,7 @@ struct BotaoTelaBloqueadaView: View {
                 passo(1, "Na tela bloqueada, segure o dedo num lugar vazio.")
                 passo(2, "Toque em Personalizar e depois em Tela Bloqueada.")
                 passo(3, "Embaixo, toque no − da lanterna ou da câmera.")
-                passo(4, "Toque no + que aparece no lugar e procure Ações.")
+                passo(4, "Toque no + que aparece no lugar e procure CASE.")
                 passo(5, "Escolha \"Gravar ou pausar reunião\" e toque em OK.")
             } header: {
                 Text("Botão na tela bloqueada")
@@ -19,7 +19,7 @@ struct BotaoTelaBloqueadaView: View {
             Section {
                 passo(1, "Abra os Ajustes do iPhone e toque em Botão de Ação.")
                 passo(2, "Passe para o lado até Controles e toque em Escolher um Controle.")
-                passo(3, "Procure Ações e escolha \"Gravar ou pausar reunião\".")
+                passo(3, "Procure CASE e escolha \"Gravar ou pausar reunião\".")
             } header: {
                 Text("Botão de Ação (lateral)")
             } footer: {
@@ -27,9 +27,9 @@ struct BotaoTelaBloqueadaView: View {
             }
 
             Section {
-                Text("\"E aí Siri, gravar reunião no Ações\"")
-                Text("\"E aí Siri, pausar gravação no Ações\"")
-                Text("\"E aí Siri, parar gravação no Ações\"")
+                Text("\"E aí Siri, gravar reunião no CASE\"")
+                Text("\"E aí Siri, pausar gravação no CASE\"")
+                Text("\"E aí Siri, parar gravação no CASE\"")
             } header: {
                 Text("Pela Siri")
             }

@@ -65,7 +65,7 @@ struct PausarGravacaoIntent: AudioRecordingIntent, LiveActivityIntent {
 
 struct PararGravacaoIntent: AudioRecordingIntent, LiveActivityIntent {
     static let title: LocalizedStringResource = "Parar gravação"
-    static let description = IntentDescription("Termina a gravação e envia a reunião para o Ações.")
+    static let description = IntentDescription("Termina a gravação e envia a reunião.")
     static let authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed
     @available(iOS 26.0, *)
     static var supportedModes: IntentModes { .background }

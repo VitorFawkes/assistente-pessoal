@@ -40,7 +40,7 @@ final class GravarTests: XCTestCase {
         foto("3-voltou-do-fundo")
 
         parar.tap()
-        XCTAssertTrue(app.staticTexts["Pronto! A reunião aparece no Ações em alguns minutos."].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["Pronto! A reunião aparece em Reuniões em alguns minutos."].waitForExistence(timeout: 15))
         foto("4-parou")
 
         let subindo = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'subindo'")).firstMatch
@@ -86,6 +86,13 @@ final class GravarTests: XCTestCase {
         }
         fotoDaTela("bloqueada-1-gravando")
         pausar.tap()
+        // Depois da primeira, o iOS pergunta se continua permitindo (e o toque em Pausar não vale).
+        let permitirSempre = springboard.buttons["Permitir Sempre"]
+        if permitirSempre.waitForExistence(timeout: 3) {
+            permitirSempre.tap()
+            sleep(2)
+            if !springboard.buttons["Continuar"].exists && pausar.exists { pausar.tap() }
+        }
 
         let continuar = springboard.buttons["Continuar"]
         XCTAssertTrue(continuar.waitForExistence(timeout: 20), "Pausar na tela bloqueada não pausou")

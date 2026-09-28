@@ -27,10 +27,10 @@ final class ControleGravacao {
 
         var errorDescription: String? {
             switch self {
-            case .precisaEntrar: "Abra o Ações e entre com a sua conta do TTARS."
-            case .microfone: "Abra o Ações e toque em Gravar uma vez para liberar o microfone."
-            case .atividadeDesligada: "As Atividades ao Vivo do Ações estão desligadas (Ajustes → Ações). Abra o Ações para gravar."
-            case .avisoNaoAbriu: "O iPhone não deixou gravar com a tela bloqueada agora. Abra o Ações para gravar."
+            case .precisaEntrar: "Abra o CASE e entre com a sua conta do TTARS."
+            case .microfone: "Abra o CASE e toque em Gravar uma vez para liberar o microfone."
+            case .atividadeDesligada: "As Atividades ao Vivo do CASE estão desligadas (Ajustes → CASE). Abra o CASE para gravar."
+            case .avisoNaoAbriu: "O iPhone não deixou gravar com a tela bloqueada agora. Abra o CASE para gravar."
             }
         }
 

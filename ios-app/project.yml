@@ -53,7 +53,7 @@ targets:
     info:
       path: WelcomeAssistente/Resources/Info.plist
       properties:
-        CFBundleDisplayName: Ações
+        CFBundleDisplayName: CASE
         CFBundleDevelopmentRegion: pt-BR
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
@@ -70,7 +70,7 @@ targets:
           - audio
         # Gravação na tela bloqueada e na Ilha Dinâmica (Pausar/Parar).
         NSSupportsLiveActivities: true
-        NSMicrophoneUsageDescription: O Ações usa o microfone para gravar suas reuniões e transformar em resumo e tarefas.
+        NSMicrophoneUsageDescription: O CASE usa o microfone para gravar suas reuniões e transformar em resumo e tarefas.
         # App não usa criptografia além da padrão do sistema (HTTPS) — evita
         # bloqueio MISSING_EXPORT_COMPLIANCE em cada build novo no TestFlight.
         ITSAppUsesNonExemptEncryption: false
@@ -118,7 +118,7 @@ targets:
     info:
       path: AcoesWidgets/Info.plist
       properties:
-        CFBundleDisplayName: Ações
+        CFBundleDisplayName: CASE
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:

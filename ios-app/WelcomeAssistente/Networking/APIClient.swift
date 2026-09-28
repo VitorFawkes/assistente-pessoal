@@ -72,7 +72,7 @@ enum ErroDeEntrada: Error, LocalizedError {
         switch self {
         case .senhaErrada: return "E-mail ou senha errados. Use os mesmos do TTARS."
         case .emailNaoConfirmado: return "Confirme seu e-mail no TTARS antes de entrar."
-        case .naoLiberado: return "Seu acesso ao Ações ainda não foi liberado. Peça ao Vitor."
+        case .naoLiberado: return "Seu acesso ao CASE ainda não foi liberado. Peça ao Vitor."
         case .muitasTentativas: return "Muitas tentativas. Espere 1 minuto e tente de novo."
         case .semInternet: return "Sem internet. Tente de novo."
         case .outro: return "Não consegui entrar agora. Tente de novo em instantes."

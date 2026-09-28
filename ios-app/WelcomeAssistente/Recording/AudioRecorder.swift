@@ -276,7 +276,7 @@ final class AudioRecorder: NSObject {
     private func avisarQueParou() {
         let conteudo = UNMutableNotificationContent()
         conteudo.title = "A gravação parou"
-        conteudo.body = "O que foi gravado está salvo. Abra o Ações e toque em Continuar."
+        conteudo.body = "O que foi gravado está salvo. Abra o CASE e toque em Continuar."
         conteudo.sound = .default
         let pedido = UNNotificationRequest(identifier: "gravacao-parou", content: conteudo, trigger: nil)
         UNUserNotificationCenter.current().add(pedido)
