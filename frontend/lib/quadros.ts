@@ -18,6 +18,9 @@ export type Quadro = {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+  /** Equipe (hub, 28/09/2026): projeto do time e objetivo a que serve. */
+  time_id?: string | null;
+  objetivo_id?: string | null;
 };
 
 export type QuadroConvidado = {

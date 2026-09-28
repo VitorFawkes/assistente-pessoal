@@ -30,6 +30,7 @@ import {
 } from "./agente-regras";
 import { PATCH as patchTarefa } from "@/app/api/tarefas/[id]/route";
 import { POST as postQuadro } from "@/app/api/quadros/route";
+import { objetivosVisiveis, podeTime, tarefasDoObjetivo, tarefasDoTime, timesDasPessoas } from "./hub";
 
 const MAX_RODADAS = 4;
 const MAX_CHAMADAS = 10;
@@ -43,6 +44,9 @@ export type Contexto = {
   reuniao_id?: string | null;
   pessoa_email?: string | null;
   tarefa_id?: string | null;
+  /** Hub (28/09/2026): time ou objetivo aberto na tela. */
+  time_id?: string | null;
+  objetivo_id?: string | null;
 };
 export type Feita = { descricao: string; tarefa_id: string | null; desfazer: Pedido[] };
 export type Proposta = { id: string; descricao: string; executar: Pedido[]; tarefa_id: string | null };
@@ -88,6 +92,24 @@ async function montarRetrato(user: User, ctx: Contexto): Promise<Retrato> {
       if (ref) projetoAberto = { ref, nome: p.quadro.nome };
     }
   }
+  // Na página de um time ou de um objetivo, as ações dele entram no retrato (não são só as minhas).
+  let lugarAberto: string | null = null;
+  const juntar = (mais: Tarefa[]) => {
+    const vistos = new Set(juntas.map((t) => t.id));
+    juntas = [...juntas, ...mais.filter((t) => !vistos.has(t.id))];
+  };
+  if (ctx.time_id && (await podeTime(user.id, ctx.time_id))) {
+    juntar(await tarefasDoTime(user.id, ctx.time_id));
+    const nome = timesDasPessoas(pessoas).get(ctx.time_id)?.nome;
+    if (nome) lugarAberto = `A pessoa está na página do time "${nome}" (as ações com time "${nome}" são do time: todo mundo dele vê e mexe).`;
+  }
+  if (ctx.objetivo_id) {
+    const [obj] = await objetivosVisiveis(user.id, ctx.objetivo_id);
+    if (obj) {
+      juntar(await tarefasDoObjetivo(user.id, ctx.objetivo_id));
+      lugarAberto = `A pessoa está na página do objetivo "${obj.nome}" (${obj.feitas} de ${obj.total} ações feitas${obj.prazo ? `, até ${obj.prazo}` : ""}).`;
+    }
+  }
   const naTela = (await paraTela(user.id, juntas.sort(ordenarPendencias))) as TarefaVista[];
   const abertas = naTela.filter((t) => t.status === "aberta" || t.status === "em_andamento" || t.status === "aguardando_aprovacao");
   const fechadas = naTela.filter((t) => !abertas.includes(t)).slice(0, MAX_FECHADAS);
@@ -118,6 +140,7 @@ async function montarRetrato(user: User, ctx: Contexto): Promise<Retrato> {
   const DIAS = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
   const tela: string[] = [];
   if (projetoAberto) tela.push(`A pessoa está com o projeto ${projetoAberto.ref} ("${projetoAberto.nome}") aberto na tela.`);
+  if (lugarAberto) tela.push(lugarAberto);
   if (ctx.reuniao_id) {
     const ref = [...refsReuniao.entries()].find(([, id]) => id === ctx.reuniao_id)?.[0];
     if (ref) tela.push(`A pessoa está com a reunião ${ref} aberta na tela.`);

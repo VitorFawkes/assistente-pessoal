@@ -5,19 +5,34 @@ import { meetingSubject } from "./meeting-label";
 import { notionDasAcoes } from "./notion-sync";
 import type { Tarefa } from "./queries";
 import { acessoTarefa, carregarTarefas, comProjetos, nomesDeUsuarios, type Papel } from "./equipe-compartilhado";
+import { nomesDosObjetivos, nomesDosTimes, origemDaReuniao } from "./hub";
 
 export async function paraTela(userId: string, tarefas: Tarefa[]) {
-  const [comP, notion] = await Promise.all([comProjetos(userId, tarefas), notionDasAcoes(tarefas.map((t) => t.id))]);
-  return comP.map((t) => ({
-    ...t,
-    reuniao_rotulo: t.meeting_id ? meetingSubject(t.meeting_summary, t.meeting_nome) || "Reunião" : null,
-    notion: notion.get(t.id) ?? null,
-  }));
+  const comTime = tarefas.some((t) => t.time_id);
+  const [comP, notion, objetivos, times] = await Promise.all([
+    comProjetos(userId, tarefas),
+    notionDasAcoes(tarefas.map((t) => t.id)),
+    nomesDosObjetivos(userId, tarefas.map((t) => t.objetivo_id ?? "").filter(Boolean)),
+    comTime ? nomesDosTimes() : Promise.resolve(new Map<string, string>()),
+  ]);
+  return comP.map((t) => {
+    const objetivoNome = t.objetivo_id ? objetivos.get(t.objetivo_id) : undefined;
+    return {
+      ...t,
+      reuniao_rotulo: t.meeting_id ? meetingSubject(t.meeting_summary, t.meeting_nome) || "Reunião" : null,
+      meeting_origem: t.meeting_id ? origemDaReuniao(t.meeting_source) : null,
+      time_nome: t.time_id ? (times.get(t.time_id) ?? null) : null,
+      // Objetivo que quem vê não enxerga não aparece (nem o id).
+      objetivo: t.objetivo_id && objetivoNome ? { id: t.objetivo_id, nome: objetivoNome } : null,
+      objetivo_id: t.objetivo_id && objetivoNome ? t.objetivo_id : null,
+      notion: notion.get(t.id) ?? null,
+    };
+  });
 }
 
 export type TarefaNaTela = Awaited<ReturnType<typeof paraTela>>[number];
 
-/** Uma tarefa que `userId` pode ver (dele, passada a ele ou de projeto dele). null = não pode. */
+/** Uma tarefa que `userId` pode ver (dele, passada a ele, de projeto ou do time dele). null = não pode. */
 export async function tarefaNaTela(userId: string, id: string): Promise<{ tarefa: TarefaNaTela; papel: Papel; donoId: string } | null> {
   const acesso = await acessoTarefa(userId, id);
   if (!acesso) return null;
@@ -37,6 +52,8 @@ const CAMPO: Record<string, string> = {
   prioridade: "a prioridade",
   area_raw: "a área",
   status: "a situação",
+  time_id: "o time",
+  objetivo_id: "o objetivo",
 };
 
 function juntar(xs: string[]): string {

@@ -17,7 +17,7 @@ import { type Colega, ordenarPendencias, paraQuemVe } from "./compartilhar";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export type Papel = "dono" | "responsavel" | "projeto";
+export type Papel = "dono" | "responsavel" | "projeto" | "time";
 export type AcessoTarefa = { donoId: string; papel: Papel };
 
 /** Quem pode mexer na tarefa e em nome de quem. Fora da equipe: sempre o próprio. */

@@ -14,8 +14,8 @@ import {
 import { resolverEscolha } from "@/lib/escolha-de-dono";
 import { pedirEnvio } from "@/lib/notion-sync";
 import { buDoWorkspace } from "@/lib/notion-mapa";
+import { podeObjetivo, podeTime, timeIdValido } from "@/lib/hub";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VALID_STATUS = ["aberta", "em_andamento", "aguardando_aprovacao", "concluida", "cancelada"] as const;
 const VALID_PRIORIDADE = ["baixa", "media", "alta", "urgente"] as const;
 const VALID_ACAO = ["executar", "cobrar", "aguardar"] as const;
@@ -42,9 +42,9 @@ type PatchBody = Partial<{
   responsavel_email: string;
   /** Workspace do TTARS de quem pede (área no Notion do marketing). */
   workspace: string;
-  /** Hub: time do TTARS que a tarefa pertence. */
+  /** Hub: ação do time (id do time do TTARS) ou pessoal (null). Só quem criou muda. */
   time_id: string | null;
-  /** Hub: objetivo linkado à tarefa. */
+  /** Hub: objetivo a que a ação serve (um que quem pede enxerga) ou nenhum. */
   objetivo_id: string | null;
 }>;
 
@@ -166,19 +166,22 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
 
   if (body.no_plano !== undefined) push("no_plano", body.no_plano);
 
-  // Hub: time_id e objetivo_id
+  // Hub: time da ação (muda quem enxerga — só quem criou, e só para um time dele) e objetivo
+  // (um que quem pede enxerga).
   if (body.time_id !== undefined) {
-    if (body.time_id && !body.time_id.match(/^t-[a-z0-9-]+$/i)) {
-      return NextResponse.json({ error: "time_id inválido" }, { status: 400 });
+    if (acesso.papel !== "dono") {
+      return NextResponse.json({ error: "Só quem criou a ação muda o time dela." }, { status: 403 });
     }
-    push("time_id", body.time_id ?? null);
+    if (body.time_id !== null && !(timeIdValido(body.time_id) && (await podeTime(user.id, body.time_id)))) {
+      return NextResponse.json({ error: "Você não está nesse time." }, { status: 400 });
+    }
+    push("time_id", body.time_id);
   }
-
   if (body.objetivo_id !== undefined) {
-    if (body.objetivo_id && !UUID_RE.test(body.objetivo_id)) {
-      return NextResponse.json({ error: "objetivo_id inválido" }, { status: 400 });
+    if (body.objetivo_id !== null && !(typeof body.objetivo_id === "string" && (await podeObjetivo(user.id, body.objetivo_id)))) {
+      return NextResponse.json({ error: "Esse objetivo não existe ou você não o enxerga." }, { status: 400 });
     }
-    push("objetivo_id", body.objetivo_id ?? null);
+    push("objetivo_id", body.objetivo_id);
   }
 
   const hasPessoas = Array.isArray(body.pessoas);
@@ -206,14 +209,16 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
         const sql = `UPDATE tarefas SET ${sets.join(", ")} WHERE id = $${values.length} RETURNING *`;
         const { rows } = await c.query(sql, values);
         row = rows[0];
-        if (row && body.status) {
-          const evento =
-            body.status === "concluida"
-              ? "concluida"
-              : body.status === "cancelada"
-              ? "cancelada"
-              : "reaberta";
-          await registrarEvento(c, id, evento, body, ator);
+        if (row && body.status && before?.status !== body.status) {
+          const estavaFechada = before?.status === "concluida" || before?.status === "cancelada";
+          if (body.status === "concluida" || body.status === "cancelada") {
+            await registrarEvento(c, id, body.status, body, ator);
+          } else if (estavaFechada) {
+            await registrarEvento(c, id, "reaberta", body, ator);
+          } else {
+            // Aberta ↔ Em andamento ↔ Aguardando aprovação: mudou a situação, não "reabriu".
+            await registrarEvento(c, id, "editada", { origem: "situacao", changed: { status: { de: before?.status, para: body.status } } }, ator);
+          }
         }
         // correção de conteúdo: registra de→para por campo alterado
         if (row && before) {
@@ -230,6 +235,14 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
               "INSERT INTO extracao_feedback (user_id, meeting_id, tipo, payload) VALUES ($1,$2,'correcao',$3)",
               [donoId, (before.meeting_id as string) ?? null, JSON.stringify({ changed })],
             );
+          }
+          // Time e objetivo não são correção da IA: entram só no histórico da ação.
+          const organizacao: Record<string, { de: unknown; para: unknown }> = {};
+          for (const f of ["time_id", "objetivo_id"] as const) {
+            if (body[f] !== undefined && before[f] !== row[f]) organizacao[f] = { de: before[f], para: row[f] };
+          }
+          if (Object.keys(organizacao).length) {
+            await registrarEvento(c, id, "editada", { origem: "organizacao", changed: organizacao }, ator);
           }
         }
       } else {

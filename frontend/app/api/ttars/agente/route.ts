@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 90;
 
 // Assistente do Ações nas telas do TTARS. Corpo: { falas: [{quem, texto}], contexto?: {tela,
-// projeto_id, reuniao_id, pessoa_email, tarefa_id}, workspace? }. A conversa mora no navegador.
+// projeto_id, reuniao_id, pessoa_email, tarefa_id, time_id, objetivo_id}, workspace? }. A conversa mora no navegador.
 export const POST = withAuth(async (user, req) => {
   const body = (await req.json().catch(() => null)) as {
     falas?: Fala[];
@@ -28,6 +28,8 @@ export const POST = withAuth(async (user, req) => {
         reuniao_id: txt(c.reuniao_id),
         pessoa_email: txt(c.pessoa_email),
         tarefa_id: txt(c.tarefa_id),
+        time_id: txt(c.time_id),
+        objetivo_id: txt(c.objetivo_id),
       },
       workspace: txt(body.workspace),
     });

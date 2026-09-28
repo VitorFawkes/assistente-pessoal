@@ -5,7 +5,7 @@ import { criarPelaCaixa } from "@/lib/nova-acao";
 export const dynamic = "force-dynamic";
 
 // Caixa "Nova ação" das telas do Ações no TTARS. Corpo: { texto, quem_email?, prazo? (AAAA-MM-DD),
-// projeto_id?, meeting_id?, workspace? }. Devolve a ação criada do ponto de vista de quem criou.
+// projeto_id?, meeting_id?, workspace?, time_id?, objetivo_id? }. Devolve a ação criada do ponto de vista de quem criou.
 export const POST = withAuth(async (user, req) => {
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body || typeof body.texto !== "string") {
@@ -19,6 +19,8 @@ export const POST = withAuth(async (user, req) => {
     projeto_id: txt(body.projeto_id),
     meeting_id: txt(body.meeting_id),
     workspace: txt(body.workspace),
+    time_id: txt(body.time_id),
+    objetivo_id: txt(body.objetivo_id),
   });
   if (!r.ok) return NextResponse.json({ error: r.erro }, { status: r.status });
   return NextResponse.json({ tarefa: r.tarefa, aviso: r.aviso }, { status: 201 });

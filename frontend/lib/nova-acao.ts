@@ -18,6 +18,7 @@ import { meetingsFor, tarefasFor, type Acao, type Tarefa } from "./queries";
 import { acharPessoaPorNome, ehEu } from "./pessoa-por-nome";
 import { chamarModelo, IaIndisponivel } from "./ia";
 import { tarefaNaTela, type TarefaNaTela } from "./ttars-tela";
+import { podeObjetivo, podeTime, timeIdValido } from "./hub";
 
 export type Prioridade = Tarefa["prioridade"];
 const PRIORIDADES: Prioridade[] = ["baixa", "media", "alta", "urgente"];
@@ -35,6 +36,10 @@ export type PedidoDeAcao = {
   projeto_id?: string | null;
   meeting_id?: string | null;
   workspace?: string | null;
+  /** Ação do time (id do time do TTARS em que quem pede está). */
+  time_id?: string | null;
+  /** Objetivo (que quem pede enxerga). */
+  objetivo_id?: string | null;
   origem: "manual" | "captura_texto" | "agente";
   raw?: string;
 };
@@ -51,6 +56,12 @@ export async function criarAcao(user: User, p: PedidoDeAcao): Promise<Criada> {
 
   if (p.projeto_id && !(await donoDoProjeto(user.id, p.projeto_id))) {
     return { ok: false, erro: "Você não está nesse projeto (ou ele foi arquivado).", status: 404 };
+  }
+  if (p.time_id && !(timeIdValido(p.time_id) && (await podeTime(user.id, p.time_id)))) {
+    return { ok: false, erro: "Você não está nesse time.", status: 400 };
+  }
+  if (p.objetivo_id && !(await podeObjetivo(user.id, p.objetivo_id))) {
+    return { ok: false, erro: "Esse objetivo não existe ou você não o enxerga.", status: 400 };
   }
   // Só quem gravou liga uma ação nova à reunião (as tarefas da reunião são dele).
   let meetingId: string | null = null;
@@ -102,9 +113,14 @@ export async function criarAcao(user: User, p: PedidoDeAcao): Promise<Criada> {
     },
     { origem: p.origem, raw: p.raw },
   );
-  if (responsavel) {
+  if (responsavel || p.time_id || p.objetivo_id) {
     await withTenant(user.id, (c) =>
-      c.query("UPDATE tarefas SET responsavel_user_id = $1 WHERE id = $2", [responsavel, criada.id]),
+      c.query(
+        `UPDATE tarefas SET responsavel_user_id = COALESCE($1::uuid, responsavel_user_id),
+                            time_id = COALESCE($2, time_id), objetivo_id = COALESCE($3::uuid, objetivo_id)
+          WHERE id = $4`,
+        [responsavel, p.time_id || null, p.objetivo_id || null, criada.id],
+      ),
     );
   }
   if (notionUserId) {
@@ -203,7 +219,16 @@ export function quemDaFrase(
 /** Caixa "Nova ação": o que a pessoa marcou manda; o resto sai da frase (IA só se preciso). */
 export async function criarPelaCaixa(
   user: User,
-  entrada: { texto: string; quem_email?: string | null; prazo?: string | null; projeto_id?: string | null; meeting_id?: string | null; workspace?: string | null },
+  entrada: {
+    texto: string;
+    quem_email?: string | null;
+    prazo?: string | null;
+    projeto_id?: string | null;
+    meeting_id?: string | null;
+    workspace?: string | null;
+    time_id?: string | null;
+    objetivo_id?: string | null;
+  },
 ): Promise<Criada> {
   const texto = (entrada.texto ?? "").trim();
   if (!texto) return { ok: false, erro: "Escreva o que precisa ser feito.", status: 400 };
@@ -232,6 +257,8 @@ export async function criarPelaCaixa(
     projeto_id: entrada.projeto_id ?? null,
     meeting_id: entrada.meeting_id ?? null,
     workspace: entrada.workspace ?? null,
+    time_id: entrada.time_id ?? null,
+    objetivo_id: entrada.objetivo_id ?? null,
     origem: lida ? "captura_texto" : "manual",
     raw: texto,
   });

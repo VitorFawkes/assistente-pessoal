@@ -25,6 +25,8 @@ export type TarefaVista = Tarefa & {
   compartilhada?: boolean;
   criador_nome?: string | null;
   projetos?: { id: string; nome: string }[];
+  time_nome?: string | null;
+  objetivo?: { id: string; nome: string } | null;
   reuniao_rotulo?: string | null;
 };
 
@@ -76,6 +78,8 @@ export function linhaDoRetrato(ref: string, t: TarefaVista, hoje?: string) {
     ...(t.projetos?.length ? { projetos: t.projetos.map((p) => p.nome) } : {}),
     ...(t.reuniao_rotulo ? { reuniao: t.reuniao_rotulo.slice(0, 80) } : {}),
     ...(t.compartilhada ? { criada_por: t.criador_nome ?? "colega" } : {}),
+    ...(t.time_nome ? { time: t.time_nome } : {}),
+    ...(t.objetivo ? { objetivo: t.objetivo.nome } : {}),
   };
 }
 

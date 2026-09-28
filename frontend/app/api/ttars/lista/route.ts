@@ -20,7 +20,7 @@ export const GET = withAuth(async (user) => {
     : (lista as unknown as Tarefa[]);
   const tarefas = await paraTela(user.id, juntas);
   const totalAbertas =
-    contagens.abertas + paraMim.filter((t) => t.status === "aberta" || t.status === "em_andamento").length;
+    contagens.abertas + paraMim.filter((t) => t.status === "aberta" || t.status === "em_andamento" || t.status === "aguardando_aprovacao").length;
   return NextResponse.json({
     eu: { id: user.id, nome: user.nome, email: user.email },
     tarefas,

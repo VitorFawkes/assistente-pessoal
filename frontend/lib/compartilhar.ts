@@ -118,6 +118,7 @@ const SEM_REUNIAO: Partial<Tarefa> = {
   meeting_duracao: null,
   meeting_recorded_at: null,
   meeting_type: null,
+  meeting_source: null,
   parece_com_id: null,
   parece_com: null,
   mencoes: [],

@@ -139,6 +139,12 @@ export type Tarefa = {
   dono_nome?: string | null;
   /** Projetos (de quem vê) em que a tarefa está. */
   projetos?: { id: string; nome: string }[];
+  // ─── Hub (28/09/2026) ───
+  /** Ação do time (id do time do TTARS): todo mundo do time vê. */
+  time_id?: string | null;
+  objetivo_id?: string | null;
+  /** meetings.source da reunião de onde veio (vira meeting_origem na tela). */
+  meeting_source?: string | null;
 };
 
 export type TarefaDraft = {
@@ -197,6 +203,7 @@ const TAREFA_COLUNAS = `
          m.nome AS meeting_nome,
          m.duration_seconds AS meeting_duracao,
          m.meeting_type AS meeting_type,
+         m.source AS meeting_source,
          f.nome AS frente,
          COALESCE((
            SELECT jsonb_agg(jsonb_build_object('id', p.id, 'nome', p.nome, 'principal', tp.principal)
@@ -697,16 +704,16 @@ export const tarefasFor = (userId: string) => ({
         `${TAREFA_SELECT}
           WHERE t.id IN (
             (SELECT id FROM tarefas
-              WHERE status IN ('aberta','em_andamento')
+              WHERE status IN ('aberta','em_andamento','aguardando_aprovacao')
               ORDER BY (acao = 'aguardar'), (prazo IS NULL), prazo ASC, created_at DESC
               LIMIT ${ABERTAS_LIMIT})
             UNION ALL
             (SELECT id FROM tarefas
-              WHERE status NOT IN ('aberta','em_andamento')
+              WHERE status NOT IN ('aberta','em_andamento','aguardando_aprovacao')
               ORDER BY COALESCE(concluida_em, cancelada_em, updated_at, created_at) DESC
               LIMIT ${CONCLUIDAS_LIMIT})
           )
-          ORDER BY (t.status NOT IN ('aberta','em_andamento')),
+          ORDER BY (t.status NOT IN ('aberta','em_andamento','aguardando_aprovacao')),
                    (t.acao = 'aguardar'),
                    (t.prazo IS NULL), t.prazo ASC, t.created_at DESC`,
       );
@@ -718,8 +725,8 @@ export const tarefasFor = (userId: string) => ({
     withTenant(userId, async (db) => {
       const r = await db.query<{ abertas: number; concluidas: number }>(
         `SELECT
-           count(*) FILTER (WHERE status IN ('aberta','em_andamento'))::int AS abertas,
-           count(*) FILTER (WHERE status NOT IN ('aberta','em_andamento'))::int AS concluidas
+           count(*) FILTER (WHERE status IN ('aberta','em_andamento','aguardando_aprovacao'))::int AS abertas,
+           count(*) FILTER (WHERE status NOT IN ('aberta','em_andamento','aguardando_aprovacao'))::int AS concluidas
          FROM tarefas`,
       );
       return r.rows[0] ?? { abertas: 0, concluidas: 0 };
