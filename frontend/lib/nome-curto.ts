@@ -69,6 +69,11 @@ export async function pedirNomes(userId: string, dono: string, resumos: string[]
  * nesse caso a reunião continua com o rótulo tirado do resumo.
  */
 export async function nomearReunioes(userId: string, limite = POR_VEZ): Promise<number> {
+ return (await nomearLote(userId, limite)).nomeadas;
+}
+
+/** Um lote da pessoa: quantas reuniões foram lidas (tentadas) e quantas ganharam nome. */
+async function nomearLote(userId: string, limite: number): Promise<{ tentadas: number; nomeadas: number }> {
  const pendentes = await withTenant(userId, async db => (await db.query<{ id: string; summary: string }>(
   `SELECT id, left(summary, 900) AS summary FROM meetings
     WHERE user_id = $1 AND status = 'done' AND (nome IS NULL OR btrim(nome) = '')
@@ -76,7 +81,7 @@ export async function nomearReunioes(userId: string, limite = POR_VEZ): Promise<
       AND NOT coalesce(jsonb_typeof(raw_ai_response) = 'object' AND raw_ai_response ? 'nome_ia', false)
     ORDER BY coalesce(recorded_at, created_at) DESC
     LIMIT $2`, [userId, limite])).rows);
- if (!pendentes.length) return 0;
+ if (!pendentes.length) return { tentadas: 0, nomeadas: 0 };
  const dono = (await query<{ nome: string | null }>("SELECT nome FROM users WHERE id = $1", [userId]))[0]?.nome ?? "";
  const nomes = await pedirNomes(userId, dono, pendentes.map(m => m.summary));
  let feitos = 0;
@@ -93,17 +98,24 @@ export async function nomearReunioes(userId: string, limite = POR_VEZ): Promise<
    if (nome && res.rowCount) feitos++;
   }
  });
- return feitos;
+ return { tentadas: pendentes.length, nomeadas: feitos };
 }
 
-/** Uma rodada: cada conta com reunião sem nome, até MAX_POR_RODADA reuniões no total. */
+/** Uma rodada: cada conta com reunião sem nome, lote após lote, até MAX_POR_RODADA reuniões no total ou o prazo. */
 export async function nomearTodas(opts: { deadline?: number } = {}): Promise<{ nomeadas: number; falhas: number }> {
  const contas = await query<{ id: string }>("SELECT id FROM users");
  let nomeadas = 0, falhas = 0;
  for (const c of contas) {
   if (nomeadas >= MAX_POR_RODADA || (opts.deadline && Date.now() > opts.deadline)) break;
-  try { nomeadas += await nomearReunioes(c.id, Math.min(POR_VEZ, MAX_POR_RODADA - nomeadas)); }
-  catch (err) { falhas++; console.error("nome curto", c.id.slice(0, 8), err instanceof Error ? err.message : err); }
+  try {
+   // Lote cheio = pode haver mais dessa pessoa; lote menor = acabou.
+   for (;;) {
+    const limite = Math.min(POR_VEZ, MAX_POR_RODADA - nomeadas);
+    const lote = await nomearLote(c.id, limite);
+    nomeadas += lote.nomeadas;
+    if (lote.tentadas < limite || nomeadas >= MAX_POR_RODADA || (opts.deadline && Date.now() > opts.deadline)) break;
+   }
+  } catch (err) { falhas++; console.error("nome curto", c.id.slice(0, 8), err instanceof Error ? err.message : err); }
  }
  return { nomeadas, falhas };
 }
