@@ -188,7 +188,7 @@ describe("pedido por critério: o modelo só dá o critério, o servidor acha to
   expect(bulkHeader(one({ type: "cancel", people: ["Tiago"] }), 1, SP)).toBe("Vou cancelar 1 tarefa de Tiago.");
   expect(bulkHeader(one({ type: "reschedule", due_date: "2026-10-02", due: "range", due_until: "2026-09-24" }), 5, SP)).toBe("Vou mudar para sex, 02/10 o prazo de 5 tarefas com prazo até 24/09.");
   expect(bulkHeader(one({ type: "shift", days: 7, due: "range", due_until: "2026-09-23" }), 4, SP)).toBe("Vou adiar em 7 dias o prazo de 4 tarefas atrasadas. As atrasadas contam a partir de hoje.");
-  expect(bulkHeader(one({ type: "clear_due", areas: [], due: "any", people: ["Paula"] }), 2, SP)).toBe("Vou tirar o prazo de 2 tarefas com prazo, de Paula.");
+  expect(bulkHeader(one({ type: "clear_due", areas: [], due: "any", people: ["Paula"] }), 2, SP)).toBe("Vou tirar o prazo de 2 tarefas de Paula, com prazo.");
   expect(bulkHeader(one({ type: "reassign", people: ["Binho"], owner: "Diana" }), 6, SP)).toBe("Vou passar para Diana 6 tarefas de Binho.");
   expect(bulkHeader(one({ type: "priority", priority: "media", who: "me" }), 3, SP)).toBe("Vou mudar para média a prioridade de 3 tarefas suas.");
   expect(bulkHeader(one({ type: "reopen", status: "done", closed_from: "2026-09-24", closed_until: "2026-09-24" }), 18, SP)).toBe("Vou reabrir 18 tarefas concluídas em 24/09.");

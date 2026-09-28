@@ -318,6 +318,8 @@ describe.skipIf(!connection)("Coach mexendo em tarefas: faz, pergunta antes e de
    expect(s.tasks).toHaveLength(3);
    expect(s.total).toBe(11);
    expect(s.counts).toMatchObject({ atrasadas: 2, hoje: 1, depois: 1, sem_prazo: 7, suas: 6, cobrar: 4, aguardando: 1 });
+   // "Thiago" is how one meeting wrote the registry's Tiago: counted under Tiago.
+   expect(s.counts.por_pessoa).toEqual({ "você": 6, Tiago: 2, "a definir": 1, Binho: 1, "Tiago e Vitor": 1 });
   });
   test("adiar em dias: atrasada conta de hoje, futura do próprio prazo, sem prazo fica e é dita", async () => {
    const message = "adia as minhas uma semana";

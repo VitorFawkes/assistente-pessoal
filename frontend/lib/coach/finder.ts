@@ -279,7 +279,7 @@ export async function executeListing(sel: BulkSelection, ctx: { userId: string; 
  const closed = sel.filter.status !== "open" && sel.filter.status !== "in_progress";
  return {
   consulta: `tarefas ${sel.label} (a mesma seleção que o Coach usa para mudar em lote; conta como o app, de qualquer pessoa)`, tipo: "tarefas_filtradas", total: found.total, mostrados: found.tasks.length,
-  contagem: { atrasadas: c.atrasadas, vence_hoje: c.hoje, prazo_depois_de_hoje: c.depois, sem_prazo: c.sem_prazo, suas: c.suas, para_cobrar: c.cobrar, aguardando: c.aguardando, ...(closed ? { concluidas: c.concluidas, canceladas: c.canceladas } : {}) },
+  contagem: { atrasadas: c.atrasadas, vence_hoje: c.hoje, prazo_depois_de_hoje: c.depois, sem_prazo: c.sem_prazo, suas: c.suas, para_cobrar: c.cobrar, aguardando: c.aguardando, por_pessoa: c.por_pessoa, ...(closed ? { concluidas: c.concluidas, canceladas: c.canceladas } : {}) },
   tarefas: found.tasks.map(t => ({ titulo: t.titulo, owner: t.mine ? "você" : t.responsible ?? "a definir", status: t.status, prazo: t.prazo, prioridade: t.prioridade, criada_em: t.created_at, concluida_em: t.closed_at, reuniao: t.meeting, modo: t.mine ? "fazer" as const : t.acao === "aguardar" ? "aguardar" as const : "cobrar" as const })),
  };
 }

@@ -540,8 +540,10 @@ export async function handleTaskMessage(userId: string, message: string, history
    continue;
   }
   for (const t of selection.tasks) if (!byId.has(t.id)) byId.set(t.id, t);
-  const notes = [noDue ? `Outras ${noDue} ${noDue === 1 ? "está sem prazo e fica como está" : "estão sem prazo e ficam como estão"}.` : "", unchanged ? `Outras ${unchanged} já ${unchanged === 1 ? "está" : "estão"} assim.` : "", overflow ? `Outras ${overflow} ficam para um próximo pedido.` : ""].filter(Boolean);
   const picked = selection.tasks.filter(t => fresh.some(a => a.tarefa_id === t.id));
+  const shared = picked.filter(t => t.shared).length;
+  const notes = [noDue ? `Outras ${noDue} ${noDue === 1 ? "está sem prazo e fica como está" : "estão sem prazo e ficam como estão"}.` : "", unchanged ? `Outras ${unchanged} já ${unchanged === 1 ? "está" : "estão"} assim.` : "",
+   overflow ? `Outras ${overflow} ficam para um próximo pedido.` : "", shared ? `${shared === picked.length ? (shared === 1 ? "Ela está" : "Todas estão") : `${shared} ${shared === 1 ? "está" : "estão"}`} em quadro que convidados veem.` : ""].filter(Boolean);
   const counts = { suas: picked.filter(t => t.mine).length, cobrar: picked.filter(t => !t.mine && t.acao !== "aguardar").length, aguardando: picked.filter(t => !t.mine && t.acao === "aguardar").length };
   if (fresh.length > BULK_LIMIT || fresh.some(a => needsConfirmation(a, byId.get(a.tarefa_id!), fresh))) {
    headers.push([bulkHeader(sel, fresh.length, timezone, { ...selection.counts, ...counts }), ...notes].join(" "));

@@ -45,7 +45,7 @@ export type PickedTask = {
  acao: string; mine: boolean; responsible: string | null; area: string | null; closed_at: string | null; created_at: string;
  meeting: { titulo: string; data: string | null } | null;
 };
-export type FilterCounts = { atrasadas: number; hoje: number; depois: number; sem_prazo: number; suas: number; cobrar: number; aguardando: number; concluidas: number; canceladas: number };
+export type FilterCounts = { atrasadas: number; hoje: number; depois: number; sem_prazo: number; suas: number; cobrar: number; aguardando: number; concluidas: number; canceladas: number; por_pessoa: Record<string, number> };
 export type Selection = { tasks: PickedTask[]; total: number; counts: FilterCounts };
 export type ListOrder = "prazo" | "recentes" | "prioridade";
 
@@ -101,6 +101,8 @@ export function readFilter(raw: Record<string, unknown>, ctx: FilterContext, tas
   if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && v >= "2020-01-01" && v <= max && !Number.isNaN(Date.parse(`${v}T12:00:00Z`))) return v;
   bad = true; return null;
  };
+ // "o que concluí essa semana": the end of a period that has not ended yet is today.
+ const untilToday = (v: unknown) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && v > today && v <= limit ? today : day(v, today));
  const oneOf = <T extends string>(v: unknown, values: readonly T[]): T | "" => {
   if (v === "" || v === undefined || v === null) return "";
   if (typeof v === "string" && (values as readonly string[]).includes(v)) return v as T;
@@ -131,11 +133,11 @@ export function readFilter(raw: Record<string, unknown>, ctx: FilterContext, tas
   priorities: Array.isArray(raw.priorities) ? [...new Set(raw.priorities.filter((p): p is Priority => (PRIORITY_LEVELS as readonly unknown[]).includes(p)))] : [],
   boards: coded(raw.boards, boards), not_boards: coded(raw.not_boards, boards),
   areas: coded(raw.areas, areas), not_areas: coded(raw.not_areas, areas),
-  meetings: coded(raw.meetings, meetings), meeting_from: day(raw.meeting_from, today), meeting_until: day(raw.meeting_until, today),
+  meetings: coded(raw.meetings, meetings), meeting_from: day(raw.meeting_from, today), meeting_until: untilToday(raw.meeting_until),
   source: oneOf(raw.source, ["meeting", "manual"] as const),
   words: names(raw.words), not_words: names(raw.not_words),
-  created_from: day(raw.created_from, today), created_until: day(raw.created_until, today),
-  closed_from: day(raw.closed_from, today), closed_until: day(raw.closed_until, today),
+  created_from: day(raw.created_from, today), created_until: untilToday(raw.created_until),
+  closed_from: day(raw.closed_from, today), closed_until: untilToday(raw.closed_until),
   idle_days: idle,
   repeated: raw.repeated === true,
   except: coded(raw.except, tasks),
@@ -268,13 +270,20 @@ export async function selectTasks(userId: string, f: TaskFilter, opts: { timezon
   return [task];
  });
 
- const counts: FilterCounts = { atrasadas: 0, hoje: 0, depois: 0, sem_prazo: 0, suas: 0, cobrar: 0, aguardando: 0, concluidas: 0, canceladas: 0 };
+ const counts: FilterCounts = { atrasadas: 0, hoje: 0, depois: 0, sem_prazo: 0, suas: 0, cobrar: 0, aguardando: 0, concluidas: 0, canceladas: 0, por_pessoa: {} };
+ const people = new Map<string, number>();
+ // A name written another way ("Thiago" for the registry's Tiago) counts under the registry's name.
+ const canonical = new Map(pessoas.flatMap(p => [p.nome, ...(p.aliases ?? [])].map(n => plain(n)).filter(n => n.length >= 3).map(n => [n, p.nome] as [string, string])));
  for (const t of matched) {
   const d = t.prazo ? localDay(timezone, new Date(t.prazo)) : null;
   if (!d) counts.sem_prazo++; else if (d < today) counts.atrasadas++; else if (d === today) counts.hoje++; else counts.depois++;
   if (t.mine) counts.suas++; else if (t.acao === "aguardar") counts.aguardando++; else counts.cobrar++;
   if (t.status === "concluida") counts.concluidas++; else if (t.status === "cancelada") counts.canceladas++;
+  const who = t.mine ? "você" : t.responsible ? canonical.get(plain(t.responsible)) ?? t.responsible : "a definir";
+  people.set(who, (people.get(who) ?? 0) + 1);
  }
+ // "De quem são?": the people with most tasks in the selection, even when the list only brings the first ones.
+ counts.por_pessoa = Object.fromEntries([...people].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 40));
  const due = (t: PickedTask) => (t.prazo ? Date.parse(t.prazo) : Infinity);
  const created = (t: PickedTask) => Date.parse(t.created_at);
  const order = opts.order ?? (f.status === "open" || f.status === "in_progress" ? "prazo" : "fechadas");
@@ -297,15 +306,16 @@ export function filterWords(f: TaskFilter, ctx: FilterContext, timezone: string,
  const parts: string[] = [];
  const status = { open: "", in_progress: "em andamento", done: "concluídas", cancelled: "canceladas", closed: "concluídas ou canceladas" }[f.status];
  if (status && !f.closed_from && !f.closed_until) parts.push(status);
- if (f.due === "none") parts.push("sem prazo");
- else if (f.due === "any") parts.push("com prazo");
- else if (f.due === "range") parts.push(!f.due_from && f.due_until === addDays(today, -1) ? "atrasadas" : range(f.due_from, f.due_until, "com prazo"));
+ // Whose first ("suas, sem prazo"; "de Tiago, atrasadas"), then when.
  if (f.who === "me") parts.push("suas");
  else if (f.who === "others") parts.push("de outras pessoas");
  else if (f.who === "nobody") parts.push("sem responsável");
  if (f.people.length) parts.push(`de ${joinOr(f.people)}`);
  if (f.kind === "chase") parts.push("para você cobrar");
  else if (f.kind === "wait") parts.push("que você está aguardando");
+ if (f.due === "none") parts.push("sem prazo");
+ else if (f.due === "any") parts.push("com prazo");
+ else if (f.due === "range") parts.push(!f.due_from && f.due_until === addDays(today, -1) ? "atrasadas" : range(f.due_from, f.due_until, "com prazo"));
  if (f.priorities.length) parts.push(`de prioridade ${joinOr([...f.priorities].sort((a, b) => PRIORITY_RANK[a] - PRIORITY_RANK[b]).map(p => (p === "media" ? "média" : p)))}`);
  const board = (id: string) => `"${ctx.boards.find(b => b.id === id)?.nome ?? "?"}"`;
  if (f.boards.length) parts.push(`${f.boards.length > 1 ? "dos quadros" : "do quadro"} ${joinOr(f.boards.map(board))}`);

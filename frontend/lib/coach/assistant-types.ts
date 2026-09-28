@@ -62,7 +62,7 @@ export type DossierEntry = {
  reunioes?: DossierMeeting[];
  eventos?: DossierEvent[];
  agenda_status?: string;
- contagem?: { atrasadas: number; vence_hoje: number; prazo_depois_de_hoje: number; sem_prazo: number; suas: number; para_cobrar: number; aguardando: number; concluidas?: number; canceladas?: number };
+ contagem?: { atrasadas: number; vence_hoje: number; prazo_depois_de_hoje: number; sem_prazo: number; suas: number; para_cobrar: number; aguardando: number; por_pessoa: Record<string, number>; concluidas?: number; canceladas?: number };
  pendencias?: { vence_hoje: number; atrasadas: number; outras_abertas?: { sem_prazo: number; prazo_depois_de_hoje: number }; itens: { titulo: string; owner: string | null; prazo: string; vence_hoje: boolean; mostrada_as_8h: boolean }[] };
  trechos?: DossierPassage[];
  conversas?: { papel: "usuario" | "coach"; data: string; texto: string }[];

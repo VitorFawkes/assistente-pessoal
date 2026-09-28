@@ -53,7 +53,8 @@ describe("todos os jeitos de dizer quais tarefas", () => {
   expect(words({ repeated: true })).toBe("marcadas como possível repetição");
  });
  test("vários critérios juntos e exceções citadas pelo nome", () => {
-  expect(words({ due: "none", people: ["Tiago"], boards: ["q2"] })).toBe('sem prazo, de Tiago, do quadro "WW - MKT & Vendas"');
+  expect(words({ due: "none", people: ["Tiago"], boards: ["q2"] })).toBe('de Tiago, sem prazo, do quadro "WW - MKT & Vendas"');
+  expect(words({ due: "none", who: "me" })).toBe("suas, sem prazo");
   expect(filterWords(read({ due: "none", except: ["t1"] })!, ctx, SP, now, ["Agente de gravação"])).toBe('sem prazo, menos "Agente de gravação"');
  });
  test("'todas' sem mais nada precisa ser dito; sem critério nenhum não vale", () => {
@@ -70,6 +71,8 @@ describe("todos os jeitos de dizer quais tarefas", () => {
   expect(read({ due: "sem" })).toBeNull();
   expect(read({ due: "range", due_until: "24/09" })).toBeNull();
   expect(read({ created_from: "2027-01-01" })).toBeNull();
+  // The end of a period that has not ended yet ("essa semana") is today.
+  expect(read({ status: "done", closed_from: "2026-09-28", closed_until: "2026-10-04" })).toMatchObject({ closed_until: "2026-09-28" });
  });
  test("exceções e códigos viram ids do servidor", () => {
   expect(read({ due: "none", except: ["t1", "t2"], boards: ["q1"], meetings: ["r1"] })).toMatchObject({ except: ["task-agente", "task-proposta"], boards: ["board-mkt"], meetings: ["meeting-paula"] });
