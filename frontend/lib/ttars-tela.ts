@@ -25,6 +25,9 @@ export async function paraTela(userId: string, tarefas: Tarefa[]) {
       // Objetivo que quem vê não enxerga não aparece (nem o id).
       objetivo: t.objetivo_id && objetivoNome ? { id: t.objetivo_id, nome: objetivoNome } : null,
       objetivo_id: t.objetivo_id && objetivoNome ? t.objetivo_id : null,
+      objetivo_escondido: !!t.objetivo_id && !objetivoNome,
+      // Quem recebe não vê a reunião, mas sabe que a ação saiu de uma (e não que foi criada à mão).
+      de_reuniao: t.de_reuniao ?? !!t.meeting_id,
       notion: notion.get(t.id) ?? null,
     };
   });

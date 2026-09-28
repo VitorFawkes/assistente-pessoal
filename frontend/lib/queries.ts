@@ -145,6 +145,8 @@ export type Tarefa = {
   objetivo_id?: string | null;
   /** meetings.source da reunião de onde veio (vira meeting_origem na tela). */
   meeting_source?: string | null;
+  /** Saiu de uma reunião (também para quem recebe, que não vê a reunião). */
+  de_reuniao?: boolean;
 };
 
 export type TarefaDraft = {

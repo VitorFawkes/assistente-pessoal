@@ -160,7 +160,7 @@ export async function candidatasDoProjeto(userId: string, quadroId: string, q?: 
   const minhas = await withTenant(userId, async (c) => {
     const r = await c.query<Tarefa>(
       `${TAREFA_SELECT}
-        WHERE t.status IN ('aberta','em_andamento')
+        WHERE t.status IN ('aberta','em_andamento','aguardando_aprovacao')
           AND NOT (t.id = ANY(ARRAY(SELECT tarefa_id FROM equipe_tarefas_do_projeto($1))))
           AND ($2::text IS NULL OR t.titulo ILIKE $2 OR t.descricao ILIKE $2 OR t.owner ILIKE $2)
         ORDER BY t.created_at DESC
@@ -173,7 +173,7 @@ export async function candidatasDoProjeto(userId: string, quadroId: string, q?: 
   const alvo = like ? like.slice(1, -1).toLowerCase() : null;
   const recebidas = (await tarefasParaMim(userId)).filter(
     (t) =>
-      (t.status === "aberta" || t.status === "em_andamento") &&
+      (t.status === "aberta" || t.status === "em_andamento" || t.status === "aguardando_aprovacao") &&
       !noProjeto.has(t.id) &&
       (!alvo || `${t.titulo} ${t.descricao ?? ""}`.toLowerCase().includes(alvo)),
   );

@@ -26,7 +26,7 @@ export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
   return NextResponse.json({ objetivo, tarefas, projetos: await projetosParaTela(user.id, projetosIds) });
 });
 
-// Quem enxerga o objetivo muda nome, como medir e prazo; quem vê (e o time) só quem criou.
+// Nome, como medir e prazo: quem criou e, no objetivo do time, o time. Quem vê (e o time): só quem criou.
 export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
   const { id } = await ctx.params;
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
@@ -39,6 +39,7 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
     if ((d.visibilidade !== undefined || d.time_id !== undefined) && donoId !== user.id) return "so_dono" as const;
     const atual = (await c.query<{ visibilidade: string; time_id: string | null }>(`SELECT visibilidade, time_id FROM objetivos WHERE id = $1`, [id])).rows[0];
     if (!atual) return "nao_achou" as const;
+    if (donoId !== user.id && atual.visibilidade !== "time") return "so_quem_criou" as const;
     const visibilidade = d.visibilidade ?? atual.visibilidade;
     const time = visibilidade === "time" ? (d.time_id !== undefined ? d.time_id : atual.time_id) : null;
     if (visibilidade === "time" && !time) return "sem_time" as const;
@@ -61,6 +62,7 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
   });
   if (!r || r.valor === "nao_achou") return NextResponse.json({ error: "Objetivo não encontrado." }, { status: 404 });
   if (r.valor === "so_dono") return NextResponse.json({ error: "Só quem criou o objetivo muda quem vê." }, { status: 403 });
+  if (r.valor === "so_quem_criou") return NextResponse.json({ error: "Só quem criou muda este objetivo." }, { status: 403 });
   if (r.valor === "sem_time") return NextResponse.json({ error: "Escolha o time que vai ver o objetivo." }, { status: 400 });
   return NextResponse.json({ ok: true });
 });

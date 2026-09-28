@@ -36,7 +36,7 @@ export function timesDasPessoas(pessoas: PessoaDaEquipe[]): Map<string, TimeNoTt
   for (const p of pessoas) {
     for (const t of Array.isArray(p.times) ? p.times : []) {
       if (!t?.id || !timeIdValido(t.id) || mapa.has(t.id)) continue;
-      mapa.set(t.id, { id: t.id, nome: t.nome || "Time", organizacao: p.organizacao || null });
+      mapa.set(t.id, { id: t.id, nome: t.nome || "Time", organizacao: t.organizacao || p.organizacao || null });
     }
   }
   return mapa;
@@ -123,6 +123,8 @@ export type ObjetivoResumo = {
   time_id: string | null;
   time_nome: string | null;
   sou_dono: boolean;
+  /** Muda nome, prazo e como medir: quem criou; no objetivo do time, também o time. */
+  pode_editar: boolean;
   criador_nome: string | null;
   total: number;
   feitas: number;
@@ -167,6 +169,7 @@ export async function objetivosVisiveis(userId: string, soEste?: string): Promis
     time_id: l.time_id,
     time_nome: l.time_id ? (times.get(l.time_id) ?? null) : null,
     sou_dono: l.user_id === userId,
+    pode_editar: l.user_id === userId || l.visibilidade === "time",
     criador_nome: l.criador_nome,
     total: l.total,
     feitas: l.feitas,
@@ -179,6 +182,11 @@ export async function podeObjetivo(userId: string, objetivoId: string): Promise<
   if (!UUID_RE.test(objetivoId)) return false;
   const r = await withTenant(userId, (c) => c.query<{ ok: boolean }>(`SELECT equipe_pode_objetivo($1) AS ok`, [objetivoId]));
   return !!r.rows[0]?.ok;
+}
+
+/** Sem o id de um objetivo que quem vê não enxerga (o nome já não sai). */
+export async function semObjetivoEscondido<T extends { objetivo_id?: string | null }>(userId: string, t: T): Promise<T> {
+  return t.objetivo_id && !(await podeObjetivo(userId, t.objetivo_id)) ? { ...t, objetivo_id: null } : t;
 }
 
 /** Roda `fn` no tenant de quem criou o objetivo, depois de conferir que `userId` o vê. */

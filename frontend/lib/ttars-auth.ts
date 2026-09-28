@@ -74,6 +74,17 @@ export async function ehAdmin(email: string): Promise<boolean> {
   return r[0]?.ok === true;
 }
 
+/** Empresa ativa do login: é por ela que o TTARS libera os vínculos de time (team_members). */
+export function empresaDoLogin(token: string): string | null {
+  try {
+    const corpo = JSON.parse(Buffer.from(token.split(".")[1] || "", "base64url").toString("utf8"));
+    const org = corpo?.app_metadata?.org_id;
+    return typeof org === "string" && /^[0-9a-f-]{36}$/i.test(org) ? org : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Atualiza a lista de pessoas do TTARS (para a tela Liberar) com o login do
  * admin que acabou de entrar. Só pessoas ativas e com e-mail.
@@ -90,24 +101,37 @@ export async function atualizarListaDoTtars(token: string): Promise<number> {
       "/rest/v1/org_members?select=user_id,organizations(name)&limit=5000",
       token,
     )) || [];
-  const times =
-    (await lerTtars<{ user_id: string; teams: { id: string; name: string } | null }[]>(
-      "/rest/v1/team_members?select=user_id,teams(id,name)&limit=5000",
-      token,
-    )) || [];
+  // O TTARS só devolve os vínculos de time da empresa em que o admin está agora. Os times dessa
+  // empresa são refeitos; os das outras ficam como estavam (senão, a cada troca de empresa do
+  // admin, a outra metade da Welcome perdia os times e o que é do time no Ações).
+  const vinculos = await lerTtars<
+    { user_id: string; teams: { id: string; name: string; organizations: { name: string } | null } | null }[]
+  >("/rest/v1/team_members?select=user_id,teams(id,name,organizations(name))&limit=5000", token);
+  const empresa = vinculos ? empresaDoLogin(token) : null;
+  const timesDaEmpresa = empresa
+    ? ((await lerTtars<{ id: string }[]>(`/rest/v1/teams?select=id&org_id=eq.${empresa}&limit=1000`, token)) || []).map((t) => t.id)
+    : [];
   const linhas = perfis.map((p) => ({
     email: String(p.email).toLowerCase(),
     nome: p.nome || String(p.email),
     organizacao: [...new Set(orgs.filter((o) => o.user_id === p.id && o.organizations).map((o) => o.organizations!.name))].join(", "),
-    times: times.filter((t) => t.user_id === p.id && t.teams).map((t) => ({ id: t.teams!.id, nome: t.teams!.name })),
+    times: (vinculos || [])
+      .filter((t) => t.user_id === p.id && t.teams)
+      .map((t) => ({ id: t.teams!.id, nome: t.teams!.name, organizacao: t.teams!.organizations?.name ?? null })),
   }));
   await query(
     `INSERT INTO ttars_pessoas (email, nome, organizacao, times, atualizado_em)
      SELECT x.email, x.nome, x.organizacao, x.times, now()
      FROM jsonb_to_recordset($1::jsonb) AS x(email text, nome text, organizacao text, times jsonb)
      ON CONFLICT (email) DO UPDATE
-       SET nome = EXCLUDED.nome, organizacao = EXCLUDED.organizacao, times = EXCLUDED.times, atualizado_em = now()`,
-    [JSON.stringify(linhas)],
+       SET nome = EXCLUDED.nome, organizacao = EXCLUDED.organizacao, atualizado_em = now(),
+           times = COALESCE((
+             SELECT jsonb_agg(t)
+               FROM jsonb_array_elements(CASE WHEN jsonb_typeof(ttars_pessoas.times) = 'array' THEN ttars_pessoas.times ELSE '[]'::jsonb END) AS t
+              WHERE NOT ((t ->> 'id') = ANY($2::text[]))
+                AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(EXCLUDED.times) AS n WHERE n ->> 'id' = t ->> 'id')
+           ), '[]'::jsonb) || EXCLUDED.times`,
+    [JSON.stringify(linhas), timesDaEmpresa],
   );
   // Não apaga quem ficou de fora: o admin pode ter entrado por outra org, que mostra outra lista.
   // Quem foi desativado no TTARS perde a liberação e sai de todos os aparelhos.

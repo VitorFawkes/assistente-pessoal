@@ -14,7 +14,7 @@ import {
 import { resolverEscolha } from "@/lib/escolha-de-dono";
 import { pedirEnvio } from "@/lib/notion-sync";
 import { buDoWorkspace } from "@/lib/notion-mapa";
-import { podeObjetivo, podeTime, timeIdValido } from "@/lib/hub";
+import { podeObjetivo, podeTime, semObjetivoEscondido, timeIdValido } from "@/lib/hub";
 
 const VALID_STATUS = ["aberta", "em_andamento", "aguardando_aprovacao", "concluida", "cancelada"] as const;
 const VALID_PRIORIDADE = ["baixa", "media", "alta", "urgente"] as const;
@@ -181,6 +181,13 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
     if (body.objetivo_id !== null && !(typeof body.objetivo_id === "string" && (await podeObjetivo(user.id, body.objetivo_id)))) {
       return NextResponse.json({ error: "Esse objetivo não existe ou você não o enxerga." }, { status: 400 });
     }
+    // Quem não enxerga o objetivo atual não o tira nem troca (apagaria o vínculo de quem ligou sem saber).
+    const atual = (
+      await withTenant(donoId, (c) => c.query<{ objetivo_id: string | null }>(`SELECT objetivo_id::text FROM tarefas WHERE id = $1`, [id]))
+    ).rows[0]?.objetivo_id;
+    if (atual && atual !== body.objetivo_id && !(await podeObjetivo(user.id, atual))) {
+      return NextResponse.json({ error: "A ação está num objetivo que você não vê: só quem vê esse objetivo muda." }, { status: 403 });
+    }
     push("objetivo_id", body.objetivo_id);
   }
 
@@ -294,7 +301,7 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
     if (acesso.papel !== "dono") {
       // Quem não criou recebe a tarefa do ponto de vista dele (sem a reunião de origem).
       const [visto] = await carregarTarefas(user.id, [{ tarefa_id: id, dono_id: donoId }]);
-      return NextResponse.json(visto ?? { id });
+      return NextResponse.json(visto ? await semObjetivoEscondido(user.id, visto) : { id });
     }
     return NextResponse.json(updated);
   } catch (e: unknown) {
@@ -310,7 +317,7 @@ export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
     const acesso = await acessoTarefa(user.id, id);
     if (acesso && acesso.papel !== "dono") {
       const [visto] = await carregarTarefas(user.id, [{ tarefa_id: id, dono_id: acesso.donoId }]);
-      return visto ? NextResponse.json(visto) : NextResponse.json({ error: "não encontrada" }, { status: 404 });
+      return visto ? NextResponse.json(await semObjetivoEscondido(user.id, visto)) : NextResponse.json({ error: "não encontrada" }, { status: 404 });
     }
   }
   const rows = await withTenant(user.id, async (db) => {
@@ -318,7 +325,7 @@ export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
     return r.rows;
   });
   if (!rows.length) return NextResponse.json({ error: "não encontrada" }, { status: 404 });
-  return NextResponse.json(rows[0]);
+  return NextResponse.json(await semObjetivoEscondido(user.id, rows[0] as { objetivo_id?: string | null }));
 });
 
 export const DELETE = withAuth<Ctx>(async (user, req, ctx) => {

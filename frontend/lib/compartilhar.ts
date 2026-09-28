@@ -170,6 +170,7 @@ export function paraQuemVe(
   return {
     ...(limpa as Tarefa),
     ...SEM_REUNIAO,
+    de_reuniao: !!t.meeting_id,
     owner,
     acao,
     is_mine: isMine,

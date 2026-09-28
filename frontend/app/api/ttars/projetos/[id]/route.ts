@@ -33,6 +33,8 @@ export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
       time_id: q.time_id ?? null,
       time_nome: q.time_id ? (times.get(q.time_id) ?? null) : null,
       objetivo: q.objetivo_id && objetivoNome ? { id: q.objetivo_id, nome: objetivoNome } : null,
+      // Ligado a um objetivo que quem vê não enxerga: a tela trava a escolha (nem o id sai).
+      objetivo_escondido: !!q.objetivo_id && !objetivoNome,
     },
     sou_dono: p.sou_dono,
     // O projeto que espelha o Notion do marketing (quem criou é a "pessoa" do Notion).
@@ -57,6 +59,16 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
   }
   if (body.objetivo_id !== undefined && body.objetivo_id !== null && !(typeof body.objetivo_id === "string" && (await podeObjetivo(user.id, body.objetivo_id)))) {
     return NextResponse.json({ error: "Esse objetivo não existe ou você não o enxerga." }, { status: 400 });
+  }
+  if (body.objetivo_id !== undefined) {
+    // Quem não enxerga o objetivo atual do projeto não o tira nem troca.
+    const lido = await comoDonoDoProjeto(user.id, id, async (c) =>
+      (await c.query<{ objetivo_id: string | null }>(`SELECT objetivo_id::text FROM quadros WHERE id = $1`, [id])).rows[0]?.objetivo_id ?? null,
+    );
+    if (!lido) return NextResponse.json({ error: "projeto não encontrado" }, { status: 404 });
+    if (lido.valor && lido.valor !== body.objetivo_id && !(await podeObjetivo(user.id, lido.valor))) {
+      return NextResponse.json({ error: "O projeto está num objetivo que você não vê: só quem vê esse objetivo muda." }, { status: 403 });
+    }
   }
   const r = await comoDonoDoProjeto(user.id, id, async (c, donoId) => {
     if (body.time_id !== undefined && donoId !== user.id) return "so_dono" as const;

@@ -90,7 +90,7 @@ export type PessoaDaEquipe = {
   email: string;
   nome: string;
   organizacao: string;
-  times: { id: string; nome: string }[];
+  times: { id: string; nome: string; organizacao?: string | null }[];
   /** Liberada no Ações: vê o que recebe. Sem isso, a tarefa espera até ela ser liberada. */
   usa_acoes: boolean;
 };
