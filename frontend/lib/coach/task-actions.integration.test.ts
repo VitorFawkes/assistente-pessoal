@@ -143,6 +143,26 @@ describe.skipIf(!connection)("Coach mexendo em tarefas: faz, pergunta antes e de
   } finally { globalThis.fetch = fetchBefore; }
  });
 
+ test("relato de parte de uma tarefa sua vira pergunta; 'sim' conclui", async () => {
+  const task = (await admin.query("INSERT INTO tarefas(user_id,titulo,owner,is_mine,acao,prazo) VALUES($1,'Disponibilizar o agente de gravação e apresentar a solução','vitor',true,'executar','2026-09-28T15:00:00Z') RETURNING id", [a])).rows[0].id as string;
+  const now = new Date("2026-09-28T14:00:00Z");
+  const message = "já disponibilizei o agente de gravação";
+  const fetchBefore = globalThis.fetch;
+  Object.assign(process.env, { OPENAI_API_KEY: "synthetic-key", COACH_PROVIDER: "openai", COACH_MODEL: "gpt-6-sol" });
+  globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+   const input = JSON.parse(JSON.parse(String(init?.body)).input[1].content) as { tasks: { task: string; title: string }[] };
+   const code = input.tasks.find(t => t.title.startsWith("Disponibilizar o agente"))!.task;
+   const out = { intent: "actions", actions: [{ type: "complete", task: code, quote: message, due_date: "", owner: "", title: "", priority: "", check: true }], bulk: [], question: "", also_reply: false, lane: "tarefas" };
+   return Response.json({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(out) }] }], usage: { input_tokens: 10, output_tokens: 5 } });
+  }) as unknown as typeof fetch;
+  try {
+   expect(await handleTaskMessage(a, message, [], SP, now, "run-parte")).toEqual({ reply: 'Pelo que você contou, "Disponibilizar o agente de gravação e apresentar a solução" pode estar feita. Quer que eu conclua?\nResponda sim ou não.' });
+   expect((await row(task)).status).toBe("aberta");
+   expect(await handleTaskMessage(a, "sim", [], SP, now, "run-parte-sim")).toEqual({ reply: 'Concluí "Disponibilizar o agente de gravação e apresentar a solução".\nSe não era isso, responda "desfaz".' });
+   expect((await row(task)).status).toBe("concluida");
+  } finally { globalThis.fetch = fetchBefore; }
+ });
+
  test("lote por pessoa ou com exceção: só as que batem, de qualquer lista quando há pessoa", async () => {
   const late = (await expandBulk(a, { type: "complete", due_from: null, due_until: "2026-09-24", owner: "Tiago", due_date: null, except: [], quote: "x" }, SP)).tasks;
   expect(late.length).toBeGreaterThan(0);

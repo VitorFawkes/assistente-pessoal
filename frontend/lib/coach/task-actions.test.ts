@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { afterConfirmation, bulkHeader, confirmsProposal, describeAction, directTaskRequest, interpreterSchema, isNo, isUndo, isYes, messageSpans, needsConfirmation, validateBulk, validateTaskActions, withoutTaskCodes, type CandidateTask, type TaskAction } from "./task-actions";
+import { afterConfirmation, bulkHeader, checkQuestion, confirmsProposal, describeAction, directTaskRequest, interpreterSchema, isNo, isUndo, isYes, messageSpans, needsConfirmation, validateBulk, validateTaskActions, withoutTaskCodes, type CandidateTask, type TaskAction } from "./task-actions";
 
 const SP = "America/Sao_Paulo";
 const now = new Date("2026-09-24T20:00:00Z"); // quinta, 17h em São Paulo
@@ -166,5 +166,25 @@ describe("pedido em lote: o servidor acha todas, o modelo só dá o critério", 
   expect(schema.required).toContain("bulk");
   expect(schema.properties.bulk.items.properties.except.items.enum).toEqual(["t1", "t2"]);
   expect(schema.properties.bulk.items.properties.quote.enum).toEqual([msg]);
+ });
+});
+
+describe("relato de parte do que a tarefa pede: pergunta antes de concluir", () => {
+ test("o modelo marca check só em concluir; o servidor sempre pergunta nesses casos, mesmo em tarefa sua", () => {
+  const msg = "já disponibilizei o agente de gravação";
+  const [out] = validateTaskActions([action({ quote: msg, check: true })], msg, tasks, SP, now);
+  expect(out).toMatchObject({ type: "complete", check: true });
+  expect(needsConfirmation(out, tasks.get("t1"), [out])).toBe(true);
+  expect(validateTaskActions([action({ quote: msg, type: "cancel", check: true })], msg, tasks, SP, now)[0].check).toBeUndefined();
+  expect(validateTaskActions([action({ quote: msg })], msg, tasks, SP, now)[0].check).toBeUndefined();
+ });
+ test("a pergunta cita a tarefa e pede sim ou não", () => {
+  expect(checkQuestion(["Disponibilizar o agente de gravação no aplicativo e no TARS e apresentar a solução"])).toBe('Pelo que você contou, "Disponibilizar o agente de gravação no aplicativo e no TARS e apresentar a solução" pode estar feita. Quer que eu conclua?\nResponda sim ou não.');
+  expect(checkQuestion(["A", "B"])).toBe("Pelo que você contou, estas podem estar feitas. Quer que eu conclua?\n• A\n• B\nResponda sim ou não.");
+ });
+ test("o formato pedido ao modelo exige check em cada ação", () => {
+  const schema = interpreterSchema(["t1"], ["x"]) as { properties: { actions: { items: { required: string[]; properties: { check: { type: string } } } } } };
+  expect(schema.properties.actions.items.required).toContain("check");
+  expect(schema.properties.actions.items.properties.check.type).toBe("boolean");
  });
 });
