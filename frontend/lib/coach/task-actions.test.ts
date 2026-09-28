@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { afterConfirmation, bulkHeader, checkQuestion, confirmsProposal, describeAction, directTaskRequest, interpreterSchema, isNo, isUndo, isYes, messageSpans, needsConfirmation, validateBulk, validateTaskActions, withoutTaskCodes, type CandidateTask, type TaskAction } from "./task-actions";
+import { afterConfirmation, bulkHeader, givesPermission, withoutRepeats, checkQuestion, confirmsProposal, describeAction, directTaskRequest, interpreterSchema, isNo, isUndo, isYes, messageSpans, needsConfirmation, validateBulk, validateTaskActions, withoutTaskCodes, type CandidateTask, type TaskAction } from "./task-actions";
 
 const SP = "America/Sao_Paulo";
 const now = new Date("2026-09-24T20:00:00Z"); // quinta, 17h em São Paulo
@@ -236,5 +236,21 @@ describe("relato de parte do que a tarefa pede: pergunta antes de concluir", () 
   const schema = interpreterSchema(["t1"], ["x"]) as { properties: { actions: { items: { required: string[]; properties: { check: { type: string } } } } } };
   expect(schema.properties.actions.items.required).toContain("check");
   expect(schema.properties.actions.items.properties.check.type).toBe("boolean");
+ });
+});
+
+describe("permissão dada antes (28/09: 'Já pode fazer sem pedir outra autorização')", () => {
+ test("as frases do Vitor dão permissão; negação e pedido de cuidado não têm as palavras certas ou dependem do intérprete", () => {
+  expect(givesPermission("TODAS sem prazo ou antes de 24/09 DEVEM ser concluidas. Já pode fazer e depois me fala só as que ficaram abertas")).toBe(true);
+  expect(givesPermission("Se tiver de 24/09 também pode concluir Já pode fazer sem pedir outra autorizacao")).toBe(true);
+  expect(givesPermission("conclui direto, não precisa me perguntar")).toBe(true);
+  expect(givesPermission("pode concluir todas sem prazo")).toBe(false);
+  expect(givesPermission("me pergunta antes de concluir")).toBe(false);
+ });
+ test("a resposta não repete o que o servidor já disse", () => {
+  const done = ["Não achei tarefa aberta sem prazo."];
+  expect(withoutRepeats("Não achei tarefas abertas sem prazo. As 11 tarefas com prazo até 23/09 continuam abertas.", done)).toBe("As 11 tarefas com prazo até 23/09 continuam abertas.");
+  expect(withoutRepeats("Sobraram 21 abertas: 15 atrasadas e 6 com prazo futuro.", done)).toBe("Sobraram 21 abertas: 15 atrasadas e 6 com prazo futuro.");
+  expect(withoutRepeats("Qualquer coisa.", [])).toBe("Qualquer coisa.");
  });
 });

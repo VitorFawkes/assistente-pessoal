@@ -15,7 +15,7 @@ const blank = { type: "complete", due_date: "", days: 0, owner: "", wait: false,
  all: false, status: "open", due: "", due_from: "", due_until: "", who: "", people: [], not_people: [], kind: "", priorities: [], boards: [], not_boards: [], areas: [], not_areas: [],
  meetings: [], meeting_from: "", meeting_until: "", source: "", words: [], not_words: [], created_from: "", created_until: "", closed_from: "", closed_until: "", idle_days: 0, repeated: false, except: [] };
 const bulk = (b: Partial<Record<string, unknown>>) => ({ ...blank, ...b });
-const reply = (out: Record<string, unknown>) => ({ intent: "actions", actions: [], bulk: [], question: "", unsupported: "", also_reply: false, lane: "tarefas", ...out });
+const reply = (out: Record<string, unknown>) => ({ intent: "actions", actions: [], bulk: [], question: "", unsupported: "", also_reply: false, authorized: false, lane: "tarefas", ...out });
 const filter = (f: Partial<TaskFilter>): TaskFilter => ({ ...emptyFilter(), ...f });
 
 describe.skipIf(!connection)("Coach mexendo em tarefas: faz, pergunta antes e desfaz, no banco real", () => {
@@ -233,6 +233,24 @@ describe.skipIf(!connection)("Coach mexendo em tarefas: faz, pergunta antes e de
    expect(await openProposal(user)).not.toBeNull();
    await admin.query("UPDATE coach_task_proposals SET resolved_at=now(),resolution='declined' WHERE user_id=$1", [user]);
   });
+  test("com permissão dada na própria mensagem ('Já pode fazer…'), faz na hora e deixa o 'desfaz'; sem as palavras, pergunta mesmo que o modelo diga que pode", async () => {
+   const semPalavras = "Pode concluir TODAS sem prazo";
+   interpreter(reply({ bulk: [bulk({ due: "none", quote: semPalavras })], authorized: true }));
+   const pergunta = await handleTaskMessage(user, semPalavras, [], SP, now, "run-sem-permissao") as { reply: string };
+   expect(pergunta.reply).toContain("Posso fazer?");
+   await admin.query("UPDATE coach_task_proposals SET resolved_at=now(),resolution='declined' WHERE user_id=$1 AND resolved_at IS NULL", [user]);
+   const message = "TODAS sem prazo DEVEM ser concluidas. Já pode fazer e depois me fala só as que ficaram abertas";
+   interpreter(reply({ bulk: [bulk({ due: "none", quote: message }), bulk({ type: "list", all: true, quote: message })], authorized: true, also_reply: true }));
+   const feito = await handleTaskMessage(user, message, [], SP, now, "run-permissao") as TaskNotes;
+   expect(feito.waiting).toEqual([]);
+   expect(feito.done[0]).toBe("Concluí 133 tarefas:");
+   expect(feito.done.at(-1)).toBe('Se não era isso, responda "desfaz".');
+   expect(feito.listings).toHaveLength(1);
+   expect((await admin.query("SELECT count(*)::int AS n FROM tarefas WHERE user_id=$1 AND status='aberta' AND prazo IS NULL", [user])).rows[0].n).toBe(0);
+   expect(await openProposal(user, now)).toBeNull();
+   await handleTaskMessage(user, "desfaz", [], SP, now);
+   expect((await admin.query("SELECT count(*)::int AS n FROM tarefas WHERE user_id=$1 AND status='aberta' AND prazo IS NULL", [user])).rows[0].n).toBe(133);
+  }, 60000);
   test("'sim' a uma pergunta do Coach sem proposta guardada volta para o intérprete com a conversa", async () => {
    const history = [{ role: "user", content: "Pode concluir TODAS sem prazo" }, { role: "assistant", content: "Quer concluir todas as tarefas abertas sem prazo, de qualquer responsável?" }];
    interpreter(reply({ bulk: [bulk({ due: "none", quote: "sim" })] }));

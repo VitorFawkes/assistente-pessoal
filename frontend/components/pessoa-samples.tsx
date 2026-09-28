@@ -16,6 +16,7 @@ export type VoiceSample = {
   duration_seconds: number | null;
   created_at: string;
   meeting_summary: string | null;
+  meeting_nome?: string | null;
   meeting_recorded_at: string | null;
 };
 
@@ -210,7 +211,7 @@ export function PessoaSamplesList({
                     href={`/reunioes/${s.source_meeting_id}`}
                     className="block mt-1 text-[14px] text-[color:var(--foreground)] hover:underline line-clamp-1"
                   >
-                    {meetingLabel(s.meeting_summary, s.meeting_recorded_at) ||
+                    {meetingLabel(s.meeting_summary, s.meeting_recorded_at, { nome: s.meeting_nome }) ||
                       "reunião sem resumo"}
                   </Link>
                 )}

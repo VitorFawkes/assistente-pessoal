@@ -13,6 +13,7 @@ type ArchivedMeeting = {
   meeting_type: string | null;
   recorded_at: string | null;
   summary: string | null;
+  nome: string | null;
   duration_seconds: number | null;
   n_segments: number;
 };
@@ -22,7 +23,7 @@ async function fetchArchived(): Promise<ArchivedMeeting[]> {
     SELECT
       m.id, m.source, m.meeting_type,
       to_char(coalesce(m.recorded_at, m.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
-      m.summary, m.duration_seconds,
+      m.summary, m.nome, m.duration_seconds,
       (SELECT count(*) FROM meetings c WHERE c.parent_meeting_id = m.id)::int AS n_segments
     FROM meetings m
     WHERE m.status = 'archived_session'
@@ -110,7 +111,7 @@ export default async function ArquivadasPage() {
 
                   <div className="flex-1 min-w-0">
                     <p className="text-[15px] leading-snug text-[color:var(--foreground)] line-clamp-2">
-                      {meetingSubject(m.summary) || "Sessão sem resumo"}
+                      {meetingSubject(m.summary, m.nome) || "Sessão sem resumo"}
                     </p>
                     <div className="mt-2 flex items-center flex-wrap gap-x-3 gap-y-1 text-[12px] text-[color:var(--muted)]">
                       {m.recorded_at && <span>{fmtDate(m.recorded_at)}</span>}

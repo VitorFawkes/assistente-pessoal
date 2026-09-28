@@ -16,7 +16,7 @@ import { announcedGoals, userMemoryNotes } from "./conversation-memory";
 import { accountabilityFingerprint } from "./follow-up";
 import { formatCommitmentDue, naturalCommitmentDue } from "./commitment-dates";
 import { dueTasks, morningAgenda } from "./morning-agenda";
-import { handleTaskMessage, type BulkSelection, type TaskLane } from "./task-actions";
+import { handleTaskMessage, withoutRepeats, type BulkSelection, type TaskLane } from "./task-actions";
 import { answerInfo, assistantTool, buildDossier, dossierForModel, proactiveDossier } from "./assistant";
 import type { Dossier } from "./assistant-types";
 import { budgetNotice, budgetReply, budgetState, CoachBudgetError, runCostUsd } from "./budget";
@@ -139,7 +139,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
     const answer=await answerInfo({message,recent,done:taskDone,waiting:taskWaiting,dossier,timezone:profile.timezone,now,onTelemetry});
     const reachedCap=budget.spent+runCostUsd(telemetry)>=budget.cap?budgetNotice(budget.cap):"";
     await store.addMessage("user",message,[],profile.revision,runId?runId+":user":undefined);
-    await store.addMessage("assistant",presentChat([taskDone.join("\n"),answer,...taskWaiting.filter(note=>!answer.includes(note)),reachedCap].filter(Boolean).join("\n\n"),[],[],await store.coverage(),0),[],profile.revision,runId?runId+":assistant":undefined);
+    await store.addMessage("assistant",presentChat([taskDone.join("\n"),withoutRepeats(answer,taskDone),...taskWaiting.filter(note=>!answer.includes(note)),reachedCap].filter(Boolean).join("\n\n"),[],[],await store.coverage(),0),[],profile.revision,runId?runId+":assistant":undefined);
    }finally{await recordModelRuns(userId,"quick",runId||null,telemetry,profile.revision).catch(()=>{});}
    return;
   }

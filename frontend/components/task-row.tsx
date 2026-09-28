@@ -380,7 +380,7 @@ export function TaskRow({
                     </span>
                   )}
                   <span className="truncate max-w-[150px] sm:max-w-[240px]">
-                    {meetingSubject(tarefa.meeting_summary) || "reunião"}
+                    {meetingSubject(tarefa.meeting_summary, tarefa.meeting_nome) || "reunião"}
                   </span>
                 </Link>
               )}

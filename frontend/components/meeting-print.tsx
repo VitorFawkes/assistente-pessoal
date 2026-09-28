@@ -49,7 +49,7 @@ export function MeetingPrintSheet({
         {/* No papel valia o mesmo: o resumo inteiro como título tomava meia
             página antes da transcrição começar. */}
         <h1 className="text-2xl font-semibold">
-          {meetingSubject(meeting.summary) || "Reunião"}
+          {meetingSubject(meeting.summary, meeting.nome) || "Reunião"}
         </h1>
         <p className="text-sm text-neutral-600 mt-1">
           {meeting.recorded_at ? fmtDate(meeting.recorded_at) : "sem data"}

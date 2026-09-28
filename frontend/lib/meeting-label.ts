@@ -100,9 +100,9 @@ export function meetingDateShort(iso: string | null | undefined): string {
 export function meetingLabel(
   summary: string | null | undefined,
   recordedAt: string | null | undefined,
-  opts?: { semData?: boolean },
+  opts?: { semData?: boolean; nome?: string | null },
 ): string {
-  const assunto = meetingSubject(summary) || "Reunião";
+  const assunto = meetingSubject(summary, opts?.nome) || "Reunião";
   const data = opts?.semData ? "" : meetingDateShort(recordedAt);
   return data ? `${data} · ${assunto}` : assunto;
 }
