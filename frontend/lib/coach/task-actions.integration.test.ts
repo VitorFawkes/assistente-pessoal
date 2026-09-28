@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
-import { applyTaskActions, candidateTasks, handleTaskMessage, openProposal, type CandidateTask, type TaskAction } from "./task-actions";
+import { applyTaskActions, candidateTasks, expandBulk, handleTaskMessage, openProposal, type CandidateTask, type TaskAction } from "./task-actions";
 
 const connection = process.env.COACH_TEST_DATABASE_URL;
 const SP = "America/Sao_Paulo";
@@ -93,6 +93,66 @@ describe.skipIf(!connection)("Coach mexendo em tarefas: faz, pergunta antes e de
    [a, JSON.stringify([{ type: "cancel", tarefa_id: shared, quote: "cancela", due_date: null, owner: null, title: null, priority: null }])]);
   expect(await handleTaskMessage(a, "não", [], SP)).toEqual({ reply: "Tudo bem, não mudei nada." });
   expect((await row(shared)).status).toBe("aberta");
+ });
+
+ test("pedido em lote acha todas até a data (não só 6), pergunta uma vez e o 'sim' com mais texto aplica tudo", async () => {
+  const insert = (user: string, titulo: string, owner: string, isMine: boolean, acao: string, prazo: string | null) =>
+   admin.query("INSERT INTO tarefas(user_id,titulo,owner,is_mine,acao,prazo) VALUES($1,$2,$3,$4,$5,$6) RETURNING id", [user, titulo, owner, isMine, acao, prazo]).then(r => r.rows[0].id as string);
+  for (let i = 0; i < 9; i++) await insert(a, `Atrasada ${i + 1}`, i % 3 ? "vitor" : "Tiago", i % 3 !== 0, i % 3 ? "executar" : "cobrar", `2026-09-${10 + i}T15:00:00Z`);
+  const outOfList = await insert(a, "Da Giordana, fora da lista", "Giordana", false, "aguardar", "2026-09-20T15:00:00Z");
+  const today = await insert(a, "Agente de gravação", "vitor", true, "executar", "2026-09-28T15:00:00Z");
+  const otherAccount = await insert(b, "Atrasada da outra conta", "vitor", true, "executar", "2026-09-20T15:00:00Z");
+  // What the user's list shows as due until 24/09 (São Paulo): own tasks and follow-ups, open.
+  const expected = (await admin.query("SELECT id FROM tarefas WHERE user_id=$1 AND status NOT IN ('concluida','cancelada') AND prazo<'2026-09-25T03:00:00Z' AND (is_mine OR acao='cobrar') ORDER BY prazo,id", [a])).rows.map(r => r.id as string);
+  expect(expected.length).toBeGreaterThan(6);
+  const now = new Date("2026-09-28T13:00:00Z");
+  const message = "Pode marcar como feitas TODAS do dia 24/09 pra trás";
+  const sent: string[] = [];
+  const interpreter = (out: Record<string, unknown>) => {
+   globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+    sent.push(JSON.parse(JSON.parse(String(init?.body)).input[1].content).message);
+    return Response.json({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(out) }] }], usage: { input_tokens: 10, output_tokens: 5 } });
+   }) as unknown as typeof fetch;
+  };
+  const fetchBefore = globalThis.fetch;
+  Object.assign(process.env, { OPENAI_API_KEY: "synthetic-key", COACH_PROVIDER: "openai", COACH_MODEL: "gpt-6-sol" });
+  delete process.env.COACH_TASKS_MODEL; delete process.env.COACH_TASKS_PROVIDER;
+  try {
+   interpreter({ intent: "actions", actions: [], bulk: [{ type: "complete", due_from: "", due_until: "2026-09-24", owner: "", due_date: "", except: [], quote: message }], question: "", also_reply: false, lane: "tarefas" });
+   const asked = await handleTaskMessage(a, message, [], SP, now, "run-lote") as { reply: string };
+   expect(asked.reply.split("\n")[0]).toBe(`Vou concluir ${expected.length} tarefas com prazo até 24/09. Posso fazer?`);
+   expect(asked.reply).not.toContain("Da Giordana");
+   expect((await openProposal(a, now))?.actions.map(x => x.tarefa_id).sort()).toEqual([...expected].sort());
+   expect((await row(expected[0])).status).toBe("aberta");
+
+   interpreter({ intent: "none", actions: [], bulk: [], question: "", also_reply: true, lane: "tarefas" });
+   const confirmed = await handleTaskMessage(a, "Sim\nPode fazer TUDO e já me mostra as que sobraram", [], SP, now, "run-sim");
+   expect(confirmed).toMatchObject({ waiting: [], lane: "tarefas" });
+   const done = (confirmed as { done: string[] }).done;
+   expect(done[0]).toBe(`Concluí ${expected.length} tarefas:`);
+   expect(done.at(-1)).toBe('Se não era isso, responda "desfaz".');
+   // The rest of the message is read after the change, alone.
+   expect(sent.at(-1)).toBe("já me mostra as que sobraram");
+   for (const id of expected) expect((await row(id)).status).toBe("concluida");
+   for (const id of [today, outOfList, otherAccount]) expect((await row(id)).status).toBe("aberta");
+   expect(await openProposal(a, now)).toBeNull();
+
+   const undo = await handleTaskMessage(a, "desfaz", [], SP, now) as { reply: string };
+   expect(undo.reply.split("\n")).toHaveLength(expected.length);
+   for (const id of expected) expect((await row(id)).status).toBe("aberta");
+  } finally { globalThis.fetch = fetchBefore; }
+ });
+
+ test("lote por pessoa ou com exceção: só as que batem, de qualquer lista quando há pessoa", async () => {
+  const late = (await expandBulk(a, { type: "complete", due_from: null, due_until: "2026-09-24", owner: "Tiago", due_date: null, except: [], quote: "x" }, SP)).tasks;
+  expect(late.length).toBeGreaterThan(0);
+  expect(late.every(t => t.owner === "Tiago")).toBe(true);
+  const giordana = (await expandBulk(a, { type: "cancel", due_from: null, due_until: null, owner: "Giordana", due_date: null, except: [], quote: "x" }, SP)).tasks;
+  expect(giordana.map(t => t.titulo)).toEqual(["Da Giordana, fora da lista"]);
+  const all = (await expandBulk(a, { type: "complete", due_from: "2026-09-28", due_until: "2026-09-28", owner: null, due_date: null, except: [], quote: "x" }, SP)).tasks;
+  expect(all.map(t => t.titulo)).toEqual(["Agente de gravação"]);
+  const without = (await expandBulk(a, { type: "complete", due_from: "2026-09-28", due_until: "2026-09-28", owner: null, due_date: null, except: [all[0].id], quote: "x" }, SP)).tasks;
+  expect(without).toEqual([]);
  });
 
  test("uma conta não mexe em tarefa de outra", async () => {

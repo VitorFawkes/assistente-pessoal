@@ -68,7 +68,7 @@ test("information answers are one call to the cheap model, with the dossier and 
   return Response.json({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ answer: "A mais recente com a Ana é Definir roadmap e protótipo da nova experiência digital de Trips (24/09)." }) }] }], usage: { input_tokens: 3000, output_tokens: 120, input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 } } });
  }) as unknown as typeof fetch;
  const telemetry: { model: string; costUsd: number }[] = [];
- const answer = await answerInfo({ message: "Quais foram as últimas tarefas que discuti com a Ana?", recent: [], notes: [], dossier, timezone: "America/Sao_Paulo", now: new Date("2026-09-25T15:00:00Z"), onTelemetry: e => telemetry.push(e) });
+ const answer = await answerInfo({ message: "Quais foram as últimas tarefas que discuti com a Ana?", recent: [], done: [], waiting: [], dossier, timezone: "America/Sao_Paulo", now: new Date("2026-09-25T15:00:00Z"), onTelemetry: e => telemetry.push(e) });
  expect(answer).toContain("Definir roadmap");
  expect(bodies).toHaveLength(1);
  expect(bodies[0]).toMatchObject({ model: "gpt-6-luna", reasoning: { effort: "low" }, prompt_cache_options: { mode: "explicit" } });
@@ -76,6 +76,8 @@ test("information answers are one call to the cheap model, with the dossier and 
  const sent = JSON.stringify(bodies[0]);
  expect(sent).toContain("Definir roadmap e protótipo");
  expect(sent).toContain("Ana Teresa");
+ // Nothing changed in this message, and the model is told so explicitly.
+ expect(sent).toContain('\\"changes_done_now\\":[]');
  expect(telemetry[0].costUsd).toBeCloseTo((3000 * 0.1 + 120 * 0.5) / 1e6, 10);
 });
 

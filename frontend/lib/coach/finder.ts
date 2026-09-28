@@ -261,7 +261,7 @@ async function executeStandalone(q: PlannedQuery, ctx: { userId: string; timezon
  if (q.tipo === "pendencias") {
   const due = await dueTasks(ctx.userId, ctx.timezone, ctx.now, 30);
   return { consulta: "o que vence hoje e o que está atrasado (lista da mensagem das 8h)", tipo: q.tipo, total: due.due_today + due.overdue, mostrados: due.items.length,
-   pendencias: { vence_hoje: due.due_today, atrasadas: due.overdue, itens: due.items.map(i => ({ titulo: i.titulo, owner: i.owner, prazo: i.prazo, vence_hoje: i.vence_hoje, mostrada_as_8h: i.shown_at_8h })) } };
+   pendencias: { vence_hoje: due.due_today, atrasadas: due.overdue, outras_abertas: { sem_prazo: due.no_due, prazo_depois_de_hoje: due.later }, itens: due.items.map(i => ({ titulo: i.titulo, owner: i.owner, prazo: i.prazo, vence_hoje: i.vence_hoje, mostrada_as_8h: i.shown_at_8h })) } };
  }
  const r = periodRange(q.periodo ?? "hoje", ctx.timezone, ctx.now);
  const agenda = await calendarContext(ctx.userId, { from: r.from.toISOString(), to: r.to.toISOString() }, { timezone: ctx.timezone }).catch(() => null);

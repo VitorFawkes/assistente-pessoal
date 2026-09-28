@@ -8,7 +8,8 @@ import * as assistant from "./assistant";
 import type { Dossier } from "./assistant-types";
 import { meetingReport, transcriptFallbackMeetings } from "./meeting-reports";
 import { selectChunks } from "./investigation";
-import { CoachAIError } from "./model";
+import { CoachAIError, CoachProviderUnavailableError } from "./model";
+import * as agenda from "./morning-agenda";
 import type { CoachMeeting, CoachMemory, CoachCommitment, CoachCommitmentReceipt, CoachMessage, CoachReview, ReportSource, ReportPeriodSource, Observation, ReviewContent } from "./types";
 const meeting:CoachMeeting={id:"owned",nome:"QA",original_filename:"qa",recorded_at:null,transcription:"Eu vou concluir uma única prioridade.",segments:[{speaker:"A",start:1,end:5,text:"Eu vou concluir uma única prioridade."}],speaker_labels:{A:"QA"},speaker_pessoas:{A:"self"}};
 const observation={competency:"focus",observation:"Uma prioridade",hypothesis:"Mais foco",alternative:"Pontual",experiment:"Acompanhar",evidence:[{meeting_id:"owned",chunk_index:0,quote:meeting.transcription}]};
@@ -855,7 +856,7 @@ test("the answer that reaches the ceiling tells the user",async()=>{
 
 test("a message about tasks goes through the cheap lane: no coaching call and no verifier",async()=>{
  const run=fixture([],{answer:"Não deveria chamar o coaching.",observations:[],memories:[]});
- const handled=spyOn(taskActions,"handleTaskMessage").mockResolvedValue({notes:['Concluí "Enviar proposta".'],lane:"tarefas"});
+ const handled=spyOn(taskActions,"handleTaskMessage").mockResolvedValue({done:['Concluí "Enviar proposta".'],waiting:["Posso concluir as 5 do Tiago? Responda sim ou não."],lane:"tarefas"});
  const answer=spyOn(assistant,"answerInfo").mockResolvedValue("Ainda estão atrasadas: Cobrar contrato com a Paula (23/09).");
  try{
   await chatWithCoach("synthetic-user","Concluí a proposta. O que mais está atrasado?",new Date("2026-09-25T12:00:00Z"),"task-run");
@@ -864,13 +865,18 @@ test("a message about tasks goes through the cheap lane: no coaching call and no
   expect(run.saved.map(message=>message.role)).toEqual(["user","assistant"]);
   expect(run.saved[1].content).toContain("Ainda estão atrasadas");
   expect(run.saved[1].content).toContain('Concluí "Enviar proposta".');
+  // What the server did comes first; the question still waiting for a yes comes after the answer.
+  const content=run.saved[1].content;
+  expect(content.indexOf("Concluí")).toBeLessThan(content.indexOf("Ainda estão atrasadas"));
+  expect(content.indexOf("Ainda estão atrasadas")).toBeLessThan(content.indexOf("Posso concluir as 5 do Tiago?"));
+  expect(answer.mock.calls[0][0]).toMatchObject({done:['Concluí "Enviar proposta".'],waiting:["Posso concluir as 5 do Tiago? Responda sim ou não."]});
   expect(run.saved[1].idempotency_key).toBe("task-run:assistant");
  }finally{handled.mockRestore();answer.mockRestore();run.restore();}
 });
 
 test("coaching keeps the full answer with its verifier",async()=>{
  const run=fixture([],{answer:"Comece pela proposta que destrava o contrato.",observations:[],memories:[]});
- const handled=spyOn(taskActions,"handleTaskMessage").mockResolvedValue({notes:[],lane:"coach"});
+ const handled=spyOn(taskActions,"handleTaskMessage").mockResolvedValue({done:[],waiting:[],lane:"coach"});
  const answer=spyOn(assistant,"answerInfo").mockResolvedValue("não deveria ser usado");
  try{
   await chatWithCoach("synthetic-user","Estou travado, por onde começo hoje?",new Date("2026-09-25T12:00:00Z"));
@@ -878,4 +884,69 @@ test("coaching keeps the full answer with its verifier",async()=>{
   expect(run.requests()).toBe(2);
   expect(run.saved[1].content).toContain("Comece pela proposta");
  }finally{handled.mockRestore();answer.mockRestore();run.restore();}
+});
+
+test("an 8h message the checks reject twice still goes out: the day's list and calendar, without the coaching part",async()=>{
+ const run=fixture([],{answer:"Comece pela proposta: ela destrava o contrato.",observations:[],memories:[]},[],{supported:false});
+ const list=spyOn(agenda,"morningAgenda").mockResolvedValue("**Para hoje**\n- Enviar proposta (vence hoje)");
+ try{
+  await generateCheckin("synthetic-user","morning",new Date("2026-09-28T11:00:00Z"),"morning-fallback");
+  expect(run.checks()).toBe(2);
+  expect(run.saved).toHaveLength(1);
+  const content=run.saved[0].content;
+  expect(content).toContain("Foco do dia");
+  expect(content).toContain("Sua lista de hoje está abaixo.");
+  expect(content).toContain("- Enviar proposta (vence hoje)");
+  expect(content).not.toContain("destrava o contrato");
+ }finally{list.mockRestore();run.restore();}
+});
+
+test("an 18h message the checks reject twice asks how the day went, naming what was due today",async()=>{
+ const run=fixture([],{answer:"Você concluiu a proposta?",observations:[],memories:[]},[],{supported:false});
+ const due=spyOn(agenda,"dueTasks").mockResolvedValue({due_today:1,overdue:1,listed:2,no_due:0,later:0,note:"",items:[
+  {id:"1",titulo:"Enviar proposta",owner:"vitor",acao:"executar",prazo:"2026-09-28T15:00:00.000Z",vence_hoje:true,shown_at_8h:true},
+  {id:"2",titulo:"Antiga",owner:"vitor",acao:"executar",prazo:"2026-09-20T15:00:00.000Z",vence_hoje:false,shown_at_8h:true}]});
+ try{
+  await generateCheckin("synthetic-user","evening",new Date("2026-09-28T21:00:00Z"),"evening-fallback");
+  const content=run.saved[0].content;
+  expect(content).toContain("Fechamento do dia");
+  expect(content).toContain("Como foi hoje? Estas venciam hoje e seguem abertas; alguma já saiu?");
+  expect(content).toContain("• Enviar proposta");
+  expect(content).not.toContain("Antiga");
+ }finally{due.mockRestore();run.restore();}
+});
+
+test("a conversation the checks reject still fails, and a provider outage never becomes the short 8h message",async()=>{
+ const run=fixture([],{answer:"Resposta sem base.",observations:[],memories:[]},[],{supported:false});
+ try{
+  await expect(chatWithCoach("synthetic-user","Como organizar hoje?",new Date("2026-09-28T12:00:00Z"))).rejects.toBeInstanceOf(CoachAIError);
+ }finally{run.restore();}
+ const down=fixture([],{answer:"x",observations:[],memories:[]});
+ const failing=globalThis.fetch;
+ globalThis.fetch=(async()=>new Response("{}",{status:503})) as unknown as typeof fetch;
+ try{
+  await expect(generateCheckin("synthetic-user","morning",new Date("2026-09-28T11:00:00Z"),"morning-down")).rejects.toBeInstanceOf(CoachProviderUnavailableError);
+  expect(down.saved).toEqual([]);
+ }finally{globalThis.fetch=failing;down.restore();}
+});
+
+test("goals the user announces are kept even when the model leaves them out (Vitor, 28/09)",async()=>{
+ const run=fixture([],{answer:"Comece pelas propostas mais perto de fechar.",observations:[],memories:[],user_memories:[]});
+ try{
+  await chatWithCoach("synthetic-user","Eu já entreguei a parte de produção\n\nAgora tenho 2 grandes objetivos\nVender mais e fazer vender mais hospedagem, passagens e extras para convidados.",new Date("2026-09-28T12:35:00Z"));
+  expect(run.memories).toEqual([{kind:"goal",content:"Informado por você na conversa: Agora tenho 2 grandes objetivos: Vender mais e fazer vender mais hospedagem, passagens e extras para convidados.",status:"confirmed",evidence:[]}]);
+  expect(run.saved[1].content).toContain("Guardei o que você informou");
+ }finally{run.restore();}
+});
+
+test("a conversation whose tasks changed still says what changed when the coaching part is rejected",async()=>{
+ const run=fixture([],{answer:"Resposta sem base.",observations:[],memories:[]},[],{supported:false});
+ const handled=spyOn(taskActions,"handleTaskMessage").mockResolvedValue({done:['Concluí "Enviar proposta".','Se não era isso, responda "desfaz".'],waiting:[],lane:"coach"});
+ try{
+  await chatWithCoach("synthetic-user","Concluí a proposta. E como priorizo o resto?",new Date("2026-09-28T12:00:00Z"),"mixed-run");
+  const content=run.saved[1].content;
+  expect(content).toContain("Não consegui fechar agora uma orientação segura");
+  expect(content).toContain('Concluí "Enviar proposta".');
+  expect(content).not.toContain("Resposta sem base");
+ }finally{handled.mockRestore();run.restore();}
 });

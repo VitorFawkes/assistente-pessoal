@@ -9,13 +9,13 @@ import { hideLifeGoals, inferenceBlocked, lifeGoalsRequested, sameEvidencePassag
 import { verifyCoachResult, CoachVerificationError } from "./quality";
 import { coachStore, StaleCoachRunError, MemoryPolicyError, GOALS_PER_AREA } from "./store";
 import { chunkMeeting, reviewPeriod, sourceHash, validateObservations } from "./evidence";
-import { analysisSchemaWithSources, coachCompletion, coachModel, conversationSchemaWithSources, reviewSchemaWithSources, CoachAIError, coachModelAvailable, coachModelConfig, type CoachTelemetry } from "./model";
+import { analysisSchemaWithSources, coachCompletion, coachModel, conversationSchemaWithSources, reviewSchemaWithSources, CoachAIError, CoachProviderUnavailableError, coachModelAvailable, coachModelConfig, type CoachTelemetry } from "./model";
 import { presentChat, splitChatPresentation } from "./chat-presentation";
 import { COACH_CONVERSATION_INSTRUCTION, COACH_INVESTIGATION_INSTRUCTION } from "./framework";
-import { userMemoryNotes } from "./conversation-memory";
+import { announcedGoals, userMemoryNotes } from "./conversation-memory";
 import { accountabilityFingerprint } from "./follow-up";
 import { formatCommitmentDue, naturalCommitmentDue } from "./commitment-dates";
-import { morningAgenda } from "./morning-agenda";
+import { dueTasks, morningAgenda } from "./morning-agenda";
 import { handleTaskMessage, type TaskLane } from "./task-actions";
 import { answerInfo, assistantTool, buildDossier, dossierForModel, proactiveDossier } from "./assistant";
 import type { Dossier } from "./assistant-types";
@@ -113,7 +113,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
   // Past the day's AI spend ceiling nothing calls the model; "sim", "não" and "desfaz" still work because they need none.
   const budget=await budgetState(userId,profile.timezone,now);
   // Direct requests on tasks run first: a message only about tasks gets a short server-written reply, without a coaching answer.
-  let taskNotes:string[]=[];let lane:TaskLane="coach";
+  let taskDone:string[]=[],taskWaiting:string[]=[];let lane:TaskLane="coach";
   const recent=history.filter(m=>!m.stale).map(m=>({role:m.role,content:m.role==="assistant"?splitChatPresentation(m.content).answer:m.content}));
   if(!proactive){
    const handled=await handleTaskMessage(userId,message,recent,profile.timezone,now,runId,{ai:!budget.exceeded}).catch(()=>{console.error("coach task actions failed");return null;});
@@ -122,7 +122,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
     await store.addMessage("assistant",presentChat(handled.reply,[],[],await store.coverage(),0),[],profile.revision,runId?runId+":assistant":undefined);
     return;
    }
-   if(handled){taskNotes=handled.notes;lane=handled.lane;}
+   if(handled){taskDone=handled.done;taskWaiting=handled.waiting;lane=handled.lane;}
   }
   if(budget.exceeded){
    if(proactive)return;
@@ -136,10 +136,10 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
    try{
     const onTelemetry=(e:CoachTelemetry)=>telemetry.push(e);
     const dossier=await buildDossier({userId,message,recent,lane:"tarefas",timezone:profile.timezone,now,selfPersonIds:await store.selfPersonIds(),onTelemetry});
-    const answer=await answerInfo({message,recent,notes:taskNotes,dossier,timezone:profile.timezone,now,onTelemetry});
+    const answer=await answerInfo({message,recent,done:taskDone,waiting:taskWaiting,dossier,timezone:profile.timezone,now,onTelemetry});
     const reachedCap=budget.spent+runCostUsd(telemetry)>=budget.cap?budgetNotice(budget.cap):"";
     await store.addMessage("user",message,[],profile.revision,runId?runId+":user":undefined);
-    await store.addMessage("assistant",presentChat([answer,...taskNotes.filter(note=>!answer.includes(note)),reachedCap].filter(Boolean).join("\n\n"),[],[],await store.coverage(),0),[],profile.revision,runId?runId+":assistant":undefined);
+    await store.addMessage("assistant",presentChat([taskDone.join("\n"),answer,...taskWaiting.filter(note=>!answer.includes(note)),reachedCap].filter(Boolean).join("\n\n"),[],[],await store.coverage(),0),[],profile.revision,runId?runId+":assistant":undefined);
    }finally{await recordModelRuns(userId,"quick",runId||null,telemetry,profile.revision).catch(()=>{});}
    return;
   }
@@ -168,14 +168,14 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
   const recentReviews=reviews.filter(r=>!r.stale).slice(0,4);
   const reportIdsOf=(d:Dossier)=>d.consultas.flatMap(entry=>(entry.reunioes||[]).filter(m=>m.resumo).map(m=>m.id));
   const reportIds=()=>[...new Set([dossier,...(ask?.reads||[]).map(r=>r.dossier)].flatMap(reportIdsOf))];
-  const data={profile,trigger:proactive?{kind:proactive,origin:"system_schedule_or_button",not_user_statement:true}:null,...(taskNotes.length?{task_changes_already_done_by_server:taskNotes}:{}),current_time:now.toISOString(),timezone:profile.timezone,local_time:new Intl.DateTimeFormat("pt-BR",{timeZone:profile.timezone,dateStyle:"full",timeStyle:"short"}).format(now),
+  const data={profile,trigger:proactive?{kind:proactive,origin:"system_schedule_or_button",not_user_statement:true}:null,...(taskDone.length||taskWaiting.length?{task_changes_done_now:taskDone,task_question_waiting:taskWaiting}:{}),current_time:now.toISOString(),timezone:profile.timezone,local_time:new Intl.DateTimeFormat("pt-BR",{timeZone:profile.timezone,dateStyle:"full",timeStyle:"short"}).format(now),
     memories:usableMemories(memories),memory,commitments,history:modelMessages(recentHistory,MODEL_CONTEXT.history,MODEL_CONTEXT.historyChars),question:message,coverage,
     reviews:modelReviews(recentReviews),assistant_dossier:dossierForModel(dossier,profile.timezone,{passageText:false}),self_person_ids:self,sources,
     transcripts:selected.map(({meeting,chunk})=>({meeting_id:meeting.id,title:meeting.nome||meeting.original_filename,recorded_at:meeting.recorded_at,chunk_index:chunk.index,text:chunk.text,labeled_turns:labeledTurns(meeting,chunk,self)})),limitations:dossier.limitacoes};
   const inherited=reportLineage([...recentHistory,...recentReviews.map(review=>review.content)]);
   try{
    let result=await coachCompletion(COACH_CONVERSATION_INSTRUCTION+"\n"+COACH_INVESTIGATION_INSTRUCTION+ASSISTANT_DOSSIER_INSTRUCTION+(proactive?"\nEste é um acompanhamento proativo. A pergunta é do sistema, não uma declaração do usuário. Não crie user_memories nem actions. Seja breve, não repita cobrança já enviada. Para nudge ou meeting sem novidade útil, answer=SEM_NOVIDADE.":""),data,
-    ()=>conversationSchemaWithSources(Object.keys(sources),message,{actions:actionSchema(proactive||taskNotes.length?"":message,memories,commitments,actionContext),detailed:/aprofund|detalh|explique melhor/iu.test(message)}),
+    ()=>conversationSchemaWithSources(Object.keys(sources),message,{actions:actionSchema(proactive||taskDone.length||taskWaiting.length?"":message,memories,commitments,actionContext),detailed:/aprofund|detalh|explique melhor/iu.test(message)}),
     {reasoningEffort:needsDeepInvestigation(message)?"high":"medium",...(ask?{tools:[ask.tool],maxToolRounds:2,maxToolCalls:2}:{}),timeoutMs:180000,onTelemetry});
    const validateCandidate=(result:Record<string,unknown>)=>{
    const validatedActions=(Array.isArray(result.actions)?[...result.actions]:[]).map(rawAction=>{
@@ -216,19 +216,29 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
    const answer=text(publishable.answer,12000);if(!answer&&!requestedActions.length)throw new CoachAIError("O coach não retornou uma orientação válida.");
    return {requestedActions,publishable,observations,answer};
    };
-   let candidate=validateCandidate(result);
    const verificationData={...data,sources,...(ask?.reads.length?{additional_dossiers:ask.reads.map(r=>({pedido:r.pedido,...dossierForModel(r.dossier,profile.timezone)})),transcripts:investigation.selected.map(({meeting,chunk})=>({meeting_id:meeting.id,title:meeting.nome||meeting.original_filename,recorded_at:meeting.recorded_at,chunk_index:chunk.index,text:chunk.text,labeled_turns:labeledTurns(meeting,chunk,self)}))}:{})};
-   const verifyCandidate=async()=>{
-    if(!((proactive==="nudge"||proactive==="meeting")&&candidate.answer==="SEM_NOVIDADE"&&!candidate.observations.length))await verifyCoachResult(verificationData,candidate.publishable,onTelemetry);
+   let candidate:ReturnType<typeof validateCandidate>|undefined;
+   const verifyCandidate=async(c:ReturnType<typeof validateCandidate>)=>{
+    if(!((proactive==="nudge"||proactive==="meeting")&&c.answer==="SEM_NOVIDADE"&&!c.observations.length))await verifyCoachResult(verificationData,c.publishable,onTelemetry);
    };
-   try{await verifyCandidate();}catch(error){
-    if(!(error instanceof CoachVerificationError))throw error;
-    result=await coachCompletion(COACH_CONVERSATION_INSTRUCTION+"\n"+COACH_INVESTIGATION_INSTRUCTION+ASSISTANT_DOSSIER_INSTRUCTION+VERIFICATION_REPAIR_INSTRUCTION+(proactive?"\nAcompanhamento proativo: não crie actions ou user_memories; SEM_NOVIDADE continua permitido quando não houver sinal útil.":""),
-     {...verificationData,previous_candidate:candidate.publishable,verification_issues:error.issuesForRepair()},
-     conversationSchemaWithSources(Object.keys(sources),message,{actions:actionSchema(proactive||taskNotes.length?"":message,memories,commitments,actionContext),detailed:/aprofund|detalh|explique melhor/iu.test(message)}),
-     {reasoningEffort:"high",timeoutMs:120000,onTelemetry});
+   try{
     candidate=validateCandidate(result);
-    await verifyCandidate();
+    try{await verifyCandidate(candidate);}catch(error){
+     if(!(error instanceof CoachVerificationError))throw error;
+     result=await coachCompletion(COACH_CONVERSATION_INSTRUCTION+"\n"+COACH_INVESTIGATION_INSTRUCTION+ASSISTANT_DOSSIER_INSTRUCTION+VERIFICATION_REPAIR_INSTRUCTION+(proactive?"\nAcompanhamento proativo: não crie actions ou user_memories; SEM_NOVIDADE continua permitido quando não houver sinal útil.":""),
+      {...verificationData,previous_candidate:candidate.publishable,verification_issues:error.issuesForRepair()},
+      conversationSchemaWithSources(Object.keys(sources),message,{actions:actionSchema(proactive||taskDone.length||taskWaiting.length?"":message,memories,commitments,actionContext),detailed:/aprofund|detalh|explique melhor/iu.test(message)}),
+      {reasoningEffort:"high",timeoutMs:120000,onTelemetry});
+     candidate=validateCandidate(result);
+     await verifyCandidate(candidate);
+    }
+   }catch(error){
+    // The 8h and 18h messages are never lost to the quality checks: they go out with what comes from the database.
+    // A conversation whose tasks already changed says so, instead of failing in silence after the change.
+    const scheduled=proactive==="morning"||proactive==="evening";
+    if(!(error instanceof CoachAIError)||error instanceof CoachProviderUnavailableError||(!scheduled&&(proactive||!(taskDone.length||taskWaiting.length))))throw error;
+    console.error("coach answer replaced after the checks",proactive||"chat",(error instanceof CoachVerificationError?error.issuesForRepair().join(" | "):error.message).slice(0,600));
+    candidate={requestedActions:[],publishable:{},observations:[],answer:scheduled?await checkinFallback(userId,proactive,profile.timezone,now):"Não consegui fechar agora uma orientação segura para o resto da sua mensagem. Pergunte de novo daqui a pouco."};
    }
    const {requestedActions,observations,answer}=candidate;
    if((proactive==="nudge"||proactive==="meeting")&&answer==="SEM_NOVIDADE")return;
@@ -278,7 +288,8 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
      const changed=await store.saveProfile({[key]:action.enabled},revision,runId);revision=changed.revision;confirmations.push(action.enabled?"Ativei esse acompanhamento no Ações.":"Pausei esse acompanhamento.");
     }
    }
-   for(const note of proactive?[]:userMemoryNotes(result.user_memories,message)){
+   const notes=proactive?[]:[...userMemoryNotes(result.user_memories,message),...announcedGoals(message)].filter((note,index,all)=>all.findIndex(other=>other.content===note.content)===index);
+   for(const note of notes){
     if([...changedQuotes].some(q=>q.includes(note.content.replace("Informado por você na conversa: ",""))))continue;
     const saved=await store.rememberUserNote(note,revision);
     if(saved?.kind==="goal"&&saved.lifecycle==="paused")confirmations.push(`Você já tem ${GOALS_PER_AREA} objetivos de ${saved.goal_area==="life"?"vida":"trabalho"} ativos. Guardei este como pausado: diga qual dos atuais quer pausar para ativá-lo.`);
@@ -293,7 +304,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
    const agenda=proactive==="morning"?await morningAgenda(userId,profile.timezone,now).catch(()=>""):"";
    // The answer that crosses the day's ceiling says so; the next ones get the short refusal above.
    const reachedCap=budget.spent+runCostUsd(telemetry)>=budget.cap?budgetNotice(budget.cap):"";
-   await store.addMessage("assistant",presentChat([...(proactive?[proactive==="morning"?"Foco do dia":proactive==="evening"?"Fechamento do dia":proactive==="meeting"?"Depois da reunião":"Um ponto de atenção"]:[]),answer,agenda,...taskNotes,...confirmations,reachedCap].filter(Boolean).join("\n\n"),observations,investigation.selected.map(s=>s.meeting.id),coverage,reportIds().length),observations.flatMap(o=>o.evidence),revision,runId?runId+":assistant":undefined,[...reportSources([...await store.reportMeetings(reportIds()),...investigation.meetings.values()]),...inherited.sources],inherited.periods);
+   await store.addMessage("assistant",presentChat([...(proactive?[proactive==="morning"?"Foco do dia":proactive==="evening"?"Fechamento do dia":proactive==="meeting"?"Depois da reunião":"Um ponto de atenção"]:[]),answer,agenda,taskDone.join("\n"),...taskWaiting,...confirmations,reachedCap].filter(Boolean).join("\n\n"),observations,investigation.selected.map(s=>s.meeting.id),coverage,reportIds().length),observations.flatMap(o=>o.evidence),revision,runId?runId+":assistant":undefined,[...reportSources([...await store.reportMeetings(reportIds()),...investigation.meetings.values()]),...inherited.sources],inherited.periods);
   }finally{await recordModelRuns(userId,proactive?`checkin_${proactive}`:"chat",runId||null,telemetry,revision).catch(()=>{});}
  });
 }
@@ -386,6 +397,13 @@ export async function generateReview(userId:string,now=new Date(),force=false,sc
 /** A follow-up tied to one recorded meeting; avoids day words that would narrow the context to a period. */
 export function meetingFollowupQuestion(meetingId:string,localTime:string){
  return `Uma reunião foi registrada em ${localTime} (meeting_id=${meetingId}). Leia o relatório dela em meeting_reports ou com read_meeting_report. Se ela tratar de um combinado aberto do usuário, retome UM combinado pelo nome, ligado ao que a reunião mostra: se o relatório indicar avanço, reconheça-o como algo a confirmar e pergunte se o combinado pode ser dado como concluído; se indicar obstáculo, ajude com o próximo passo; se não deixar claro, pergunte se a reunião destravou o combinado. Relatório é contexto gerado: não afirme execução que ele não mostra. Se a reunião não tiver relação com um combinado aberto, ou se essa retomada já foi feita sem novidade, answer=SEM_NOVIDADE. Seja curto: até 60 palavras e no máximo uma pergunta.`;
+}
+/** What an 8h or 18h message says when the coaching part did not pass the checks; the 8h list is appended after it. */
+export async function checkinFallback(userId:string,kind:"morning"|"evening",timezone:string,now:Date){
+ if(kind==="morning")return "Sua lista de hoje está abaixo. Me diga por onde quer começar que eu te ajudo a priorizar.";
+ const due=await dueTasks(userId,timezone,now,30).catch(()=>null);
+ const today=(due?.items||[]).filter(item=>item.vence_hoje).slice(0,5).map(item=>`• ${item.titulo}`);
+ return today.length?["Como foi hoje? Estas venciam hoje e seguem abertas; alguma já saiu?",...today].join("\n"):"Como foi hoje? Me conta o que andou e o que travou.";
 }
 export function coachCheckinQuestion(kind:"morning"|"evening"|"nudge"){
  return kind==="morning"?"Ajude a pensar no que merece atenção hoje a partir dos objetivos, dificuldades conhecidas, prazos, dependências e combinados disponíveis. Se a dificuldade é priorizar, compare as alternativas concretas conhecidas e recomende um começo com seu motivo; não devolva apenas a ordem de escolher um foco. Aproveite o propósito declarado dos blocos existentes para propor uma questão útil a explorar na conversa. Se a prioridade já foi definida, prepare o próximo passo em vez de escolhê-la de novo. Se faltar informação decisiva, faça uma pergunta focal. Confira se algum combinado anterior precisa ser retomado antes de abrir outro. Uma proposta sua só vira combinado após aceite do usuário. O sistema anexa depois da sua resposta a lista do que vence hoje, das atrasadas e da agenda do dia: não repita essa lista."
