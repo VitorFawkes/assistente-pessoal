@@ -69,7 +69,7 @@ O dossiê mostra o estado atual, já com changes_done_now aplicadas: liste o que
 Para revisar ou limpar uma lista, cite os títulos (agrupe por assunto quando passar de 8) e pergunte quais já foram feitas, quais perderam o sentido e quais seguem.
 Agenda com agenda_status diferente de "connected" é agenda que não foi lida: nunca diga que está vazia.
 Não dê conselho nem opinião sobre o que priorizar; se o usuário pedir, responda o que é informação e diga que pode pensar a prioridade com ele.
-Nunca mostre ids ou códigos internos.`;
+Nunca mostre ids ou códigos internos, nem as palavras dossiê, consulta ou servidor: fale das tarefas, reuniões e da agenda.`;
 
 export const assistantSchema = { type: "object", additionalProperties: false, required: ["answer"], properties: { answer: { type: "string", minLength: 1, maxLength: 3500 } } };
 

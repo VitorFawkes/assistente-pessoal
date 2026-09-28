@@ -46,10 +46,13 @@ export const isNo = (message: string) => /^(?:nao|n|nao precisa|nao faz|nao faca
 
 // A confirmation may come with more text ("Sim\nPode fazer TUDO e já me mostra as que sobraram"). Weak words
 // ("ok", "beleza") only confirm alone; a message that restricts or negates goes back to the interpreter.
-const PODE_VERBS = "fazer|seguir|mandar|aplicar|marcar|concluir|cancelar|mudar|adiar";
-const END = "(?=$|[\\s,.;:!?-])";
-const STRONG_YES = new RegExp(`^[\\s,.;:!-]*(?:(?:sim|confirmo|confirmado|manda ver)${END}|pode(?= *(?:$|[,.;:!\\n-]|(?:sim|${PODE_VERBS}|tudo|todas|todos)${END}))|fa(?:z|ça|ca)(?= *(?:$|[,.;:!\\n-]|(?:tudo|isso|todas|todos)${END})))`, "iu");
-const LEADING_YES = new RegExp(`^[\\s,.;:!-]*(?:sim|s|ok|beleza|fechado|confirmo|confirmado|confirma|claro|perfeito|certo|isso mesmo|isso a[ií]|isso|manda ver|por favor|pode(?: sim)?(?: (?:${PODE_VERBS}))?(?: (?:tudo|todas|todos)(?: elas| eles| isso)?)?|fa(?:z|ça|ca)(?: (?:tudo|isso|todas|todos))?)${END}`, "iu");
+// "Pode fazer tudo" confirms; "Pode marcar como feitas todas do dia 24/09" is a new request: a verb only confirms
+// when nothing but "tudo"/"isso" follows it before the end of the clause.
+const CLAUSE_END = "(?=\\s*(?:$|[,.;:!?\\n-]|e\\s))";
+const CONFIRM_PHRASE = `(?:pode(?: (?:sim|ser|fazer|seguir|mandar|aplicar|concluir|cancelar|marcar|mudar))?|fa(?:z|ça|ca))(?: (?:tudo|isso|todas|todos)(?: elas| eles| isso)?)?${CLAUSE_END}`;
+const WORD_END = "(?=$|[\\s,.;:!?-])";
+const STRONG_YES = new RegExp(`^[\\s,.;:!-]*(?:(?:sim|confirmo|confirmado|manda ver)${WORD_END}|${CONFIRM_PHRASE})`, "iu");
+const LEADING_YES = new RegExp(`^[\\s,.;:!-]*(?:(?:sim|s|ok|beleza|fechado|confirmo|confirmado|confirma|claro|perfeito|certo|isso mesmo|isso a[ií]|isso|manda ver|por favor)${WORD_END}|${CONFIRM_PHRASE})`, "iu");
 const RESTRICTS = /\b(?:nao|mas|menos|exceto|excecao|tirando|fora|so|somente|apenas|porem|espera|aguarda)\b/u;
 /** "Sim" plus more text: confirms the open proposal unless it restricts or negates it. */
 export function confirmsProposal(message: string) {

@@ -116,7 +116,7 @@ describe("sim com mais texto confirma; sim com restrição volta para o intérpr
   expect(afterConfirmation(message)).toBe("já me mostra as que sobraram");
  });
  test("confirmação pura não deixa resto", () => {
-  for (const m of ["Sim, pode fazer tudo", "Pode fazer TUDO!", "Sim. Pode.", "Faz isso", "Sim, pode sim"]) {
+  for (const m of ["Sim, pode fazer tudo", "Pode fazer TUDO!", "Sim. Pode.", "Faz isso", "Sim, pode sim", "Pode concluir", "Pode cancelar todas."]) {
    expect(confirmsProposal(m)).toBe(true);
    expect(afterConfirmation(m)).toBe("");
   }
@@ -125,9 +125,12 @@ describe("sim com mais texto confirma; sim com restrição volta para o intérpr
   expect(confirmsProposal("Sim. E adia a do Pedro pra sexta")).toBe(true);
   expect(afterConfirmation("Sim. E adia a do Pedro pra sexta")).toBe("adia a do Pedro pra sexta");
   expect(afterConfirmation("Sim, cancelar a do Tiago também")).toBe("cancelar a do Tiago também");
+  expect(afterConfirmation("Sim, pode marcar como feitas todas do dia 24/09")).toBe("pode marcar como feitas todas do dia 24/09");
  });
  test("restrição, negação ou pergunta que só começa parecido não confirmam", () => {
-  for (const m of ["Sim, mas só as do Tiago", "sim, pode fazer tudo menos a da Paula", "Sim. Menos a da Paula.", "sim, mas muda o prazo", "Pode me mostrar as atrasadas?", "Simone vai fazer", "Tudo certo por aqui", "ok, e as reuniões de amanhã?", "fazer o quê?"]) {
+  for (const m of ["Sim, mas só as do Tiago", "sim, pode fazer tudo menos a da Paula", "Sim. Menos a da Paula.", "sim, mas muda o prazo", "Pode me mostrar as atrasadas?", "Simone vai fazer", "Tudo certo por aqui", "ok, e as reuniões de amanhã?", "fazer o quê?",
+   // A new request that starts like a yes is a new request, never a yes to the question still open.
+   "Pode marcar como feitas TODAS do dia 24/09 pra trás", "Pode concluir todas as do Tiago", "Faz o seguinte: adia tudo"]) {
    expect(confirmsProposal(m)).toBe(false);
   }
  });

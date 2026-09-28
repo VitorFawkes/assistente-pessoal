@@ -12,7 +12,7 @@ import { chunkMeeting, reviewPeriod, sourceHash, validateObservations } from "./
 import { analysisSchemaWithSources, coachCompletion, coachModel, conversationSchemaWithSources, reviewSchemaWithSources, CoachAIError, CoachProviderUnavailableError, coachModelAvailable, coachModelConfig, type CoachTelemetry } from "./model";
 import { presentChat, splitChatPresentation } from "./chat-presentation";
 import { COACH_CONVERSATION_INSTRUCTION, COACH_INVESTIGATION_INSTRUCTION } from "./framework";
-import { userMemoryNotes } from "./conversation-memory";
+import { announcedGoals, userMemoryNotes } from "./conversation-memory";
 import { accountabilityFingerprint } from "./follow-up";
 import { formatCommitmentDue, naturalCommitmentDue } from "./commitment-dates";
 import { dueTasks, morningAgenda } from "./morning-agenda";
@@ -139,7 +139,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
     const answer=await answerInfo({message,recent,done:taskDone,waiting:taskWaiting,dossier,timezone:profile.timezone,now,onTelemetry});
     const reachedCap=budget.spent+runCostUsd(telemetry)>=budget.cap?budgetNotice(budget.cap):"";
     await store.addMessage("user",message,[],profile.revision,runId?runId+":user":undefined);
-    await store.addMessage("assistant",presentChat([...taskDone,answer,...taskWaiting.filter(note=>!answer.includes(note)),reachedCap].filter(Boolean).join("\n\n"),[],[],await store.coverage(),0),[],profile.revision,runId?runId+":assistant":undefined);
+    await store.addMessage("assistant",presentChat([taskDone.join("\n"),answer,...taskWaiting.filter(note=>!answer.includes(note)),reachedCap].filter(Boolean).join("\n\n"),[],[],await store.coverage(),0),[],profile.revision,runId?runId+":assistant":undefined);
    }finally{await recordModelRuns(userId,"quick",runId||null,telemetry,profile.revision).catch(()=>{});}
    return;
   }
@@ -234,9 +234,11 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
     }
    }catch(error){
     // The 8h and 18h messages are never lost to the quality checks: they go out with what comes from the database.
-    if((proactive!=="morning"&&proactive!=="evening")||!(error instanceof CoachAIError)||error instanceof CoachProviderUnavailableError)throw error;
-    console.error("coach checkin sent without the coaching part",proactive,(error instanceof CoachVerificationError?error.issuesForRepair().join(" | "):error.message).slice(0,600));
-    candidate={requestedActions:[],publishable:{},observations:[],answer:await checkinFallback(userId,proactive,profile.timezone,now)};
+    // A conversation whose tasks already changed says so, instead of failing in silence after the change.
+    const scheduled=proactive==="morning"||proactive==="evening";
+    if(!(error instanceof CoachAIError)||error instanceof CoachProviderUnavailableError||(!scheduled&&(proactive||!(taskDone.length||taskWaiting.length))))throw error;
+    console.error("coach answer replaced after the checks",proactive||"chat",(error instanceof CoachVerificationError?error.issuesForRepair().join(" | "):error.message).slice(0,600));
+    candidate={requestedActions:[],publishable:{},observations:[],answer:scheduled?await checkinFallback(userId,proactive,profile.timezone,now):"Não consegui fechar agora uma orientação segura para o resto da sua mensagem. Pergunte de novo daqui a pouco."};
    }
    const {requestedActions,observations,answer}=candidate;
    if((proactive==="nudge"||proactive==="meeting")&&answer==="SEM_NOVIDADE")return;
@@ -286,7 +288,8 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
      const changed=await store.saveProfile({[key]:action.enabled},revision,runId);revision=changed.revision;confirmations.push(action.enabled?"Ativei esse acompanhamento no Ações.":"Pausei esse acompanhamento.");
     }
    }
-   for(const note of proactive?[]:userMemoryNotes(result.user_memories,message)){
+   const notes=proactive?[]:[...userMemoryNotes(result.user_memories,message),...announcedGoals(message)].filter((note,index,all)=>all.findIndex(other=>other.content===note.content)===index);
+   for(const note of notes){
     if([...changedQuotes].some(q=>q.includes(note.content.replace("Informado por você na conversa: ",""))))continue;
     const saved=await store.rememberUserNote(note,revision);
     if(saved?.kind==="goal"&&saved.lifecycle==="paused")confirmations.push(`Você já tem ${GOALS_PER_AREA} objetivos de ${saved.goal_area==="life"?"vida":"trabalho"} ativos. Guardei este como pausado: diga qual dos atuais quer pausar para ativá-lo.`);
@@ -301,7 +304,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
    const agenda=proactive==="morning"?await morningAgenda(userId,profile.timezone,now).catch(()=>""):"";
    // The answer that crosses the day's ceiling says so; the next ones get the short refusal above.
    const reachedCap=budget.spent+runCostUsd(telemetry)>=budget.cap?budgetNotice(budget.cap):"";
-   await store.addMessage("assistant",presentChat([...(proactive?[proactive==="morning"?"Foco do dia":proactive==="evening"?"Fechamento do dia":proactive==="meeting"?"Depois da reunião":"Um ponto de atenção"]:[]),answer,agenda,...taskDone,...taskWaiting,...confirmations,reachedCap].filter(Boolean).join("\n\n"),observations,investigation.selected.map(s=>s.meeting.id),coverage,reportIds().length),observations.flatMap(o=>o.evidence),revision,runId?runId+":assistant":undefined,[...reportSources([...await store.reportMeetings(reportIds()),...investigation.meetings.values()]),...inherited.sources],inherited.periods);
+   await store.addMessage("assistant",presentChat([...(proactive?[proactive==="morning"?"Foco do dia":proactive==="evening"?"Fechamento do dia":proactive==="meeting"?"Depois da reunião":"Um ponto de atenção"]:[]),answer,agenda,taskDone.join("\n"),...taskWaiting,...confirmations,reachedCap].filter(Boolean).join("\n\n"),observations,investigation.selected.map(s=>s.meeting.id),coverage,reportIds().length),observations.flatMap(o=>o.evidence),revision,runId?runId+":assistant":undefined,[...reportSources([...await store.reportMeetings(reportIds()),...investigation.meetings.values()]),...inherited.sources],inherited.periods);
   }finally{await recordModelRuns(userId,proactive?`checkin_${proactive}`:"chat",runId||null,telemetry,revision).catch(()=>{});}
  });
 }

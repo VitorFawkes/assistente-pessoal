@@ -929,3 +929,24 @@ test("a conversation the checks reject still fails, and a provider outage never 
   expect(down.saved).toEqual([]);
  }finally{globalThis.fetch=failing;down.restore();}
 });
+
+test("goals the user announces are kept even when the model leaves them out (Vitor, 28/09)",async()=>{
+ const run=fixture([],{answer:"Comece pelas propostas mais perto de fechar.",observations:[],memories:[],user_memories:[]});
+ try{
+  await chatWithCoach("synthetic-user","Eu já entreguei a parte de produção\n\nAgora tenho 2 grandes objetivos\nVender mais e fazer vender mais hospedagem, passagens e extras para convidados.",new Date("2026-09-28T12:35:00Z"));
+  expect(run.memories).toEqual([{kind:"goal",content:"Informado por você na conversa: Agora tenho 2 grandes objetivos: Vender mais e fazer vender mais hospedagem, passagens e extras para convidados.",status:"confirmed",evidence:[]}]);
+  expect(run.saved[1].content).toContain("Guardei o que você informou");
+ }finally{run.restore();}
+});
+
+test("a conversation whose tasks changed still says what changed when the coaching part is rejected",async()=>{
+ const run=fixture([],{answer:"Resposta sem base.",observations:[],memories:[]},[],{supported:false});
+ const handled=spyOn(taskActions,"handleTaskMessage").mockResolvedValue({done:['Concluí "Enviar proposta".','Se não era isso, responda "desfaz".'],waiting:[],lane:"coach"});
+ try{
+  await chatWithCoach("synthetic-user","Concluí a proposta. E como priorizo o resto?",new Date("2026-09-28T12:00:00Z"),"mixed-run");
+  const content=run.saved[1].content;
+  expect(content).toContain("Não consegui fechar agora uma orientação segura");
+  expect(content).toContain('Concluí "Enviar proposta".');
+  expect(content).not.toContain("Resposta sem base");
+ }finally{handled.mockRestore();run.restore();}
+});

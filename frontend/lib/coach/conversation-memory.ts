@@ -28,6 +28,10 @@ export function userMemoryCandidates(message:string):string[]{
  return [...new Set([...announced,...parts.filter(part=>!bare(part))].filter(s=>s.length>=8&&s.length<=900&&userMemoryKind(s)!==null))].slice(0,12);
 }
 const plain=(s:string)=>s.normalize("NFD").replace(/\p{M}/gu,"").toLowerCase().trim();
+/** Goals the user announces in so many words ("Agora tenho 2 grandes objetivos: …") are kept even when the model leaves them out. */
+export function announcedGoals(message:string):UserMemory[]{
+ return userMemoryCandidates(message).filter(quote=>GOAL_INTRO.test(plain(quote))).slice(0,2).map(quote=>({kind:"goal" as const,content:`Informado por você na conversa: ${quote}`,status:"confirmed" as const,evidence:[]}));
+}
 /** "Agora tenho 2 grandes objetivos", "tenho uma nova meta": the user announcing goals of their own. */
 const GOAL_INTRO=/^(?:agora |hoje |a partir de agora )?(?:eu )?(?:tenho|temos) (?:(?:\d+|um|uma|dois|duas|tres|alguns|algumas) )?(?:(?:grandes?|nov[oa]s?|principais) )*(?:objetivos?|metas?)\b/u;
 
