@@ -1,16 +1,16 @@
 // Assistente do Ações (TTARS): as regras puras — o retrato que o modelo lê, o que muda na
 // hora e o que espera "Confirmar", e como desfazer. Testadas em agente-regras.test.ts.
 //
-// Regra (pedido do Vitor, 26/09/2026, e o mesmo desenho do Coach): a tarefa que a pessoa
-// criou muda na hora, com Desfazer; tarefa de outra pessoa, ou mais de 3 conclusões ou
-// cancelamentos de uma vez, espera Confirmar. Nunca apaga: desistir é cancelar.
+// Regra (Vitor, 28/09/2026: "eu já pedi! qualquer coisa desfaz"): pedir já é a autorização.
+// Tudo muda na hora, com Desfazer, inclusive ação que outra pessoa criou e muitas de uma vez.
+// Só espera Confirmar trocar quem faz numa ação que outra pessoa criou: depois disso quem
+// pediu pode perder o acesso a ela, e o Desfazer não alcança. Nunca apaga: desistir é cancelar.
 import { dataCurtaBR, diaBR, ehDataValida, fimDoDiaBR } from "./data-br";
 import type { Tarefa } from "./queries";
 
 export type Situacao = "aberta" | "em_andamento" | "aguardando_aprovacao" | "concluida" | "cancelada";
 export const SITUACOES: Situacao[] = ["aberta", "em_andamento", "aguardando_aprovacao", "concluida", "cancelada"];
 export const PRIORIDADES = ["baixa", "media", "alta", "urgente"] as const;
-export const LOTE_SEM_CONFIRMAR = 3;
 
 const ROTULO_SITUACAO: Record<Situacao, string> = {
   aberta: "aberta",
@@ -83,7 +83,7 @@ export function linhaDoRetrato(ref: string, t: TarefaVista, hoje?: string) {
   };
 }
 
-/** Quem criou a tarefa é quem pede? (só o criador muda sem confirmar e só ele apaga) */
+/** Quem criou a tarefa é quem pede? (só ele apaga e só ele troca quem faz sem Confirmar) */
 export const ehMinha = (t: TarefaVista) => !t.compartilhada;
 
 export type Mudanca = {
@@ -148,11 +148,9 @@ export function montarMudanca(t: TarefaVista, m: Mudanca): Montada {
   return { corpo, desfazer, partes };
 }
 
-/** O que precisa de "Confirmar" antes (ver regra no topo). */
-export function precisaConfirmar(t: TarefaVista, corpo: Record<string, unknown>, fechandoNoLote: number): boolean {
-  if (!ehMinha(t)) return true;
-  const fecha = corpo.status === "concluida" || corpo.status === "cancelada";
-  return fecha && fechandoNoLote > LOTE_SEM_CONFIRMAR;
+/** O que precisa de "Confirmar" antes (ver regra no topo): só trocar quem faz numa ação de outra pessoa. */
+export function precisaConfirmar(t: TarefaVista, corpo: Record<string, unknown>): boolean {
+  return !ehMinha(t) && ["responsavel_email", "owner", "acao", "responsavel_user_id"].some((k) => k in corpo);
 }
 
 /** Desfazer a troca de quem faz: volta como estava gravado (só pra quem criou). */

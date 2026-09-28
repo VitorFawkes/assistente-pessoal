@@ -283,7 +283,7 @@ function instrucoes(nome: string): string {
     "Datas: use o 'hoje' do retrato. 'esta semana' vai até fim_desta_semana. Converta 'sexta', 'amanhã', 'semana que vem' para AAAA-MM-DD. Mostre datas como 'sex 03/10'.",
     "Cada ação tem 'vence' já calculado (atrasada N dias, hoje, amanhã, esta semana, semana que vem, depois). Use esse campo, não faça conta de data. Quando perguntarem o que vence (hoje, esta semana), conte também as atrasadas, dizendo que estão atrasadas.",
     "A tela mostra a lista das ações que você puser em acoes_citadas: no texto, resuma em uma ou duas frases (quantas, quais as mais urgentes) em vez de repetir a lista inteira.",
-    "Para criar ou mudar, use as ferramentas. Só diga que fez depois da ferramenta responder ok. Se ela devolver 'aguardando_confirmacao', diga que é só apertar Confirmar. Se devolver erro, explique em uma frase.",
+    "O pedido da pessoa já é a autorização: crie ou mude na hora com as ferramentas, sem perguntar se pode; a tela mostra Desfazer. Só descreva antes, sem mudar, se a pessoa pedir para ver antes. Só diga que fez depois da ferramenta responder ok. Se ela devolver 'aguardando_confirmacao' (trocar quem faz numa ação que outra pessoa criou), diga que é só apertar Confirmar. Se devolver erro, explique em uma frase.",
     "Se o pedido puder ser mais de uma ação, ou o nome da pessoa for de mais de uma pessoa, pergunte antes citando as opções. Não mude nada que a pessoa não pediu.",
     "Só crie ação quando a pessoa pedir pra criar, anotar, lembrar ou pedir algo a alguém. Se ela pediu pra mudar, concluir ou passar uma ação que não está no retrato, diga que não achou essa ação entre as dela e NÃO crie outra no lugar.",
     "Nunca escreva as refs (t1, p2, r3) no texto: fale pelo nome da ação, do projeto ou da reunião.",
@@ -341,7 +341,7 @@ function corpoDeQuem(
 
 async function executar(
   chamada: { name: string; args: Record<string, unknown> },
-  ctx: { user: User; req: Request; retrato: Retrato; pendente: Pendente; fechandoNoLote: number; workspace: string | null },
+  ctx: { user: User; req: Request; retrato: Retrato; pendente: Pendente; workspace: string | null },
 ): Promise<unknown> {
   const { user, req, retrato, pendente } = ctx;
   const a = chamada.args;
@@ -419,11 +419,11 @@ async function executar(
     const descricao = `"${tituloCurto(t.titulo)}": ${partes.join(", ")}.`;
     const pedido: Pedido = { metodo: "PATCH", caminho: `/api/tarefas/${t.id}`, corpo };
     const desfazerPedidos: Pedido[] = Object.keys(desfazer).length ? [{ metodo: "PATCH", caminho: `/api/tarefas/${t.id}`, corpo: desfazer }] : [];
-    if (precisaConfirmar(t, corpo, ctx.fechandoNoLote)) {
+    if (precisaConfirmar(t, corpo)) {
       pendente.propostas.push({ id: `${t.id}:${pendente.propostas.length}`, descricao, executar: [pedido], tarefa_id: t.id });
       return {
         aguardando_confirmacao: true,
-        motivo: ehMinha(t) ? "muitas mudanças de uma vez" : `a ação foi criada por ${t.criador_nome ?? "outra pessoa"}`,
+        motivo: `a ação foi criada por ${t.criador_nome ?? "outra pessoa"}: trocando quem faz, você pode perder o acesso a ela e o Desfazer não alcança`,
       };
     }
     const r = await patchTarefa(requisicaoInterna(req, pedido.caminho, "PATCH", corpo), { params: Promise.resolve({ id: t.id }) });
@@ -567,10 +567,6 @@ export async function conversar(
       };
     }
     entradaModelo.push(...r.itens);
-    // Conclusões e cancelamentos pedidos nesta rodada contam juntos (lote grande pede Confirmar).
-    const fechandoNoLote =
-      pendente.feitas.length +
-      r.chamadas.filter((c) => c.name === "mudar_acao" && (c.args.situacao === "concluida" || c.args.situacao === "cancelada")).length;
     for (const c of r.chamadas) {
       chamadasFeitas++;
       let saida: unknown;
@@ -578,7 +574,7 @@ export async function conversar(
         saida =
           chamadasFeitas > MAX_CHAMADAS
             ? { erro: "muitas mudanças de uma vez; peça em partes" }
-            : await executar(c, { user, req, retrato, pendente, fechandoNoLote, workspace: entrada.workspace });
+            : await executar(c, { user, req, retrato, pendente, workspace: entrada.workspace });
       } catch (e) {
         console.error(`[agente] ${c.name}:`, e);
         saida = { erro: "não consegui fazer isso agora" };

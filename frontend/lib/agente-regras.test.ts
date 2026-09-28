@@ -50,14 +50,20 @@ describe("montarMudanca", () => {
   });
 });
 
-describe("precisaConfirmar", () => {
-  it("tarefa de outra pessoa sempre pede Confirmar", () => {
-    expect(precisaConfirmar(t({ compartilhada: true }), { prazo: "x" }, 0)).toBe(true);
+describe("precisaConfirmar (28/09: pedir já é a autorização)", () => {
+  it("ação de outra pessoa muda na hora: concluir, prazo, prioridade, título", () => {
+    for (const corpo of [{ status: "concluida" }, { prazo: "x", prazo_text: null }, { prioridade: "alta" }, { titulo: "Novo" }]) {
+      expect(precisaConfirmar(t({ compartilhada: true }), corpo)).toBe(false);
+    }
   });
-  it("minha muda na hora, menos um lote grande de conclusões", () => {
-    expect(precisaConfirmar(t(), { status: "concluida" }, 3)).toBe(false);
-    expect(precisaConfirmar(t(), { status: "concluida" }, 4)).toBe(true);
-    expect(precisaConfirmar(t(), { prioridade: "alta" }, 9)).toBe(false);
+  it("minha muda na hora, inclusive quem faz e muitas de uma vez", () => {
+    expect(precisaConfirmar(t(), { status: "concluida" })).toBe(false);
+    expect(precisaConfirmar(t(), { responsavel_email: "ana@welcome.com.br" })).toBe(false);
+    expect(precisaConfirmar(t(), { owner: "Fornecedor", acao: "cobrar", responsavel_user_id: null })).toBe(false);
+  });
+  it("só trocar quem faz numa ação de outra pessoa espera Confirmar: o Desfazer não alcançaria", () => {
+    expect(precisaConfirmar(t({ compartilhada: true }), { responsavel_email: "ana@welcome.com.br" })).toBe(true);
+    expect(precisaConfirmar(t({ compartilhada: true }), { acao: "executar" })).toBe(true);
   });
 });
 
