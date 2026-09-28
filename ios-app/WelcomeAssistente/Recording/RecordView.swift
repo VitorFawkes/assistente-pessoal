@@ -15,31 +15,31 @@ struct RecordView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 28) {
-                if auth.emDemonstracao {
-                    Text("Demonstração: nada é enviado.")
-                        .font(.footnote)
-                        .padding(8)
-                        .frame(maxWidth: .infinity)
-                        .background(Color.orange.opacity(0.15))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+            ZStack {
+                FundoEspaco()
+                VStack(spacing: 0) {
+                    cabecalho
+                    if auth.emDemonstracao {
+                        Text("Demonstração: nada é enviado.")
+                            .font(.footnote)
+                            .foregroundStyle(Estilo.ouro)
+                            .padding(.horizontal, 14).padding(.vertical, 7)
+                            .overlay(Capsule().stroke(Estilo.ouro.opacity(0.5)))
+                            .padding(.top, 12)
+                    }
+                    Spacer(minLength: 8)
+                    heroi
+                    timerLabel.padding(.top, 14)
+                    Spacer(minLength: 8)
+                    controles
+                    Spacer(minLength: 8)
+                    statusText
+                    envioText.padding(.top, 6)
                 }
-                Spacer()
-                timerLabel
-                meterBar
-                if recorder.state == .interrompido || recorder.state == .pausado {
-                    parado
-                } else {
-                    recordButton
-                    if isRecording { botaoPausar }
-                }
-                Spacer()
-                statusText
-                envioText
-                Spacer()
+                .padding(.horizontal, 24)
+                .padding(.bottom, 12)
             }
-            .padding()
-            .navigationTitle("CASE")
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $mostrarGuia) {
                 NavigationStack {
                     BotaoTelaBloqueadaView()
@@ -72,46 +72,96 @@ struct RecordView: View {
 
     // MARK: - partes da tela
 
+    private var cabecalho: some View {
+        HStack {
+            Text("CASE")
+                .font(.system(size: 20, weight: .semibold))
+                .tracking(7)
+                .foregroundStyle(.white)
+            Spacer()
+            HStack(spacing: 6) {
+                Circle().fill(corDoEstado).frame(width: 7, height: 7)
+                Text(textoDoEstado).font(.caption.weight(.semibold)).tracking(1.5)
+            }
+            .foregroundStyle(.white.opacity(0.85))
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(Capsule().fill(Estilo.placa))
+            .overlay(Capsule().stroke(Estilo.borda))
+        }
+        .padding(.top, 8)
+    }
+
+    private var textoDoEstado: String {
+        switch recorder.state {
+        case .idle: "PRONTO"
+        case .recording: "GRAVANDO"
+        case .pausado: "PAUSADO"
+        case .interrompido: "PAROU"
+        }
+    }
+
+    private var corDoEstado: Color {
+        switch recorder.state {
+        case .idle: .white.opacity(0.4)
+        case .recording: Estilo.gravando
+        case .pausado, .interrompido: Estilo.ouro
+        }
+    }
+
+    /// O ícone vivo: o robô no buraco negro, com o anel do Gargantua em volta.
+    private var heroi: some View {
+        ZStack {
+            AnelGargantua(espessura: 9, brilho: isRecording ? 1 : 0.8)
+                .frame(width: 250, height: 250)
+            Circle()
+                .fill(RadialGradient(colors: [.black, .black, .black.opacity(0)], center: .center,
+                                     startRadius: 0, endRadius: 118))
+                .frame(width: 236, height: 236)
+            RoboCASE(nivel: recorder.meterLevel, gravando: isRecording)
+                .frame(width: 98, height: 172)
+        }
+        .frame(height: 280)
+        .accessibilityHidden(true)
+    }
+
     private var timerLabel: some View {
         Text(formatElapsed(recorder.elapsedSeconds))
-            .font(.system(size: 56, weight: .light, design: .rounded))
-            .monospacedDigit()
-            .foregroundStyle(isRecording ? Color.red : Color.primary)
+            .font(.system(size: 50, weight: .light, design: .monospaced))
+            .foregroundStyle(recorder.state == .idle ? .white.opacity(0.55) : .white)
             .contentTransition(.numericText())
     }
 
-    private var meterBar: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.15))
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(isRecording ? Color.red : Color.gray)
-                    .frame(width: geo.size.width * recorder.meterLevel)
-                    .animation(.linear(duration: 0.1), value: recorder.meterLevel)
+    @ViewBuilder
+    private var controles: some View {
+        if recorder.state == .interrompido || recorder.state == .pausado {
+            parado
+        } else {
+            HStack(spacing: 30) {
+                if isRecording { botaoPausar } else { Color.clear.frame(width: 64, height: 64) }
+                recordButton
+                Color.clear.frame(width: 64, height: 64)
             }
         }
-        .frame(height: 6)
-        .padding(.horizontal, 40)
-        .opacity(isRecording ? 1 : 0.3)
     }
 
     private var recordButton: some View {
         Button(action: toggleRecording) {
             ZStack {
+                Circle().fill(Color.black).frame(width: 92, height: 92)
                 Circle()
-                    .fill(isRecording ? Color.red : Color.accentColor)
-                    .frame(width: 140, height: 140)
-                    .shadow(radius: isRecording ? 12 : 6)
+                    .stroke(LinearGradient(colors: [Estilo.ouroClaro, Estilo.ouro, Estilo.ouroForte],
+                                           startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 3)
+                    .frame(width: 92, height: 92)
                 if isRecording {
-                    RoundedRectangle(cornerRadius: 8).fill(Color.white).frame(width: 40, height: 40)
+                    RoundedRectangle(cornerRadius: 7).fill(Estilo.gravando).frame(width: 30, height: 30)
                 } else {
-                    Image(systemName: "mic.fill").font(.system(size: 54)).foregroundStyle(.white)
+                    Circle().fill(Estilo.gravando).frame(width: 66, height: 66)
+                        .shadow(color: Estilo.gravando.opacity(0.55), radius: 14)
                 }
             }
-            .scaleEffect(isRecording ? 1.05 : 1.0)
             .animation(.spring(duration: 0.3), value: isRecording)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(Apertar())
         .accessibilityLabel(isRecording ? "Parar a gravação" : "Começar a gravar")
     }
 
@@ -119,18 +169,24 @@ struct RecordView: View {
         Button {
             ControleGravacao.shared.pausar()
         } label: {
-            Label("Pausar", systemImage: "pause.fill").font(.headline)
+            Image(systemName: "pause.fill")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 64, height: 64)
+                .background(Circle().fill(Estilo.placa))
+                .overlay(Circle().stroke(Estilo.borda))
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(Apertar())
         .accessibilityLabel("Pausar a gravação")
     }
 
     private var parado: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 12) {
             Text(recorder.state == .pausado
                  ? "Gravação pausada. O que foi gravado está salvo."
                  : "A gravação parou (ligação ou outro app usou o microfone). O que foi gravado está salvo.")
                 .font(.subheadline)
+                .foregroundStyle(.white.opacity(0.7))
                 .multilineTextAlignment(.center)
             Button {
                 do {
@@ -139,37 +195,41 @@ struct RecordView: View {
                     errorMessage = error.localizedDescription
                 }
             } label: {
-                Text("Continuar gravando").fontWeight(.semibold)
-                    .frame(maxWidth: .infinity).padding(.vertical, 14)
-                    .background(Color.red).foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                Label("Continuar gravando", systemImage: "record.circle")
             }
+            .buttonStyle(BotaoOuro())
+            .accessibilityLabel("Continuar gravando")
             Button("Encerrar e enviar") { stop() }
+                .buttonStyle(BotaoPlaca())
         }
-        .padding(.horizontal)
     }
 
     @ViewBuilder
     private var statusText: some View {
         if isRecording {
             Text("Gravando. Pode bloquear a tela: continua gravando, e lá aparecem Pausar e Parar.")
-                .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                .font(.footnote).foregroundStyle(.white.opacity(0.55)).multilineTextAlignment(.center)
         } else if terminou && !auth.emDemonstracao {
-            VStack(spacing: 10) {
+            VStack(spacing: 8) {
                 Text("Pronto! A reunião aparece em Reuniões em alguns minutos.")
-                    .font(.subheadline).multilineTextAlignment(.center)
+                    .font(.subheadline).foregroundStyle(.white.opacity(0.85)).multilineTextAlignment(.center)
                 Button("Ver minhas reuniões") { verReunioes() }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Estilo.ouro)
             }
         } else if terminou {
             Text("Demonstração: a gravação ficou só neste iPhone e foi apagada.")
-                .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                .font(.footnote).foregroundStyle(.white.opacity(0.55)).multilineTextAlignment(.center)
         } else if recorder.state == .idle {
-            VStack(spacing: 10) {
+            VStack(spacing: 8) {
                 Text("Toque para gravar a reunião.")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                    .font(.subheadline).foregroundStyle(.white.opacity(0.6))
                 if !auth.emDemonstracao {
-                    Button("Gravar sem desbloquear o iPhone") { mostrarGuia = true }
-                        .font(.footnote)
+                    Button { mostrarGuia = true } label: {
+                        Label("Gravar sem desbloquear o iPhone", systemImage: "lock.fill")
+                    }
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(Estilo.ouro)
                 }
             }
         }
@@ -179,14 +239,14 @@ struct RecordView: View {
     private var envioText: some View {
         if queue.precisaEntrar {
             Text("Seu acesso venceu. Entre de novo em Ajustes para enviar o que foi gravado.")
-                .font(.footnote).foregroundStyle(.orange).multilineTextAlignment(.center)
+                .font(.footnote).foregroundStyle(Estilo.ouro).multilineTextAlignment(.center)
         } else if let erro = queue.gravacoes.compactMap(\.erro).first {
-            Text(erro).font(.footnote).foregroundStyle(.orange).multilineTextAlignment(.center)
+            Text(erro).font(.footnote).foregroundStyle(Estilo.ouro).multilineTextAlignment(.center)
         } else {
             let faltando = queue.gravacoes.reduce(0) { $0 + $1.pedacosFaltando }
             if faltando > 0 && !auth.emDemonstracao {
                 Text(faltando == 1 ? "1 parte subindo." : "\(faltando) partes subindo.")
-                    .font(.footnote).foregroundStyle(.secondary)
+                    .font(.footnote).foregroundStyle(.white.opacity(0.5))
             }
         }
     }

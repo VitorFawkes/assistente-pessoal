@@ -15,25 +15,29 @@ struct LoginView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 28) {
-                    cabecalho
-                    campos
-                    botaoEntrar
-                    if let erro {
-                        Text(erro)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                            .multilineTextAlignment(.center)
+            ZStack {
+                FundoEspaco()
+                ScrollView {
+                    VStack(spacing: 26) {
+                        cabecalho
+                        campos
+                        botaoEntrar
+                        if let erro {
+                            Text(erro)
+                                .font(.footnote)
+                                .foregroundStyle(Estilo.gravando)
+                                .multilineTextAlignment(.center)
+                        }
+                        Button("Esqueci minha senha") { abrirEsqueciSenha() }
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(Estilo.ouro)
+                        Spacer(minLength: 12)
+                        rodape
                     }
-                    Button("Esqueci minha senha") { abrirEsqueciSenha() }
-                        .font(.footnote)
-                    Spacer(minLength: 16)
-                    rodape
+                    .padding(24)
                 }
-                .padding(24)
+                .scrollDismissesKeyboard(.interactively)
             }
-            .scrollDismissesKeyboard(.interactively)
             .navigationBarHidden(true)
             .task { await auth.carregarConfig() }
             .sheet(item: $termos) { endereco in
@@ -43,42 +47,64 @@ struct LoginView: View {
     }
 
     private var cabecalho: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
             Image("Logo")
                 .resizable()
-                .frame(width: 88, height: 88)
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .frame(width: 104, height: 104)
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Estilo.borda))
+                .shadow(color: Estilo.ouroForte.opacity(0.35), radius: 26)
             Text("CASE")
-                .font(.largeTitle.weight(.bold))
+                .font(.system(size: 38, weight: .semibold))
+                .tracking(12)
+                .foregroundStyle(.white)
+                .padding(.leading, 12)
             Text("Grave suas reuniões. O resumo e as tarefas aparecem no TTARS, em Ações.")
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white.opacity(0.6))
                 .multilineTextAlignment(.center)
         }
-        .padding(.top, 32)
+        .padding(.top, 36)
     }
 
     private var campos: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Use o mesmo e-mail e senha do TTARS.")
                 .font(.footnote)
-                .foregroundStyle(.secondary)
-            TextField("E-mail", text: $email)
-                .textContentType(.username)
-                .keyboardType(.emailAddress)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .textFieldStyle(.roundedBorder)
-                .focused($campo, equals: .email)
-                .submitLabel(.next)
-                .onSubmit { campo = .senha }
-            SecureField("Senha", text: $senha)
-                .textContentType(.password)
-                .textFieldStyle(.roundedBorder)
-                .focused($campo, equals: .senha)
-                .submitLabel(.go)
-                .onSubmit { Task { await entrar() } }
+                .foregroundStyle(.white.opacity(0.55))
+            caixa(icone: "envelope", ativa: campo == .email) {
+                TextField("E-mail", text: $email, prompt: Text("E-mail").foregroundStyle(.white.opacity(0.35)))
+                    .textContentType(.username)
+                    .keyboardType(.emailAddress)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($campo, equals: .email)
+                    .submitLabel(.next)
+                    .onSubmit { campo = .senha }
+            }
+            caixa(icone: "lock", ativa: campo == .senha) {
+                SecureField("Senha", text: $senha, prompt: Text("Senha").foregroundStyle(.white.opacity(0.35)))
+                    .textContentType(.password)
+                    .focused($campo, equals: .senha)
+                    .submitLabel(.go)
+                    .onSubmit { Task { await entrar() } }
+            }
         }
+    }
+
+    private func caixa<Conteudo: View>(icone: String, ativa: Bool, @ViewBuilder _ conteudo: () -> Conteudo) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icone)
+                .foregroundStyle(ativa ? Estilo.ouro : .white.opacity(0.45))
+                .frame(width: 22)
+            conteudo().foregroundStyle(.white)
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 54)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Estilo.placa))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .stroke(ativa ? Estilo.ouro.opacity(0.75) : Estilo.borda, lineWidth: 1))
+        .animation(.easeOut(duration: 0.15), value: ativa)
     }
 
     private var botaoEntrar: some View {
@@ -86,31 +112,30 @@ struct LoginView: View {
             Task { await entrar() }
         } label: {
             HStack {
-                if entrando { ProgressView().tint(.white) }
-                Text(entrando ? "Entrando…" : "Entrar").fontWeight(.semibold)
+                if entrando { ProgressView().tint(Estilo.tinta) }
+                Text(entrando ? "Entrando…" : "Entrar")
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .background(podeEntrar ? Color.accentColor : Color.secondary.opacity(0.4))
-            .foregroundStyle(.white)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
         }
+        .buttonStyle(BotaoOuro())
         .disabled(!podeEntrar)
     }
 
     private var rodape: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 16) {
             Button("Ao entrar, você aceita os termos de uso e a política de privacidade.") {
                 if let raw = auth.configRemota?.termos_url, let url = URL(string: raw) {
                     termos = EnderecoAberto(url: url)
                 }
             }
             .font(.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.white.opacity(0.45))
             .multilineTextAlignment(.center)
 
             Button("Conhecer o app sem entrar") { auth.entrarNaDemonstracao() }
-                .font(.caption)
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.white.opacity(0.85))
+                .padding(.horizontal, 18).padding(.vertical, 9)
+                .overlay(Capsule().stroke(Estilo.borda))
         }
     }
 

@@ -12,23 +12,35 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 if let user = auth.currentUser {
-                    Section("Conta") {
-                        LabeledContent("Nome", value: user.nome)
-                        if let email = user.email, !email.isEmpty {
-                            LabeledContent("E-mail", value: email)
+                    Section {
+                        HStack(spacing: 14) {
+                            Image("Logo")
+                                .resizable()
+                                .frame(width: 48, height: 48)
+                                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(user.nome).font(.headline).foregroundStyle(.white)
+                                if let email = user.email, !email.isEmpty {
+                                    Text(email).font(.footnote).foregroundStyle(.white.opacity(0.55))
+                                }
+                            }
                         }
+                        .padding(.vertical, 4)
                     }
+                    .listRowBackground(Estilo.placa)
                     Section {
                         Button("Abrir o Ações") { abrir("/") }
                         Button("Quem vê minhas reuniões") { abrir("/seguranca/sessoes") }
                     } footer: {
-                        if let erro { Text(erro).foregroundStyle(.red) }
+                        if let erro { Text(erro).foregroundStyle(Estilo.gravando) }
                     }
+                    .listRowBackground(Estilo.placa)
                 }
 
                 Section {
                     NavigationLink("Gravar sem desbloquear o iPhone") { BotaoTelaBloqueadaView() }
                 }
+                .listRowBackground(Estilo.placa)
 
                 Section("Privacidade") {
                     Button("Termos de uso e privacidade") {
@@ -40,6 +52,7 @@ struct SettingsView: View {
                         }
                     }
                 }
+                .listRowBackground(Estilo.placa)
 
                 Section {
                     if auth.emDemonstracao {
@@ -53,12 +66,15 @@ struct SettingsView: View {
                         .disabled(saindo)
                     }
                 }
+                .listRowBackground(Estilo.placa)
 
                 Section("Sobre") {
                     LabeledContent("Versão", value: "\(Configuration.appVersion) (\(Configuration.buildNumber))")
                     NavigationLink("Registro do gravador") { RegistroView() }
                 }
+                .listRowBackground(Estilo.placa)
             }
+            .listaNoEspaco()
             .navigationTitle("Ajustes")
             .sheet(item: $aberto) { endereco in
                 SafariView(url: endereco.url).ignoresSafeArea()
@@ -102,10 +118,14 @@ private struct RegistroView: View {
         ScrollView {
             Text(texto.isEmpty ? "Nada anotado ainda." : texto)
                 .font(.caption.monospaced())
+                .foregroundStyle(.white.opacity(0.85))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding()
+                .background(RoundedRectangle(cornerRadius: 14).fill(Estilo.placa))
+                .padding()
         }
+        .background(FundoEspaco())
         .navigationTitle("Registro do gravador")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

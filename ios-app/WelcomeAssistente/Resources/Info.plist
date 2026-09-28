@@ -37,7 +37,7 @@
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>
-		<string>AccentColor</string>
+		<string>Espaco</string>
 	</dict>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>

@@ -27,21 +27,31 @@ struct BotaoTelaBloqueadaView: View {
             }
 
             Section {
-                Text("\"E aí Siri, gravar reunião no CASE\"")
-                Text("\"E aí Siri, pausar gravação no CASE\"")
-                Text("\"E aí Siri, parar gravação no CASE\"")
+                Group {
+                    Text("\"E aí Siri, gravar reunião no CASE\"")
+                    Text("\"E aí Siri, pausar gravação no CASE\"")
+                    Text("\"E aí Siri, parar gravação no CASE\"")
+                }
+                .foregroundStyle(.white)
+                .listRowBackground(Estilo.placa)
             } header: {
                 Text("Pela Siri")
             }
         }
+        .listaNoEspaco()
         .navigationTitle("Gravar sem abrir")
         .navigationBarTitleDisplayMode(.inline)
     }
 
     private func passo(_ n: Int, _ texto: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text("\(n).").fontWeight(.semibold).foregroundStyle(.tint)
-            Text(texto)
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(n)")
+                .font(.footnote.weight(.bold))
+                .foregroundStyle(Estilo.tinta)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(Estilo.ouro))
+            Text(texto).foregroundStyle(.white)
         }
+        .listRowBackground(Estilo.placa)
     }
 }

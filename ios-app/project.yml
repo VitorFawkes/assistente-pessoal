@@ -60,7 +60,7 @@ targets:
         LSApplicationCategoryType: public.app-category.productivity
         LSRequiresIPhoneOS: true
         UILaunchScreen:
-          UIColorName: AccentColor
+          UIColorName: Espaco
         UIRequiredDeviceCapabilities:
           - arm64
           - microphone
@@ -115,6 +115,7 @@ targets:
           - "Info.plist"
       - path: WelcomeAssistente/Shared/GravacaoAtividade.swift
       - path: WelcomeAssistente/Shared/GravacaoIntents.swift
+      - path: WelcomeAssistente/Shared/Estilo.swift
     info:
       path: AcoesWidgets/Info.plist
       properties:

@@ -7,7 +7,10 @@ struct ContentView: View {
         Group {
             switch auth.state {
             case .checking:
-                ProgressView()
+                ZStack {
+                    FundoEspaco()
+                    ProgressView().tint(Estilo.ouro)
+                }
             case .unauthenticated:
                 LoginView()
             case .authenticated, .demonstracao:
@@ -15,6 +18,8 @@ struct ContentView: View {
             }
         }
         .animation(.default, value: auth.state)
+        .preferredColorScheme(.dark)
+        .tint(Estilo.ouro)
     }
 }
 

@@ -141,6 +141,7 @@ final class GravarTests: XCTestCase {
         sleep(2)
         pausarNoApp.tap()
         XCTAssertTrue(app.buttons["Continuar gravando"].waitForExistence(timeout: 10), "não pausou")
+        foto("fechado-0-pausada-no-app")
         app.terminate()
 
         XCUIDevice.shared.perform(NSSelectorFromString("pressLockButton"))
@@ -227,6 +228,7 @@ final class GravarTests: XCTestCase {
         app.tabBars.buttons["Ajustes"].tap()
         let sair = app.buttons["Sair da demonstração"]
         XCTAssertTrue(sair.waitForExistence(timeout: 10))
+        foto("demo-4-ajustes")
         sair.tap()
         XCTAssertTrue(conhecer.waitForExistence(timeout: 10), "não voltou para a tela de entrar")
     }

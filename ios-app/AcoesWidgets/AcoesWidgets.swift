@@ -29,7 +29,8 @@ struct GravacaoAoVivo: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: GravacaoAtividade.self) { contexto in
             TelaBloqueada(estado: contexto.state)
-                .activitySystemActionForegroundColor(.red)
+                .activityBackgroundTint(Estilo.espaco.opacity(0.92))
+                .activitySystemActionForegroundColor(Estilo.ouro)
         } dynamicIsland: { contexto in
             let estado = contexto.state
             return DynamicIsland {
@@ -49,10 +50,12 @@ struct GravacaoAoVivo: Widget {
             } compactTrailing: {
                 Relogio(estado: estado)
                     .font(.caption.monospacedDigit())
+                    .foregroundStyle(Estilo.ouro)
                     .frame(maxWidth: 52)
             } minimal: {
                 Image(systemName: icone(estado)).foregroundStyle(cor(estado))
             }
+            .keylineTint(Estilo.ouro)
         }
     }
 }
@@ -62,20 +65,37 @@ private func icone(_ estado: GravacaoAtividade.ContentState) -> String {
 }
 
 private func cor(_ estado: GravacaoAtividade.ContentState) -> Color {
-    estado.pausada ? .orange : .red
+    estado.pausada ? Estilo.ouro : Estilo.gravando
 }
 
 private struct TelaBloqueada: View {
     let estado: GravacaoAtividade.ContentState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Label(estado.pausada ? "Gravação pausada" : "Gravando reunião", systemImage: icone(estado))
-                    .font(.headline)
-                    .foregroundStyle(cor(estado))
-                Spacer()
-                Relogio(estado: estado).font(.title3.monospacedDigit())
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                ZStack {
+                    AnelGargantua(espessura: 2.6)
+                    Circle().fill(estado.pausada ? Estilo.ouro : Estilo.gravando).frame(width: 9, height: 9)
+                }
+                .frame(width: 28, height: 28)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("CASE")
+                        .font(.caption2.weight(.semibold))
+                        .tracking(3)
+                        .foregroundStyle(.white.opacity(0.55))
+                    Text(estado.pausada ? "Gravação pausada" : "Gravando reunião")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                Spacer(minLength: 8)
+                Relogio(estado: estado)
+                    .font(.system(.title2, design: .monospaced).weight(.light))
+                    .foregroundStyle(estado.pausada ? Estilo.ouro : .white)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 96, alignment: .trailing)
             }
             Botoes(estado: estado)
         }
@@ -92,17 +112,20 @@ private struct Botoes: View {
                 Button(intent: GravarReuniaoIntent()) {
                     Label("Continuar", systemImage: "mic.fill").frame(maxWidth: .infinity)
                 }
-                .tint(.red)
+                .tint(Estilo.ouro)
+                .foregroundStyle(Estilo.tinta)
             } else {
                 Button(intent: PausarGravacaoIntent()) {
                     Label("Pausar", systemImage: "pause.fill").frame(maxWidth: .infinity)
                 }
-                .tint(.orange)
+                .tint(Color.white.opacity(0.16))
+                .foregroundStyle(.white)
             }
             Button(intent: PararGravacaoIntent()) {
                 Label("Parar", systemImage: "stop.fill").frame(maxWidth: .infinity)
             }
-            .tint(.gray)
+            .tint(Color.white.opacity(0.16))
+            .foregroundStyle(.white)
         }
         .buttonStyle(.borderedProminent)
         .font(.subheadline.weight(.semibold))

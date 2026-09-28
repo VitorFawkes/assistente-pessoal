@@ -17,19 +17,26 @@ struct HistoryView: View {
                             GravacaoLinha(gravacao: g, precisaEntrar: queue.precisaEntrar)
                         }
                     }
+                    .listRowBackground(Estilo.placa)
                 }
 
                 Section(reunioes.isEmpty ? "" : "Suas reuniões") {
                     if auth.emDemonstracao {
                         Text("Na demonstração nada é enviado. Entre com a conta do TTARS para ver suas reuniões.")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.6))
                     } else if carregando && reunioes.isEmpty {
-                        HStack { ProgressView(); Text("Carregando…").foregroundStyle(.secondary) }
+                        HStack { ProgressView().tint(Estilo.ouro); Text("Carregando…").foregroundStyle(.white.opacity(0.6)) }
                     } else if let erro, reunioes.isEmpty {
-                        Text(erro).foregroundStyle(.red)
+                        Text(erro).foregroundStyle(Estilo.gravando)
                     } else if reunioes.isEmpty {
-                        Text("Nenhuma reunião ainda. Grave a primeira na aba Gravar.")
-                            .foregroundStyle(.secondary)
+                        VStack(spacing: 14) {
+                            RoboCASE().frame(width: 46, height: 80)
+                            Text("Nenhuma reunião ainda. Grave a primeira na aba Gravar.")
+                                .foregroundStyle(.white.opacity(0.6))
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 18)
                     } else {
                         ForEach(reunioes) { m in
                             Button { abrir("/reunioes/\(m.id)") } label: { MeetingRow(meeting: m) }
@@ -38,8 +45,10 @@ struct HistoryView: View {
                         }
                     }
                 }
+                .listRowBackground(Estilo.placa)
             }
             .listStyle(.insetGrouped)
+            .listaNoEspaco()
             .navigationTitle("Reuniões")
             .toolbar {
                 if !auth.emDemonstracao {
@@ -88,14 +97,15 @@ private struct GravacaoLinha: View {
     var body: some View {
         HStack {
             if gravacao.erro != nil || precisaEntrar {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).frame(width: 24)
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Estilo.ouro).frame(width: 24)
             } else {
-                ProgressView().frame(width: 24)
+                ProgressView().tint(Estilo.ouro).frame(width: 24)
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(gravacao.iniciadaEm.formatted(date: .abbreviated, time: .shortened))
+                Text(gravacao.iniciadaEm.formatted(.dateTime.day().month(.abbreviated).hour().minute()))
                     .font(.subheadline)
-                Text(situacao).font(.caption).foregroundStyle(.secondary)
+                    .foregroundStyle(.white)
+                Text(situacao).font(.caption).foregroundStyle(.white.opacity(0.55))
             }
         }
     }
@@ -114,42 +124,47 @@ private struct MeetingRow: View {
     let meeting: Meeting
 
     var body: some View {
-        HStack {
+        HStack(spacing: 12) {
             statusBadge
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 5) {
                 Text(meeting.summary ?? (meeting.status == .processing ? "Preparando o resumo…" : "Reunião"))
-                    .font(.subheadline)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
                     .lineLimit(2)
                 HStack(spacing: 6) {
                     Text(dataFormatada)
                     Text("•")
                     Text(meeting.formattedDuration)
                     if let n = meeting.tarefas_count, n > 0 {
-                        Text("•")
                         Text("\(n) tarefa\(n == 1 ? "" : "s")")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Estilo.ouro)
+                            .padding(.horizontal, 7).padding(.vertical, 2)
+                            .background(Capsule().fill(Estilo.ouro.opacity(0.14)))
                     }
                 }
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white.opacity(0.5))
             }
             Spacer()
             if meeting.status == .ready {
-                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.white.opacity(0.35))
             }
         }
+        .padding(.vertical, 4)
     }
 
     private var dataFormatada: String {
-        meeting.recordedAtDate?.formatted(date: .abbreviated, time: .shortened) ?? "—"
+        meeting.recordedAtDate?.formatted(.dateTime.day().month(.abbreviated).hour().minute()) ?? "—"
     }
 
     private var statusBadge: some View {
         Group {
             switch meeting.status {
-            case .processing: ProgressView().controlSize(.small)
-            case .ready: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-            case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
-            case .archived: Image(systemName: "archivebox").foregroundStyle(.secondary)
+            case .processing: ProgressView().controlSize(.small).tint(Estilo.ouro)
+            case .ready: Image(systemName: "checkmark.circle.fill").foregroundStyle(Estilo.ouro)
+            case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Estilo.gravando)
+            case .archived: Image(systemName: "archivebox").foregroundStyle(.white.opacity(0.4))
             }
         }
         .frame(width: 28)
