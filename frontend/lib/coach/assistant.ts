@@ -3,6 +3,7 @@ import { slimForModel } from "./context-budget";
 import { localContextDates } from "./context-dates";
 import { resolveEntities, runQueries } from "./finder";
 import type { SelectedChunk } from "./investigation";
+import type { BulkSelection } from "./task-actions";
 import { planQueries } from "./planner";
 import { providerCompletion, type CoachReadTool, type CoachTelemetry } from "./provider";
 
@@ -13,14 +14,18 @@ import { providerCompletion, type CoachReadTool, type CoachTelemetry } from "./p
  */
 type Recent = { role: string; content: string }[];
 
-export async function buildDossier(input: { userId: string; message: string; recent: Recent; lane: "tarefas" | "coach"; timezone: string; now: Date; selfPersonIds: string[]; onTelemetry?: (e: CoachTelemetry) => void }): Promise<Dossier> {
+export async function buildDossier(input: { userId: string; message: string; recent: Recent; lane: "tarefas" | "coach"; timezone: string; now: Date; selfPersonIds: string[]; listings?: BulkSelection[]; onTelemetry?: (e: CoachTelemetry) => void }): Promise<Dossier> {
  const resolve = (text: string) => resolveEntities(input.userId, text, { timezone: input.timezone, now: input.now }).catch(() => ({ people: [], meetings: [] }));
  let { people, meetings } = await resolve(input.message);
  // A follow-up ("e as reuniões?") cites no one: use who the user's previous messages cited.
  const previous = input.recent.filter(m => m.role === "user").slice(-2).map(m => m.content).join("\n");
  if (!people.length && !meetings.length && previous) ({ people, meetings } = await resolve(previous));
- const queries = await planQueries({ message: input.message, recent: input.recent, people, meetings, lane: input.lane, timezone: input.timezone, now: input.now, onTelemetry: input.onTelemetry });
- return runQueries(input.userId, queries, { timezone: input.timezone, now: input.now, selfPersonIds: input.selfPersonIds, people, meetings });
+ const planned = await planQueries({ message: input.message, recent: input.recent, people, meetings, lane: input.lane, timezone: input.timezone, now: input.now, onTelemetry: input.onTelemetry });
+ const listings = input.listings ?? [];
+ // A list by criteria counts every open task like the app; the 8h list (only the user's and the follow-ups) or a
+ // deadline lookup next to it would show two different totals for the same question.
+ const queries = listings.length ? planned.filter(q => q.tipo !== "pendencias" && !(q.tipo === "tarefas_do_periodo" && q.campo === "prazo")) : planned;
+ return runQueries(input.userId, queries, { timezone: input.timezone, now: input.now, selfPersonIds: input.selfPersonIds, people, meetings, listings });
 }
 
 const q = (tipo: PlannedQuery["tipo"], extra: Partial<PlannedQuery> = {}): PlannedQuery => ({ tipo, pessoa: null, reuniao: null, busca: "", periodo: null, campo: "prazo", status: "abertas", ordem: "prazo", ...extra });
@@ -65,7 +70,9 @@ pessoas_citadas traz as pessoas do cadastro com o nome citado; se houver mais de
 Em tarefas, ligacao "responsavel" = a pessoa é a dona; "envolvida" = aparece na tarefa, que é de outra pessoa (diga de quem). Em reuniões, ligacao "participou" = a voz da pessoa foi identificada na gravação; "tarefas_ligadas" = não foi identificada falando, mas saíram dali tarefas que a envolvem. Para "última reunião com X", prefira a mais recente em que participou e diga se houve depois outra só com tarefas ligadas. participantes lista só as vozes identificadas; pode faltar gente.
 Resumo de reunião é relatório gerado pelo Ações, não fala literal: atribua como "segundo o relatório". conversas são mensagens antigas com o Coach: diga a data e não trate como fato atual.
 changes_done_now é a ÚNICA prova de mudança: o que o servidor mudou agora, nesta mensagem, e que ele já mostra antes da sua resposta (não repita). Se estiver vazia, nada foi alterado: nunca diga que marcou, concluiu, cancelou, adiou ou mudou algo, nem que "foram marcadas", mesmo que o usuário tenha pedido. waiting_for_user é uma pergunta do servidor que ainda espera "sim" ou "não" e que ele anexa depois da sua resposta: não diga que foi feito e não repita a pergunta. Você não altera tarefas.
-O dossiê mostra o estado atual, já com changes_done_now aplicadas: liste o que ele mostra, sem tirar tarefas por conta própria nem supor o que aconteceria depois de um "sim". pendencias só traz o que vence hoje e o que está atrasado; outras_abertas conta as demais abertas (sem prazo e com prazo depois de hoje): numa pergunta sobre o que está em aberto, diga as duas partes.
+O dossiê mostra o estado atual, já com changes_done_now aplicadas: liste o que ele mostra, sem tirar tarefas por conta própria nem supor o que aconteceria depois de um "sim".
+tarefas_filtradas é exatamente o que o usuário pediu para ver (a consulta diz o critério): total conta TODAS as que batem, de qualquer pessoa, como o app mostra, e contagem separa por prazo, por tipo (suas, para_cobrar, aguardando) e por_pessoa (as pessoas com mais tarefas; "você" = o próprio usuário). Comece pelo total e pela contagem que importa; liste até 25 títulos com prazo (dia/mês) e de quem é (owner "você" = do próprio usuário; modo cobrar = "cobrar Fulano", aguardar = "aguardando Fulano") e diga quantas faltam (o resto está no app Ações). Use esses números, nunca some com outra consulta. Pergunta de quem são, quem tem mais ou quantas por pessoa: responda com por_pessoa inteiro (cada nome com a quantidade). Nunca ofereça mostrar depois o que já está no dossiê: mostre agora.
+pendencias é a lista das 8h: só as tarefas do próprio usuário e as de cobrar que vencem hoje ou estão atrasadas; outras_abertas conta as demais dessa mesma lista (sem prazo e com prazo depois de hoje): numa pergunta sobre o que está em aberto respondida por pendencias, diga as duas partes.
 Para revisar ou limpar uma lista, cite os títulos (agrupe por assunto quando passar de 8) e pergunte quais já foram feitas, quais perderam o sentido e quais seguem.
 Agenda com agenda_status diferente de "connected" é agenda que não foi lida: nunca diga que está vazia.
 Não dê conselho nem opinião sobre o que priorizar; se o usuário pedir, responda o que é informação e diga que pode pensar a prioridade com ele.

@@ -8,6 +8,8 @@ import { chunkMeeting } from "./evidence";
 import { buildSourceBank, selectChunks, type SelectedChunk } from "./investigation";
 import { meetingReport } from "./meeting-reports";
 import { dueTasks } from "./morning-agenda";
+import type { BulkSelection } from "./task-actions";
+import { selectTasks } from "./task-filter";
 import type { CoachMeeting } from "./types";
 
 /**
@@ -270,12 +272,28 @@ async function executeStandalone(q: PlannedQuery, ctx: { userId: string; timezon
   eventos: events.slice(0, 25).map(e => ({ subject: e.is_private ? "Compromisso particular" : e.subject, start: e.start, end: e.end, ...(e.start_local ? { start_local: e.start_local } : {}), ...(e.end_local ? { end_local: e.end_local } : {}), ...(e.is_all_day ? { is_all_day: true } : {}) })) };
 }
 
+/** A list by criteria from the message: every match is counted, like the app; the first 40 come by name. */
+export async function executeListing(sel: BulkSelection, ctx: { userId: string; timezone: string; now: Date }): Promise<DossierEntry> {
+ const found = await selectTasks(ctx.userId, sel.filter, { timezone: ctx.timezone, now: ctx.now, limit: 40, order: sel.order });
+ const c = found.counts;
+ const closed = sel.filter.status !== "open" && sel.filter.status !== "in_progress";
+ return {
+  consulta: `tarefas ${sel.label} (a mesma seleção que o Coach usa para mudar em lote; conta como o app, de qualquer pessoa)`, tipo: "tarefas_filtradas", total: found.total, mostrados: found.tasks.length,
+  contagem: { atrasadas: c.atrasadas, vence_hoje: c.hoje, prazo_depois_de_hoje: c.depois, sem_prazo: c.sem_prazo, suas: c.suas, para_cobrar: c.cobrar, aguardando: c.aguardando, por_pessoa: c.por_pessoa, ...(closed ? { concluidas: c.concluidas, canceladas: c.canceladas } : {}) },
+  tarefas: found.tasks.map(t => ({ titulo: t.titulo, owner: t.mine ? "você" : t.responsible ?? "a definir", status: t.status, prazo: t.prazo, prioridade: t.prioridade, criada_em: t.created_at, concluida_em: t.closed_at, reuniao: t.meeting, modo: t.mine ? "fazer" as const : t.acao === "aguardar" ? "aguardar" as const : "cobrar" as const })),
+ };
+}
+
 /**
  * Runs up to 4 lookups one after another (production has a pool of 5 connections). A lookup that fails becomes a
  * note in its own entry; the others still run.
  */
-export async function runQueries(userId: string, queries: PlannedQuery[], opts: { timezone: string; now: Date; selfPersonIds: string[]; people: PersonCandidate[]; meetings?: MeetingCandidate[] }): Promise<Dossier> {
+export async function runQueries(userId: string, queries: PlannedQuery[], opts: { timezone: string; now: Date; selfPersonIds: string[]; people: PersonCandidate[]; meetings?: MeetingCandidate[]; listings?: BulkSelection[] }): Promise<Dossier> {
  const consultas: DossierEntry[] = [];
+ for (const sel of (opts.listings ?? []).slice(0, 2)) {
+  try { consultas.push(await executeListing(sel, { userId, timezone: opts.timezone, now: opts.now })); }
+  catch { console.error("coach finder listing failed"); consultas.push({ consulta: `tarefas ${sel.label}`, tipo: "tarefas_filtradas", total: 0, mostrados: 0, aviso: "Esta busca falhou agora; o resultado não está disponível." }); }
+ }
  const excerpts: SelectedChunk[] = [];
  let names: Map<string, string> | null = null;
  for (const q of queries.slice(0, 4)) {

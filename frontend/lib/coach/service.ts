@@ -16,7 +16,7 @@ import { announcedGoals, userMemoryNotes } from "./conversation-memory";
 import { accountabilityFingerprint } from "./follow-up";
 import { formatCommitmentDue, naturalCommitmentDue } from "./commitment-dates";
 import { dueTasks, morningAgenda } from "./morning-agenda";
-import { handleTaskMessage, type TaskLane } from "./task-actions";
+import { handleTaskMessage, type BulkSelection, type TaskLane } from "./task-actions";
 import { answerInfo, assistantTool, buildDossier, dossierForModel, proactiveDossier } from "./assistant";
 import type { Dossier } from "./assistant-types";
 import { budgetNotice, budgetReply, budgetState, CoachBudgetError, runCostUsd } from "./budget";
@@ -101,7 +101,7 @@ export async function analyzeMeetings(userId:string,maxChunks=2){
 }
 
 const NO_DOSSIER:Dossier={pessoas_citadas:[],reunioes_citadas:[],consultas:[],limitacoes:["O assistente não conseguiu buscar os dados desta conversa agora."],excerpts:[]};
-export const ASSISTANT_DOSSIER_INSTRUCTION="\nDADOS DESTA RESPOSTA: o assistente do Ações buscou o que esta conversa pede e entregou em assistant_dossier. Cada consulta diz o que foi buscado (consulta), quantos existem (total) e quantos vieram (mostrados); reuniões trazem resumo do relatório gerado (contexto secundário, não fala literal); agenda traz agenda_status; pendencias é a lista do que vence hoje e está atrasado; conversas são mensagens antigas com você, com data (contexto, não fato atual). transcripts e sources só trazem trechos literais quando foram buscados. As ferramentas read_meeting_report, search_history, open_meeting, read_tasks e read_memory não existem nesta resposta. Se faltar um dado que muda o conselho, peça com pedir_ao_assistente (no máximo 2 pedidos; cada um custa); se não houver a ferramenta ou o dado não vier, diga qual dado falta, sem supor.";
+export const ASSISTANT_DOSSIER_INSTRUCTION="\nDADOS DESTA RESPOSTA: o assistente do Ações buscou o que esta conversa pede e entregou em assistant_dossier. Cada consulta diz o que foi buscado (consulta), quantos existem (total) e quantos vieram (mostrados); reuniões trazem resumo do relatório gerado (contexto secundário, não fala literal); agenda traz agenda_status; pendencias é a lista do que vence hoje e está atrasado (só as do usuário e as de cobrar); tarefas_filtradas é a lista pelo critério que o usuário pediu, com total e contagem de todas as que batem, como o app mostra; conversas são mensagens antigas com você, com data (contexto, não fato atual). transcripts e sources só trazem trechos literais quando foram buscados. As ferramentas read_meeting_report, search_history, open_meeting, read_tasks e read_memory não existem nesta resposta. Se faltar um dado que muda o conselho, peça com pedir_ao_assistente (no máximo 2 pedidos; cada um custa); se não houver a ferramenta ou o dado não vier, diga qual dado falta, sem supor.";
 export async function chatWithCoach(userId:string,message:string,now=new Date(),runId?:string,proactive?:"morning"|"evening"|"nudge"|"meeting",meetingId?:string){
  return withLease(userId,async(store,profile)=>{
   if(runId&&await store.messageByKey(runId+":assistant"))return;
@@ -113,7 +113,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
   // Past the day's AI spend ceiling nothing calls the model; "sim", "não" and "desfaz" still work because they need none.
   const budget=await budgetState(userId,profile.timezone,now);
   // Direct requests on tasks run first: a message only about tasks gets a short server-written reply, without a coaching answer.
-  let taskDone:string[]=[],taskWaiting:string[]=[];let lane:TaskLane="coach";
+  let taskDone:string[]=[],taskWaiting:string[]=[],listings:BulkSelection[]=[];let lane:TaskLane="coach";
   const recent=history.filter(m=>!m.stale).map(m=>({role:m.role,content:m.role==="assistant"?splitChatPresentation(m.content).answer:m.content}));
   if(!proactive){
    const handled=await handleTaskMessage(userId,message,recent,profile.timezone,now,runId,{ai:!budget.exceeded}).catch(()=>{console.error("coach task actions failed");return null;});
@@ -122,7 +122,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
     await store.addMessage("assistant",presentChat(handled.reply,[],[],await store.coverage(),0),[],profile.revision,runId?runId+":assistant":undefined);
     return;
    }
-   if(handled){taskDone=handled.done;taskWaiting=handled.waiting;lane=handled.lane;}
+   if(handled){taskDone=handled.done;taskWaiting=handled.waiting;lane=handled.lane;listings=handled.listings??[];}
   }
   if(budget.exceeded){
    if(proactive)return;
@@ -135,7 +135,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
    const telemetry:CoachTelemetry[]=[];
    try{
     const onTelemetry=(e:CoachTelemetry)=>telemetry.push(e);
-    const dossier=await buildDossier({userId,message,recent,lane:"tarefas",timezone:profile.timezone,now,selfPersonIds:await store.selfPersonIds(),onTelemetry});
+    const dossier=await buildDossier({userId,message,recent,lane:"tarefas",timezone:profile.timezone,now,selfPersonIds:await store.selfPersonIds(),listings,onTelemetry});
     const answer=await answerInfo({message,recent,done:taskDone,waiting:taskWaiting,dossier,timezone:profile.timezone,now,onTelemetry});
     const reachedCap=budget.spent+runCostUsd(telemetry)>=budget.cap?budgetNotice(budget.cap):"";
     await store.addMessage("user",message,[],profile.revision,runId?runId+":user":undefined);
@@ -158,7 +158,7 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
   // The Coach asks the assistant for what this message needs (scheduled check-ins use a fixed list) and reads that dossier.
   const dossier=await (proactive
    ?proactiveDossier({userId,kind:proactive,meetingId,timezone:profile.timezone,now,selfPersonIds:self})
-   :buildDossier({userId,message,recent,lane:"coach",timezone:profile.timezone,now,selfPersonIds:self,onTelemetry})).catch(()=>NO_DOSSIER);
+   :buildDossier({userId,message,recent,lane:"coach",timezone:profile.timezone,now,selfPersonIds:self,listings,onTelemetry})).catch(()=>NO_DOSSIER);
   const selected=dossier.excerpts;
   const investigation=investigationTools(userId,profile.timezone,now,self,selected);
   const sources=investigation.sources;
