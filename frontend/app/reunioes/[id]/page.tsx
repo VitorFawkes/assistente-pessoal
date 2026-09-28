@@ -32,6 +32,7 @@ export const dynamic = "force-dynamic";
 type Meeting = {
   id: string;
   user_id: string;
+  nome: string | null;
   user_nome: string | null;
   source: string;
   meeting_type: string | null;
@@ -189,7 +190,7 @@ export default async function ReuniaoDetalhePage({
         {/* Título = o assunto. O resumo inteiro como h1 tomava 6 linhas e
             fazia toda reunião "começar igual" em qualquer lista. */}
         <h1 className="font-display text-2xl sm:text-3xl leading-[1.2] tracking-tight">
-          {meetingSubject(meeting.summary) || "Reunião sem resumo"}
+          {meetingSubject(meeting.summary, meeting.nome) || "Reunião sem resumo"}
         </h1>
 
         <div className="space-y-1">

@@ -16,6 +16,7 @@ import { MeetingExportMenu } from "@/components/meeting-export-menu";
 
 export type ReuniaoCompartilhada = {
   summary: string | null;
+  nome?: string | null;
   executive_summary: string | null;
   recorded_at: string | null;
   duration_seconds: number | null;
@@ -65,7 +66,7 @@ export function MeetingGuestView({
 
       <header className="space-y-3">
         <h1 className="font-display text-2xl sm:text-3xl leading-[1.2] tracking-tight">
-          {meetingSubject(meeting.summary) || "Reunião"}
+          {meetingSubject(meeting.summary, meeting.nome) || "Reunião"}
         </h1>
         <div className="flex items-center gap-2 flex-wrap text-[13px] text-[color:var(--muted-strong)]">
           {meeting.recorded_at && <span>{fmtDate(meeting.recorded_at)}</span>}

@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { query } from "@/lib/db";
 import { finalizarGravacao } from "@/lib/gravacao-final";
+import { nomearTodas } from "@/lib/nome-curto";
 
 // Gravação sem áudio novo há 30 min (aba fechada, notebook dormiu, internet caiu) vira reunião.
 // Mesmo prazo que a tela promete para reabrir e continuar.
@@ -30,5 +31,10 @@ export const POST = async (req: Request) => {
       falhas.push(g.id);
     }
   }
-  return Response.json({ encontradas: paradas.length, enviadas, falhas });
+  // Na mesma varrida (a cada 5 min): reunião pronta sem nome ganha um nome curto.
+  const nomes = await nomearTodas().catch((err) => {
+    console.error("varrer nomes", err instanceof Error ? err.message : err);
+    return { nomeadas: 0, falhas: 1 };
+  });
+  return Response.json({ encontradas: paradas.length, enviadas, falhas, nomes });
 };

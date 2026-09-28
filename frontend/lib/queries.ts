@@ -25,6 +25,8 @@ export type Meeting = {
   status_error: string | null;
   transcription: string | null;
   summary: string | null;
+  /** Nome da reunião: dado por uma pessoa ou, se ninguém deu, o nome curto da IA. */
+  nome?: string | null;
   raw_ai_response: unknown;
   segments: unknown;
   speaker_labels: Record<string, string> | null;
@@ -385,13 +387,14 @@ export const meetingsFor = (userId: string) => ({
       const r = await db.query<{
         summary: string | null;
         executive_summary: string | null;
+        nome: string | null;
         duration_seconds: number | null;
         recorded_at: string | null;
         segments: unknown;
         speaker_labels: Record<string, string> | null;
         sections: unknown;
       }>(
-        `SELECT summary, duration_seconds,
+        `SELECT summary, nome, duration_seconds,
                 raw_ai_response->>'executive_summary' AS executive_summary,
                 to_char(coalesce(recorded_at, created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
                 segments, speaker_labels, sections
@@ -475,13 +478,14 @@ export const meetingsFor = (userId: string) => ({
         created_at: string;
         status: string;
         summary: string | null;
+        nome: string | null;
         duration_seconds: number | null;
         needs_segmentation: boolean;
         n_tarefas: number;
         n_minhas: number;
       }>(
         `SELECT
-           m.id, m.source, m.meeting_type,
+           m.id, m.source, m.meeting_type, m.nome,
            to_char(coalesce(m.recorded_at, m.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
            to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
            m.status, m.summary, m.duration_seconds, m.needs_segmentation,

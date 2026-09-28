@@ -9,6 +9,7 @@ import { DeleteMeetingButton } from "@/components/delete-meeting-button";
 
 export type MeetingItem = {
   id: string;
+  nome?: string | null;
   source: string;
   meeting_type: string | null;
   recorded_at: string | null;
@@ -122,7 +123,7 @@ export function MeetingsList({
                   link próprio dentro dele (link dentro de link é inválido). */}
               <Link
                 href={`/reunioes/${m.id}`}
-                aria-label={meetingSubject(m.summary) || "Abrir reunião"}
+                aria-label={meetingSubject(m.summary, m.nome) || "Abrir reunião"}
                 className="absolute inset-0 rounded-2xl focus-visible:outline-2 focus-visible:outline-[color:var(--foreground)]"
               />
               <div className="relative flex items-start gap-3 pointer-events-none">
@@ -135,7 +136,7 @@ export function MeetingsList({
                     {/* Assunto primeiro: o resumo cru começa igual em toda
                         reunião e a lista virava um bloco de nomes iguais. */}
                     <p className="flex-1 text-[15px] leading-snug font-medium text-[color:var(--foreground)] line-clamp-2">
-                      {meetingSubject(m.summary) || "Reunião sem resumo"}
+                      {meetingSubject(m.summary, m.nome) || "Reunião sem resumo"}
                     </p>
                     <StatusPill status={m.status} />
                   </div>

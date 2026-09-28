@@ -189,7 +189,7 @@ function groupByReuniao(list: Tarefa[]): [string, Tarefa[]][] {
       // Rótulo curto e datado: o resumo cru começa igual em toda reunião, e
       // como cabeçalho de grupo virava uma pilha de títulos idênticos.
       const label = t.meeting_id
-        ? meetingLabel(t.meeting_summary, t.meeting_recorded_at)
+        ? meetingLabel(t.meeting_summary, t.meeting_recorded_at, { nome: t.meeting_nome })
         : "Sem reunião";
       g = { label, date: t.meeting_recorded_at ?? "", items: [] };
       map.set(key, g);

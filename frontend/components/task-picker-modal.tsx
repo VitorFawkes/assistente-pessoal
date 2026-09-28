@@ -532,7 +532,7 @@ export function TaskPickerModal({ quadroId, onClose, onAdded }: Props) {
                             </span>
                           )}
                           <span className="truncate">
-                            {meetingSubject(t.meeting_summary) || "reunião"}
+                            {meetingSubject(t.meeting_summary, t.meeting_nome) || "reunião"}
                           </span>
                         </span>
                       )}

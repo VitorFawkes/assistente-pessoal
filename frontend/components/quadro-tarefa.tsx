@@ -692,7 +692,7 @@ export function QuadroTarefa({
                   className="underline underline-offset-2 text-[color:var(--muted-strong)] hover:text-[color:var(--foreground)]"
                 >
                   {meetingDateShort(tarefa.meeting_recorded_at)}{" "}
-                  {meetingSubject(tarefa.meeting_summary) || "reunião"}
+                  {meetingSubject(tarefa.meeting_summary, tarefa.meeting_nome) || "reunião"}
                 </Link>
               ) : tarefa.compartilhada ? (
                 <span className="text-[color:var(--muted)]">
