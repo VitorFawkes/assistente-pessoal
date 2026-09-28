@@ -15,6 +15,7 @@ import { resolverEscolha } from "@/lib/escolha-de-dono";
 import { pedirEnvio } from "@/lib/notion-sync";
 import { buDoWorkspace } from "@/lib/notion-mapa";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VALID_STATUS = ["aberta", "em_andamento", "aguardando_aprovacao", "concluida", "cancelada"] as const;
 const VALID_PRIORIDADE = ["baixa", "media", "alta", "urgente"] as const;
 const VALID_ACAO = ["executar", "cobrar", "aguardar"] as const;
@@ -41,6 +42,10 @@ type PatchBody = Partial<{
   responsavel_email: string;
   /** Workspace do TTARS de quem pede (área no Notion do marketing). */
   workspace: string;
+  /** Hub: time do TTARS que a tarefa pertence. */
+  time_id: string | null;
+  /** Hub: objetivo linkado à tarefa. */
+  objetivo_id: string | null;
 }>;
 
 // O que só quem criou a tarefa muda: plano/ordem pessoais dele e o tema (os temas são
@@ -160,6 +165,21 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
   }
 
   if (body.no_plano !== undefined) push("no_plano", body.no_plano);
+
+  // Hub: time_id e objetivo_id
+  if (body.time_id !== undefined) {
+    if (body.time_id && !body.time_id.match(/^t-[a-z0-9-]+$/i)) {
+      return NextResponse.json({ error: "time_id inválido" }, { status: 400 });
+    }
+    push("time_id", body.time_id ?? null);
+  }
+
+  if (body.objetivo_id !== undefined) {
+    if (body.objetivo_id && !UUID_RE.test(body.objetivo_id)) {
+      return NextResponse.json({ error: "objetivo_id inválido" }, { status: 400 });
+    }
+    push("objetivo_id", body.objetivo_id ?? null);
+  }
 
   const hasPessoas = Array.isArray(body.pessoas);
   if (!sets.length && !hasPessoas) {
