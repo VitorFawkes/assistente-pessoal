@@ -11,7 +11,8 @@ import UserNotifications
 /// - Ligação, Siri ou outro app pegando o microfone: o trecho em andamento é fechado
 ///   (nada se perde) e, quando a interrupção acaba, o gravador tenta continuar sozinho.
 ///   Se o iOS não deixar, fica "interrompido" até a pessoa tocar em Continuar.
-/// - Pausar fecha o trecho e solta o microfone; continuar abre um trecho novo.
+/// - Pausar fecha o trecho; o microfone segue ligado num arquivo jogado fora (com a tela bloqueada
+///   o iOS não deixa voltar a gravar do zero). Continuar abre um trecho novo; Parar solta o microfone.
 @Observable
 @MainActor
 final class AudioRecorder: NSObject {
@@ -46,6 +47,7 @@ final class AudioRecorder: NSObject {
     }()
 
     private var recorder: AVAudioRecorder?
+    private var pausa: AVAudioRecorder?         // pausado: segura o microfone, nada é guardado
     private var parteAtual: Int64 = 0
     private var ultimaParte: Int64 = 0
     private var inicioDoTrecho: Date?
@@ -112,13 +114,17 @@ final class AudioRecorder: NSObject {
 
     /// Começa (ou continua) a gravação `gravacaoId`, com os trechos na pasta dela.
     func iniciar(gravacaoId: String) throws {
-        try ativarSessao()
+        // Voltando da pausa o microfone já está ligado: o trecho novo começa antes de soltar o da pausa.
+        if pausa?.isRecording != true {
+            try ativarSessao()
+        }
         if self.gravacaoId != gravacaoId {
             acumulado = 0
         }
         self.gravacaoId = gravacaoId
         proximaTroca = nil
         try iniciarTrecho()
+        soltarPausa()
         iniciarTimer()
         proximoSinal = Date().addingTimeInterval(60)
         Registro.anotar("gravando (já gravado: \(Int(acumulado)) s)")
@@ -132,13 +138,14 @@ final class AudioRecorder: NSObject {
         try iniciar(gravacaoId: gravacaoId)
     }
 
-    /// Pausa: o trecho fecha (e sobe) e o microfone fica livre até continuar.
+    /// Pausa: o trecho fecha (e sobe); o microfone segue ligado sem guardar nada até continuar ou parar.
     func pausar() {
         guard state == .recording else { return }
+        segurarMicrofone()
         fecharTrecho()
         pararTimer()
         elapsedSeconds = acumulado
-        Registro.anotar("pausado (\(Int(acumulado)) s)")
+        Registro.anotar("pausado (\(Int(acumulado)) s, microfone \(pausa == nil ? "solto" : "seguro sem guardar"))")
         mudarEstado(.pausado)
     }
 
@@ -146,6 +153,7 @@ final class AudioRecorder: NSObject {
     @discardableResult
     func parar() -> TimeInterval {
         fecharTrecho()
+        soltarPausa()
         pararTimer()
         let total = acumulado
         gravacaoId = nil
@@ -239,6 +247,26 @@ final class AudioRecorder: NSObject {
         aoFecharTrecho?(gravacaoId, parteAntiga, antigo.url)
     }
 
+    /// Na pausa o microfone segue gravando num arquivo que é jogado fora: com a tela bloqueada o
+    /// iOS só deixa começar um gravador novo se outro já está gravando (mesma regra da troca de trecho).
+    private func segurarMicrofone() {
+        soltarPausa()
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("pausa.m4a")
+        try? FileManager.default.removeItem(at: url)
+        guard let rec = try? AVAudioRecorder(url: url, settings: ajustes), rec.record() else {
+            Registro.anotar("pausa não segurou o microfone")
+            return
+        }
+        pausa = rec
+    }
+
+    private func soltarPausa() {
+        guard let rec = pausa else { return }
+        pausa = nil
+        rec.stop()
+        rec.deleteRecording()
+    }
+
     /// Pede (uma vez) para poder avisar quando a gravação parar sozinha.
     func pedirPermissaoDeAviso() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
@@ -257,6 +285,7 @@ final class AudioRecorder: NSObject {
     private func tratarInterrupcao(_ tipo: AVAudioSession.InterruptionType?) {
         switch tipo {
         case .began:
+            soltarPausa()
             guard state == .recording else { return }
             fecharTrecho()
             pararTimer()

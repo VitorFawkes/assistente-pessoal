@@ -96,6 +96,8 @@ final class ControleGravacao {
             try gravador.continuar()
         } catch {
             atualizarAtividade()
+            // Escondido e o iPhone recusou o microfone: o pedido abre o Ações e continua lá.
+            if !(error is Erro), !appNaFrente { throw Erro.avisoNaoAbriu }
             throw error
         }
     }
