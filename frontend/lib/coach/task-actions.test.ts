@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { afterConfirmation, bulkHeader, givesPermission, withoutRepeats, checkQuestion, confirmsProposal, describeAction, directTaskRequest, interpreterSchema, isNo, isUndo, isYes, messageSpans, needsConfirmation, validateBulk, validateTaskActions, withoutTaskCodes, type CandidateTask, type TaskAction } from "./task-actions";
+import { afterConfirmation, asksFirst, bulkHeader, doneBulkHeader, withoutRepeats, checkQuestion, confirmsProposal, describeAction, directTaskRequest, interpreterSchema, isNo, isUndo, isYes, messageSpans, undoRequest, validateBulk, validateTaskActions, withoutTaskCodes, type CandidateTask } from "./task-actions";
 
 const SP = "America/Sao_Paulo";
 const now = new Date("2026-09-24T20:00:00Z"); // quinta, 17h em São Paulo
@@ -61,18 +61,20 @@ describe("o servidor confere o que o modelo propôs", () => {
  });
 });
 
-describe("quem decide: faz direto ou pergunta antes", () => {
- const a = (type: string, id?: string): TaskAction => ({ type: type as TaskAction["type"], tarefa_id: id ?? null, quote: "x", due_date: null, owner: null, title: "Nova", priority: null });
- test("tarefa sua muda direto; de outra pessoa ou de quadro com convidado pergunta", () => {
-  expect(needsConfirmation(a("complete", "1"), tasks.get("t1"), [a("complete", "1")])).toBe(false);
-  expect(needsConfirmation(a("complete", "2"), tasks.get("t2"), [a("complete", "2")])).toBe(true);
-  expect(needsConfirmation(a("reschedule", "1"), { ...tasks.get("t1")!, shared: true }, [])).toBe(true);
-  expect(needsConfirmation(a("create"), undefined, [])).toBe(false);
+describe("pedir já autoriza (28/09: 'eu já pedi! qualquer coisa desfaz'): só pergunta se a mensagem pedir para ver antes", () => {
+ test("os pedidos de 28/09 não pedem para ver antes, nem os de permissão dada", () => {
+  for (const m of ["Pode marcar como feitas TODAS do dia 24/09 pra trás", "Das atrasadas TODAS que sao do 24/09 pra tras devem ser marcadas como concluidas", "marca como feitas todas até 24/09", "Pode concluir TODAS sem prazo",
+   "TODAS sem prazo ou antes de 24/09 DEVEM ser concluidas. Já pode fazer e depois me fala só as que ficaram abertas", "Se tiver de 24/09 também pode concluir\nJá pode fazer sem pedir outra autorizacao",
+   "Pode marcar todas as atrasadas como concluidas. E essas abaixo tmb", "Todas as de mkt são da Paula Klotz a tarefa", "conclui direto, não precisa me perguntar", "passa as do Tiago pra Diana"]) {
+   expect(asksFirst(m)).toBe(false);
+  }
  });
- test("concluir ou cancelar mais de 3 de uma vez sempre pergunta", () => {
-  const batch = ["1", "2", "3", "4"].map(id => a("complete", id));
-  expect(needsConfirmation(batch[0], tasks.get("t1"), batch)).toBe(true);
-  expect(needsConfirmation(batch[0], tasks.get("t1"), batch.slice(0, 3))).toBe(false);
+ test("quem pede para ver ou confirmar antes tem as palavras (o intérprete ainda precisa concordar: negação passa aqui)", () => {
+  for (const m of ["conclui as atrasadas, mas me mostra antes", "me pergunta antes de concluir", "antes de mudar, me mostra quais são", "cancela as do Tiago, confirma comigo", "adia tudo pra sexta, quero conferir antes",
+   "não muda nada ainda, só me diz quantas são", "passa pra Paula só com minha confirmação", "me mostra primeiro quais você vai concluir", "espera eu confirmar", "me pede confirmação antes de cancelar"]) {
+   expect(asksFirst(m)).toBe(true);
+  }
+  expect(asksFirst("não precisa me perguntar antes")).toBe(true);
  });
 });
 
@@ -193,6 +195,15 @@ describe("pedido por critério: o modelo só dá o critério, o servidor acha to
   expect(bulkHeader(one({ type: "priority", priority: "media", who: "me" }), 3, SP)).toBe("Vou mudar para média a prioridade de 3 tarefas suas.");
   expect(bulkHeader(one({ type: "reopen", status: "done", closed_from: "2026-09-24", closed_until: "2026-09-24" }), 18, SP)).toBe("Vou reabrir 18 tarefas concluídas em 24/09.");
  });
+ test("depois de fazer, o cabeçalho diz o que fez, o critério entendido e de quem eram", () => {
+  expect(doneBulkHeader(one({ due: "none" }), 154, SP, { suas: 77, cobrar: 63, aguardando: 14 })).toBe("Concluí 154 tarefas sem prazo (77 suas, 63 para você cobrar e 14 que você aguardava):");
+  expect(doneBulkHeader(one({ due: "range", due_until: "2026-09-24" }), 18, SP, { suas: 18, cobrar: 0, aguardando: 0 })).toBe("Concluí 18 tarefas com prazo até 24/09:");
+  expect(doneBulkHeader(one({ type: "cancel", people: ["Tiago"] }), 4, SP)).toBe("Cancelei 4 tarefas de Tiago:");
+  expect(doneBulkHeader(one({ type: "shift", days: 7, due: "range", due_until: "2026-09-23" }), 4, SP)).toBe("Adiei em 7 dias o prazo de 4 tarefas atrasadas:");
+  expect(doneBulkHeader(one({ type: "reassign", people: ["Binho"], owner: "Diana", wait: true }), 6, SP, { suas: 0, cobrar: 4, aguardando: 2 })).toBe("Passei para Diana 6 tarefas de Binho (4 para você cobrar e 2 que você aguardava), e você só aguarda:");
+  expect(doneBulkHeader(one({ type: "priority", priority: "media", who: "me" }), 5, SP)).toBe("Mudei para média a prioridade de 5 tarefas suas:");
+  expect(doneBulkHeader(one({ type: "reopen", status: "done", closed_from: "2026-09-24", closed_until: "2026-09-24" }), 18, SP)).toBe("Reabri 18 tarefas concluídas em 24/09:");
+ });
  test("o formato pedido ao modelo tem o lote com critérios e exceções só com códigos da lista", () => {
   const schema = interpreterSchema(["t1", "t2"], [msg]) as unknown as { required: string[]; properties: { bulk: { maxItems: number; items: { required: string[]; properties: { except: { items: { enum: string[] } }; quote: { enum: string[] }; type: { enum: string[] } } } } } };
   expect(schema.required).toEqual(expect.arrayContaining(["bulk", "unsupported"]));
@@ -220,11 +231,10 @@ describe("tirar prazo e passar para alguém que você só aguarda", () => {
 });
 
 describe("relato de parte do que a tarefa pede: pergunta antes de concluir", () => {
- test("o modelo marca check só em concluir; o servidor sempre pergunta nesses casos, mesmo em tarefa sua", () => {
+ test("o modelo marca check só em concluir", () => {
   const msg = "já disponibilizei o agente de gravação";
   const [out] = validateTaskActions([action({ quote: msg, check: true })], msg, tasks, SP, now);
   expect(out).toMatchObject({ type: "complete", check: true });
-  expect(needsConfirmation(out, tasks.get("t1"), [out])).toBe(true);
   expect(validateTaskActions([action({ quote: msg, type: "cancel", check: true })], msg, tasks, SP, now)[0].check).toBeUndefined();
   expect(validateTaskActions([action({ quote: msg })], msg, tasks, SP, now)[0].check).toBeUndefined();
  });
@@ -239,18 +249,40 @@ describe("relato de parte do que a tarefa pede: pergunta antes de concluir", () 
  });
 });
 
-describe("permissão dada antes (28/09: 'Já pode fazer sem pedir outra autorização')", () => {
- test("as frases do Vitor dão permissão; negação e pedido de cuidado não têm as palavras certas ou dependem do intérprete", () => {
-  expect(givesPermission("TODAS sem prazo ou antes de 24/09 DEVEM ser concluidas. Já pode fazer e depois me fala só as que ficaram abertas")).toBe(true);
-  expect(givesPermission("Se tiver de 24/09 também pode concluir Já pode fazer sem pedir outra autorizacao")).toBe(true);
-  expect(givesPermission("conclui direto, não precisa me perguntar")).toBe(true);
-  expect(givesPermission("pode concluir todas sem prazo")).toBe(false);
-  expect(givesPermission("me pergunta antes de concluir")).toBe(false);
- });
+describe("a resposta depois da mudança", () => {
  test("a resposta não repete o que o servidor já disse", () => {
   const done = ["Não achei tarefa aberta sem prazo."];
   expect(withoutRepeats("Não achei tarefas abertas sem prazo. As 11 tarefas com prazo até 23/09 continuam abertas.", done)).toBe("As 11 tarefas com prazo até 23/09 continuam abertas.");
   expect(withoutRepeats("Sobraram 21 abertas: 15 atrasadas e 6 com prazo futuro.", done)).toBe("Sobraram 21 abertas: 15 atrasadas e 6 com prazo futuro.");
   expect(withoutRepeats("Qualquer coisa.", [])).toBe("Qualquer coisa.");
+ });
+});
+
+describe("desfaz é o jeito de voltar: cada forma de pedir", () => {
+ test("só desfazer", () => {
+  for (const m of ["desfaz", "Desfaz!", "desfazer", "Desfaça", "desfaz isso", "desfaz isso aí", "desfaz tudo", "Desfaz tudo isso", "desfaz a última", "desfaz a última mudança", "desfaz o que você fez", "desfaz essas mudanças",
+   "pode desfazer", "Por favor desfaz", "desfaz por favor", "volta atrás", "voltar atrás", "volta tudo", "volta como estava", "voltar como era", "reverte", "reverter isso", "Não era isso, desfaz", "errado, desfaz", "ops desfaz"]) {
+   expect(undoRequest(m)).toEqual({ count: 1, rest: "" });
+   expect(isUndo(m)).toBe(true);
+  }
+ });
+ test("várias de uma vez", () => {
+  expect(undoRequest("desfaz as duas últimas")).toEqual({ count: 2, rest: "" });
+  expect(undoRequest("Desfaz os 3 últimos")).toEqual({ count: 3, rest: "" });
+ });
+ test("desfazer e pedir outra coisa na mesma mensagem: o resto é lido depois, com as palavras dele", () => {
+  expect(undoRequest("desfaz e conclui só as minhas")).toEqual({ count: 1, rest: "conclui só as minhas" });
+  expect(undoRequest("Desfaz. Era só as da Paula")).toEqual({ count: 1, rest: "Era só as da Paula" });
+  expect(undoRequest("desfaz tudo, e passa só as de mkt pra Paula")).toEqual({ count: 1, rest: "passa só as de mkt pra Paula" });
+  expect(isUndo("desfaz e conclui só as minhas")).toBe(false);
+ });
+ test("'não era isso' só desfaz logo depois de uma mudança do Coach", () => {
+  expect(undoRequest("não era isso")).toBeNull();
+  expect(undoRequest("não era isso", true)).toEqual({ count: 1, rest: "" });
+  expect(undoRequest("Não era isso, era só as do Tiago", true)).toEqual({ count: 1, rest: "era só as do Tiago" });
+  expect(undoRequest("não era isso que eu perguntei", true)).toBeNull();
+ });
+ test("o que só parece desfazer não é", () => {
+  for (const m of ["desfaz a proposta e cria outra", "desfaz?", "desfazer compromissos é difícil pra mim", "volta amanhã", "voltamos a falar disso", "reverter a decisão do Tiago é possível?"]) expect(undoRequest(m)).toBeNull();
  });
 });
