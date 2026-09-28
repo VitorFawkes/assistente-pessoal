@@ -4,7 +4,7 @@ import { commitmentsDueForFollowup, meetingMentionsCommitment } from "./follow-u
 import { coachStore } from "./store";
 import { reviewPeriod } from "./evidence";
 import { attentionBudget,claimJob,type ClaimedCoachJob,dueCheckins,enqueueJob,extraFollowupAllowed,finishJob,localJobDay,renewJob,type CadenceProfile,type CheckinKind } from "./jobs";
-import { CoachProviderUnavailableError } from "./model";
+import { CoachAIError, CoachProviderUnavailableError } from "./model";
 import { CoachBudgetError } from "./budget";
 
 /** Scheduled work waits past the next 15-minute runner tick; chat answers stay immediate. */
@@ -30,10 +30,12 @@ export async function drainJobs(userId:string,options:{maxJobs?:number;deadline?
    if(error instanceof CoachBudgetError){await finishJob(userId,job.id,job.lease_token,{error:error.message,retry:true,delaySeconds:error.retryAfterSeconds});continue;}
    const unavailable=job.kind!=="chat"&&error instanceof CoachProviderUnavailableError;
    const waitProvider=unavailable&&job.attempts<3;
-   const retry=error instanceof service.CoachBusyError||error instanceof service.CoachPendingError||waitProvider;
+   // The week has one review: when the checks reject it, it gets one more try later instead of being lost.
+   const reviewAgain=job.kind==="review"&&!unavailable&&error instanceof CoachAIError&&job.attempts<2;
+   const retry=error instanceof service.CoachBusyError||error instanceof service.CoachPendingError||waitProvider||reviewAgain;
    const stale=error instanceof service.StaleCoachRunError;
-   const message=stale?"Seu contexto mudou durante esta leitura. Faça um novo pedido.":waitProvider?"A IA do coach está indisponível agora. Vou tentar de novo automaticamente.":unavailable?"A IA do coach continuou indisponível. Seu histórico está preservado; tente novamente.":retry?"Aguardando a conclusão das análises em andamento.":"O coach não conseguiu concluir. Seu histórico está preservado; tente novamente.";
-   await finishJob(userId,job.id,job.lease_token,{error:message,retry,...(waitProvider?{delaySeconds:PROVIDER_RETRY_DELAY_SECONDS}:{})});
+   const message=stale?"Seu contexto mudou durante esta leitura. Faça um novo pedido.":waitProvider?"A IA do coach está indisponível agora. Vou tentar de novo automaticamente.":reviewAgain?"A revisão não passou na conferência. Vou tentar de novo automaticamente.":unavailable?"A IA do coach continuou indisponível. Seu histórico está preservado; tente novamente.":retry?"Aguardando a conclusão das análises em andamento.":"O coach não conseguiu concluir. Seu histórico está preservado; tente novamente.";
+   await finishJob(userId,job.id,job.lease_token,{error:message,retry,...(waitProvider||reviewAgain?{delaySeconds:PROVIDER_RETRY_DELAY_SECONDS}:{})});
    if(!retry){failed++;await whatsapp(userId,job,"notifyChatFailure");}
   }finally{clearInterval(heartbeat);}
  }

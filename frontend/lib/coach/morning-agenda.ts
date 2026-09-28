@@ -62,9 +62,13 @@ export async function dueTasks(userId: string, timezone: string, now = new Date(
   `SELECT id,titulo,owner,acao,prazo,prazo>=$2 AS today,count(*) OVER ()::int AS total,(count(*) FILTER (WHERE prazo>=$2) OVER ())::int AS total_today
    FROM tarefas WHERE user_id=$1 AND status NOT IN ('concluida','cancelada') AND prazo IS NOT NULL AND prazo<$3 AND (is_mine OR acao='cobrar')
    ORDER BY ${AGENDA_ORDER} LIMIT $5`, [userId, range.from.toISOString(), range.to.toISOString(), timezone, limit])).rows);
+ // The rest of the same list, so "what is open?" is not answered with only what is due.
+ const rest = await withTenant(userId, async db => (await db.query<{ no_due: number; later: number }>(
+  `SELECT (count(*) FILTER (WHERE prazo IS NULL))::int AS no_due,(count(*) FILTER (WHERE prazo>=$2))::int AS later
+   FROM tarefas WHERE user_id=$1 AND status NOT IN ('concluida','cancelada') AND (is_mine OR acao='cobrar')`, [userId, range.to.toISOString()])).rows[0]);
  const total = rows[0]?.total ?? 0, today = rows[0]?.total_today ?? 0;
  return {
-  due_today: today, overdue: total - today, listed: rows.length,
+  due_today: today, overdue: total - today, listed: rows.length, no_due: rest?.no_due ?? 0, later: rest?.later ?? 0,
   note: `A lista das 8h mostra as ${Math.min(AGENDA_LIMIT, total)} primeiras (shown_at_8h); "Mais N no Ações" são as demais, na mesma ordem.`,
   items: rows.map((r, i) => ({ id: r.id, titulo: clip(r.titulo, 160), owner: r.owner, acao: r.acao, prazo: new Date(r.prazo).toISOString(), vence_hoje: r.today, shown_at_8h: i < AGENDA_LIMIT })),
  };

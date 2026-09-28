@@ -64,7 +64,8 @@ Liste o que foi pedido de forma completa: se total for maior que mostrados, diga
 pessoas_citadas traz as pessoas do cadastro com o nome citado; se houver mais de uma com o mesmo primeiro nome, responda sobre a que o dossiê usou e diga que existem as outras.
 Em tarefas, ligacao "responsavel" = a pessoa é a dona; "envolvida" = aparece na tarefa, que é de outra pessoa (diga de quem). Em reuniões, ligacao "participou" = a voz da pessoa foi identificada na gravação; "tarefas_ligadas" = não foi identificada falando, mas saíram dali tarefas que a envolvem. Para "última reunião com X", prefira a mais recente em que participou e diga se houve depois outra só com tarefas ligadas. participantes lista só as vozes identificadas; pode faltar gente.
 Resumo de reunião é relatório gerado pelo Ações, não fala literal: atribua como "segundo o relatório". conversas são mensagens antigas com o Coach: diga a data e não trate como fato atual.
-already_done_by_server traz mudanças já feitas ou uma pergunta já feita pelo servidor nesta mesma mensagem: não repita nem contradiga. Você não altera tarefas; mudanças são feitas quando o usuário pede claramente ("concluí X", "adia Y para sexta").
+changes_done_now é a ÚNICA prova de mudança: o que o servidor mudou agora, nesta mensagem, e que ele já mostra antes da sua resposta (não repita). Se estiver vazia, nada foi alterado: nunca diga que marcou, concluiu, cancelou, adiou ou mudou algo, nem que "foram marcadas", mesmo que o usuário tenha pedido. waiting_for_user é uma pergunta do servidor que ainda espera "sim" ou "não" e que ele anexa depois da sua resposta: não diga que foi feito e não repita a pergunta. Você não altera tarefas.
+O dossiê mostra o estado atual, já com changes_done_now aplicadas: liste o que ele mostra, sem tirar tarefas por conta própria nem supor o que aconteceria depois de um "sim". pendencias só traz o que vence hoje e o que está atrasado; outras_abertas conta as demais abertas (sem prazo e com prazo depois de hoje): numa pergunta sobre o que está em aberto, diga as duas partes.
 Para revisar ou limpar uma lista, cite os títulos (agrupe por assunto quando passar de 8) e pergunte quais já foram feitas, quais perderam o sentido e quais seguem.
 Agenda com agenda_status diferente de "connected" é agenda que não foi lida: nunca diga que está vazia.
 Não dê conselho nem opinião sobre o que priorizar; se o usuário pedir, responda o que é informação e diga que pode pensar a prioridade com ele.
@@ -74,12 +75,13 @@ export const assistantSchema = { type: "object", additionalProperties: false, re
 
 const clip = (s: string, max: number) => { const t = s.replace(/\s+/g, " ").trim(); return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t; };
 
-export async function answerInfo(input: { message: string; recent: Recent; notes: string[]; dossier: Dossier; timezone: string; now: Date; onTelemetry?: (e: CoachTelemetry) => void }) {
+export async function answerInfo(input: { message: string; recent: Recent; done: string[]; waiting: string[]; dossier: Dossier; timezone: string; now: Date; onTelemetry?: (e: CoachTelemetry) => void }) {
  const data = {
   now_local: new Intl.DateTimeFormat("pt-BR", { timeZone: input.timezone, dateStyle: "full", timeStyle: "short" }).format(input.now),
   timezone: input.timezone,
   message: input.message,
-  ...(input.notes.length ? { already_done_by_server: input.notes } : {}),
+  changes_done_now: input.done,
+  ...(input.waiting.length ? { waiting_for_user: input.waiting } : {}),
   recent_conversation: input.recent.slice(-6).map(m => ({ role: m.role, text: clip(m.content, 600) })),
   assistant_dossier: dossierForModel(input.dossier, input.timezone),
  };

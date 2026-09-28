@@ -11,16 +11,23 @@ export const TASK_ACTION_TYPES: TaskActionType[] = ["create", "complete", "cance
 const PRIORITIES = ["baixa", "media", "alta", "urgente"] as const;
 export type CandidateTask = { id: string; titulo: string; owner: string | null; is_mine: boolean | null; status: string; prazo: string | null; prioridade: string | null; shared: boolean };
 export type TaskAction = { type: TaskActionType; tarefa_id: string | null; quote: string; due_date: string | null; owner: string | null; title: string | null; priority: string | null };
+/** A request by criteria ("todas até 24/09", "as do Tiago"): the server finds every task that matches, not the model. */
+export type BulkSelection = { type: "complete" | "cancel" | "reschedule"; due_from: string | null; due_until: string | null; owner: string | null; due_date: string | null; except: string[]; quote: string };
 /** "tarefas": a task change or a request for recorded information (tasks, people, meetings, agenda), answered by the cheap assistant. "coach": everything else. */
 export type TaskLane = "tarefas" | "coach";
-export type TaskInterpretation = { intent: "none" | "actions" | "clarify"; actions: TaskAction[]; question: string; also_reply: boolean; lane: TaskLane };
+export type TaskInterpretation = { intent: "none" | "actions" | "clarify"; actions: TaskAction[]; bulk: BulkSelection[]; question: string; also_reply: boolean; lane: TaskLane };
+/** What the server did with a message (done) and what still waits for the user (a proposal or a question). */
+export type TaskNotes = { done: string[]; waiting: string[]; lane: TaskLane };
 type Snapshot = Pick<Tarefa, "titulo" | "owner" | "acao" | "prazo" | "prioridade" | "status">;
 
-export const MAX_TASK_ACTIONS = 6;
+export const MAX_TASK_ACTIONS = 15;
 /** Completing or cancelling more than this at once always asks first, even for the user's own tasks. */
 export const BULK_LIMIT = 3;
+/** One request by criteria changes at most this many tasks; the rest is reported, never dropped in silence. */
+export const MAX_BULK_TASKS = 80;
 const PROPOSAL_TTL_MS = 2 * 3600_000;
 const UNDO_WINDOW_MS = 24 * 3600_000;
+const UNDO_HINT = 'Se não era isso, responda "desfaz".';
 
 const normalized = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/\s+/g, " ").trim();
 const clip = (s: string, max: number) => { const t = s.replace(/\s+/g, " ").trim(); return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t; };
@@ -36,6 +43,26 @@ export function messageSpans(message: string): string[] {
 export const isUndo = (message: string) => /^(?:desfaz|desfazer|desfaca|desfaz isso|desfaz isso ai|volta como estava|voltar como estava|pode desfazer|desfaz por favor)[.!]*$/u.test(normalized(message));
 export const isYes = (message: string) => /^(?:sim|s|pode|pode sim|pode fazer|confirmo|confirma|confirmado|isso|isso mesmo|ok|beleza|fechado|faz|faca|manda ver|claro|sim pode|sim por favor)[.!]*$/u.test(normalized(message));
 export const isNo = (message: string) => /^(?:nao|n|nao precisa|nao faz|nao faca|esquece|deixa|deixa pra la|melhor nao|cancela isso|nao obrigado)[.!]*$/u.test(normalized(message));
+
+// A confirmation may come with more text ("Sim\nPode fazer TUDO e já me mostra as que sobraram"). Weak words
+// ("ok", "beleza") only confirm alone; a message that restricts or negates goes back to the interpreter.
+const PODE_VERBS = "fazer|seguir|mandar|aplicar|marcar|concluir|cancelar|mudar|adiar";
+const END = "(?=$|[\\s,.;:!?-])";
+const STRONG_YES = new RegExp(`^[\\s,.;:!-]*(?:(?:sim|confirmo|confirmado|manda ver)${END}|pode(?= *(?:$|[,.;:!\\n-]|(?:sim|${PODE_VERBS}|tudo|todas|todos)${END}))|fa(?:z|ça|ca)(?= *(?:$|[,.;:!\\n-]|(?:tudo|isso|todas|todos)${END})))`, "iu");
+const LEADING_YES = new RegExp(`^[\\s,.;:!-]*(?:sim|s|ok|beleza|fechado|confirmo|confirmado|confirma|claro|perfeito|certo|isso mesmo|isso a[ií]|isso|manda ver|por favor|pode(?: sim)?(?: (?:${PODE_VERBS}))?(?: (?:tudo|todas|todos)(?: elas| eles| isso)?)?|fa(?:z|ça|ca)(?: (?:tudo|isso|todas|todos))?)${END}`, "iu");
+const RESTRICTS = /\b(?:nao|mas|menos|exceto|excecao|tirando|fora|so|somente|apenas|porem|espera|aguarda)\b/u;
+/** "Sim" plus more text: confirms the open proposal unless it restricts or negates it. */
+export function confirmsProposal(message: string) {
+ const s = normalized(message);
+ return !!s && s.length <= 600 && STRONG_YES.test(message) && !RESTRICTS.test(s);
+}
+/** What is left once the confirmation words are taken off the start ("já me mostra as que sobraram"). */
+export function afterConfirmation(message: string) {
+ let rest = message;
+ for (let i = 0; i < 12; i++) { const next = rest.replace(LEADING_YES, ""); if (next === rest) break; rest = next; }
+ rest = rest.replace(/^[\s,.;:!-]*(?:e\s+)?/iu, "").trim();
+ return /[\p{L}\p{N}]{2}/u.test(rest) ? rest : "";
+}
 
 /** Messages the interpreter must not act on: examples, hypotheses and attempts to rewrite its rules. */
 export function directTaskRequest(message: string) {
@@ -89,6 +116,74 @@ export function validateTaskActions(raw: unknown, message: string, tasks: Map<st
  return out;
 }
 
+/** Server-side check of a request by criteria: literal quote, real dates and at least one criterion. */
+export function validateBulk(raw: unknown, message: string, tasks: Map<string, CandidateTask>, timezone: string, now: Date): BulkSelection[] {
+ if (!Array.isArray(raw) || !directTaskRequest(message)) return [];
+ const spans = new Set(messageSpans(message));
+ const today = localDate(timezone, now);
+ const day = (v: unknown) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && v >= "2020-01-01" && v <= `${Number(today.slice(0, 4)) + 2}${today.slice(4)}` ? v : null);
+ const out: BulkSelection[] = [];
+ for (const item of raw.slice(0, 3)) {
+  if (!item || typeof item !== "object") continue;
+  const b = item as Record<string, unknown>;
+  if (!["complete", "cancel", "reschedule"].includes(b.type as string) || typeof b.quote !== "string" || !spans.has(b.quote)) continue;
+  const owner = typeof b.owner === "string" && b.owner.trim() ? clip(b.owner, 60) : null;
+  const due_from = day(b.due_from), due_until = day(b.due_until);
+  if (!due_from && !due_until && !owner) continue;
+  if (due_from && due_until && due_from > due_until) continue;
+  const due_date = b.type === "reschedule" ? day(b.due_date) : null;
+  if (b.type === "reschedule" && (!due_date || due_date < today)) continue;
+  const except = Array.isArray(b.except) ? [...new Set(b.except.map(code => typeof code === "string" ? tasks.get(code)?.id : undefined).filter((id): id is string => !!id))] : [];
+  out.push({ type: b.type as BulkSelection["type"], due_from, due_until, owner, due_date, except, quote: b.quote });
+ }
+ return out;
+}
+
+const ownerMatches = (owner: string | null, wanted: string) => {
+ const first = normalized(wanted).split(" ")[0];
+ const words = normalized(owner || "").split(/[^a-z0-9]+/u).filter(Boolean);
+ return !!first && words.includes(first);
+};
+const dayStart = (date: string, timezone: string) => fromZonedTime(`${date}T00:00:00`, timezone);
+const nextDay = (date: string) => { const d = new Date(`${date}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); };
+
+/**
+ * Every open task that matches the criteria, found by the server. Without a person, the pool is the list the Coach
+ * shows (the user's own tasks and the follow-ups), the same one the 8h message counts.
+ */
+export async function expandBulk(userId: string, sel: BulkSelection, timezone: string): Promise<{ tasks: CandidateTask[]; overflow: number }> {
+ const from = sel.due_from ? dayStart(sel.due_from, timezone).toISOString() : null;
+ const to = sel.due_until ? dayStart(nextDay(sel.due_until), timezone).toISOString() : null;
+ const rows = await withTenant(userId, async db => (await db.query<CandidateTask & { prazo: Date | string | null }>(
+  `SELECT t.id,t.titulo,t.owner,t.is_mine,t.status,t.prazo,t.prioridade,
+    EXISTS(SELECT 1 FROM quadro_tarefas qt JOIN quadro_convidados qc ON qc.quadro_id=qt.quadro_id AND qc.revoked_at IS NULL WHERE qt.tarefa_id=t.id) AS shared
+   FROM tarefas t WHERE t.user_id=$1 AND t.status NOT IN ('concluida','cancelada')
+    AND ($2::timestamptz IS NULL OR t.prazo>=$2::timestamptz) AND ($3::timestamptz IS NULL OR t.prazo<$3::timestamptz)
+    AND ($4::boolean OR t.is_mine OR t.acao='cobrar')
+   ORDER BY t.prazo NULLS LAST,t.id LIMIT 1000`, [userId, from, to, !!sel.owner])).rows);
+ const except = new Set(sel.except);
+ const matched = rows
+  .filter(t => !except.has(t.id))
+  .filter(t => !sel.owner || (selfOwner(sel.owner) ? t.is_mine || selfOwner(t.owner) : ownerMatches(t.owner, sel.owner)))
+  .map(t => ({ ...t, prazo: t.prazo ? new Date(t.prazo).toISOString() : null }));
+ return { tasks: matched.slice(0, MAX_BULK_TASKS), overflow: Math.max(0, matched.length - MAX_BULK_TASKS) };
+}
+
+const dm = (date: string) => `${date.slice(8, 10)}/${date.slice(5, 7)}`;
+/** "de Tiago com prazo até 24/09": the criteria of a request by criteria, in the user's words. */
+export function bulkCriteria(sel: BulkSelection) {
+ const who = sel.owner ? (selfOwner(sel.owner) ? "suas" : `de ${sel.owner}`) : "";
+ const range = sel.due_from && sel.due_until ? (sel.due_from === sel.due_until ? `com prazo em ${dm(sel.due_from)}` : `com prazo de ${dm(sel.due_from)} a ${dm(sel.due_until)}`)
+  : sel.due_until ? `com prazo até ${dm(sel.due_until)}` : sel.due_from ? `com prazo a partir de ${dm(sel.due_from)}` : "";
+ return [who, range].filter(Boolean).join(" ");
+}
+/** "Vou concluir 18 tarefas com prazo até 24/09." */
+export function bulkHeader(sel: BulkSelection, count: number, timezone: string) {
+ const n = `${count} ${count === 1 ? "tarefa" : "tarefas"}`;
+ const verb = sel.type === "complete" ? `concluir ${n}` : sel.type === "cancel" ? `cancelar ${n}` : `mudar para ${dayLabel(dueAt(sel.due_date!, timezone), timezone)} o prazo de ${n}`;
+ return `Vou ${[verb, bulkCriteria(sel)].filter(Boolean).join(" ")}.`;
+}
+
 /** The change each action makes, in the words the confirmation and the proposal use. */
 export function describeAction(a: TaskAction, task: Pick<CandidateTask, "titulo"> | undefined, timezone: string, done: boolean) {
  const title = `"${clip(a.type === "create" ? a.title || "" : task?.titulo || "", 90)}"`;
@@ -123,6 +218,7 @@ const snapshot = (t: Snapshot): Snapshot => ({ titulo: t.titulo, owner: t.owner,
 export async function applyTaskActions(userId: string, actions: TaskAction[], tasks: Map<string, CandidateTask>, timezone: string, runKey?: string) {
  const batch = randomUUID();
  const lines: string[] = [];
+ const titles: string[] = [];
  const repo = tarefasFor(userId);
  for (const [index, a] of actions.entries()) {
   const key = runKey ? `${runKey}:${index}` : null;
@@ -140,7 +236,12 @@ export async function applyTaskActions(userId: string, actions: TaskAction[], ta
   await withTenant(userId, db => db.query("INSERT INTO coach_task_changes(user_id,batch_id,run_key,tarefa_id,action,before,after) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)",
    [userId, batch, key, a.tarefa_id, a.type, JSON.stringify(snapshot(before)), JSON.stringify(snapshot(after as Snapshot))]));
   lines.push(describeAction(a, tasks.get(a.tarefa_id!) ?? before, timezone, true));
+  titles.push(clip((tasks.get(a.tarefa_id!) ?? before).titulo, 90));
  }
+ // A large batch of one kind reads as one line and the list of titles, not one sentence per task.
+ const kind = actions[0]?.type;
+ if (titles.length > BULK_LIMIT && titles.length === lines.length && (kind === "complete" || kind === "cancel") && actions.every(a => a.type === kind))
+  return [`${kind === "complete" ? "Concluí" : "Cancelei"} ${titles.length} tarefas:`, ...titles.map(t => `• ${t}`)];
  return lines;
 }
 
@@ -170,11 +271,22 @@ export async function openProposal(userId: string, now = new Date()) {
 export async function resolveProposals(userId: string, resolution: "confirmed" | "declined" | "superseded", id?: string) {
  await withTenant(userId, db => db.query("UPDATE coach_task_proposals SET resolved_at=now(),resolution=$2 WHERE user_id=$1 AND resolved_at IS NULL AND ($3::uuid IS NULL OR id=$3)", [userId, resolution, id ?? null]));
 }
-async function propose(userId: string, actions: TaskAction[], tasks: Map<string, CandidateTask>, timezone: string, now: Date, runKey?: string) {
+/** Titles listed in a proposal; the rest is counted, so the message stays readable on the phone. */
+const PROPOSAL_LINES = 20;
+async function propose(userId: string, actions: TaskAction[], tasks: Map<string, CandidateTask>, timezone: string, now: Date, runKey?: string, headers: string[] = []) {
  const shared = actions.some(a => a.tarefa_id && tasks.get(a.tarefa_id)?.shared);
- const others = actions.some(a => { const t = a.tarefa_id ? tasks.get(a.tarefa_id) : undefined; return t && !(t.is_mine || selfOwner(t.owner)); });
- const why = others && shared ? "Tem tarefa de outra pessoa e de quadro compartilhado." : others ? (actions.length > 1 ? "São tarefas de outras pessoas." : "Essa tarefa é de outra pessoa.") : shared ? "Está num quadro que convidados veem." : "São várias tarefas de uma vez.";
- const summary = [`${why} Posso fazer?`, ...actions.map(a => `• ${describeAction(a, a.tarefa_id ? tasks.get(a.tarefa_id) : undefined, timezone, false)}`), "Responda sim ou não."].join("\n");
+ const others = actions.filter(a => { const t = a.tarefa_id ? tasks.get(a.tarefa_id) : undefined; return t && !(t.is_mine || selfOwner(t.owner)); }).length;
+ const count = actions.length;
+ const why = headers.length ? headers.join("\n")
+  : others && shared ? "Tem tarefa de outra pessoa e de quadro compartilhado."
+  : others === count ? (count > 1 ? "São tarefas de outras pessoas." : "Essa tarefa é de outra pessoa.")
+  : others ? `São ${count} tarefas; ${others} ${others === 1 ? "é de outra pessoa" : "são de outras pessoas"}.`
+  : shared ? "Está num quadro que convidados veem." : `São ${count} tarefas de uma vez.`;
+ // One kind of change by criteria: the header says what happens, the list only names the tasks.
+ const sameKind = headers.length > 0 && actions.every(a => a.type === actions[0].type && (a.type === "complete" || a.type === "cancel"));
+ const items = actions.map(a => sameKind ? `• ${clip(tasks.get(a.tarefa_id!)?.titulo || "", 90)}` : `• ${describeAction(a, a.tarefa_id ? tasks.get(a.tarefa_id) : undefined, timezone, false)}`);
+ const listed = items.length > PROPOSAL_LINES ? [...items.slice(0, PROPOSAL_LINES - 1), `…e mais ${items.length - PROPOSAL_LINES + 1}.`] : items;
+ const summary = [`${why} Posso fazer?`, ...listed, "Responda sim ou não."].join("\n");
  await resolveProposals(userId, "superseded");
  await withTenant(userId, db => db.query("INSERT INTO coach_task_proposals(user_id,run_key,actions,summary,expires_at) VALUES($1,$2,$3::jsonb,$4,$5) ON CONFLICT (user_id,run_key) WHERE run_key IS NOT NULL DO NOTHING",
   [userId, runKey ?? null, JSON.stringify(actions), summary, new Date(now.getTime() + PROPOSAL_TTL_MS).toISOString()]));
@@ -208,7 +320,8 @@ intent=clarify: pede uma mudança, mas duas ou mais tarefas são igualmente prov
 intent=none: conversa, pergunta, desabafo, pedido de conselho ou planejamento, hipótese ("e se eu adiasse?"), negação ("não cancela") ou pedido que não é sobre tarefas.
 Tipos: complete (concluir, feito); cancel (não vai mais acontecer; nunca apagar); reopen (voltar uma concluída ou cancelada); reschedule (novo prazo em due_date, AAAA-MM-DD, contado a partir de now_local: "amanhã" é o dia seguinte, "sexta" é a próxima sexta, "semana que vem" é a próxima segunda); reassign (passar para outra pessoa: owner com o nome; para o próprio usuário, owner "eu"); rename (title com o novo título); priority (baixa, media, alta ou urgente); create (title curto começando por verbo; due_date se foi dito; owner só se for de outra pessoa).
 task é o código da tarefa na lista (vazio para create). quote é o trecho da mensagem que pede a ação, escolhido da lista permitida. Campos que não se aplicam ficam vazios.
-also_reply=true só se, além do pedido sobre tarefas, a mensagem também faz uma pergunta ou pede ajuda ao Coach.
+PEDIDO EM LOTE ("todas as atrasadas", "tudo até 24/09", "as que vencem hoje", "todas do Tiago", "as de julho"): a lista abaixo NÃO traz todas as tarefas, então não enumere; use bulk (intent=actions), um item por critério, e o servidor acha todas as que batem. type: complete, cancel ou reschedule (due_date = novo prazo). due_from e due_until: AAAA-MM-DD, inclusivos, contados a partir de now_local ("até 24/09" → due_until 24/09 do ano de now_local; "atrasadas" → due_until ontem; "as de hoje" → due_from e due_until hoje). owner: nome de quem é a tarefa ("eu" para o próprio usuário), vazio para qualquer dono. except: códigos das tarefas que a mensagem tira do lote ("menos a do agente", "a que falta é X"). quote: o trecho que pede o lote. Lote precisa de data ou owner; sem nenhum critério (ex.: "conclui tudo"), use clarify. Tarefas citadas uma a uma continuam em actions. Sem lote, bulk=[].
+also_reply=true só se, além do pedido sobre tarefas, a mensagem também faz uma pergunta ou pede para ver algo ("e me mostra as que sobraram").
 lane (sempre preencha, independente de intent): "tarefas" quando a mensagem pede para mudar tarefas ou pede uma INFORMAÇÃO registrada: tarefas, prazos, pendências, agenda, pessoas e reuniões (o que tem para hoje, o que está atrasado, lista, resumo, revisão ou limpeza de tarefas, o que falta com alguém, quais tarefas foram discutidas com alguém, quando foi a última reunião com alguém, o que ficou decidido ou quem ficou responsável). "coach" quando pede conselho, ajuda para decidir, priorizar ou se preparar, reflexão, objetivos, desabafo, conversa ou outro assunto. Mensagem que mistura informação e pedido de conselho é "coach". Na dúvida, "coach".`;
 
 export function interpreterSchema(codes: string[], spans: string[]) {
@@ -217,8 +330,13 @@ export function interpreterSchema(codes: string[], spans: string[]) {
   type: { type: "string", enum: TASK_ACTION_TYPES }, task: { type: "string", enum: ["", ...codes] }, quote: { type: "string", enum: spans },
   due_date: s, owner: s, title: s, priority: { type: "string", enum: ["", ...PRIORITIES] },
  } };
- return { type: "object", additionalProperties: false, required: ["intent", "actions", "question", "also_reply", "lane"], properties: {
-  intent: { type: "string", enum: ["none", "actions", "clarify"] }, actions: { type: "array", items: action, maxItems: MAX_TASK_ACTIONS }, question: s, also_reply: { type: "boolean" },
+ const bulk = { type: "object", additionalProperties: false, required: ["type", "due_from", "due_until", "owner", "due_date", "except", "quote"], properties: {
+  type: { type: "string", enum: ["complete", "cancel", "reschedule"] }, due_from: s, due_until: s, owner: s, due_date: s,
+  except: { type: "array", items: { type: "string", enum: codes.length ? codes : [""] }, maxItems: 10 }, quote: { type: "string", enum: spans },
+ } };
+ return { type: "object", additionalProperties: false, required: ["intent", "actions", "bulk", "question", "also_reply", "lane"], properties: {
+  intent: { type: "string", enum: ["none", "actions", "clarify"] }, actions: { type: "array", items: action, maxItems: MAX_TASK_ACTIONS },
+  bulk: { type: "array", items: bulk, maxItems: 3 }, question: s, also_reply: { type: "boolean" },
   lane: { type: "string", enum: ["coach", "tarefas"] },
  } };
 }
@@ -231,7 +349,7 @@ export async function interpretTaskMessage(input: { message: string; history: { 
  const codes = input.tasks.map((_, i) => `t${i + 1}`);
  const byCode = new Map(input.tasks.map((t, i) => [codes[i], t]));
  const spans = messageSpans(input.message);
- if (!spans.length) return { intent: "none", actions: [], question: "", also_reply: false, lane: "coach" } as TaskInterpretation;
+ if (!spans.length) return { intent: "none", actions: [], bulk: [], question: "", also_reply: false, lane: "coach" } as TaskInterpretation;
  const data = {
   now_local: new Intl.DateTimeFormat("pt-BR", { timeZone: input.timezone, dateStyle: "full", timeStyle: "short" }).format(input.now),
   message: input.message,
@@ -242,41 +360,64 @@ export async function interpretTaskMessage(input: { message: string; history: { 
  const raw = await providerCompletion(INTERPRETER, data, interpreterSchema(codes, spans), { role: "tasks", reasoningEffort: "low", timeoutMs: 100000, onTelemetry: input.onTelemetry });
  const intent = raw.intent === "actions" || raw.intent === "clarify" ? raw.intent : "none";
  const actions = intent === "actions" ? validateTaskActions(raw.actions, input.message, byCode, input.timezone, input.now) : [];
+ const bulk = intent === "actions" ? validateBulk(raw.bulk, input.message, byCode, input.timezone, input.now) : [];
  const question = typeof raw.question === "string" ? clip(withoutTaskCodes(raw.question), 400) : "";
- return { intent: intent === "actions" && !actions.length ? "none" : intent === "clarify" && !question ? "none" : intent, actions, question, also_reply: raw.also_reply === true, lane: raw.lane === "tarefas" ? "tarefas" : "coach" } as TaskInterpretation;
+ return { intent: intent === "actions" && !actions.length && !bulk.length ? "none" : intent === "clarify" && !question ? "none" : intent, actions, bulk, question, also_reply: raw.also_reply === true, lane: raw.lane === "tarefas" ? "tarefas" : "coach" } as TaskInterpretation;
 }
 
 /**
- * Runs before the coaching answer. Returns the full reply when the message was only about task changes, or the
- * notes to carry (changes made, a question) with the lane that answers the rest; null when the interpreter did not run.
+ * Runs before the coaching answer. Returns the full reply when the message was only about task changes, or what the
+ * server did (done) and what waits for the user (waiting) with the lane that answers the rest; null when the
+ * interpreter did not run.
  */
-export async function handleTaskMessage(userId: string, message: string, history: { role: string; content: string }[], timezone: string, now = new Date(), runKey?: string, options: { ai?: boolean } = {}): Promise<{ reply: string } | { notes: string[]; lane: TaskLane } | null> {
+export async function handleTaskMessage(userId: string, message: string, history: { role: string; content: string }[], timezone: string, now = new Date(), runKey?: string, options: { ai?: boolean } = {}): Promise<{ reply: string } | TaskNotes | null> {
  const pending = await openProposal(userId, now);
- if (pending && isYes(message)) {
+ let done: string[] = [];
+ let text = message;
+ if (pending && (isYes(message) || confirmsProposal(message))) {
   const tasks = new Map((await candidateTasks(userId, "")).map(t => [t.id, t]));
   await resolveProposals(userId, "confirmed", pending.id);
   const lines = await applyTaskActions(userId, pending.actions, tasks, timezone, runKey);
-  return { reply: lines.length ? [...lines, 'Se não era isso, responda "desfaz".'].join("\n") : "Não consegui aplicar: a tarefa mudou ou não está mais disponível." };
+  done = lines.length ? [...lines, UNDO_HINT] : ["Não consegui aplicar: a tarefa mudou ou não está mais disponível."];
+  // "Sim, pode fazer tudo e já me mostra as que sobraram": the rest is read after the change, with the fresh list.
+  text = isYes(message) ? "" : afterConfirmation(message);
+  if (!text || !directTaskRequest(text) || options.ai === false) return { reply: done.join("\n") };
+ } else {
+  if (pending && isNo(message)) { await resolveProposals(userId, "declined", pending.id); return { reply: "Tudo bem, não mudei nada." }; }
+  if (pending) await resolveProposals(userId, "superseded");
+  if (isUndo(message)) {
+   const lines = await undoLastBatch(userId, now);
+   return { reply: lines.length ? lines.join("\n") : "Não encontrei mudança minha nas últimas 24 horas para desfazer." };
+  }
+  if (!directTaskRequest(message) || options.ai === false) return null;
  }
- if (pending && isNo(message)) { await resolveProposals(userId, "declined", pending.id); return { reply: "Tudo bem, não mudei nada." }; }
- if (pending) await resolveProposals(userId, "superseded");
- if (isUndo(message)) {
-  const lines = await undoLastBatch(userId, now);
-  return { reply: lines.length ? lines.join("\n") : "Não encontrei mudança minha nas últimas 24 horas para desfazer." };
- }
- if (!directTaskRequest(message) || options.ai === false) return null;
- const candidates = await candidateTasks(userId, message);
+ const candidates = await candidateTasks(userId, text);
  const telemetry: CoachTelemetry[] = [];
- const result = await interpretTaskMessage({ message, history, tasks: candidates, timezone, now, onTelemetry: e => telemetry.push(e) })
+ const result = await interpretTaskMessage({ message: text, history, tasks: candidates, timezone, now, onTelemetry: e => telemetry.push(e) })
   .finally(() => { void recordModelRuns(userId, "tasks", runKey ?? null, telemetry).catch(() => {}); });
- if (result.intent === "clarify") return result.also_reply ? { notes: [result.question], lane: result.lane } : { reply: result.question };
- if (result.intent !== "actions") return { notes: [], lane: result.lane };
+ if (result.intent === "clarify") return result.also_reply ? { done, waiting: [result.question], lane: result.lane } : { reply: [...done, result.question].join("\n") };
+ if (result.intent !== "actions") return { done, waiting: [], lane: result.lane };
  const byId = new Map(candidates.map(t => [t.id, t]));
- const direct = result.actions.filter(a => !needsConfirmation(a, a.tarefa_id ? byId.get(a.tarefa_id) : undefined, result.actions));
- const confirm = result.actions.filter(a => !direct.includes(a));
- const lines = direct.length ? await applyTaskActions(userId, direct, byId, timezone, runKey) : [];
- if (lines.length) lines.push('Se não era isso, responda "desfaz".');
- if (confirm.length) lines.push(await propose(userId, confirm, byId, timezone, now, runKey));
- if (!lines.length) return { notes: [], lane: result.lane };
- return result.also_reply ? { notes: lines, lane: result.lane } : { reply: lines.join("\n") };
+ // Requests by criteria: the server finds every matching task and always asks before changing more than a few.
+ const headers: string[] = [];
+ const bulkActions: TaskAction[] = [];
+ for (const sel of result.bulk) {
+  const { tasks, overflow } = await expandBulk(userId, sel, timezone);
+  const fresh = tasks.filter(t => !bulkActions.some(a => a.tarefa_id === t.id) && !result.actions.some(a => a.tarefa_id === t.id));
+  if (!fresh.length) { done.push(`Não achei tarefa aberta ${bulkCriteria(sel)}.`); continue; }
+  for (const t of fresh) if (!byId.has(t.id)) byId.set(t.id, t);
+  headers.push(bulkHeader(sel, fresh.length, timezone) + (overflow ? ` Outras ${overflow} ficam para um próximo pedido.` : ""));
+  bulkActions.push(...fresh.map(t => ({ type: sel.type, tarefa_id: t.id, quote: sel.quote, due_date: sel.due_date, owner: null, title: null, priority: null })));
+ }
+ const single = result.actions;
+ const direct = single.filter(a => !needsConfirmation(a, a.tarefa_id ? byId.get(a.tarefa_id) : undefined, single));
+ const bulkAsk = bulkActions.length > BULK_LIMIT ? bulkActions : bulkActions.filter(a => needsConfirmation(a, byId.get(a.tarefa_id!), bulkActions));
+ const apply = [...direct, ...bulkActions.filter(a => !bulkAsk.includes(a))];
+ const ask = [...single.filter(a => !direct.includes(a)), ...bulkAsk];
+ // A confirmation earlier in this message already used the run key for its own changes.
+ const applied = apply.length ? await applyTaskActions(userId, apply, byId, timezone, done.length && runKey ? `${runKey}:mais` : runKey) : [];
+ if (applied.length) done.push(...applied, UNDO_HINT);
+ const waiting = ask.length ? [await propose(userId, ask, byId, timezone, now, runKey, bulkAsk.length ? headers : [])] : [];
+ if (!done.length && !waiting.length) return { done: [], waiting: [], lane: result.lane };
+ return result.also_reply ? { done, waiting, lane: result.lane } : { reply: [...done, ...waiting].join("\n") };
 }

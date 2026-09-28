@@ -4,7 +4,8 @@ import * as jobs from "./jobs";
 import * as commitmentStore from "./coach-commitments";
 import {drainJobs,PROVIDER_RETRY_DELAY_SECONDS,scheduleCoachJobs} from "./jobs-worker";
 import * as service from "./service";
-import {CoachProviderUnavailableError} from "./model";
+import {CoachAIError,CoachProviderUnavailableError} from "./model";
+import {CoachVerificationError} from "./quality";
 import {CoachBudgetError} from "./budget";
 test("backfill can advance twice in one cron slot; the weekly review is queued once per week and never refreshed",async()=>{
  const list=spyOn(commitmentStore,"listCommitments").mockResolvedValue([]);
@@ -105,5 +106,26 @@ test("past the day's AI spend ceiling scheduled work waits for the next day with
  try{
   expect(await drainJobs("owner")).toEqual({attempted:1,completed:0,failed:0});
   expect(finished).toEqual([{error:error.message,retry:true,delaySeconds:7*3600+5*60}]);
+ }finally{claim.mockRestore();finish.mockRestore();review.mockRestore();}
+});
+
+test("the weekly review rejected by the checks gets one more try 20 minutes later, then stops",async()=>{
+ const finished:unknown[]=[];let next:unknown=null;
+ const claim=spyOn(jobs,"claimJob").mockImplementation(async()=>{const job=next;next=null;return job as jobs.ClaimedCoachJob|null;});
+ const finish=spyOn(jobs,"finishJob").mockImplementation(async(_user,_id,_token,result)=>{finished.push(result);return true;});
+ const review=spyOn(service,"generateReview").mockRejectedValue(new CoachVerificationError(["issue"]));
+ try{
+  next={id:"review",kind:"review",attempts:1,lease_token:"token",payload:{force:false}};
+  expect(await drainJobs("owner")).toEqual({attempted:1,completed:0,failed:0});
+  expect(finished.at(-1)).toEqual({error:"A revisão não passou na conferência. Vou tentar de novo automaticamente.",retry:true,delaySeconds:PROVIDER_RETRY_DELAY_SECONDS});
+  next={id:"review",kind:"review",attempts:2,lease_token:"token",payload:{force:false}};
+  expect(await drainJobs("owner")).toEqual({attempted:1,completed:0,failed:1});
+  expect(finished.at(-1)).toEqual({error:"O coach não conseguiu concluir. Seu histórico está preservado; tente novamente.",retry:false});
+  // Other failures of a check-in are not retried this way.
+  const checkin=spyOn(service,"generateCheckin").mockRejectedValue(new CoachAIError("x"));
+  try{
+   next={id:"evening",kind:"checkin",attempts:1,lease_token:"token",payload:{checkin:"evening"}};
+   expect(await drainJobs("owner")).toEqual({attempted:1,completed:0,failed:1});
+  }finally{checkin.mockRestore();}
  }finally{claim.mockRestore();finish.mockRestore();review.mockRestore();}
 });
