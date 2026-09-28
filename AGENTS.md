@@ -217,3 +217,16 @@ Constantes em `DETECT_CONSTANTS`: `SILENCE_HARD=20`, `SILENCE_SOFT=10`,
 **ffmpeg:** o handler PATCH escreve direto em `/audios/YYYY/MM/<uuid>.mp3`
 (reencode pra 64kbps mono 16kHz — `-c copy` quebra em `.m4a` iPhone com MOOV
 no final, e `/tmp` ≠ `/audios` no mount easypanel).
+
+## App do iPhone "CASE" (em uso real desde 28/09/2026: Vitor e Tiago)
+
+O app depende do servidor do Ações da equipe (srv2007125.hstgr.cloud). Não mudar sem falar com o Vitor:
+1. Rotas `frontend/app/api/mobile/*` (entrar, config, eu, abrir, gravacao/[id]/pedaco e fim, meetings,
+   sessao/revoke-all) e `lib/gravacao-rotas.ts` (formato do pedaço; 409 = começar gravação nova).
+2. Login do app = e-mail + senha do TTARS (grant password no Supabase do TTARS) + `estaLiberado` / `acessos_equipe`.
+3. `/api/auth/ttars?c=…&para=…` e as páginas que o app abre: `/`, `/reunioes/[id]` e `/seguranca/sessoes`. Mudou
+   endereço? O antigo tem que levar para o novo (o app só muda com versão nova na Apple).
+4. ingest-svc + fluxo n8n que transformam a gravação em reunião.
+
+Publicar o frontend do Ações só por `/opt/acoes-equipe/publicar-frontend.sh <imagem>` (troca a imagem, roda
+`testa-app-iphone.sh` e volta a anterior sozinho se o app quebrar).

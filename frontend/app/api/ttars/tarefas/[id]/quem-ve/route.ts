@@ -6,16 +6,16 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-// Quem vê a ação (só quem criou muda). Corpo: { pessoas?: e-mails (a lista inteira), juntar?: e-mails (a mais),
-// time_id?: time ou null }. Pessoa marcada vê e mexe na ação (não apaga nem muda quem vê); o time também.
+// Quem vê a ação (só quem criou muda). Corpo: { pessoas?: e-mails (a lista inteira), juntar?/tirar?: e-mails (várias
+// ações de uma vez), time_id?: time ou null }. Pessoa marcada vê e mexe na ação (não apaga nem muda quem vê); o time também.
 export const PUT = withAuth<Ctx>(async (user, req, ctx) => {
   const { id } = await ctx.params;
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!b) return NextResponse.json({ error: "Corpo inválido." }, { status: 400 });
   const emails = (v: unknown) => (Array.isArray(v) ? v.filter((e): e is string => typeof e === "string").slice(0, 50) : undefined);
-  const m: MudancaDeQuemVe = { pessoas: emails(b.pessoas), juntar: emails(b.juntar) };
+  const m: MudancaDeQuemVe = { pessoas: emails(b.pessoas), juntar: emails(b.juntar), tirar: emails(b.tirar) };
   if (b.time_id !== undefined) m.time_id = typeof b.time_id === "string" ? b.time_id : null;
-  if (m.pessoas === undefined && m.juntar === undefined && m.time_id === undefined) {
+  if (m.pessoas === undefined && m.juntar === undefined && m.tirar === undefined && m.time_id === undefined) {
     return NextResponse.json({ error: "Nada para mudar." }, { status: 400 });
   }
   const r = await mudarQuemVeDaTarefa(user.id, id, m);

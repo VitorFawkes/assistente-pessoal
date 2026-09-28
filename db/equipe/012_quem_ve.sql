@@ -106,7 +106,7 @@ $$ LANGUAGE plpgsql;
 -- não mexem; ao voltar para "escolhidos", roda de novo).
 CREATE OR REPLACE FUNCTION equipe_vozes_viram_quem_estava()
 RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public SET lock_timeout = '5s' AS $$
 DECLARE
   v_ids UUID[];
 BEGIN
@@ -167,13 +167,15 @@ DO $$ BEGIN
 END $$;
 
 -- ─── 5. Puxar a ação vale em qualquer reunião ─────────────────────────────────────────────────
--- Versão anterior: 010. Mudança: quem estava ou foi marcado como pessoa, com a reunião não fechada em "Só eu".
+-- Versão anterior: 010. Mudança: quem ESTAVA (convite, voz ou marcado como "estava") puxa, com a reunião não fechada
+-- em "Só eu"; quem só foi marcado para ver, vê.
 CREATE OR REPLACE FUNCTION equipe_chamado_na_reuniao(p_meeting UUID) RETURNS BOOLEAN
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT equipe_eu() IS NOT NULL AND (
     EXISTS (
       SELECT 1 FROM meeting_acessos ma JOIN meetings m ON m.id = ma.meeting_id
-       WHERE ma.meeting_id = p_meeting AND ma.user_id = equipe_eu() AND m.visibilidade <> 'so_eu'
+       WHERE ma.meeting_id = p_meeting AND ma.user_id = equipe_eu()
+         AND ma.motivo <> 'quem_ve' AND m.visibilidade <> 'so_eu'
     )
     OR EXISTS (
       SELECT 1 FROM meetings m JOIN users u ON u.id = equipe_eu()

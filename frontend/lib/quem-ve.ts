@@ -124,6 +124,8 @@ export type MudancaDeQuemVe = {
   pessoas?: string[];
   /** Pessoas a juntar às que já estão (várias ações de uma vez). */
   juntar?: string[];
+  /** Pessoas a tirar (várias ações de uma vez). */
+  tirar?: string[];
   /** Time que vê e mexe (null = nenhum). */
   time_id?: string | null;
 };
@@ -155,7 +157,8 @@ export async function mudarQuemVeDaTarefa(
   };
   const lista = m.pessoas !== undefined ? await ids(m.pessoas) : undefined;
   const juntar = m.juntar !== undefined ? await ids(m.juntar) : undefined;
-  if (lista === null || juntar === null) return "pessoa";
+  const tirar = m.tirar !== undefined ? await ids(m.tirar) : undefined;
+  if (lista === null || juntar === null || tirar === null) return "pessoa";
 
   await withTenant(userId, async (c) => {
     const antes = (await c.query<{ user_id: string }>(`SELECT user_id::text AS user_id FROM tarefa_acessos WHERE tarefa_id = $1`, [tarefaId])).rows.map(
@@ -163,6 +166,9 @@ export async function mudarQuemVeDaTarefa(
     );
     if (lista !== undefined) {
       await c.query(`DELETE FROM tarefa_acessos WHERE tarefa_id = $1 AND NOT (user_id = ANY ($2::uuid[]))`, [tarefaId, lista]);
+    }
+    if (tirar?.length) {
+      await c.query(`DELETE FROM tarefa_acessos WHERE tarefa_id = $1 AND user_id = ANY ($2::uuid[])`, [tarefaId, tirar]);
     }
     for (const uid of [...(lista ?? []), ...(juntar ?? [])]) {
       await c.query(`INSERT INTO tarefa_acessos (tarefa_id, user_id, created_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`, [

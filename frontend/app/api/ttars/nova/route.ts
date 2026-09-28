@@ -26,6 +26,9 @@ export const POST = withAuth(async (user, req) => {
   });
   if (!r.ok) return NextResponse.json({ error: r.erro }, { status: r.status });
   const pessoas = Array.isArray(body.pessoas) ? body.pessoas.filter((e): e is string => typeof e === "string").slice(0, 50) : [];
-  if (pessoas.length) await mudarQuemVeDaTarefa(user.id, r.tarefa.id, { juntar: pessoas });
-  return NextResponse.json({ tarefa: r.tarefa, aviso: r.aviso }, { status: 201 });
+  let aviso = r.aviso;
+  if (pessoas.length && (await mudarQuemVeDaTarefa(user.id, r.tarefa.id, { juntar: pessoas })) !== "ok") {
+    aviso = [aviso, "A ação foi criada, mas não consegui marcar quem vê: abra a ação e marque de novo."].filter(Boolean).join(" ");
+  }
+  return NextResponse.json({ tarefa: r.tarefa, aviso }, { status: 201 });
 });
