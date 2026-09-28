@@ -15,10 +15,10 @@ const blank = { type: "complete", due_date: "", days: 0, owner: "", wait: false,
  all: false, status: "open", due: "", due_from: "", due_until: "", who: "", people: [], not_people: [], kind: "", priorities: [], boards: [], not_boards: [], areas: [], not_areas: [],
  meetings: [], meeting_from: "", meeting_until: "", source: "", words: [], not_words: [], created_from: "", created_until: "", closed_from: "", closed_until: "", idle_days: 0, repeated: false, except: [] };
 const bulk = (b: Partial<Record<string, unknown>>) => ({ ...blank, ...b });
-const reply = (out: Record<string, unknown>) => ({ intent: "actions", actions: [], bulk: [], question: "", unsupported: "", also_reply: false, authorized: false, lane: "tarefas", ...out });
+const reply = (out: Record<string, unknown>) => ({ intent: "actions", actions: [], bulk: [], question: "", unsupported: "", also_reply: false, ask_first: false, lane: "tarefas", ...out });
 const filter = (f: Partial<TaskFilter>): TaskFilter => ({ ...emptyFilter(), ...f });
 
-describe.skipIf(!connection)("Coach mexendo em tarefas: faz, pergunta antes e desfaz, no banco real", () => {
+describe.skipIf(!connection)("Coach mexendo em tarefas: faz na hora, pergunta só quando pedem e desfaz, no banco real", () => {
  const a = randomUUID(), b = randomUUID(), schema = `tasks_test_${randomUUID().replaceAll("-", "")}`;
  const mine = randomUUID(), paula = randomUUID(), shared = randomUUID(), other = randomUUID();
  let admin: Pool;
@@ -113,7 +113,7 @@ describe.skipIf(!connection)("Coach mexendo em tarefas: faz, pergunta antes e de
   expect(await handleTaskMessage(a, "desfaz", [], SP)).toEqual({ reply: "Não encontrei mudança minha nas últimas 24 horas para desfazer." });
  });
 
- test("proposta para tarefa de outra pessoa só roda com 'sim'; 'não' descarta; outra conta não vê", async () => {
+ test("pergunta guardada só roda com 'sim'; 'não' descarta; outra conta não vê", async () => {
   await admin.query("INSERT INTO coach_task_proposals(user_id,actions,summary,expires_at) VALUES($1,$2::jsonb,'Posso?',now()+interval '1 hour')",
    [a, JSON.stringify([{ type: "complete", tarefa_id: paula, quote: "conclui", due_date: null, owner: null, title: null, priority: null }])]);
   expect(await openProposal(b)).toBeNull();
@@ -127,7 +127,7 @@ describe.skipIf(!connection)("Coach mexendo em tarefas: faz, pergunta antes e de
   expect((await row(shared)).status).toBe("aberta");
  });
 
- test("pedido em lote acha todas até a data, de qualquer pessoa como o app, pergunta uma vez e o 'sim' com mais texto aplica tudo", async () => {
+ test("pedido em lote acha todas até a data, de qualquer pessoa como o app, e faz na hora: diz o critério, de quem eram e deixa o 'desfaz'", async () => {
   for (let i = 0; i < 9; i++) await insert(a, `Atrasada ${i + 1}`, { prazo: `2026-09-${10 + i}T15:00:00Z`, ...(i % 3 ? {} : { owner: "Tiago", is_mine: false, acao: "cobrar" }) });
   const waiting = await insert(a, "Da Giordana, que você só aguarda", { owner: "Giordana", is_mine: false, acao: "aguardar", prazo: "2026-09-20T15:00:00Z" });
   const today = await insert(a, "Agente de gravação", { prazo: "2026-09-28T15:00:00Z" });
@@ -138,9 +138,29 @@ describe.skipIf(!connection)("Coach mexendo em tarefas: faz, pergunta antes e de
   const now = new Date("2026-09-28T13:00:00Z");
   const message = "Pode marcar como feitas TODAS do dia 24/09 pra trás";
   interpreter(reply({ bulk: [bulk({ due: "range", due_until: "2026-09-24", quote: message })] }));
-  const asked = await handleTaskMessage(a, message, [], SP, now, "run-lote") as { reply: string };
+  const answer = await handleTaskMessage(a, message, [], SP, now, "run-lote") as { reply: string };
+  const lines = answer.reply.split("\n");
+  expect(lines[0]).toMatch(new RegExp(`^Concluí ${expected.length} tarefas com prazo até 24/09 \\(\\d+ suas, \\d+ para você cobrar e 1 que você aguardava\\):$`));
+  expect(answer.reply).toContain("Da Giordana");
+  expect(answer.reply).not.toContain("Posso fazer?");
+  expect(lines.at(-1)).toBe('Se não era isso, responda "desfaz".');
+  for (const id of expected) expect((await row(id)).status).toBe("concluida");
+  for (const id of [today, otherAccount]) expect((await row(id)).status).toBe("aberta");
+  expect(await openProposal(a, now)).toBeNull();
+
+  // "Não era isso" right after the change undoes it, like "desfaz".
+  const undo = await handleTaskMessage(a, "não era isso", [{ role: "user", content: message }, { role: "assistant", content: answer.reply }], SP, now) as { reply: string };
+  expect(undo.reply.split("\n")[0]).toBe(`Voltei ${expected.length} tarefas como estavam:`);
+  for (const id of expected) expect((await row(id)).status).toBe("aberta");
+ });
+
+ test("quem pede para ver antes recebe a pergunta com o total; o 'sim' com mais texto aplica tudo e lê o resto depois", async () => {
+  const expected = (await admin.query("SELECT id FROM tarefas WHERE user_id=$1 AND status IN ('aberta','em_andamento','aguardando_aprovacao') AND prazo<'2026-09-25T03:00:00Z' ORDER BY prazo,id", [a])).rows.map(r => r.id as string);
+  const now = new Date("2026-09-28T13:00:00Z");
+  const message = "Conclui todas do dia 24/09 pra trás, mas me mostra antes";
+  interpreter(reply({ bulk: [bulk({ due: "range", due_until: "2026-09-24", quote: message })], ask_first: true }));
+  const asked = await handleTaskMessage(a, message, [], SP, now, "run-ver-antes") as { reply: string };
   expect(asked.reply.split("\n")[0]).toMatch(new RegExp(`^Vou concluir ${expected.length} tarefas com prazo até 24/09\\. São \\d+ suas, \\d+ para você cobrar e 1 que você está aguardando\\. Posso fazer\\?$`));
-  expect(asked.reply).toContain("Da Giordana");
   expect((await openProposal(a, now))?.actions.map(x => x.tarefa_id).sort()).toEqual([...expected].sort());
   expect((await row(expected[0])).status).toBe("aberta");
 
@@ -153,12 +173,28 @@ describe.skipIf(!connection)("Coach mexendo em tarefas: faz, pergunta antes e de
   // The rest of the message is read after the change, alone.
   expect(sent.at(-1)!.message).toBe("já me mostra as que sobraram");
   for (const id of expected) expect((await row(id)).status).toBe("concluida");
-  for (const id of [today, otherAccount]) expect((await row(id)).status).toBe("aberta");
   expect(await openProposal(a, now)).toBeNull();
 
   const undo = await handleTaskMessage(a, "desfaz", [], SP, now) as { reply: string };
   expect(undo.reply.split("\n")[0]).toBe(`Voltei ${expected.length} tarefas como estavam:`);
   for (const id of expected) expect((await row(id)).status).toBe("aberta");
+ });
+
+ test("tarefa de outra pessoa e de quadro com convidado mudam na hora, citadas uma a uma", async () => {
+  const message = "conclui o contrato do fornecedor e a planilha do quadro";
+  interpreter(data => {
+   const code = (title: string) => (data.tasks as { task: string; title: string }[]).find(t => t.title === title)!.task;
+   const one = (task: string) => ({ type: "complete", task, quote: message, due_date: "", owner: "", title: "", priority: "", check: false, wait: false });
+   return reply({ actions: [one(code("Contrato do fornecedor")), one(code("Planilha do quadro"))] });
+  });
+  await admin.query("UPDATE tarefas SET status='aberta' WHERE id=ANY($1::uuid[])", [[paula, shared]]);
+  const answer = await handleTaskMessage(a, message, [], SP, new Date("2026-09-28T13:00:00Z"), "run-outra-pessoa") as { reply: string };
+  expect(answer.reply).toBe('Concluí "Contrato do fornecedor".\nConcluí "Planilha do quadro".\nSe não era isso, responda "desfaz".');
+  expect((await row(paula)).status).toBe("concluida");
+  expect((await row(shared)).status).toBe("concluida");
+  await handleTaskMessage(a, "desfaz", [], SP);
+  expect((await row(paula)).status).toBe("aberta");
+  expect((await row(shared)).status).toBe("aberta");
  });
 
  test("relato de parte de uma tarefa sua vira pergunta; 'sim' conclui", async () => {
@@ -196,23 +232,20 @@ describe.skipIf(!connection)("Coach mexendo em tarefas: faz, pergunta antes e de
    ids.fechada = await insert(user, "Já concluída, fica", { status: "concluida" });
    ids.outraConta = await insert(b, "Sem prazo da outra conta");
   });
-  test("pergunta com o total certo e os tipos; o 'sim' conclui todas numa vez; 'desfaz' volta todas", async () => {
+  test("faz na hora com o total certo e os tipos, numa mudança só; 'desfaz' volta todas", async () => {
    const expected = (await admin.query("SELECT id FROM tarefas WHERE user_id=$1 AND status='aberta' AND prazo IS NULL", [user])).rows.map(r => r.id as string);
    expect(expected).toHaveLength(133);
    const message = "Pode concluir TODAS sem prazo";
    interpreter(reply({ bulk: [bulk({ due: "none", quote: message })] }));
-   const asked = await handleTaskMessage(user, message, [], SP, now, "run-sem-prazo") as { reply: string };
-   const lines = asked.reply.split("\n");
-   expect(lines[0]).toBe("Vou concluir 133 tarefas sem prazo. São 130 suas, 2 para você cobrar e 1 que você está aguardando. Posso fazer?");
+   const done = await handleTaskMessage(user, message, [], SP, now, "run-sem-prazo") as { reply: string };
+   const lines = done.reply.split("\n");
+   expect(lines[0]).toBe("Concluí 133 tarefas sem prazo (130 suas, 2 para você cobrar e 1 que você aguardava):");
    expect(lines.filter(l => l.startsWith("• "))).toHaveLength(19);
    expect(lines).toContain("…e mais 114.");
-   expect(lines.at(-1)).toBe("Responda sim ou não.");
-   expect(asked.reply).not.toContain("próximo pedido");
-   expect((await openProposal(user, now))?.actions).toHaveLength(133);
-
-   const done = await handleTaskMessage(user, "sim", [], SP, now, "run-sem-prazo-sim") as { reply: string };
-   expect(done.reply.split("\n")[0]).toBe("Concluí 133 tarefas:");
-   expect(done.reply.split("\n").length).toBeLessThanOrEqual(22);
+   expect(lines.at(-1)).toBe('Se não era isso, responda "desfaz".');
+   expect(lines.length).toBeLessThanOrEqual(22);
+   expect(done.reply).not.toContain("próximo pedido");
+   expect(await openProposal(user, now)).toBeNull();
    const statuses = (await admin.query("SELECT id,status FROM tarefas WHERE user_id=$1", [user])).rows as { id: string; status: string }[];
    for (const id of expected) expect(statuses.find(s => s.id === id)?.status).toBe("concluida");
    expect(statuses.find(s => s.id === ids.comPrazo)?.status).toBe("aberta");
@@ -233,32 +266,50 @@ describe.skipIf(!connection)("Coach mexendo em tarefas: faz, pergunta antes e de
    expect(await openProposal(user)).not.toBeNull();
    await admin.query("UPDATE coach_task_proposals SET resolved_at=now(),resolution='declined' WHERE user_id=$1", [user]);
   });
-  test("com permissão dada na própria mensagem ('Já pode fazer…'), faz na hora e deixa o 'desfaz'; sem as palavras, pergunta mesmo que o modelo diga que pode", async () => {
-   const semPalavras = "Pode concluir TODAS sem prazo";
-   interpreter(reply({ bulk: [bulk({ due: "none", quote: semPalavras })], authorized: true }));
-   const pergunta = await handleTaskMessage(user, semPalavras, [], SP, now, "run-sem-permissao") as { reply: string };
-   expect(pergunta.reply).toContain("Posso fazer?");
-   await admin.query("UPDATE coach_task_proposals SET resolved_at=now(),resolution='declined' WHERE user_id=$1 AND resolved_at IS NULL", [user]);
+  test("pedir já é a permissão: 'Já pode fazer…' e o pedido simples fazem na hora; só 'me mostra antes' (palavras e intérprete juntos) pergunta", async () => {
+   const openNoDue = async () => (await admin.query("SELECT count(*)::int AS n FROM tarefas WHERE user_id=$1 AND status='aberta' AND prazo IS NULL", [user])).rows[0].n;
+   const simples = "Pode concluir TODAS sem prazo";
+   // The model alone cannot turn a request into a question: the message must ask to see first.
+   interpreter(reply({ bulk: [bulk({ due: "none", quote: simples })], ask_first: true }));
+   const feitoSimples = await handleTaskMessage(user, simples, [], SP, now, "run-simples") as { reply: string };
+   expect(feitoSimples.reply.split("\n")[0]).toBe("Concluí 133 tarefas sem prazo (130 suas, 2 para você cobrar e 1 que você aguardava):");
+   expect(await openNoDue()).toBe(0);
+   await handleTaskMessage(user, "desfaz", [], SP, now);
+   expect(await openNoDue()).toBe(133);
+
    const message = "TODAS sem prazo DEVEM ser concluidas. Já pode fazer e depois me fala só as que ficaram abertas";
-   interpreter(reply({ bulk: [bulk({ due: "none", quote: message }), bulk({ type: "list", all: true, quote: message })], authorized: true, also_reply: true }));
+   interpreter(reply({ bulk: [bulk({ due: "none", quote: message }), bulk({ type: "list", all: true, quote: message })], also_reply: true }));
    const feito = await handleTaskMessage(user, message, [], SP, now, "run-permissao") as TaskNotes;
    expect(feito.waiting).toEqual([]);
-   expect(feito.done[0]).toBe("Concluí 133 tarefas:");
+   expect(feito.done[0]).toBe("Concluí 133 tarefas sem prazo (130 suas, 2 para você cobrar e 1 que você aguardava):");
    expect(feito.done.at(-1)).toBe('Se não era isso, responda "desfaz".');
    expect(feito.listings).toHaveLength(1);
-   expect((await admin.query("SELECT count(*)::int AS n FROM tarefas WHERE user_id=$1 AND status='aberta' AND prazo IS NULL", [user])).rows[0].n).toBe(0);
+   expect(await openNoDue()).toBe(0);
    expect(await openProposal(user, now)).toBeNull();
    await handleTaskMessage(user, "desfaz", [], SP, now);
-   expect((await admin.query("SELECT count(*)::int AS n FROM tarefas WHERE user_id=$1 AND status='aberta' AND prazo IS NULL", [user])).rows[0].n).toBe(133);
+   expect(await openNoDue()).toBe(133);
+
+   // Words without the interpreter (negation) do not ask either.
+   const negacao = "Pode concluir todas sem prazo, não precisa me perguntar antes";
+   interpreter(reply({ bulk: [bulk({ due: "none", quote: negacao })] }));
+   expect((await handleTaskMessage(user, negacao, [], SP, now, "run-negacao") as { reply: string }).reply).not.toContain("Posso fazer?");
+   await handleTaskMessage(user, "desfaz", [], SP, now);
+
+   const antes = "Conclui todas sem prazo, mas me mostra antes";
+   interpreter(reply({ bulk: [bulk({ due: "none", quote: antes })], ask_first: true }));
+   const pergunta = await handleTaskMessage(user, antes, [], SP, now, "run-antes") as { reply: string };
+   expect(pergunta.reply.split("\n")[0]).toBe("Vou concluir 133 tarefas sem prazo. São 130 suas, 2 para você cobrar e 1 que você está aguardando. Posso fazer?");
+   expect(await openNoDue()).toBe(133);
+   await admin.query("UPDATE coach_task_proposals SET resolved_at=now(),resolution='declined' WHERE user_id=$1 AND resolved_at IS NULL", [user]);
   }, 60000);
-  test("'sim' a uma pergunta do Coach sem proposta guardada volta para o intérprete com a conversa", async () => {
+  test("'sim' a uma pergunta do Coach sem proposta guardada volta para o intérprete com a conversa e faz", async () => {
    const history = [{ role: "user", content: "Pode concluir TODAS sem prazo" }, { role: "assistant", content: "Quer concluir todas as tarefas abertas sem prazo, de qualquer responsável?" }];
    interpreter(reply({ bulk: [bulk({ due: "none", quote: "sim" })] }));
-   const asked = await handleTaskMessage(user, "sim", history, SP, now, "run-sim-solto") as { reply: string };
-   expect(asked.reply.split("\n")[0]).toBe("Vou concluir 133 tarefas sem prazo. São 130 suas, 2 para você cobrar e 1 que você está aguardando. Posso fazer?");
+   const done = await handleTaskMessage(user, "sim", history, SP, now, "run-sim-solto") as { reply: string };
+   expect(done.reply.split("\n")[0]).toBe("Concluí 133 tarefas sem prazo (130 suas, 2 para você cobrar e 1 que você aguardava):");
    expect((sent.at(-1)!.data.recent_conversation as unknown[]).length).toBe(2);
-   await admin.query("UPDATE coach_task_proposals SET resolved_at=now(),resolution='declined' WHERE user_id=$1", [user]);
-  });
+   await handleTaskMessage(user, "desfaz", [], SP, now);
+  }, 60000);
  });
 
  describe("cada jeito de escolher e cada mudança em lote", () => {
@@ -351,21 +402,19 @@ describe.skipIf(!connection)("Coach mexendo em tarefas: faz, pergunta antes e de
    await handleTaskMessage(user, "desfaz", [], SP, now);
    expect((await row(t.atrasada)).prazo.toISOString()).toBe("2026-09-22T15:00:00.000Z");
   });
-  test("tirar o prazo, passar para alguém que você só aguarda e mudar a prioridade, em lote, com 'desfaz'", async () => {
+  test("tirar o prazo, passar para alguém que você só aguarda e mudar a prioridade, em lote, na hora e com 'desfaz'", async () => {
    const clear = "tira o prazo das atrasadas";
    interpreter(reply({ bulk: [bulk({ type: "clear_due", due: "range", due_until: "2026-09-27", quote: clear })] }));
-   const asked = await handleTaskMessage(user, clear, [], SP, now, "run-clear") as { reply: string };
-   expect(asked.reply.split("\n")[0]).toBe("Vou tirar o prazo de 2 tarefas atrasadas. São 1 sua e 1 para você cobrar. Posso fazer?");
-   await handleTaskMessage(user, "sim", [], SP, now, "run-clear-sim");
+   // One of them is someone else's: done at once all the same.
+   const cleared = await handleTaskMessage(user, clear, [], SP, now, "run-clear") as { reply: string };
+   expect(cleared.reply.split("\n").sort()).toEqual(['Se não era isso, responda "desfaz".', 'Tirei o prazo de "Atrasada minha".', 'Tirei o prazo de "Thiago manda proposta".']);
    expect((await row(t.atrasada)).prazo).toBeNull();
    await handleTaskMessage(user, "desfaz", [], SP, now);
    expect((await row(t.atrasada)).prazo.toISOString()).toBe("2026-09-22T15:00:00.000Z");
 
    const pass = "passa as do Tiago para a Diana, só vou aguardar";
    interpreter(reply({ bulk: [bulk({ type: "reassign", owner: "Diana", wait: true, people: ["Tiago"], quote: pass })] }));
-   const passAsk = await handleTaskMessage(user, pass, [], SP, now, "run-pass") as { reply: string };
-   expect(passAsk.reply.split("\n")[0]).toBe("Vou passar para Diana 3 tarefas de Tiago, e você só aguarda. Posso fazer?");
-   const passDone = await handleTaskMessage(user, "sim", [], SP, now, "run-pass-sim") as { reply: string };
+   const passDone = await handleTaskMessage(user, pass, [], SP, now, "run-pass") as { reply: string };
    // Three tasks read one by one; more than three read as one line and the titles.
    expect(passDone.reply.split("\n").filter(l => l.endsWith("agora é com Diana (você só aguarda)."))).toHaveLength(3);
    expect(await row(t.tiago)).toMatchObject({ owner: "Diana", acao: "aguardar" });
@@ -374,10 +423,10 @@ describe.skipIf(!connection)("Coach mexendo em tarefas: faz, pergunta antes e de
 
    const prio = "marca como urgente as do quadro WW";
    interpreter(reply({ bulk: [bulk({ type: "priority", priority: "urgente", boards: ["q1"], quote: prio })] }));
-   const prioAsk = await handleTaskMessage(user, prio, [], SP, now, "run-prio") as { reply: string };
-   // Two tasks, one of them someone else's: it asks first.
-   expect(prioAsk.reply.split("\n")[0]).toBe('Vou mudar para urgente a prioridade de 2 tarefas do quadro "WW - MKT & Vendas". São 1 sua e 1 para você cobrar. Posso fazer?');
-   await handleTaskMessage(user, "sim", [], SP, now, "run-prio-sim");
+   // Two tasks on a board, one of them someone else's: done at once.
+   const prioDone = await handleTaskMessage(user, prio, [], SP, now, "run-prio") as { reply: string };
+   expect(prioDone.reply).toContain('Prioridade de "Campanha TikTok": urgente.');
+   expect(prioDone.reply).toContain('Prioridade de "Cobrar Tiago do organograma": urgente.');
    expect((await row(t.proposta)).prioridade).toBe("urgente");
   });
   test("reabrir as que foram concluídas hoje; pedido que não acha nada diz o critério", async () => {
@@ -418,6 +467,38 @@ describe.skipIf(!connection)("Coach mexendo em tarefas: faz, pergunta antes e de
    const tasks = new Map<string, CandidateTask>();
    expect(validateBulk([bulk({ quote: "conclui" })], "conclui", tasks, SP, now, ctx)).toEqual([]);
    expect(validateBulk([bulk({ boards: ["q7"], quote: "conclui" })], "conclui", tasks, SP, now, ctx)).toEqual([]);
+  });
+  test("pedido misto de 28/09 (atrasadas + as citadas + passar as de mkt): tudo na hora, numa mudança só; 'desfaz e …' volta tudo e faz o resto", async () => {
+   const message = "Pode marcar todas as atrasadas como concluidas. E essa abaixo tmb: Futura do site. Todas as de mkt são da Paula";
+   interpreter(data => {
+    const code = (data.tasks as { task: string; title: string }[]).find(x => x.title === "Futura do site")!.task;
+    return reply({
+     actions: [{ type: "complete", task: code, quote: message, due_date: "", owner: "", title: "", priority: "", check: false, wait: false }],
+     bulk: [bulk({ due: "range", due_until: "2026-09-27", quote: message }), bulk({ type: "reassign", owner: "Paula", areas: ["a1"], quote: message })],
+    });
+   });
+   const answer = await handleTaskMessage(user, message, [], SP, now, "run-misto") as { reply: string };
+   expect(answer.reply).not.toContain("Posso fazer?");
+   expect(answer.reply.split("\n").at(-1)).toBe('Se não era isso, responda "desfaz".');
+   for (const id of [t.atrasada, t.thiago, t.futura]) expect((await row(id)).status).toBe("concluida");
+   for (const id of [t.ninguem, t.proposta]) expect((await row(id)).owner).toBe("Paula");
+   expect((await admin.query("SELECT count(DISTINCT batch_id)::int AS batches,count(*)::int AS n FROM coach_task_changes WHERE user_id=$1 AND run_key LIKE 'run-misto:%'", [user])).rows[0]).toEqual({ batches: 1, n: 5 });
+
+   const again = "Desfaz e conclui só a Futura do site";
+   interpreter(data => {
+    const code = (data.tasks as { task: string; title: string }[]).find(x => x.title === "Futura do site")!.task;
+    return reply({ actions: [{ type: "complete", task: code, quote: String(data.message), due_date: "", owner: "", title: "", priority: "", check: false, wait: false }] });
+   });
+   const redo = await handleTaskMessage(user, again, [], SP, now, "run-desfaz-e") as { reply: string };
+   expect(sent.at(-1)!.message).toBe("conclui só a Futura do site");
+   expect(redo.reply).toContain('Concluí "Futura do site".');
+   expect(redo.reply.split("\n").at(-1)).toBe('Se não era isso, responda "desfaz".');
+   for (const id of [t.atrasada, t.thiago]) expect((await row(id)).status).toBe("aberta");
+   expect((await row(t.futura)).status).toBe("concluida");
+   expect((await row(t.ninguem)).owner).toBe("?");
+   expect((await row(t.proposta)).owner).toBe("vitor");
+   await handleTaskMessage(user, "desfaz", [], SP, now);
+   expect((await row(t.futura)).status).toBe("aberta");
   });
  });
 });

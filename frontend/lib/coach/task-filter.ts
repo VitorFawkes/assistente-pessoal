@@ -296,7 +296,7 @@ export async function selectTasks(userId: string, f: TaskFilter, opts: { timezon
 }
 
 const joinOr = (items: string[]) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} ou ${items.at(-1)}`);
-const joinAnd = (items: string[]) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} e ${items.at(-1)}`);
+export const joinAnd = (items: string[]) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} e ${items.at(-1)}`);
 const range = (from: string | null, until: string | null, word: string) =>
  from && until ? (from === until ? `${word} em ${dm(from)}` : `${word} de ${dm(from)} a ${dm(until)}`) : until ? `${word} até ${dm(until)}` : from ? `${word} a partir de ${dm(from)}` : "";
 
