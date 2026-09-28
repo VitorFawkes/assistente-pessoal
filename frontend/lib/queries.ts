@@ -8,7 +8,7 @@ import { randomBytes } from "node:crypto";
 export type Meeting = {
   id: string;
   user_id: string;
-  source: "macbook" | "iphone" | "ios-app" | "segmented";
+  source: "macbook" | "iphone" | "ios-app" | "segmented" | "teams";
   meeting_type: "online" | "presencial" | "desconhecido" | null;
   original_filename: string;
   audio_path: string;
