@@ -303,7 +303,7 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
       const [visto] = await carregarTarefas(user.id, [{ tarefa_id: id, dono_id: donoId }]);
       return NextResponse.json(visto ? await semObjetivoEscondido(user.id, visto) : { id });
     }
-    return NextResponse.json(updated);
+    return NextResponse.json(await semObjetivoEscondido(user.id, updated as { objetivo_id?: string | null }));
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: msg }, { status: 500 });

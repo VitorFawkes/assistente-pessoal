@@ -10,6 +10,7 @@ import { buildSpeakerCards } from "@/lib/speakers";
 import { comProjetos, nomesDeUsuarios } from "@/lib/equipe-compartilhado";
 import { notionDasAcoes } from "@/lib/notion-sync";
 import { trocarFalantes } from "@/lib/falantes";
+import { nomesDosObjetivos } from "@/lib/hub";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +38,12 @@ type Detalhe = {
   tem_audio: boolean;
 };
 
-type TarefaNaReuniao = Tarefa & { pode_puxar?: boolean; com_voce?: boolean };
+type TarefaNaReuniao = Tarefa & {
+  pode_puxar?: boolean;
+  com_voce?: boolean;
+  objetivo?: { id: string; nome: string } | null;
+  objetivo_escondido?: boolean;
+};
 
 // A reunião como a tela do TTARS mostra: resumo, ações e (só pra quem gravou) quem falou e
 // quem vê. Reunião de colega aberta pra mim: só leitura, sem conversa e sem vozes; quem foi
@@ -67,6 +73,12 @@ export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
       };
     });
   }
+  // Objetivo que quem vê não enxerga: nem o nome nem o id saem (o painel mostra o cadeado).
+  const objetivos = await nomesDosObjetivos(user.id, tarefas.map((t) => t.objetivo_id ?? "").filter(Boolean));
+  tarefas = tarefas.map((t) => {
+    const nome = t.objetivo_id ? objetivos.get(t.objetivo_id) : undefined;
+    return { ...t, objetivo_id: nome ? t.objetivo_id : null, objetivo: nome ? { id: t.objetivo_id!, nome } : null, objetivo_escondido: !!t.objetivo_id && !nome };
+  });
   const notion = await notionDasAcoes(tarefas.map((t) => t.id));
 
   const falantes =
