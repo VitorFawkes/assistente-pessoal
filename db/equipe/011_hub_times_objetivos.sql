@@ -55,9 +55,14 @@ BEGIN
 END $$;
 
 ALTER TABLE objetivos ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS objetivos_tenant ON objetivos;
-CREATE POLICY objetivos_tenant ON objetivos FOR ALL
-  USING (user_id::text = current_setting('app.current_user_id', true));
+-- Sem DROP (regra do Vitor): a política só é criada se ainda não existe.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'objetivos' AND policyname = 'objetivos_tenant') THEN
+    CREATE POLICY objetivos_tenant ON objetivos FOR ALL
+      USING (user_id::text = current_setting('app.current_user_id', true));
+  END IF;
+END $$;
 
 -- ─── Listas salvas ───────────────────────────────────────────────────
 
@@ -75,9 +80,13 @@ CREATE TABLE IF NOT EXISTS acoes_listas (
 CREATE INDEX IF NOT EXISTS idx_acoes_listas_user ON acoes_listas(user_id);
 
 ALTER TABLE acoes_listas ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS acoes_listas_tenant ON acoes_listas;
-CREATE POLICY acoes_listas_tenant ON acoes_listas FOR ALL
-  USING (user_id::text = current_setting('app.current_user_id', true));
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'acoes_listas' AND policyname = 'acoes_listas_tenant') THEN
+    CREATE POLICY acoes_listas_tenant ON acoes_listas FOR ALL
+      USING (user_id::text = current_setting('app.current_user_id', true));
+  END IF;
+END $$;
 
 -- O Supabase dá acesso automático a anon/authenticated em tabela nova: aqui ninguém de fora lê.
 REVOKE ALL ON objetivos, acoes_listas FROM PUBLIC, anon, authenticated;
