@@ -320,6 +320,14 @@ export const meetingsFor = (userId: string) => ({
           [id],
         );
         mantidas = soltas.rowCount ?? 0;
+        // Reunião do Teams apagada não volta na próxima pergunta do TTARS (013_teams_apagadas).
+        await db.query(
+          `INSERT INTO teams_apagadas (user_id, teams_evento)
+           SELECT user_id, teams_evento FROM meetings
+            WHERE (id = $1 OR parent_meeting_id = $1) AND teams_evento IS NOT NULL
+           ON CONFLICT DO NOTHING`,
+          [id],
+        );
       }
       const del = await db.query<{ id: string }>(
         `DELETE FROM meetings WHERE id = $1 OR parent_meeting_id = $1 RETURNING id`,

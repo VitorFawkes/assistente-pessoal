@@ -68,7 +68,9 @@ async function contexto(candidatos: Candidato[]): Promise<ContextoDaDecisao> {
                 CASE WHEN source <> 'teams' THEN (extract(epoch FROM recorded_at) * 1000)::bigint::text END AS t
            FROM meetings
           WHERE user_id = $1
-            AND (teams_evento = ANY($2) OR (source <> 'teams' AND recorded_at BETWEEN $3 AND $4))`,
+            AND (teams_evento = ANY($2) OR (source <> 'teams' AND recorded_at BETWEEN $3 AND $4))
+         UNION ALL
+         SELECT teams_evento, NULL FROM teams_apagadas WHERE user_id = $1 AND teams_evento = ANY($2)`,
         [u.id, chaves, de, ate],
       ),
     );
@@ -131,7 +133,11 @@ export async function receber(p: PedidoDaReuniao): Promise<{ meeting_id?: string
   const id = await withTenant(dono.id, async (c) => {
     // Duas rodadas do TTARS com a mesma reunião ao mesmo tempo: só uma cria.
     await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`teams:${chaveCompleta(p)}`]);
-    const ja = await c.query(`SELECT 1 FROM meetings WHERE user_id = $1 AND teams_evento = $2`, [dono.id, p.chave]);
+    const ja = await c.query(
+      `SELECT 1 FROM meetings WHERE user_id = $1 AND teams_evento = $2
+       UNION ALL SELECT 1 FROM teams_apagadas WHERE user_id = $1 AND teams_evento = $2`,
+      [dono.id, p.chave],
+    );
     if (ja.rows.length) return null;
     const r = await c.query<{ id: string }>(
       `INSERT INTO meetings (user_id, source, meeting_type, original_filename, nome, recorded_at, duration_seconds,
