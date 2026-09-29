@@ -38,8 +38,11 @@ export async function paraTela(userId: string, tarefas: Tarefa[]) {
   ]);
   return comP.map((t) => {
     const objetivoNome = t.objetivo_id ? objetivos.get(t.objetivo_id) : undefined;
+    const doNotion = notion.get(t.id) ?? null;
     return {
       ...t,
+      // Tarefa que nasceu no Notion: quem pediu é quem criou lá, não a "pessoa" Marketing (Notion).
+      ...(t.compartilhada && doNotion?.criado_por ? { criador_nome: doNotion.criado_por } : {}),
       // Quem também faz (subresponsáveis): quem vê a ação sabe quem são; "faco_tambem" é o próprio.
       ...quemTambemFaz(t, userId, tambem),
       reuniao_rotulo: t.meeting_id ? meetingSubject(t.meeting_summary, t.meeting_nome) || "Reunião" : null,
@@ -51,7 +54,7 @@ export async function paraTela(userId: string, tarefas: Tarefa[]) {
       objetivo_escondido: !!t.objetivo_id && !objetivoNome,
       // Quem recebe não vê a reunião, mas sabe que a ação saiu de uma (e não que foi criada à mão).
       de_reuniao: t.de_reuniao ?? !!t.meeting_id,
-      notion: notion.get(t.id) ?? null,
+      notion: doNotion,
     };
   });
 }

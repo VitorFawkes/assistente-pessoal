@@ -11,7 +11,7 @@ import { getOwnerSlug } from "./owner-slug";
 import { resolverDono } from "./compartilhar";
 import { colegasDe, donoDoProjeto, pessoasDaEquipe, type PessoaDaEquipe } from "./equipe-compartilhado";
 import { resolverEscolha } from "./escolha-de-dono";
-import { pedirEnvio } from "./notion-sync";
+import { pedirEnvio, projetosDoNotion } from "./notion-sync";
 import { buDoWorkspace } from "./notion-mapa";
 import { adicionarAoProjeto } from "./projetos";
 import { meetingsFor, tarefasFor, type Acao, type Tarefa } from "./queries";
@@ -136,6 +136,10 @@ export async function criarAcao(user: User, p: PedidoDeAcao): Promise<Criada> {
   if (p.projeto_id) {
     const r = await adicionarAoProjeto(user.id, p.projeto_id, [criada.id]);
     if (!r || r.adicionadas + r.duplicadas === 0) aviso = "A ação foi criada, mas não entrou no projeto.";
+    // Criada num projeto do Notion do marketing: vai pra lá, com a área da empresa de quem criou.
+    else if (!notionUserId && (await projetosDoNotion()).has(p.projeto_id)) {
+      await pedirEnvio({ tarefaId: criada.id, donoId: user.id, pedidoPor: user.id, bu: buDoWorkspace(p.workspace) });
+    }
   }
   const naTela = await tarefaNaTela(user.id, criada.id);
   if (!naTela) return { ok: false, erro: "A ação foi criada, mas não consegui abrir. Recarregue a tela.", status: 500 };

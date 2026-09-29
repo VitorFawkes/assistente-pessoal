@@ -16,7 +16,12 @@ export class ErroDoNotion extends Error {
   }
 }
 
-async function pedir<T>(token: string, caminho: string, init: { method?: string; json?: unknown } = {}, tentativa = 0): Promise<T> {
+async function pedir<T>(
+  token: string,
+  caminho: string,
+  init: { method?: string; json?: unknown; form?: FormData } = {},
+  tentativa = 0,
+): Promise<T> {
   const r = await fetch(`${API}${caminho}`, {
     method: init.method ?? "GET",
     headers: {
@@ -24,7 +29,7 @@ async function pedir<T>(token: string, caminho: string, init: { method?: string;
       "Notion-Version": VERSAO,
       ...(init.json !== undefined ? { "Content-Type": "application/json" } : {}),
     },
-    body: init.json !== undefined ? JSON.stringify(init.json) : undefined,
+    body: init.form ?? (init.json !== undefined ? JSON.stringify(init.json) : undefined),
     signal: AbortSignal.timeout(30_000),
     cache: "no-store",
   });
@@ -54,6 +59,14 @@ export async function lerBase(token: string, databaseId: string) {
   const fonte = b.data_sources?.[0]?.id;
   if (!fonte) throw new ErroDoNotion(400, "sem_fonte", "A base do Notion não tem fonte de dados.");
   return { nome, dataSourceId: fonte };
+}
+
+/** As propriedades de uma fonte de dados (pra achar a base Projects pela coluna Project). */
+export function lerFonte(token: string, dataSourceId: string) {
+  return pedir<{ id: string; properties: Record<string, { type?: string; relation?: { data_source_id?: string } }> }>(
+    token,
+    `/data_sources/${dataSourceId}`,
+  );
 }
 
 /** Páginas editadas desde `desde` (ou todas), da mais antiga pra mais nova. */
@@ -99,4 +112,54 @@ export function mudarPagina(token: string, pageId: string, mudanca: { properties
 
 export function lerPaginaDoNotion(token: string, pageId: string) {
   return pedir<PaginaNotion>(token, `/pages/${pageId}`);
+}
+
+/** Uma pessoa do Notion (nome e e-mail: a conexão lê e-mail). */
+export function lerPessoa(token: string, userId: string) {
+  return pedir<{ id: string; name?: string | null; type?: string; person?: { email?: string } }>(token, `/users/${userId}`);
+}
+
+export type ComentarioDoNotion = {
+  id: string;
+  discussion_id: string;
+  created_time: string;
+  created_by: { id: string };
+  rich_text: { plain_text?: string; text?: { content?: string } }[];
+};
+
+/** Os comentários de uma página (as discussões dela), do mais antigo pro mais novo. */
+export async function comentariosDaPagina(token: string, pageId: string): Promise<ComentarioDoNotion[]> {
+  const out: ComentarioDoNotion[] = [];
+  let cursor: string | undefined;
+  do {
+    const r = await pedir<{ results: ComentarioDoNotion[]; has_more: boolean; next_cursor: string | null }>(
+      token,
+      `/comments?block_id=${pageId}&page_size=100${cursor ? `&start_cursor=${cursor}` : ""}`,
+    );
+    out.push(...r.results);
+    cursor = r.has_more && r.next_cursor ? r.next_cursor : undefined;
+  } while (cursor && out.length < 1000);
+  return out;
+}
+
+/** Comenta na página (o autor lá é a conexão; o nome de quem escreveu vai no texto). */
+export function comentarNaPagina(token: string, pageId: string, texto: string) {
+  const pedacos: string[] = [];
+  for (let i = 0; i < texto.length; i += 2000) pedacos.push(texto.slice(i, i + 2000));
+  return pedir<ComentarioDoNotion>(token, "/comments", {
+    method: "POST",
+    json: { parent: { page_id: pageId }, rich_text: pedacos.map((content) => ({ type: "text", text: { content } })) },
+  });
+}
+
+/** Sobe um arquivo pro Notion (até 20 MB, envio único) e devolve o id pra pôr na coluna de arquivos. */
+export async function subirArquivo(token: string, nome: string, tipo: string, bytes: Uint8Array): Promise<string> {
+  const criado = await pedir<{ id: string }>(token, "/file_uploads", {
+    method: "POST",
+    json: { filename: nome, content_type: tipo },
+  });
+  const form = new FormData();
+  form.append("file", new Blob([new Uint8Array(bytes)], { type: tipo }), nome);
+  await pedir<{ id: string; status?: string }>(token, `/file_uploads/${criado.id}/send`, { method: "POST", form });
+  return criado.id;
 }

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
 import { comoDonoDoProjeto } from "@/lib/equipe-compartilhado";
 import { projetoParaQuemVe } from "@/lib/projetos";
-import { conexaoAtiva } from "@/lib/notion-sync";
+import { conexaoAtiva, projetosDoNotion } from "@/lib/notion-sync";
 import { nomesDosObjetivos, nomesDosTimes, podeObjetivo, podeTime, timeIdValido } from "@/lib/hub";
 import { paraTela } from "@/lib/ttars-tela";
 
@@ -17,12 +17,14 @@ export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
   const p = await projetoParaQuemVe(user.id, id);
   if (!p) return NextResponse.json({ error: "projeto não encontrado" }, { status: 404 });
   const q = p.quadro;
-  const [tarefas, conexao, objetivos, times] = await Promise.all([
+  const [tarefas, conexao, objetivos, times, doNotion] = await Promise.all([
     paraTela(user.id, p.tarefas),
     conexaoAtiva(),
     nomesDosObjetivos(user.id, q.objetivo_id ? [q.objetivo_id] : []),
     q.time_id ? nomesDosTimes() : Promise.resolve(new Map<string, string>()),
+    projetosDoNotion(),
   ]);
+  const notion = doNotion.get(q.id) ?? null;
   const objetivoNome = q.objetivo_id ? objetivos.get(q.objetivo_id) : undefined;
   return NextResponse.json({
     projeto: {
@@ -37,9 +39,10 @@ export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
       objetivo_escondido: !!q.objetivo_id && !objetivoNome,
     },
     sou_dono: p.sou_dono,
-    // O projeto que espelha o Notion do marketing (quem criou é a "pessoa" do Notion).
-    do_notion: !!conexao && conexao.quadro_id === q.id,
-    notion_atualizado_em: conexao && conexao.quadro_id === q.id ? conexao.ultima_rodada : null,
+    // Projeto que espelha o Notion do marketing (o principal ou um projeto de lá; quem criou é a "pessoa" do Notion).
+    do_notion: !!conexao && !!notion,
+    notion_atualizado_em: conexao && notion ? conexao.ultima_rodada : null,
+    notion,
     pessoas: p.pessoas,
     tarefas,
     atividade: p.atividade.slice(0, 20),

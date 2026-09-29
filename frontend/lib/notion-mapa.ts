@@ -1,6 +1,8 @@
 // Notion do marketing ↔ Ações (pedido do Vitor, 25/09/2026, bloco 4): regras puras de
 // tradução entre uma página da base "Tasks" do Notion e uma ação. Sem I/O — testadas em
 // notion-mapa.test.ts. O que chega e sai do Notion passa todo por aqui.
+// 29/09/2026 ("tem que linkar 100%"): as 8 situações da base, o projeto de cada tarefa (vira
+// projeto no Ações), a coluna Text, os arquivos e quem criou a tarefa no Notion.
 
 export type StatusAcoes = "aberta" | "em_andamento" | "aguardando_aprovacao" | "concluida" | "cancelada";
 export type Prioridade = "baixa" | "media" | "alta" | "urgente";
@@ -16,7 +18,16 @@ export type Campos = {
   prioridade: Prioridade;
   /** Id da pessoa no Notion ("" = ninguém). */
   pessoa: string;
+  /** Id da página do projeto do Notion ("" = sem projeto). */
+  projeto: string;
 };
+
+/** Onde a descrição mora na página: a equipe usa Description ou Text (nunca as duas). */
+export type CampoDaDescricao = "Description" | "Text";
+
+/** Um arquivo da coluna "Files & media". `chave` identifica o arquivo entre leituras (o link de
+ *  arquivo guardado no Notion muda a cada leitura; o caminho, não). */
+export type ArquivoDoNotion = { chave: string; nome: string; tipo: "external" | "file"; url: string };
 
 export type PaginaLida = Campos & {
   pageId: string;
@@ -27,7 +38,26 @@ export type PaginaLida = Campos & {
   noLixo: boolean;
   editadoEm: string;
   editadoPor: string | null;
+  /** Quem criou a página no Notion (id). */
+  criadoPor: string | null;
+  campoDescricao: CampoDaDescricao;
+  arquivos: ArquivoDoNotion[];
   pessoas: { id: string; nome: string; email: string | null }[];
+};
+
+/** Uma página da base Projects do Notion. */
+export type ProjetoLido = {
+  pageId: string;
+  url: string | null;
+  nome: string;
+  /** Idea, Planning, In Progress, Complete, Archived. */
+  etapa: string | null;
+  inicio: string | null;
+  fim: string | null;
+  /** Id do líder no Notion. */
+  lider: string | null;
+  noLixo: boolean;
+  editadoEm: string;
 };
 
 type Prop = { type?: string; [k: string]: unknown };
@@ -38,6 +68,7 @@ export type PaginaNotion = {
   archived?: boolean;
   last_edited_time: string;
   last_edited_by?: { id?: string };
+  created_by?: { id?: string };
   properties: Record<string, Prop>;
 };
 
@@ -50,13 +81,30 @@ export const PROPS = {
   pessoaReserva: "Assign",
   bu: "BU",
   descricao: "Description",
+  texto: "Text",
   prioridade: "Priority",
+  projeto: "Project",
+  arquivos: "Files & media",
 } as const;
 
+/** Nomes das propriedades na base Projects (conferidos em 29/09). */
+export const PROPS_PROJETO = {
+  nome: "Name",
+  etapa: "Stage",
+  periodo: "Timeline",
+  lider: "Lead",
+} as const;
+
+// As 8 situações da base (29/09): To Day e Daily são "fazendo"; Locked (travada) fica aberta,
+// com o nome de lá à vista na ação.
 const DE_NOTION: Record<string, StatusAcoes> = {
   "not started": "aberta",
   "up next": "aberta",
+  locked: "aberta",
   "this week": "em_andamento",
+  "to day": "em_andamento",
+  today: "em_andamento",
+  daily: "em_andamento",
   "in progress": "em_andamento",
   "in approval": "aguardando_aprovacao",
   done: "concluida",
@@ -67,15 +115,15 @@ export function statusDoNotion(nome: string | null | undefined): StatusAcoes {
 }
 
 /**
- * Situação do Ações → nome no Notion. "aberta" mantém o que a equipe tinha (Not started ou
- * Up next); cancelada não tem situação: a página vai pra lixeira (null aqui).
+ * Situação do Ações → nome no Notion. Se o nome que estava lá já quer dizer a mesma situação
+ * (To Day, Daily e This Week são "fazendo"; Up next e Locked são "aberta"), ele fica; senão vai
+ * o nome padrão. Cancelada não tem situação: a página vai pra lixeira (null aqui).
  */
 export function statusParaNotion(s: StatusAcoes, anteriorNoNotion: string | null | undefined): string | null {
   if (s === "cancelada") return null;
-  if (s === "aberta") {
-    const a = (anteriorNoNotion ?? "").trim().toLowerCase();
-    return a === "up next" ? "Up next" : "Not started";
-  }
+  const anterior = (anteriorNoNotion ?? "").trim();
+  if (anterior && DE_NOTION[anterior.toLowerCase()] === s) return anterior;
+  if (s === "aberta") return "Not started";
   if (s === "em_andamento") return "This Week";
   if (s === "aguardando_aprovacao") return "In Approval";
   return "Done";
@@ -110,17 +158,48 @@ export function diaDoNotion(p: Prop | undefined): string {
   return /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : "";
 }
 
+/** O caminho do arquivo guardado no Notion, sem a assinatura que muda a cada leitura. */
+export function chaveDoArquivo(tipo: string, url: string): string {
+  if (tipo !== "file") return url;
+  try {
+    const u = new URL(url);
+    return `${u.host}${u.pathname}`;
+  } catch {
+    return url.split("?")[0];
+  }
+}
+
+function arquivosDe(p: Prop | undefined): ArquivoDoNotion[] {
+  const lista = (p?.files as { name?: string; type?: string; external?: { url?: string }; file?: { url?: string } }[] | undefined) ?? [];
+  const out: ArquivoDoNotion[] = [];
+  for (const f of lista) {
+    const tipo = f.type === "file" ? "file" : "external";
+    const url = (tipo === "file" ? f.file?.url : f.external?.url) ?? "";
+    if (!url) continue;
+    out.push({ chave: chaveDoArquivo(tipo, url), nome: (f.name ?? "").trim() || url, tipo, url });
+  }
+  return out;
+}
+
 export function lerPagina(pg: PaginaNotion): PaginaLida {
   const pr = pg.properties || {};
   const pessoas = pessoasDe(pr[PROPS.pessoa]);
   const reserva = pessoasDe(pr[PROPS.pessoaReserva]);
   const todas = pessoas.length ? pessoas : reserva;
   const statusNotion = ((pr[PROPS.status]?.status as { name?: string } | null)?.name ?? "").trim();
+  const descricao = textoRico(pr[PROPS.descricao]?.rich_text);
+  const texto = textoRico(pr[PROPS.texto]?.rich_text);
+  const projetos = (pr[PROPS.projeto]?.relation as { id?: string }[] | undefined) ?? [];
   return {
     pageId: pg.id,
     url: pg.url ?? null,
     titulo: textoRico(pr[PROPS.titulo]?.title).trim() || "(sem título no Notion)",
-    descricao: textoRico(pr[PROPS.descricao]?.rich_text),
+    // Quem usa a coluna Text escreve ali o que seria a descrição; as duas nunca vêm juntas.
+    descricao: descricao || texto,
+    campoDescricao: !descricao && texto ? "Text" : "Description",
+    projeto: projetos.find((x) => x?.id)?.id ?? "",
+    arquivos: arquivosDe(pr[PROPS.arquivos]),
+    criadoPor: pg.created_by?.id ?? null,
     prazo: diaDoNotion(pr[PROPS.prazo]),
     status: statusDoNotion(statusNotion),
     statusNotion: statusNotion || "Not started",
@@ -137,12 +216,15 @@ export function lerPagina(pg: PaginaNotion): PaginaLida {
 /** Propriedades do Notion para gravar estes campos (só os pedidos). */
 export function propriedadesPara(
   campos: Partial<Campos>,
-  ctx: { statusAnterior?: string | null; bu?: string | null } = {},
+  ctx: { statusAnterior?: string | null; bu?: string | null; campoDescricao?: CampoDaDescricao | null } = {},
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   if (campos.titulo !== undefined) out[PROPS.titulo] = { title: [{ text: { content: campos.titulo.slice(0, 2000) } }] };
   if (campos.descricao !== undefined)
-    out[PROPS.descricao] = { rich_text: campos.descricao ? [{ text: { content: campos.descricao.slice(0, 2000) } }] : [] };
+    out[ctx.campoDescricao === "Text" ? PROPS.texto : PROPS.descricao] = {
+      rich_text: campos.descricao ? [{ text: { content: campos.descricao.slice(0, 2000) } }] : [],
+    };
+  if (campos.projeto !== undefined) out[PROPS.projeto] = { relation: campos.projeto ? [{ id: campos.projeto }] : [] };
   if (campos.prazo !== undefined) out[PROPS.prazo] = { date: campos.prazo ? { start: campos.prazo } : null };
   if (campos.status !== undefined) {
     const nome = statusParaNotion(campos.status, ctx.statusAnterior);
@@ -157,7 +239,39 @@ export function propriedadesPara(
   return out;
 }
 
-export const CHAVES: (keyof Campos)[] = ["titulo", "descricao", "prazo", "status", "prioridade", "pessoa"];
+export const CHAVES: (keyof Campos)[] = ["titulo", "descricao", "prazo", "status", "prioridade", "pessoa", "projeto"];
+
+/** Uma página da base Projects. */
+export function lerProjeto(pg: PaginaNotion): ProjetoLido {
+  const pr = pg.properties || {};
+  const periodo = pr[PROPS_PROJETO.periodo]?.date as { start?: string | null; end?: string | null } | null | undefined;
+  const dia = (v: string | null | undefined) => (v && /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : null);
+  const lideres = (pr[PROPS_PROJETO.lider]?.people as { id?: string }[] | undefined) ?? [];
+  return {
+    pageId: pg.id,
+    url: pg.url ?? null,
+    nome: textoRico(pr[PROPS_PROJETO.nome]?.title).trim() || "(projeto sem nome no Notion)",
+    etapa: ((pr[PROPS_PROJETO.etapa]?.select as { name?: string } | null)?.name ?? "").trim() || null,
+    inicio: dia(periodo?.start),
+    fim: dia(periodo?.end ?? periodo?.start),
+    lider: lideres.find((x) => x?.id)?.id ?? null,
+    noLixo: !!(pg.in_trash || pg.archived),
+    editadoEm: pg.last_edited_time,
+  };
+}
+
+/** Etapa do projeto em português (a tela do TTARS mostra assim). */
+export function etapaEmPortugues(etapa: string | null | undefined): string | null {
+  const e = (etapa ?? "").trim().toLowerCase();
+  const nomes: Record<string, string> = {
+    idea: "Ideia",
+    planning: "Planejando",
+    "in progress": "Em andamento",
+    complete: "Concluído",
+    archived: "Arquivado",
+  };
+  return nomes[e] ?? (etapa?.trim() || null);
+}
 
 function igual(a: unknown, b: unknown) {
   return String(a ?? "") === String(b ?? "");
