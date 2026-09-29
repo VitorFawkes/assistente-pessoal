@@ -280,14 +280,18 @@ async function registrarPessoas(c: Conexao, pessoas: { id: string; nome: string;
 }
 
 /** A pessoa do Notion de uma ação: quem a recebeu no Ações, ou o nome de quem faz. */
-function pessoaDaAcao(t: TarefaCrua, pessoas: Map<string, PessoaNotion>, antes: string | undefined): string {
+export function pessoaDaAcao(t: TarefaCrua, pessoas: Map<string, PessoaNotion>, antes: string | undefined): string {
   const lista = [...pessoas.values()];
   if (t.responsavel_user_id) {
     const p = lista.find((x) => x.user_id === t.responsavel_user_id);
     if (p) return p.notion_user_id;
   }
   const alvo = slugNome(t.owner);
-  const porNome = lista.find((x) => slugNome(x.nome) === alvo || slugNome(x.nome).split("-")[0] === alvo);
+  // Sem ninguém do Ações (só o nome), só o nome inteiro vale: pelo primeiro nome, alguém de fora da
+  // Welcome ("Paula", do fornecedor) virava a Paula do marketing no Notion (29/09/2026).
+  const porNome = lista.find(
+    (x) => slugNome(x.nome) === alvo || (!!t.responsavel_user_id && slugNome(x.nome).split("-")[0] === alvo),
+  );
   if (porNome) return porNome.notion_user_id;
   // Passada pra alguém fora do marketing: no Notion continua quem estava.
   return antes ?? "";
