@@ -404,6 +404,13 @@ function projetoVivo(r: Rodada, pageId: string): string {
   return g && !arquivado(g) ? pageId : "";
 }
 
+/** A "última vez" com o projeto que vale hoje. Projeto arquivado (ou que a conexão não vê) conta
+ *  como sem projeto dos TRÊS lados: arquivar lá nunca faz o Ações apagar o projeto da tarefa lá. */
+function ultimosQueValem(r: Rodada, ultimos: Partial<Campos>): Partial<Campos> {
+  if (!r.projetosOk || !("projeto" in ultimos)) return ultimos;
+  return { ...ultimos, projeto: projetoVivo(r, ultimos.projeto ?? "") };
+}
+
 /** Onde cada ação está nos projetos do marketing no Ações (o projeto posto por último vale). */
 async function lugaresNoAcoes(c: Conexao, projetos: Map<string, ProjetoGuardado>): Promise<Map<string, Lugar>> {
   const doQuadro = new Map<string, string>();
@@ -623,7 +630,7 @@ async function tratarPagina(c: Conexao, r: Rodada, p: PaginaLida, pessoas: Map<s
   // Sem a base Projects nesta rodada (ou banco antigo), o projeto não muda de nenhum lado.
   const projetoLa = r.projetosOk ? projetoVivo(r, p.projeto) : projetoAqui;
   const noNotion: Campos = { ...p, projeto: projetoLa, status: p.noLixo ? "cancelada" : p.status };
-  const d = decidir(noNotion, noAcoes, link.ultimos, { notion: p.editadoEm, acoes: iso(t.updated_at) });
+  const d = decidir(noNotion, noAcoes, ultimosQueValem(r, link.ultimos), { notion: p.editadoEm, acoes: iso(t.updated_at) });
   const editor = p.editadoPor ? (pessoas.get(p.editadoPor)?.nome ?? null) : null;
   if (Object.keys(d.paraAcoes).length) await aplicarNaAcao(c, r, link, d.paraAcoes, pessoas, editor);
   let statusNotion = p.statusNotion;
@@ -751,14 +758,15 @@ async function empurrar(c: Conexao, r: Rodada, pessoas: Map<string, PessoaNotion
         continue;
       }
       // Trocar de projeto no Ações não mexe na ação (só no projeto): conta aqui também.
+      const antes = ultimosQueValem(r, l.ultimos);
       const projetoAqui = r.projetosOk ? (r.lugares.get(t.id)?.projeto ?? "") : (l.ultimos.projeto ?? "");
-      const trocouDeProjeto = r.projetosOk && "projeto" in l.ultimos && projetoAqui !== (l.ultimos.projeto ?? "");
+      const trocouDeProjeto = r.projetosOk && "projeto" in antes && projetoAqui !== (antes.projeto ?? "");
       if (!trocouDeProjeto && Date.parse(iso(t.updated_at)) <= Date.parse(iso(l.sincronizado_em))) continue;
       const agora = camposDaAcao(t, pessoas, l.ultimos, projetoAqui);
       const mudou: Partial<Campos> = {};
       for (const k of CHAVES) {
-        if (k === "projeto" && !("projeto" in l.ultimos)) continue;
-        if (String(l.ultimos[k] ?? "") !== String(agora[k] ?? "")) (mudou as Record<string, unknown>)[k] = agora[k];
+        if (k === "projeto" && (!r.projetosOk || !("projeto" in antes))) continue;
+        if (String(antes[k] ?? "") !== String(agora[k] ?? "")) (mudou as Record<string, unknown>)[k] = agora[k];
       }
       if (!Object.keys(mudou).length) {
         await query(`UPDATE notion_paginas SET sincronizado_em = now() WHERE page_id = $1`, [l.page_id]);
@@ -1026,7 +1034,7 @@ const textoDoComentario = (cm: ComentarioDoNotion) =>
 async function sincronizarComentarios(c: Conexao, r: Rodada, pessoas: Map<string, PessoaNotion>) {
   const links = await linksDaConexao(c);
   const todas = !c.comentarios_em || Date.now() - Date.parse(iso(c.comentarios_em)) > A_CADA_COMENTARIOS;
-  const recente = (l: Link) => !!l.editado_notion && Date.now() - Date.parse(iso(l.editado_notion)) < 14 * 86_400_000;
+  const recente = (l: Link) => !!l.editado_notion && Date.now() - Date.parse(iso(l.editado_notion)) < 3 * 86_400_000;
   const fechada = (l: Link) => l.ultimos.status === "concluida" || l.ultimos.status === "cancelada";
   // Página mexida desde a última leitura de comentários: lê já (a varredura completa lê todas, não
   // conta). O Notion guarda a hora da edição só até o minuto: 2 minutos de folga.
