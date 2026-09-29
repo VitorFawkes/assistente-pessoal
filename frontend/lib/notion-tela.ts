@@ -42,7 +42,7 @@ export function blocoNaTela(b: BlocoDoNotion, nivel: number): BlocoNaTela | null
   return tipo === "marcar" ? { tipo, texto, marcado: !!dados.checked, nivel } : { tipo, texto, nivel };
 }
 
-async function paginaDaAcao(tarefaId: string) {
+export async function paginaDaAcao(tarefaId: string) {
   const c = await conexaoAtiva();
   if (!c) return null;
   const r = await query<{ page_id: string; url: string | null }>(
@@ -71,16 +71,21 @@ export async function textoDaPaginaNoNotion(tarefaId: string): Promise<{ url: st
 }
 
 /**
- * Grava a situação pelo nome exato no Notion e guarda como a última vista dos dois lados: a
- * rodada seguinte não troca "To Day" pelo nome padrão de "fazendo" (This Week). Quem chama muda a
- * situação da ação no Ações ANTES (a rodada que cair no meio leva o nome padrão, que este
- * pedido sobrescreve logo depois).
+ * A situação pelo nome exato, na ordem que não briga com a rodada de cada minuto:
+ * 1. grava no Notion primeiro (se o Notion recusar, nada mudou em lugar nenhum);
+ * 2. muda a situação no Ações (`mudarNoAcoes`, com o histórico e a regra de quem pode) — uma rodada
+ *    que caia entre 1 e 2 lê a página e leva a mesma situação para a ação;
+ * 3. guarda o nome e a situação como a última vista dos dois lados, logo em seguida: a rodada não
+ *    troca "To Day" pelo nome padrão de "fazendo" (This Week).
  */
-export async function gravarSituacaoNoNotion(tarefaId: string, nome: string): Promise<StatusAcoes | null> {
-  const p = await paginaDaAcao(tarefaId);
-  if (!p) return null;
+export async function mudarSituacaoNoNotion(
+  p: NonNullable<Awaited<ReturnType<typeof paginaDaAcao>>>,
+  nome: string,
+  mudarNoAcoes: (status: StatusAcoes) => Promise<boolean>,
+): Promise<boolean> {
   const pg = await mudarPagina(p.conexao.token, p.pageId, { properties: { [PROPS.status]: { status: { name: nome } } } });
   const status = statusDoNotion(nome);
+  if (!(await mudarNoAcoes(status))) return false;
   await query(
     `UPDATE notion_paginas
         SET status_notion = $2,
@@ -89,14 +94,14 @@ export async function gravarSituacaoNoNotion(tarefaId: string, nome: string): Pr
       WHERE page_id = $1`,
     [p.pageId, nome, status, pg?.last_edited_time ?? null],
   );
-  return status;
+  return true;
 }
 
 let situacoesGuardadas: { em: number; nomes: string[] } | null = null;
 
-/** As situações que existem hoje na coluna Status do Notion (guardadas por 5 minutos). */
-export async function situacoesDoNotion(): Promise<string[]> {
-  if (situacoesGuardadas && Date.now() - situacoesGuardadas.em < 5 * 60_000) return situacoesGuardadas.nomes;
+/** As situações que existem hoje na coluna Status do Notion (guardadas por 5 minutos; `deNovo` lê na hora). */
+export async function situacoesDoNotion(deNovo = false): Promise<string[]> {
+  if (!deNovo && situacoesGuardadas && Date.now() - situacoesGuardadas.em < 5 * 60_000) return situacoesGuardadas.nomes;
   const c = await conexaoAtiva();
   if (!c) return [];
   const fonte = await lerFonte(c.token, c.data_source_id);
@@ -106,7 +111,3 @@ export async function situacoesDoNotion(): Promise<string[]> {
   return nomes;
 }
 
-/** A ação está ligada a uma página do Notion? */
-export async function ligadaAoNotion(tarefaId: string): Promise<boolean> {
-  return !!(await paginaDaAcao(tarefaId));
-}

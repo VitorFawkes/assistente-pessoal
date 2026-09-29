@@ -5,7 +5,7 @@ import { UUID_RE } from "@/lib/hub";
 import { mudarAreaNoNotion } from "@/lib/notion-sync";
 import { ErroDoNotion } from "@/lib/notion-api";
 import { statusDoNotion } from "@/lib/notion-mapa";
-import { gravarSituacaoNoNotion, ligadaAoNotion, situacoesDoNotion, textoDaPaginaNoNotion } from "@/lib/notion-tela";
+import { mudarSituacaoNoNotion, paginaDaAcao, situacoesDoNotion, textoDaPaginaNoNotion } from "@/lib/notion-tela";
 import { withTenant } from "@/lib/db";
 import { mudarTarefa } from "@/lib/tarefa-mudar";
 
@@ -43,19 +43,22 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
   if (b?.status_notion !== undefined) {
     const pedido = typeof b.status_notion === "string" ? b.status_notion.trim().toLowerCase() : "";
     try {
-      if (!(await ligadaAoNotion(id))) return SEM_LIGACAO();
-      // Só um nome que existe na coluna Status de lá (com a grafia de lá).
-      const nome = (await situacoesDoNotion()).find((n) => n.toLowerCase() === pedido);
+      const pagina = await paginaDaAcao(id);
+      if (!pagina) return SEM_LIGACAO();
+      // Só um nome que existe na coluna Status de lá (com a grafia de lá); situação criada há pouco lá: lê de novo.
+      const achar = (nomes: string[]) => nomes.find((n) => n.toLowerCase() === pedido);
+      const nome = achar(await situacoesDoNotion()) ?? achar(await situacoesDoNotion(true));
       if (!nome) return NextResponse.json({ error: "Essa situação não existe no Notion do marketing." }, { status: 400 });
-      // A situação do Ações primeiro (com o histórico e a regra de quem pode); depois o nome exato lá.
-      const status = statusDoNotion(nome);
-      const agora = await withTenant(acesso.donoId, (c) => c.query<{ status: string }>(`SELECT status FROM tarefas WHERE id = $1`, [id]));
-      if (agora.rows[0] && agora.rows[0].status !== status) {
+      let recusa: NextResponse | null = null;
+      const ok = await mudarSituacaoNoNotion(pagina, nome, async (status) => {
+        const agora = await withTenant(acesso.donoId, (c) => c.query<{ status: string }>(`SELECT status FROM tarefas WHERE id = $1`, [id]));
+        if (!agora.rows[0] || agora.rows[0].status === status) return true;
         const mudou = await mudarTarefa(user, id, { status });
-        if (mudou.status !== 200) return NextResponse.json(mudou.json, { status: mudou.status });
-      }
-      if (!(await gravarSituacaoNoNotion(id, nome))) return SEM_LIGACAO();
-      return NextResponse.json({ ok: true, status_notion: nome, status });
+        if (mudou.status !== 200) recusa = NextResponse.json(mudou.json, { status: mudou.status });
+        return mudou.status === 200;
+      });
+      if (!ok) return recusa ?? SEM_ACESSO();
+      return NextResponse.json({ ok: true, status_notion: nome, status: statusDoNotion(nome) });
     } catch (e) {
       if (e instanceof ErroDoNotion) return NextResponse.json({ error: "O Notion não aceitou a mudança. Tente de novo." }, { status: 502 });
       throw e;
