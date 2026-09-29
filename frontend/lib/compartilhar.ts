@@ -7,7 +7,7 @@
 
 import type { Acao, Tarefa } from "./queries";
 
-export type Colega = { id: string; nome: string };
+export type Colega = { id: string; nome: string; /** Só no Teams (sem TTARS): recebe ação, mas o nome digitado prefere quem tem TTARS. */ so_no_teams?: boolean };
 
 export function slugNome(s: string | null | undefined): string {
   return (s ?? "")
@@ -22,10 +22,14 @@ export function slugNome(s: string | null | undefined): string {
 export function acharColegaPorNome(colegas: Colega[], nome: string | null | undefined): Colega | null {
   const alvo = slugNome(nome);
   if (!alvo) return null;
-  const inteiro = colegas.find((c) => slugNome(c.nome) === alvo);
+  // Quem tem TTARS vem antes de quem só está no Teams (29/09/2026): "Camila" continua sendo a do TTARS.
+  const ordem = [...colegas.filter((c) => !c.so_no_teams), ...colegas.filter((c) => c.so_no_teams)];
+  const inteiro = ordem.find((c) => slugNome(c.nome) === alvo);
   if (inteiro) return inteiro;
   if (alvo.includes("-")) return null;
   const peloPrimeiro = colegas.filter((c) => slugNome(c.nome).split("-")[0] === alvo);
+  const comTtars = peloPrimeiro.filter((c) => !c.so_no_teams);
+  if (comTtars.length === 1) return comTtars[0];
   return peloPrimeiro.length === 1 ? peloPrimeiro[0] : null;
 }
 

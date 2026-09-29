@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { quemDaFrase } from "./nova-acao";
+import { acharColegaPorNome, resolverDono } from "./compartilhar";
 import type { PessoaDaEquipe } from "./equipe-compartilhado";
 
 const p = (nome: string, email: string, so_no_teams = false): PessoaDaEquipe => ({
@@ -27,5 +28,25 @@ describe("quemDaFrase com as pessoas do Teams", () => {
 
   it("só no Teams e sem outra com o nome: vai para ela", () => {
     expect(quemDaFrase("Angela", [p("Angela", "angela@welcometrips.com.br", true)])).toEqual({ quem_email: "angela@welcometrips.com.br" });
+  });
+});
+
+
+describe("colegas com gente só no Teams", () => {
+  const colegas = [
+    { id: "eu", nome: "Teste" },
+    { id: "cm", nome: "Camila Montanhini" },
+    { id: "cg", nome: "Camila Girundi", so_no_teams: true },
+    { id: "an", nome: "Angela", so_no_teams: true },
+  ];
+  it("primeiro nome repetido: fica com quem tem TTARS", () => {
+    expect(acharColegaPorNome(colegas, "Camila")?.id).toBe("cm");
+  });
+  it("só no Teams e sem homônimo: acha pelo nome", () => {
+    expect(acharColegaPorNome(colegas, "Angela")?.id).toBe("an");
+  });
+  it("passar ação para quem só está no Teams continua valendo (escolhido na tela)", () => {
+    const r = resolverDono({ responsavel_user_id: "an" }, { donoId: "eu", colegas, slug: "eu" });
+    expect("erro" in (r as object)).toBe(false);
   });
 });
