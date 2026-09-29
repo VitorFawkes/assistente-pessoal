@@ -1,12 +1,14 @@
+import { randomUUID } from "node:crypto";
+import { coachPermitido } from "../coach/so-um";
+import { openAiTranscription, recordAiUsage } from "../ai-usage";
 import { query, withClient, withTenant } from "../db";
 import { rateLimit } from "../rate-limit";
 import { reviewPeriod } from "../coach/evidence";
-import { enqueueJob, localJobDay, type ClaimedCoachJob } from "../coach/jobs";
+import { enqueueJob, type ClaimedCoachJob } from "../coach/jobs";
 import { coachModelAvailable } from "../coach/model";
 import { coachStore } from "../coach/store";
 import * as wa from "./evolution";
-import { audioFile, codeInText, displayNumber, hashLinkCode, isAudio, LINK_CODE_TTL_MS, maskPhone, messageText, newLinkCode, quietHours, senderFromKey, splitForWhatsApp, whatsappText, type WaSender } from "./format";
-import { COACH_WAIT_MS, meetingNoticeText, noticeSlot, reviewText, type NoticeMeeting, type NoticeTask } from "./meeting-notice";
+import { audioFile, codeInText, displayNumber, hashLinkCode, isAudio, LINK_CODE_TTL_MS, maskPhone, messageText, newLinkCode, quietHours, reviewText, senderFromKey, splitForWhatsApp, whatsappText, type WaSender } from "./format";
 
 type Link = { user_id: string; phone: string | null; lid: string | null; verified_at: Date | null; proactive: boolean; code_hash: string | null; code_expires_at: Date | null };
 type OutKind = "reply" | "checkin" | "aviso" | "link" | "notice";
@@ -20,7 +22,7 @@ const destination = (l: Pick<Link, "phone" | "lid">) => (l.phone ? `${l.phone}@s
 const iso = (v: Date | string | null | undefined) => (v ? new Date(v).toISOString() : null);
 
 /** First round: only the admin (Vitor) links a number; everyone else sees nothing. */
-export const whatsappAllowed = (user: { is_admin: boolean }) => wa.whatsappConfigured() && user.is_admin;
+export const whatsappAllowed = (user: { id: string; is_admin: boolean }) => wa.whatsappConfigured() && user.is_admin && coachPermitido(user.id);
 
 async function linkByUser(userId: string) { return (await query<Link>(`SELECT ${linkColumns} FROM whatsapp_links WHERE user_id=$1`, [userId]))[0] ?? null; }
 async function linkBySender(s: WaSender) {
@@ -65,6 +67,7 @@ export async function whatsappView(user: { id: string; is_admin: boolean }): Pro
 }
 /** The code proves the WhatsApp belongs to this account: the user sends it to the coach number. */
 export async function startLink(userId: string) {
+ if (!coachPermitido(userId)) throw new wa.WhatsappUnavailableError("whatsapp_not_allowed");
  if (secret().length < 32) throw new wa.WhatsappUnavailableError("whatsapp_not_configured");
  const code = newLinkCode();
  await query(`INSERT INTO whatsapp_links(user_id,code_hash,code_expires_at) VALUES($1,$2,now()+make_interval(secs=>$3))
@@ -85,7 +88,7 @@ async function tryLink(sender: WaSender, text: string): Promise<boolean> {
   await db.query("BEGIN");
   try {
    const target = (await db.query<{ user_id: string }>("SELECT user_id FROM whatsapp_links WHERE code_hash=$1 AND code_expires_at>now() FOR UPDATE", [hash])).rows[0];
-   if (!target) { await db.query("ROLLBACK"); return null; }
+   if (!target || !coachPermitido(target.user_id)) { await db.query("ROLLBACK"); return null; }
    // A WhatsApp number belongs to one account: linking it here unlinks it elsewhere.
    await db.query("UPDATE whatsapp_links SET verified_at=NULL,phone=NULL,lid=NULL,updated_at=now() WHERE user_id<>$1 AND verified_at IS NOT NULL AND ((phone IS NOT NULL AND phone=$2) OR (lid IS NOT NULL AND lid=$3))", [target.user_id, sender.phone, sender.lid]);
    await db.query("UPDATE whatsapp_links SET phone=$2,lid=$3,verified_at=now(),code_hash=NULL,code_expires_at=NULL,last_inbound_at=now(),updated_at=now() WHERE user_id=$1", [target.user_id, sender.phone, sender.lid]);
@@ -98,7 +101,7 @@ async function tryLink(sender: WaSender, text: string): Promise<boolean> {
  return true;
 }
 
-async function transcribe(base64: string, mimetype: unknown) {
+async function transcribe(base64: string, mimetype: unknown, userId: string) {
  const apiKey = process.env.OPENAI_API_KEY;
  if (!apiKey) throw new Error("transcription_not_configured");
  const bytes = new Uint8Array(Buffer.from(base64, "base64"));
@@ -109,7 +112,9 @@ async function transcribe(base64: string, mimetype: unknown) {
  form.append("model", process.env.TRANSCRIBE_MODEL || "gpt-transcribe");
  const res = await fetch("https://api.openai.com/v1/audio/transcriptions", { method: "POST", headers: { Authorization: `Bearer ${apiKey}` }, body: form, signal: AbortSignal.timeout(90_000) });
  if (!res.ok) throw new Error(`transcription_${res.status}`);
- return String(((await res.json()) as { text?: string }).text ?? "").trim();
+ const data = (await res.json()) as { text?: string; usage?: unknown };
+ await recordAiUsage({ ref: `whatsapp_audio:${randomUUID()}`, agent: "whatsapp_audio", source: "app", userId, ...openAiTranscription(process.env.TRANSCRIBE_MODEL || "gpt-transcribe", data.usage) });
+ return String(data.text ?? "").trim();
 }
 
 type EvolutionData = {
@@ -140,14 +145,15 @@ export async function handleEvent(raw: unknown): Promise<InboundTicket | null> {
  // A valid pending code links (or moves) this number; unknown numbers otherwise get no answer and leave nothing stored.
  if (codeInText(text) && await tryLink(sender, text)) return null;
  const link = await linkBySender(sender);
- if (!link) return null;
+ // Só a conta do Coach conversa; um número ligado a outra conta fica sem resposta e sem nada guardado.
+ if (!link || !coachPermitido(link.user_id)) return null;
  await query("UPDATE whatsapp_links SET phone=coalesce(phone,$2),lid=coalesce(lid,$3),last_inbound_at=now(),updated_at=now() WHERE user_id=$1", [link.user_id, sender.phone, sender.lid]).catch(() =>
   query("UPDATE whatsapp_links SET last_inbound_at=now(),updated_at=now() WHERE user_id=$1", [link.user_id]));
  let content = text, kind: "text" | "audio" = "text";
  if (isAudio(data.messageType, data.message)) {
   kind = "audio";
   const media = data.message?.base64;
-  try { content = typeof media === "string" ? await transcribe(media, data.message?.audioMessage?.mimetype) : ""; } catch { content = ""; }
+  try { content = typeof media === "string" ? await transcribe(media, data.message?.audioMessage?.mimetype, link.user_id) : ""; } catch { content = ""; }
   if (!content) { await send(link.user_id, sender.jid, "Não consegui ouvir esse áudio. Pode mandar de novo ou escrever?", "notice"); return null; }
  } else if (!content) {
   await send(link.user_id, sender.jid, "Por enquanto eu entendo texto e áudio. Pode me escrever ou mandar um áudio?", "notice");
@@ -162,6 +168,7 @@ export async function handleEvent(raw: unknown): Promise<InboundTicket | null> {
 
 /** Messages typed in a row become one question; the answer shows "digitando…" while the coach works. */
 export async function processInbound(ticket: InboundTicket) {
+ if (!coachPermitido(ticket.userId)) return;
  await sleep(6_000);
  const batch = await withTenant(ticket.userId, async db => {
   const rows = (await db.query<{ id: string; body: string }>("SELECT id,body FROM whatsapp_messages WHERE user_id=$1 AND direction='in' AND status='received' ORDER BY created_at,id FOR UPDATE SKIP LOCKED", [ticket.userId])).rows;
@@ -215,9 +222,9 @@ async function send(userId: string, to: string, text: string, kind: OutKind, ref
  return id ? transmit(userId, id, to, text) : true;
 }
 
-/** Called after a job finishes: answers go back to WhatsApp; check-ins, meeting notices and the weekly review go out when allowed. */
+/** Called after a job finishes: answers go back to WhatsApp; check-ins and the weekly review go out when allowed. */
 export async function deliverJob(userId: string, job: Pick<ClaimedCoachJob, "id" | "kind" | "payload">) {
- if (!wa.whatsappConfigured()) return;
+ if (!wa.whatsappConfigured() || !coachPermitido(userId)) return;
  const fromWhatsapp = job.kind === "chat" && job.payload.channel === "whatsapp";
  const scheduledReview = job.kind === "review" && job.payload.force !== true;
  if (!fromWhatsapp && job.kind !== "checkin" && !scheduledReview) return;
@@ -236,15 +243,7 @@ export async function deliverJob(userId: string, job: Pick<ClaimedCoachJob, "id"
  if (!to) return;
  if (scheduledReview) return deliverReview(userId, to, store, now);
  const message = await store.messageByKey(`${job.id}:assistant`);
- const checkin = job.kind === "checkin" ? String(job.payload.checkin) : null;
- if (message?.role === "assistant") {
-  const meetingId = checkin === "meeting" && typeof job.payload.meeting_id === "string" ? job.payload.meeting_id : null;
-  // The coach's question about a meeting rides on that meeting's notice while the notice has not gone out.
-  if (!meetingId || !await sendMeetingNotice(userId, link, to, meetingId, timezone, now, { id: message.id, content: message.content, jobId: job.id }))
-   await send(userId, to, whatsappText(message.content), fromWhatsapp ? "reply" : "checkin", { coachMessageId: message.id, jobId: job.id });
- }
- // Notices held overnight or beyond the daily limit go right after the 8h and 18h check-ins.
- if (checkin === "morning" || checkin === "evening") for (const m of await pendingMeetings(userId, link.verified_at, now)) await sendMeetingNotice(userId, link, to, m.id, timezone, now);
+ if (message?.role === "assistant") await send(userId, to, whatsappText(message.content), fromWhatsapp ? "reply" : "checkin", { coachMessageId: message.id, jobId: job.id });
 }
 
 async function deliverReview(userId: string, to: string, store: ReturnType<typeof coachStore>, now: Date) {
@@ -256,62 +255,6 @@ async function deliverReview(userId: string, to: string, store: ReturnType<typeo
  if (review) await send(userId, to, reviewText(review.content), "checkin", { dedupKey: `review:${period.weekStart}` });
 }
 
-/** Processed meetings still without a notice: since the link, within 36 hours; parts of a split recording are shown on the page. */
-async function pendingMeetings(userId: string, since: Date, now: Date, meetingId?: string): Promise<NoticeMeeting[]> {
- const rows = await withTenant(userId, async db => (await db.query<Omit<NoticeMeeting, "recorded_at" | "done_at"> & { recorded_at: Date | null; done_at: Date }>(
-  `SELECT m.id,m.nome,m.original_filename,m.recorded_at,m.done_at,m.summary,m.raw_ai_response->>'executive_summary' AS executive_summary,m.needs_segmentation,m.duration_seconds
-   FROM meetings m WHERE m.user_id=$1 AND m.status='done' AND m.source IS DISTINCT FROM 'segmented'
-    AND m.done_at>greatest($3::timestamptz-interval '36 hours',$2::timestamptz) AND ($4::uuid IS NULL OR m.id=$4)
-    AND NOT EXISTS (SELECT 1 FROM whatsapp_messages w WHERE w.user_id=m.user_id AND w.dedup_key='meeting:'||m.id::text)
-   ORDER BY m.done_at,m.id LIMIT 10`, [userId, since.toISOString(), now.toISOString(), meetingId ?? null])).rows);
- return rows.map(r => ({ ...r, recorded_at: iso(r.recorded_at), done_at: iso(r.done_at)! }));
-}
-/** Recorded once per meeting before sending; false when another delivery already took this meeting. */
-async function sendMeetingNotice(userId: string, link: Link, to: string, meetingId: string, timezone: string, now: Date, coach?: { id: string; content: string; jobId: string }) {
- const meeting = link.verified_at ? (await pendingMeetings(userId, link.verified_at, now, meetingId))[0] : null;
- if (!meeting) return false;
- const text = await withTenant(userId, async db => {
-  const tasks = (await db.query<Omit<NoticeTask, "prazo"> & { prazo: Date | null }>("SELECT titulo,owner,is_mine,prazo FROM tarefas WHERE user_id=$1 AND meeting_id=$2 AND status<>'cancelada' ORDER BY is_mine DESC,prazo NULLS LAST,created_at,id", [userId, meeting.id])).rows;
-  const merged = (await db.query<{ n: number }>("SELECT count(DISTINCT tarefa_id)::int AS n FROM tarefa_mencoes WHERE user_id=$1 AND meeting_id=$2 AND origem='reuniao'", [userId, meeting.id])).rows[0]?.n ?? 0;
-  return meetingNoticeText(meeting, tasks.map(t => ({ ...t, prazo: iso(t.prazo) })), merged, { timezone, now, coach: coach ? whatsappText(coach.content) : null });
- });
- const id = await withTenant(userId, async db => (await db.query<{ id: string }>(`INSERT INTO whatsapp_messages(user_id,direction,kind,to_jid,coach_message_id,job_id,dedup_key,body,status) VALUES($1,'out','notice',$2,$3,$4,$5,$6,'queued')
-  ON CONFLICT (user_id,dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING RETURNING id`, [userId, to, coach?.id ?? null, coach?.jobId ?? null, `meeting:${meeting.id}`, text.slice(0, 20000)])).rows[0]?.id ?? null);
- if (!id) return false;
- await transmit(userId, id, to, text);
- return true;
-}
-/** The coach question about a meeting, when one was prepared: wait while it runs; merge it while it has not gone out. */
-async function coachQuestion(userId: string, meetingId: string) {
- const row = await withTenant(userId, async db => (await db.query<{ job_id: string; status: string; message_id: string | null; content: string | null; sent: boolean }>(
-  `SELECT j.id AS job_id,j.status,m.id AS message_id,m.content,EXISTS(SELECT 1 FROM whatsapp_messages w WHERE w.user_id=j.user_id AND w.coach_message_id=m.id) AS sent
-   FROM coach_jobs j LEFT JOIN coach_messages m ON m.user_id=j.user_id AND m.idempotency_key=j.id::text||':assistant'
-   WHERE j.user_id=$1 AND j.idempotency_key=$2`, [userId, `scheduled:meeting:${meetingId}`])).rows[0]);
- if (!row) return null;
- if (row.status === "queued" || row.status === "running") return "wait" as const;
- return row.message_id && row.content && !row.sent ? { id: row.message_id, content: row.content, jobId: row.job_id } : null;
-}
-/** 15-minute runner: each processed meeting gets one notice, when noticeSlot allows it. */
-export async function meetingNotices(userId: string, now = new Date()) {
- if (!wa.whatsappConfigured()) return 0;
- const link = await linkByUser(userId);
- const to = link?.verified_at && link.proactive ? destination(link) : null;
- if (!link?.verified_at || !to) return 0;
- const pending = await pendingMeetings(userId, link.verified_at, now);
- if (!pending.length) return 0;
- const timezone = await withTenant(userId, async db => (await db.query<{ timezone: string }>("SELECT timezone FROM coach_profiles WHERE user_id=$1", [userId])).rows[0]?.timezone || "America/Sao_Paulo");
- let today = await withTenant(userId, async db => (await db.query<{ n: number }>(
-  "SELECT count(*)::int AS n FROM whatsapp_messages WHERE user_id=$1 AND direction='out' AND dedup_key LIKE 'meeting:%' AND to_char(created_at AT TIME ZONE $2,'YYYY-MM-DD')=$3",
-  [userId, timezone, localJobDay(timezone, now)])).rows[0]?.n ?? 0);
- let sent = 0;
- for (const m of pending) {
-  if (noticeSlot(new Date(m.done_at), now, timezone, today) !== "now") continue;
-  const coach = await coachQuestion(userId, m.id);
-  if (coach === "wait" && now.getTime() - Date.parse(m.done_at) < COACH_WAIT_MS) continue;
-  if (await sendMeetingNotice(userId, link, to, m.id, timezone, now, coach && coach !== "wait" ? coach : undefined)) { sent++; today++; }
- }
- return sent;
-}
 export async function notifyChatFailure(userId: string, job: Pick<ClaimedCoachJob, "kind" | "payload">) {
  if (!wa.whatsappConfigured() || job.kind !== "chat" || job.payload.channel !== "whatsapp") return;
  const link = await linkByUser(userId);
@@ -321,18 +264,18 @@ export async function notifyChatFailure(userId: string, job: Pick<ClaimedCoachJo
 /** The 15-minute runner retries failed sends for 6 hours; messages the coach starts still respect quiet hours. */
 export async function retryDeliveries(userId: string) {
  if (!wa.whatsappConfigured()) return 0;
- const rows = await withTenant(userId, async db => (await db.query<{ id: string; kind: string; to_jid: string | null; body: string; dedup_key: string | null }>(
-  "SELECT id,kind,to_jid,body,dedup_key FROM whatsapp_messages WHERE user_id=$1 AND direction='out' AND status IN ('queued','failed') AND attempts<5 AND created_at>now()-interval '6 hours' AND updated_at<now()-interval '2 minutes' ORDER BY created_at LIMIT 5", [userId])).rows);
+ const rows = await withTenant(userId, async db => (await db.query<{ id: string; kind: string; to_jid: string | null; body: string }>(
+  "SELECT id,kind,to_jid,body FROM whatsapp_messages WHERE user_id=$1 AND direction='out' AND status IN ('queued','failed') AND attempts<5 AND created_at>now()-interval '6 hours' AND updated_at<now()-interval '2 minutes' ORDER BY created_at LIMIT 5", [userId])).rows);
  if (!rows.length) return 0;
  const quiet = quietHours((await coachStore(userId).profile()).timezone, new Date());
  let sent = 0;
- for (const row of rows) if (row.to_jid && !(quiet && (row.kind === "checkin" || row.dedup_key?.startsWith("meeting:"))) && await transmit(userId, row.id, row.to_jid, row.body)) sent++;
+ for (const row of rows) if (row.to_jid && !(quiet && row.kind === "checkin") && await transmit(userId, row.id, row.to_jid, row.body)) sent++;
  return sent;
 }
 
 /** Operational notice to one user's linked WhatsApp; silently skipped when there is none. */
 export async function sendToUser(userId: string, text: string) {
- if (!wa.whatsappConfigured()) return false;
+ if (!wa.whatsappConfigured() || !coachPermitido(userId)) return false;
  const link = await linkByUser(userId);
  const to = link?.verified_at ? destination(link) : null;
  return to ? send(userId, to, text.slice(0, 3000), "notice") : false;

@@ -59,3 +59,16 @@ export function inferenceBlocked(input:{kind:string;content:string;evidence:Evid
   });
  });
 }
+
+/** Life goals stay out of work conversations and check-ins: only the weekly review and a message about them see them. */
+export const isLifeGoal=(m:Pick<CoachMemory,"kind"|"goal_area">)=>m.kind==="goal"&&m.goal_area==="life";
+export function hideLifeGoals<T extends Pick<CoachMemory,"kind"|"goal_area">>(memories:T[]):T[]{return memories.filter(m=>!isLifeGoal(m));}
+const LIFE_WORDS=/\b(?:vida pessoal|objetivos? de vida|minha vida|pessoal|familia|filh[oa]s?|esposa|marido|namorad[oa]|saude|treino|academia|corrida|dieta|sono|ferias|lazer|hobby|meus objetivos)\b/u;
+const lifeStop=new Set("quero preciso fazer mais menos todo toda todos todas cada semana meses anos para como sobre isso essa esse minha meu".split(" "));
+/** The user brought up personal life, or named words of an active life goal. */
+export function lifeGoalsRequested(message:string,memories:CoachMemory[]):boolean{
+ const s=normalize(message);
+ if(LIFE_WORDS.test(s))return true;
+ const words=new Set(s.split(" ").filter(w=>w.length>=5&&!lifeStop.has(w)));
+ return memories.some(m=>isLifeGoal(m)&&(!m.lifecycle||m.lifecycle==="active")&&normalize(m.content).split(" ").some(w=>w.length>=5&&!lifeStop.has(w)&&words.has(w)));
+}

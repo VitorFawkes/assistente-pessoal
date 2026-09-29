@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { presentChat } from "../coach/chat-presentation";
 import { validateJobInput } from "../coach/jobs";
-import { audioFile, codeInText, displayNumber, hashLinkCode, maskPhone, messageText, quietHours, senderFromKey, splitForWhatsApp, whatsappText } from "./format";
+import { audioFile, codeInText, displayNumber, hashLinkCode, maskPhone, messageText, quietHours, reviewText, senderFromKey, splitForWhatsApp, whatsappText } from "./format";
 
 describe("remetente do WhatsApp", () => {
  test("usa o telefone quando vem junto com o LID", () => {
@@ -100,5 +100,15 @@ describe("exibição", () => {
   expect(displayNumber("551151980726")).toBe("(11) 5198-0726");
   expect(maskPhone("5541999990000")).toBe("final 0000");
   expect(maskPhone(null)).toBeNull();
+ });
+});
+
+describe("revisão da semana no WhatsApp", () => {
+ test("leva a proposta e deixa as evidências na página", () => {
+  const text = reviewText({ headline: "Um problema principal por dia", focus: "Escolha **uma** frente.", progress: "", experiment: "Até sexta, fechar a proposta.", question: "O que trava?" });
+  expect(text).toContain("*Revisão da semana*\n\n*Um problema principal por dia*\n\nEscolha *uma* frente.");
+  expect(text).toContain("*Experimento da semana:* Até sexta, fechar a proposta.");
+  expect(text).not.toContain("Avanço");
+  expect(text.endsWith("Evidências e detalhes: https://acoes.vitorgambetti.com.br/coach")).toBe(true);
  });
 });

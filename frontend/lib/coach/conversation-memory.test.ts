@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { userMemoryNotes } from "./conversation-memory";
+import { userMemoryCandidates, userMemoryNotes } from "./conversation-memory";
 test("durable user goals preserve the exact self-report, not a generated interpretation",()=>{
  const message="Meu objetivo agora é delegar a operação comercial. Preciso priorizar melhor.";
  const notes=userMemoryNotes([{kind:"goal",quote:"Meu objetivo agora é delegar a operação comercial."}],message);
@@ -55,4 +55,15 @@ test("a directly declared goal may contain a quoted title while reported goals r
  expect(userMemoryNotes([{kind:"goal",quote}],`O cliente disse: ${quote}`)).toEqual([]);
  expect(userMemoryNotes([{kind:"goal",quote}],`Imagine que ${quote}`)).toEqual([]);
  expect(userMemoryNotes([{kind:"goal",quote}],`“${quote}”`)).toEqual([]);
+});
+
+test("goals announced on one line and written on the next can be kept (Vitor, 28/09)",()=>{
+ const message="Eu já entreguei a parte de produção\nFalei com a Isa sobre ela ir pra gestao da Paula e nao falei com a Paula ainda\nJa conversei com o Tiago sobre a grana extra para meu apoio\n\nAgora tenho 2 grandes objetivos\nVender mais e fazer vender mais hospedagem, passagens e extras para convidados.";
+ const joined="Agora tenho 2 grandes objetivos: Vender mais e fazer vender mais hospedagem, passagens e extras para convidados.";
+ expect(userMemoryCandidates(message)).toEqual([joined]);
+ expect(userMemoryNotes([{kind:"goal",quote:joined}],message)).toEqual([{kind:"goal",content:`Informado por você na conversa: ${joined}`,status:"confirmed",evidence:[]}]);
+ expect(userMemoryCandidates("Agora tenho uma nova meta: fechar 5 contratos até 31/10.")).toEqual(["Agora tenho uma nova meta: fechar 5 contratos até 31/10."]);
+ // A mention of goals that are not the user's own, or a question, is not a goal.
+ expect(userMemoryCandidates("A Paula tem 2 objetivos\nVender mais")).toEqual([]);
+ expect(userMemoryCandidates("Tenho objetivos?")).toEqual([]);
 });

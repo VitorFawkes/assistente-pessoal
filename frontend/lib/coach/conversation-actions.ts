@@ -130,7 +130,8 @@ export function replacementGoalCandidates(message:string):string[]{
 export function actionQuoteCandidates(message:string,type:string,context:ActionContext={}):string[]{
  if(!allowedActions(message,context).includes(type))return [];
  const candidates=[message.trim(),...message.split(/(?<=[.!?;])\s+|\n+/u).map(value=>value.trim())];
- return [...new Set(candidates)].filter(quote=>quote.length>=(type==="complete_commitment"?3:8)&&quote.length<=900&&allowedActions(quote,context).includes(type)&&![...message.matchAll(quotedText)].some(span=>{const at=message.indexOf(quote);return at>=span.index&&at<span.index+span[0].length;}));
+ // Strict schemas reject control characters in enum values, so a multi-line message is quoted by its lines.
+ return [...new Set(candidates)].filter(quote=>quote.length>=(type==="complete_commitment"?3:8)&&quote.length<=900&&!/[\u0000-\u001f]/u.test(quote)&&allowedActions(quote,context).includes(type)&&![...message.matchAll(quotedText)].some(span=>{const at=message.indexOf(quote);return at>=span.index&&at<span.index+span[0].length;}));
 }
 
 export function actionSchema(message:string,memories:CoachMemory[],commitments:CoachCommitment[],context:ActionContext={}){

@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import type { Tarefa } from "../queries";
 import { contextSearchTerms, type ContextPeriod } from "./context-selection";
+import { tarefasDeOutros } from "./equipe";
 
 export type CoachTask = Pick<Tarefa,
   "id" | "titulo" | "descricao" | "owner" | "is_mine" | "acao" | "status" |
@@ -93,9 +94,26 @@ export async function loadTaskContext(db: PoolClient, userId: string, options:{n
      FROM tarefa_eventos e JOIN tarefas t ON t.id=e.tarefa_id WHERE ${eventFilter}
      ORDER BY e.created_at DESC,e.id DESC LIMIT 40`,eventValues);
   const {period_active,period_completed,period_cancelled,...totals} = summary;
+  // Ações da equipe: tarefas que colegas passaram ou marcaram para a pessoa entram no retrato, como em "Minhas ações".
+  const outros = await tarefasDeOutros(userId);
+  const aberta = (t: {status: string}) => !["concluida","cancelada"].includes(t.status);
+  const venceu = (t: {prazo: string|null}) => !!t.prazo && t.prazo < now;
+  const outrasAbertas = outros.filter(aberta);
+  totals.total += outros.length; totals.open += outrasAbertas.length;
+  totals.mine_open += outrasAbertas.filter(t => t.acao === "executar").length;
+  totals.delegated_open += outrasAbertas.filter(t => t.acao === "cobrar" || t.acao === "aguardar").length;
+  totals.high_priority_open += outrasAbertas.filter(t => t.prioridade === "alta" || t.prioridade === "urgente").length;
+  totals.overdue_open += outrasAbertas.filter(venceu).length;
+  totals.completed += outros.filter(t => t.status === "concluida").length;
+  totals.cancelled += outros.filter(t => t.status === "cancelada").length;
+  const extras: CoachTask[] = outrasAbertas.slice(0, 16).map(t => ({
+    id: t.id, titulo: t.titulo, descricao: (t.descricao ?? "").slice(0, 3000), owner: t.owner, is_mine: t.is_mine, acao: t.acao, status: t.status,
+    prioridade: t.prioridade, prazo: t.prazo, meeting_id: null, frente: t.frente ?? null, concluida_em: t.concluida_em, cancelada_em: t.cancelada_em,
+    created_at: t.created_at, updated_at: t.updated_at, context_reasons: ["open_priority"], frentes: [],
+  }));
   // pg returns timestamps as Date; the model/UI contract is serializable ISO strings.
-  return JSON.parse(JSON.stringify({tasks:candidates.rows,events:events.rows,
+  return JSON.parse(JSON.stringify({tasks:[...candidates.rows,...extras],events:events.rows,
     task_summary:{...totals,fronts:fronts.rows,period:period ? {tasks_active:period_active,completed:period_completed,cancelled:period_cancelled,events:eventsTotal} : null},
-    task_selection:{tasks_selected:candidates.rows.length,tasks_total:summary.total,events_selected:events.rows.length,events_total:eventsTotal,task_limit:64,event_limit:40},
+    task_selection:{tasks_selected:candidates.rows.length+extras.length,tasks_total:totals.total,events_selected:events.rows.length,events_total:eventsTotal,task_limit:64,event_limit:40},
   }));
 }

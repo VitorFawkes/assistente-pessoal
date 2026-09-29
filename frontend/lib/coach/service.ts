@@ -1,21 +1,26 @@
-import { buildSourceBank as sourceBank, selectChunks as contextChunks, chunkTurns as labeledTurns, conversationSearch, needsDeepInvestigation, memorySafetyContext } from "./investigation";
+import { buildSourceBank as sourceBank, selectChunks as contextChunks, chunkTurns as labeledTurns, needsDeepInvestigation, memorySafetyContext } from "./investigation";
 import { buildMeetingReports, meetingReport, reportLineage, reportPeriodFingerprint, reportSources, transcriptFallbackMeetings } from "./meeting-reports";
 import { calendarContext } from "./calendar";
 import { investigationTools } from "./investigation-tools";
 import { indexChunk, recordModelRuns, semanticEnabled } from "./retrieval";
 import { actionSchema, validateAction } from "./conversation-actions";
 import { createCommitment, listCommitments, updateCommitment, trackCommitment, recordCommitmentOutcome } from "./coach-commitments";
-import { inferenceBlocked, sameEvidencePassage } from "./memory-policy";
+import { hideLifeGoals, inferenceBlocked, lifeGoalsRequested, sameEvidencePassage } from "./memory-policy";
 import { verifyCoachResult, CoachVerificationError } from "./quality";
-import { coachStore, StaleCoachRunError, MemoryPolicyError } from "./store";
+import { coachStore, StaleCoachRunError, MemoryPolicyError, GOALS_PER_AREA } from "./store";
 import { chunkMeeting, reviewPeriod, sourceHash, validateObservations } from "./evidence";
-import { analysisSchemaWithSources, coachCompletion, coachModel, conversationSchemaWithSources, reviewSchemaWithSources, CoachAIError, coachModelAvailable, coachModelConfig, type CoachTelemetry } from "./model";
+import { analysisSchemaWithSources, coachCompletion, coachModel, conversationSchemaWithSources, reviewSchemaWithSources, CoachAIError, CoachProviderUnavailableError, coachModelAvailable, coachModelConfig, type CoachTelemetry } from "./model";
 import { presentChat, splitChatPresentation } from "./chat-presentation";
 import { COACH_CONVERSATION_INSTRUCTION, COACH_INVESTIGATION_INSTRUCTION } from "./framework";
-import { userMemoryNotes } from "./conversation-memory";
+import { announcedGoals, userMemoryNotes } from "./conversation-memory";
 import { accountabilityFingerprint } from "./follow-up";
 import { formatCommitmentDue, naturalCommitmentDue } from "./commitment-dates";
-import { morningAgenda } from "./morning-agenda";
+import { dueTasks, morningAgenda } from "./morning-agenda";
+import { handleTaskMessage, withoutRepeats, type BulkSelection, type TaskLane } from "./task-actions";
+import { answerInfo, assistantTool, buildDossier, dossierForModel, proactiveDossier } from "./assistant";
+import type { Dossier } from "./assistant-types";
+import { budgetNotice, budgetReply, budgetState, CoachBudgetError, runCostUsd } from "./budget";
+import { MODEL_CONTEXT, modelCalendar, modelEvents, modelMessages, modelReviews, modelTaskSelection, modelTasks } from "./context-budget";
 import type { CoachMeeting, CoachProfile, CoachState, Evidence, Observation, ReviewContent } from "./types";
 
 export class CoachBusyError extends Error { constructor(){super("O coach está trabalhando no seu histórico. Aguarde um pouco e tente novamente.");} }
@@ -64,7 +69,8 @@ function usableMemories(memories:Awaited<ReturnType<ReturnType<typeof coachStore
 
 export async function analyzeMeetings(userId:string,maxChunks=2){
  return withLease(userId,async(store,profile)=>{
-  const [self,memories]=await Promise.all([store.selfPersonIds(),store.memories()]);let processed=0,indexed=0;
+  const budget=await budgetState(userId,profile.timezone);if(budget.exceeded)throw new CoachBudgetError(budget.cap,profile.timezone);
+  const [self,memories]=await Promise.all([store.selfPersonIds(),store.memories().then(hideLifeGoals)]);let processed=0,indexed=0;
   for(let offset=0;Math.max(processed,indexed)<maxChunks;offset+=20){
    const meetings=await store.meetingPage(20,offset);if(!meetings.length)break;
    for(const meeting of meetings){
@@ -80,7 +86,7 @@ export async function analyzeMeetings(userId:string,maxChunks=2){
      let result:Record<string,unknown>;
      try{result=await coachCompletion("Analise somente esta parte da reunião como contexto para objetivos, prioridades e combinados pessoais. Retorne no máximo 4 observações úteis para escolher um próximo passo ou acompanhar um acordo, com hipótese e contraprova. Não avalie condução de reuniões, 1:1 ou percepção do time; não monitore agentes. Cada observação seleciona de 1 a 4 evidence_ids existentes no dicionário sources; o servidor mantém os trechos literais. Não reescreva nem invente citações/IDs. Resumo máximo 600 caracteres. Nenhuma observação é obrigatória. Em observations, inclua APENAS conduta sustentada por sources, todas falas confirmadas do próprio usuário. Se não houver, observations=[] e resumo descritivo da reunião sem atribuir comportamento ao usuário. Não deduza autoria pelo nome em um texto.",
       {profile,memories:usableMemories(memories),self_person_ids:self,meeting:{id:meeting.id,title:meeting.nome||meeting.original_filename,recorded_at:meeting.recorded_at,speaker_labels:meeting.speaker_labels,speaker_pessoas:meeting.speaker_pessoas},chunk,sources,labeled_turns:labeledTurns(meeting,chunk,self)},analysisSchemaWithSources(Object.keys(sources)),{reasoningEffort:"high",onTelemetry:event=>telemetry.push(event)});
-     }finally{if(process.env.COACH_AUDIT_ENABLED==="true")await recordModelRuns(userId,"analysis",`${meeting.id}:${chunk.index}`,telemetry,profile.revision).catch(()=>{});}
+     }finally{await recordModelRuns(userId,"analysis",`${meeting.id}:${chunk.index}`,telemetry,profile.revision).catch(()=>{});}
      const raw=sourceReferences(result.observations,sources);
      const observations=grounded(raw,[meeting],self).filter(o=>!inferenceBlocked({kind:"pattern",content:o.hypothesis||o.observation,evidence:o.evidence},memories));
      await store.saveAnalysis({meeting_id:meeting.id,source_hash:hash,chunk_index:chunk.index,chunk_count:chunk.count,observations,summary:text(result.summary,1200),model:coachModel()},profile.revision);
@@ -94,7 +100,9 @@ export async function analyzeMeetings(userId:string,maxChunks=2){
  });
 }
 
-export async function chatWithCoach(userId:string,message:string,now=new Date(),runId?:string,proactive?:"morning"|"evening"|"nudge"|"meeting"){
+const NO_DOSSIER:Dossier={pessoas_citadas:[],reunioes_citadas:[],consultas:[],limitacoes:["O assistente não conseguiu buscar os dados desta conversa agora."],excerpts:[]};
+export const ASSISTANT_DOSSIER_INSTRUCTION="\nDADOS DESTA RESPOSTA: o assistente do Ações buscou o que esta conversa pede e entregou em assistant_dossier. Cada consulta diz o que foi buscado (consulta), quantos existem (total) e quantos vieram (mostrados); reuniões trazem resumo do relatório gerado (contexto secundário, não fala literal); agenda traz agenda_status; pendencias é a lista do que vence hoje e está atrasado (só as do usuário e as de cobrar); tarefas_filtradas é a lista pelo critério que o usuário pediu, com total e contagem de todas as que batem, como o app mostra; conversas são mensagens antigas com você, com data (contexto, não fato atual). transcripts e sources só trazem trechos literais quando foram buscados. As ferramentas read_meeting_report, search_history, open_meeting, read_tasks e read_memory não existem nesta resposta. Se faltar um dado que muda o conselho, peça com pedir_ao_assistente (no máximo 2 pedidos; cada um custa); se não houver a ferramenta ou o dado não vier, diga qual dado falta, sem supor.";
+export async function chatWithCoach(userId:string,message:string,now=new Date(),runId?:string,proactive?:"morning"|"evening"|"nudge"|"meeting",meetingId?:string){
  return withLease(userId,async(store,profile)=>{
   if(runId&&await store.messageByKey(runId+":assistant"))return;
   if(runId){
@@ -102,36 +110,73 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
    if(receipt){await store.addMessage("assistant",receipt+"\n\nA execução foi interrompida depois dessa alteração. Confira o estado salvo antes de fazer outro pedido.",[],profile.revision,runId+":assistant");return;}
   }
   const history=await store.messages();
-  const search=conversationSearch(message,history);
-  const [context,memories,self,coverage,reviews,memory,commitments]=await Promise.all([store.context(search,{timezone:profile.timezone,now}),store.memories(),store.selfPersonIds(),store.coverage(),store.reviews(),store.memoryContext(),listCommitments(userId)]);
+  // Past the day's AI spend ceiling nothing calls the model; "sim", "não" and "desfaz" still work because they need none.
+  const budget=await budgetState(userId,profile.timezone,now);
+  // Direct requests on tasks run first: a message only about tasks gets a short server-written reply, without a coaching answer.
+  let taskDone:string[]=[],taskWaiting:string[]=[],listings:BulkSelection[]=[];let lane:TaskLane="coach";
+  const recent=history.filter(m=>!m.stale).map(m=>({role:m.role,content:m.role==="assistant"?splitChatPresentation(m.content).answer:m.content}));
+  if(!proactive){
+   const handled=await handleTaskMessage(userId,message,recent,profile.timezone,now,runId,{ai:!budget.exceeded}).catch(()=>{console.error("coach task actions failed");return null;});
+   if(handled&&"reply" in handled){
+    await store.addMessage("user",message,[],profile.revision,runId?runId+":user":undefined);
+    await store.addMessage("assistant",presentChat(handled.reply,[],[],await store.coverage(),0),[],profile.revision,runId?runId+":assistant":undefined);
+    return;
+   }
+   if(handled){taskDone=handled.done;taskWaiting=handled.waiting;lane=handled.lane;listings=handled.listings??[];}
+  }
+  if(budget.exceeded){
+   if(proactive)return;
+   await store.addMessage("user",message,[],profile.revision,runId?runId+":user":undefined);
+   await store.addMessage("assistant",budgetReply(budget.cap),[],profile.revision,runId?runId+":assistant":undefined);
+   return;
+  }
+  // Information (tasks, people, meetings, agenda) is found and answered by the cheap assistant; only coaching pays for the verified answer.
+  if(lane==="tarefas"){
+   const telemetry:CoachTelemetry[]=[];
+   try{
+    const onTelemetry=(e:CoachTelemetry)=>telemetry.push(e);
+    const dossier=await buildDossier({userId,message,recent,lane:"tarefas",timezone:profile.timezone,now,selfPersonIds:await store.selfPersonIds(),listings,onTelemetry});
+    const answer=await answerInfo({message,recent,done:taskDone,waiting:taskWaiting,dossier,timezone:profile.timezone,now,onTelemetry});
+    const reachedCap=budget.spent+runCostUsd(telemetry)>=budget.cap?budgetNotice(budget.cap):"";
+    await store.addMessage("user",message,[],profile.revision,runId?runId+":user":undefined);
+    await store.addMessage("assistant",presentChat([taskDone.join("\n"),withoutRepeats(answer,taskDone),...taskWaiting.filter(note=>!answer.includes(note)),reachedCap].filter(Boolean).join("\n\n"),[],[],await store.coverage(),0),[],profile.revision,runId?runId+":assistant":undefined);
+   }finally{await recordModelRuns(userId,"quick",runId||null,telemetry,profile.revision).catch(()=>{});}
+   return;
+  }
+  const [allMemories,self,coverage,reviews,commitments]=await Promise.all([store.memories(),store.selfPersonIds(),store.coverage(),store.reviews(),listCommitments(userId)]);
+  // Life goals only reach a conversation the user opened about them; check-ins never see them.
+  const lifeVisible=!proactive&&lifeGoalsRequested(message,allMemories);
+  const memories=lifeVisible?allMemories:hideLifeGoals(allMemories);
+  const memory=await store.memoryContext(undefined,lifeVisible);
   // A bare "Sim." can close the only open agreement right after the coach asked whether it is done.
   const lastAnswer=splitChatPresentation(history.filter(m=>!m.stale).at(-1)?.role==="assistant"?history.filter(m=>!m.stale).at(-1)!.content:"").answer;
   const openCommitments=commitments.filter(c=>["open","renegotiated","unknown"].includes(c.status));
   const actionContext={confirmsCompletion:!proactive&&openCommitments.length===1&&/\b(?:conclu|consegui|fez|feito|destravou|terminou|finalizou)[a-z]*\b[^?]*\?\s*$/u.test(lastAnswer.normalize("NFD").replace(/\p{M}/gu,"").toLowerCase().trim())};
   const userMessage=proactive?null:await store.addMessage("user",message,[],profile.revision,runId?runId+":user":undefined);
   let revision=profile.revision;
-  const period=context.selection?.period;
-  const currentSelected=contextChunks(transcriptFallbackMeetings(context.meetings),search,period?4:6);
-  const historicalSelected=period?contextChunks(transcriptFallbackMeetings(context.historical_meetings||[]),search,2):[];
-  const selected=[...currentSelected,...historicalSelected];
-  const historicalIds=new Set(historicalSelected.map(({meeting})=>meeting.id));
+  const telemetry:CoachTelemetry[]=[];const onTelemetry=(e:CoachTelemetry)=>telemetry.push(e);
+  // The Coach asks the assistant for what this message needs (scheduled check-ins use a fixed list) and reads that dossier.
+  const dossier=await (proactive
+   ?proactiveDossier({userId,kind:proactive,meetingId,timezone:profile.timezone,now,selfPersonIds:self})
+   :buildDossier({userId,message,recent,lane:"coach",timezone:profile.timezone,now,selfPersonIds:self,listings,onTelemetry})).catch(()=>NO_DOSSIER);
+  const selected=dossier.excerpts;
   const investigation=investigationTools(userId,profile.timezone,now,self,selected);
   const sources=investigation.sources;
-  const reports=buildMeetingReports(context.meetings);
-  const historicalReports=buildMeetingReports(context.historical_meetings||[],16000);
-  const calendar=await calendarContext(userId,period?{from:period.from,to:period.to}:undefined,{timezone:profile.timezone});
-  const data={profile,trigger:proactive?{kind:proactive,origin:"system_schedule_or_button",not_user_statement:true}:null,current_time:now.toISOString(),timezone:profile.timezone,local_time:new Intl.DateTimeFormat("pt-BR",{timeZone:profile.timezone,dateStyle:"full",timeStyle:"short"}).format(now),
-    memories:usableMemories(memories),memory,commitments,history:history.filter(m=>!m.stale&&(m.role==="user"||m.context_freshness!=="unknown")).slice(-24),retrieved_conversations:context.messages.filter(m=>!m.stale&&(m.role==="user"||m.context_freshness!=="unknown")),question:message,coverage,
-    reviews:reviews.filter(r=>!r.stale).slice(0,4),tasks:context.tasks,task_events:context.events,task_summary:context.task_summary,task_selection:context.task_selection,context_selection:context.selection,
-    meeting_reports:reports.meetings,historical_meeting_reports:historicalReports.meetings,calendar_context:calendar,
-    analyses:context.analyses,historical_analyses:context.historical_analyses||[],self_person_ids:self,sources,
-    transcripts:selected.map(({meeting,chunk})=>({meeting_id:meeting.id,title:meeting.nome||meeting.original_filename,recorded_at:meeting.recorded_at,context_at:(meeting as {context_at?:string}).context_at,date_basis:(meeting as {date_basis?:string}).date_basis,context_period:historicalIds.has(meeting.id)?"historical":period?"requested_period":"historical_search",chunk_index:chunk.index,text:chunk.text,labeled_turns:labeledTurns(meeting,chunk,self)})),limitations:[...context.limitations,...reports.limitations,...historicalReports.limitations,...calendar.limitations]};
-  const inherited=reportLineage([...data.history,...data.retrieved_conversations,...data.reviews.map(review=>review.content)]);
-  const telemetry:CoachTelemetry[]=[];const onTelemetry=(e:CoachTelemetry)=>telemetry.push(e);
+  // Scheduled check-ins stay with their fixed list; a conversation may ask the assistant for what is still missing.
+  const ask=proactive?null:assistantTool({userId,timezone:profile.timezone,now,selfPersonIds:self,addExcerpt:investigation.addExcerpt,onTelemetry});
+  const recentHistory=history.filter(m=>!m.stale&&(m.role==="user"||m.context_freshness!=="unknown")).slice(-24);
+  const recentReviews=reviews.filter(r=>!r.stale).slice(0,4);
+  const reportIdsOf=(d:Dossier)=>d.consultas.flatMap(entry=>(entry.reunioes||[]).filter(m=>m.resumo).map(m=>m.id));
+  const reportIds=()=>[...new Set([dossier,...(ask?.reads||[]).map(r=>r.dossier)].flatMap(reportIdsOf))];
+  const data={profile,trigger:proactive?{kind:proactive,origin:"system_schedule_or_button",not_user_statement:true}:null,...(taskDone.length||taskWaiting.length?{task_changes_done_now:taskDone,task_question_waiting:taskWaiting}:{}),current_time:now.toISOString(),timezone:profile.timezone,local_time:new Intl.DateTimeFormat("pt-BR",{timeZone:profile.timezone,dateStyle:"full",timeStyle:"short"}).format(now),
+    memories:usableMemories(memories),memory,commitments,history:modelMessages(recentHistory,MODEL_CONTEXT.history,MODEL_CONTEXT.historyChars),question:message,coverage,
+    reviews:modelReviews(recentReviews),assistant_dossier:dossierForModel(dossier,profile.timezone,{passageText:false}),self_person_ids:self,sources,
+    transcripts:selected.map(({meeting,chunk})=>({meeting_id:meeting.id,title:meeting.nome||meeting.original_filename,recorded_at:meeting.recorded_at,chunk_index:chunk.index,text:chunk.text,labeled_turns:labeledTurns(meeting,chunk,self)})),limitations:dossier.limitacoes};
+  const inherited=reportLineage([...recentHistory,...recentReviews.map(review=>review.content)]);
   try{
-   let result=await coachCompletion(COACH_CONVERSATION_INSTRUCTION+"\n"+COACH_INVESTIGATION_INSTRUCTION+(proactive?"\nEste é um acompanhamento proativo. A pergunta é do sistema, não uma declaração do usuário. Não crie user_memories nem actions. Seja breve, não repita cobrança já enviada. Para nudge ou meeting sem novidade útil, answer=SEM_NOVIDADE.":""),data,
-    ()=>conversationSchemaWithSources(Object.keys(sources),message,{actions:actionSchema(proactive?"":message,memories,commitments,actionContext),detailed:/aprofund|detalh|explique melhor/iu.test(message)}),
-    {reasoningEffort:needsDeepInvestigation(message)?"high":"medium",tools:investigation.tools,maxToolRounds:4,maxToolCalls:8,timeoutMs:180000,onTelemetry});
+   let result=await coachCompletion(COACH_CONVERSATION_INSTRUCTION+"\n"+COACH_INVESTIGATION_INSTRUCTION+ASSISTANT_DOSSIER_INSTRUCTION+(proactive?"\nEste é um acompanhamento proativo. A pergunta é do sistema, não uma declaração do usuário. Não crie user_memories nem actions. Seja breve, não repita cobrança já enviada. Para nudge ou meeting sem novidade útil, answer=SEM_NOVIDADE.":""),data,
+    ()=>conversationSchemaWithSources(Object.keys(sources),message,{actions:actionSchema(proactive||taskDone.length||taskWaiting.length?"":message,memories,commitments,actionContext),detailed:/aprofund|detalh|explique melhor/iu.test(message)}),
+    {reasoningEffort:needsDeepInvestigation(message)?"high":"medium",...(ask?{tools:[ask.tool],maxToolRounds:2,maxToolCalls:2}:{}),timeoutMs:180000,onTelemetry});
    const validateCandidate=(result:Record<string,unknown>)=>{
    const validatedActions=(Array.isArray(result.actions)?[...result.actions]:[]).map(rawAction=>{
     const action=validateAction(rawAction,message,commitments,actionContext);if(!action)throw new CoachAIError("Não confirmei a autorização para uma alteração sugerida. Peça a alteração explicitamente.");
@@ -171,19 +216,29 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
    const answer=text(publishable.answer,12000);if(!answer&&!requestedActions.length)throw new CoachAIError("O coach não retornou uma orientação válida.");
    return {requestedActions,publishable,observations,answer};
    };
-   let candidate=validateCandidate(result);
-   const verificationData={...data,sources,additional_reports:investigation.reportReads,additional_context_reads:investigation.contextReads,additional_transcripts:investigation.selected.map(s=>({meeting_id:s.meeting.id,recorded_at:s.meeting.recorded_at,text:s.chunk.text}))};
-   const verifyCandidate=async()=>{
-    if(!((proactive==="nudge"||proactive==="meeting")&&candidate.answer==="SEM_NOVIDADE"&&!candidate.observations.length))await verifyCoachResult(verificationData,candidate.publishable,onTelemetry);
+   const verificationData={...data,sources,...(ask?.reads.length?{additional_dossiers:ask.reads.map(r=>({pedido:r.pedido,...dossierForModel(r.dossier,profile.timezone)})),transcripts:investigation.selected.map(({meeting,chunk})=>({meeting_id:meeting.id,title:meeting.nome||meeting.original_filename,recorded_at:meeting.recorded_at,chunk_index:chunk.index,text:chunk.text,labeled_turns:labeledTurns(meeting,chunk,self)}))}:{})};
+   let candidate:ReturnType<typeof validateCandidate>|undefined;
+   const verifyCandidate=async(c:ReturnType<typeof validateCandidate>)=>{
+    if(!((proactive==="nudge"||proactive==="meeting")&&c.answer==="SEM_NOVIDADE"&&!c.observations.length))await verifyCoachResult(verificationData,c.publishable,onTelemetry);
    };
-   try{await verifyCandidate();}catch(error){
-    if(!(error instanceof CoachVerificationError))throw error;
-    result=await coachCompletion(COACH_CONVERSATION_INSTRUCTION+"\n"+COACH_INVESTIGATION_INSTRUCTION+VERIFICATION_REPAIR_INSTRUCTION+(proactive?"\nAcompanhamento proativo: não crie actions ou user_memories; SEM_NOVIDADE continua permitido quando não houver sinal útil.":""),
-     {...verificationData,previous_candidate:candidate.publishable,verification_issues:error.issuesForRepair()},
-     conversationSchemaWithSources(Object.keys(sources),message,{actions:actionSchema(proactive?"":message,memories,commitments,actionContext),detailed:/aprofund|detalh|explique melhor/iu.test(message)}),
-     {reasoningEffort:"high",timeoutMs:120000,onTelemetry});
+   try{
     candidate=validateCandidate(result);
-    await verifyCandidate();
+    try{await verifyCandidate(candidate);}catch(error){
+     if(!(error instanceof CoachVerificationError))throw error;
+     result=await coachCompletion(COACH_CONVERSATION_INSTRUCTION+"\n"+COACH_INVESTIGATION_INSTRUCTION+ASSISTANT_DOSSIER_INSTRUCTION+VERIFICATION_REPAIR_INSTRUCTION+(proactive?"\nAcompanhamento proativo: não crie actions ou user_memories; SEM_NOVIDADE continua permitido quando não houver sinal útil.":""),
+      {...verificationData,previous_candidate:candidate.publishable,verification_issues:error.issuesForRepair()},
+      conversationSchemaWithSources(Object.keys(sources),message,{actions:actionSchema(proactive||taskDone.length||taskWaiting.length?"":message,memories,commitments,actionContext),detailed:/aprofund|detalh|explique melhor/iu.test(message)}),
+      {reasoningEffort:"high",timeoutMs:120000,onTelemetry});
+     candidate=validateCandidate(result);
+     await verifyCandidate(candidate);
+    }
+   }catch(error){
+    // The 8h and 18h messages are never lost to the quality checks: they go out with what comes from the database.
+    // A conversation whose tasks already changed says so, instead of failing in silence after the change.
+    const scheduled=proactive==="morning"||proactive==="evening";
+    if(!(error instanceof CoachAIError)||error instanceof CoachProviderUnavailableError||(!scheduled&&(proactive||!(taskDone.length||taskWaiting.length))))throw error;
+    console.error("coach answer replaced after the checks",proactive||"chat",(error instanceof CoachVerificationError?error.issuesForRepair().join(" | "):error.message).slice(0,600));
+    candidate={requestedActions:[],publishable:{},observations:[],answer:scheduled?await checkinFallback(userId,proactive,profile.timezone,now):"Não consegui fechar agora uma orientação segura para o resto da sua mensagem. Pergunte de novo daqui a pouco."};
    }
    const {requestedActions,observations,answer}=candidate;
    if((proactive==="nudge"||proactive==="meeting")&&answer==="SEM_NOVIDADE")return;
@@ -233,10 +288,12 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
      const changed=await store.saveProfile({[key]:action.enabled},revision,runId);revision=changed.revision;confirmations.push(action.enabled?"Ativei esse acompanhamento no Ações.":"Pausei esse acompanhamento.");
     }
    }
-   for(const note of proactive?[]:userMemoryNotes(result.user_memories,message)){
+   const notes=proactive?[]:[...userMemoryNotes(result.user_memories,message),...announcedGoals(message)].filter((note,index,all)=>all.findIndex(other=>other.content===note.content)===index);
+   for(const note of notes){
     if([...changedQuotes].some(q=>q.includes(note.content.replace("Informado por você na conversa: ",""))))continue;
     const saved=await store.rememberUserNote(note,revision);
-    if(saved?.status==="confirmed")confirmations.push("Guardei o que você informou: “"+note.content.replace("Informado por você na conversa: ","")+"”");
+    if(saved?.kind==="goal"&&saved.lifecycle==="paused")confirmations.push(`Você já tem ${GOALS_PER_AREA} objetivos de ${saved.goal_area==="life"?"vida":"trabalho"} ativos. Guardei este como pausado: diga qual dos atuais quer pausar para ativá-lo.`);
+    else if(saved?.status==="confirmed")confirmations.push("Guardei o que você informou: “"+note.content.replace("Informado por você na conversa: ","")+"”");
    }
    for(const candidate of Array.isArray(result.memories)?result.memories.slice(0,2):[]){
     const obs=Number.isInteger(candidate?.observation_index)?observations[candidate.observation_index]:null;
@@ -245,8 +302,10 @@ export async function chatWithCoach(userId:string,message:string,now=new Date(),
    }
    // The 8h message also lists, from the database, what is due today and overdue, plus today's calendar.
    const agenda=proactive==="morning"?await morningAgenda(userId,profile.timezone,now).catch(()=>""):"";
-   await store.addMessage("assistant",presentChat([...(proactive?[proactive==="morning"?"Foco do dia":proactive==="evening"?"Fechamento do dia":proactive==="meeting"?"Depois da reunião":"Um ponto de atenção"]:[]),answer,agenda,...confirmations].filter(Boolean).join("\n\n"),observations,investigation.selected.map(s=>s.meeting.id),coverage,reports.meetings.filter(m=>m.kind!=="missing").length+historicalReports.meetings.filter(m=>m.kind!=="missing").length),observations.flatMap(o=>o.evidence),revision,runId?runId+":assistant":undefined,[...reportSources([...context.meetings,...context.historical_meetings||[],...investigation.meetings.values()]),...investigation.contextSources,...inherited.sources],inherited.periods);
-  }finally{if(process.env.COACH_AUDIT_ENABLED==="true")await recordModelRuns(userId,"chat",runId||null,telemetry,revision).catch(()=>{});}
+   // The answer that crosses the day's ceiling says so; the next ones get the short refusal above.
+   const reachedCap=budget.spent+runCostUsd(telemetry)>=budget.cap?budgetNotice(budget.cap):"";
+   await store.addMessage("assistant",presentChat([...(proactive?[proactive==="morning"?"Foco do dia":proactive==="evening"?"Fechamento do dia":proactive==="meeting"?"Depois da reunião":"Um ponto de atenção"]:[]),answer,agenda,taskDone.join("\n"),...taskWaiting,...confirmations,reachedCap].filter(Boolean).join("\n\n"),observations,investigation.selected.map(s=>s.meeting.id),coverage,reportIds().length),observations.flatMap(o=>o.evidence),revision,runId?runId+":assistant":undefined,[...reportSources([...await store.reportMeetings(reportIds()),...investigation.meetings.values()]),...inherited.sources],inherited.periods);
+  }finally{await recordModelRuns(userId,proactive?`checkin_${proactive}`:"chat",runId||null,telemetry,revision).catch(()=>{});}
  });
 }
 
@@ -255,6 +314,9 @@ export async function generateReview(userId:string,now=new Date(),force=false,sc
   if(scheduled&&!profile.weekly_enabled)return null;
   const period=reviewPeriod(now,profile.timezone,profile.review_day,profile.review_hour);
   const reviews=await store.reviews();const existing=reviews.find(r=>r.week_start===period.weekStart);
+  // The scheduled run makes the week's review once; only the manual refresh (force) rewrites it.
+  if(scheduled&&existing)return existing;
+  const budget=await budgetState(userId,profile.timezone,now);if(budget.exceeded)throw new CoachBudgetError(budget.cap,profile.timezone,now);
   const [periodData,context,memories,self,messages,memoryAtPeriod,commitments,userReplies]=await Promise.all([store.analysesInPeriod(period.from,period.to),store.context("",{timezone:profile.timezone,now,period:{from:period.from,to:period.to,label:"período da revisão semanal"}}),store.memories(),store.selfPersonIds(),store.messages(),store.memoryContext(period.to),listCommitments(userId),store.userMessages()]);
   const analyses=periodData.analyses;
   const hasNewAnalysis=!!existing&&analyses.some(a=>new Date(a.created_at)>new Date(existing.created_at));
@@ -270,15 +332,21 @@ export async function generateReview(userId:string,now=new Date(),force=false,sc
   for(const meeting of weekMeetings)investigation.meetings.set(meeting.id,meeting);
   for(const e of bank.flatMap(o=>o.evidence))if(!Object.values(sources).some(old=>old.meeting_id===e.meeting_id&&old.quote===e.quote&&old.source_hash===e.source_hash))sources["e"+Object.keys(sources).length]=e;
   const telemetry:CoachTelemetry[]=[];const onTelemetry=(e:CoachTelemetry)=>telemetry.push(e);
-  const reports=buildMeetingReports(weekMeetings);
+  const reports=buildMeetingReports(weekMeetings,MODEL_CONTEXT.weeklyReportChars);
   const calendar=await calendarContext(userId,{from:period.from,to:period.to},{timezone:profile.timezone});
   periodData.limitations.push(...reports.limitations,...calendar.limitations);
-  const reviewData={profile,period,commitments,current_time:now.toISOString(),timezone:profile.timezone,calendar_context:calendar,meeting_reports:reports.meetings,memory_at_period:memoryAtPeriod,memories:usableMemories(memories),previous_reviews:reviews.filter(r=>!r.stale).slice(0,6),recent_conversation:messages.filter(m=>!m.stale&&(m.role==="user"||m.context_freshness!=="unknown")).slice(-12),tasks:context.tasks,task_events:context.events,task_summary:context.task_summary,task_selection:context.task_selection,context_selection:context.selection,
+  const goalsToReview=memories.filter(m=>m.kind==="goal"&&m.status==="confirmed"&&(!m.lifecycle||m.lifecycle==="active")&&!m.valid_until).map(m=>({area:m.goal_area==="life"?"vida":"trabalho",goal:m.content,due:m.goal_due||null,how_to_know:m.goal_measure||null}));
+  const previousReviews=reviews.filter(r=>!r.stale).slice(0,6);
+  const recentConversation=messages.filter(m=>!m.stale&&(m.role==="user"||m.context_freshness!=="unknown")).slice(-12);
+  const tasksSent=modelTasks(context.tasks),eventsSent=modelEvents(context.events);
+  const reviewData={profile,period,commitments,goals_to_review:goalsToReview,current_time:now.toISOString(),timezone:profile.timezone,calendar_context:modelCalendar(calendar),meeting_reports:reports.meetings,memory_at_period:memoryAtPeriod,memories:usableMemories(memories),previous_reviews:modelReviews(previousReviews,MODEL_CONTEXT.weeklyPreviousReviews),recent_conversation:modelMessages(recentConversation,MODEL_CONTEXT.history,MODEL_CONTEXT.historyChars),tasks:tasksSent,task_events:eventsSent,task_summary:context.task_summary,task_selection:modelTaskSelection(context.task_selection,tasksSent.length,eventsSent.length),context_selection:context.selection,
    meeting_summaries:weekMeetings.map(meeting=>({meeting_id:meeting.id,recorded_at:meeting.recorded_at,summaries:analyses.filter(a=>a.meeting_id===meeting.id).map(a=>a.summary)})),
    transcripts:selected.map(({meeting,chunk})=>({meeting_id:meeting.id,recorded_at:meeting.recorded_at,chunk_index:chunk.index,text:chunk.text,labeled_turns:labeledTurns(meeting,chunk,self)})),observations:bank,sources,meeting_count:weekMeetings.length,analysis_count:analyses.length,limitations:periodData.limitations};
-  const inherited=reportLineage([...reviewData.recent_conversation,...reviewData.previous_reviews.map(review=>review.content)]);
+  const inherited=reportLineage([...recentConversation,...previousReviews.map(review=>review.content)]);
   if(analyses.flatMap(a=>a.observations).length>bank.length)periodData.limitations.push("A síntese desta revisão seleciona até 100 observações verificadas; o restante permanece disponível na busca do histórico.");
-  const reviewInstruction=COACH_INVESTIGATION_INSTRUCTION+"\nEscreva uma revisão semanal franca e concisa sobre objetivos, prioridades e combinados pessoais. Use commitments, seus resultados e obstáculos relatados, metas e conversa; reuniões são contexto opcional. Retome o combinado relevante, reconheça avanço específico e escolha um ajuste útil. Quando a dificuldade é priorizar, proponha um foco substantivo a partir das alternativas e consequências conhecidas; não recicle apenas o exercício de escolher uma prioridade. Se faltam dados para propor um foco, explicite a lacuna decisiva e ajude a esclarecê-la. Respeite o propósito declarado da rotina existente. Não faça avaliação de condução de reuniões, 1:1, percepção do time ou monitoramento de agentes. Período é [from,to). Selecione evidence_ids do dicionário sources; o servidor liga cada ID ao trecho original, não reescreva citações. Escolha UM foco e UM experimento mensurável para a próxima semana, apenas no campo experiment principal. O experimento começa a partir de current_time: diga data futura explícita quando houver prazo; não reutilize a sexta-feira de uma fala antiga como prazo futuro. Todos os campos observations[].experiment devem ser a string vazia; não proponha outras ações, rotinas ou experimentos nos demais campos. Máximo 2 observations, as mais relevantes para esse foco, com hipótese e alternativa/contraprova explícitas. Headline deve ser uma proposta curta de foco, até 100 caracteres (ex.: 'Escolher um problema principal por dia'), nunca um diagnóstico pessoal. Ausência de evidência não prova ausência de hábito, intenção ou execução: diga apenas que isso não foi verificado no material disponível, sem afirmar que o usuário não faz algo. Compare com revisões anteriores sem inventar progresso. Sem reuniões novas, use os relatos e combinados disponíveis com atribuição ao usuário; ausência de reunião não impede acompanhamento. Se também não houver relato novo, explicite apenas essa lacuna e retome o combinado ainda relevante sem afirmar que não foi feito; não recicle reunião antiga como sendo desta semana. Progress curto e limitations específicas. Cada observação precisa de 1 a 4 evidence_ids, incluindo ao menos uma self_attributed=true. Sem sources, observations=[].";
+  const reviewInstruction=COACH_INVESTIGATION_INSTRUCTION+"\nEscreva uma revisão semanal franca e concisa sobre objetivos, prioridades e combinados pessoais. Use commitments, seus resultados e obstáculos relatados, metas e conversa; reuniões são contexto opcional. Retome o combinado relevante, reconheça avanço específico e escolha um ajuste útil. Quando a dificuldade é priorizar, proponha um foco substantivo a partir das alternativas e consequências conhecidas; não recicle apenas o exercício de escolher uma prioridade. Se faltam dados para propor um foco, explicite a lacuna decisiva e ajude a esclarecê-la. Respeite o propósito declarado da rotina existente. Não faça avaliação de condução de reuniões, 1:1, percepção do time ou monitoramento de agentes. Período é [from,to). Selecione evidence_ids do dicionário sources; o servidor liga cada ID ao trecho original, não reescreva citações. Escolha UM foco e UM experimento mensurável para a próxima semana, apenas no campo experiment principal. O experimento começa a partir de current_time: diga data futura explícita quando houver prazo; não reutilize a sexta-feira de uma fala antiga como prazo futuro. Todos os campos observations[].experiment devem ser a string vazia; não proponha outras ações, rotinas ou experimentos nos demais campos. Máximo 2 observations, as mais relevantes para esse foco, com hipótese e alternativa/contraprova explícitas. Headline deve ser uma proposta curta de foco, até 100 caracteres (ex.: 'Escolher um problema principal por dia'), nunca um diagnóstico pessoal. Ausência de evidência não prova ausência de hábito, intenção ou execução: diga apenas que isso não foi verificado no material disponível, sem afirmar que o usuário não faz algo. Compare com revisões anteriores sem inventar progresso. Sem reuniões novas, use os relatos e combinados disponíveis com atribuição ao usuário; ausência de reunião não impede acompanhamento. Se também não houver relato novo, explicite apenas essa lacuna e retome o combinado ainda relevante sem afirmar que não foi feito; não recicle reunião antiga como sendo desta semana. Em progress, passe por cada objetivo de goals_to_review, um por linha, trabalho e vida: avançou, travou ou sem registro nesta semana, e o próximo passo; objetivo de vida só com o que o usuário relatou, sem misturar com tarefas de trabalho. Limitations específicas. Cada observação precisa de 1 a 4 evidence_ids, incluindo ao menos uma self_attributed=true. Sem sources, observations=[].";
+  // Every model call of the review is recorded with its cost, even when the review fails.
+  const synthesize=async():Promise<ReviewContent>=>{
   let result=await coachCompletion(reviewInstruction,reviewData,()=>reviewSchemaWithSources(Object.keys(sources)),{reasoningEffort:"high",tools:investigation.tools,maxToolRounds:4,maxToolCalls:8,timeoutMs:180000,onTelemetry});
   const buildContent=(proposed:Record<string,unknown>,allowedSources:Record<string,Evidence>):ReviewContent=>{
    const refs=sourceReferences(proposed.observations,allowedSources);
@@ -316,7 +384,10 @@ export async function generateReview(userId:string,now=new Date(),force=false,sc
    if(correctionLimitation)content.limitations=[...new Set([...content.limitations,correctionLimitation])];
    await verifyCoachResult(verificationData,result,onTelemetry);
   }
-  if(process.env.COACH_AUDIT_ENABLED==="true")await recordModelRuns(userId,"weekly",null,telemetry,profile.revision).catch(()=>{});
+  return content;
+  };
+  let content:ReviewContent;
+  try{content=await synthesize();}finally{await recordModelRuns(userId,"weekly",null,telemetry,profile.revision).catch(()=>{});}
   if(!content.observations.length)content.limitations.unshift("Não há observações verificadas de reuniões neste período. Esta revisão usa relatórios/resumos disponíveis, objetivos, tarefas e conversas, sem avaliar conduta nas reuniões.");
   const saved=await store.saveReview(period.weekStart,content,coachModel(),profile.revision,!!existing);
   for(const obs of content.observations.slice(0,2))if(obs.hypothesis)try{await store.addMemory({kind:"pattern",content:obs.hypothesis,status:"hypothesis",evidence:obs.evidence},profile.revision);}catch(e){if(!(e instanceof MemoryPolicyError))throw e;}
@@ -326,6 +397,13 @@ export async function generateReview(userId:string,now=new Date(),force=false,sc
 /** A follow-up tied to one recorded meeting; avoids day words that would narrow the context to a period. */
 export function meetingFollowupQuestion(meetingId:string,localTime:string){
  return `Uma reunião foi registrada em ${localTime} (meeting_id=${meetingId}). Leia o relatório dela em meeting_reports ou com read_meeting_report. Se ela tratar de um combinado aberto do usuário, retome UM combinado pelo nome, ligado ao que a reunião mostra: se o relatório indicar avanço, reconheça-o como algo a confirmar e pergunte se o combinado pode ser dado como concluído; se indicar obstáculo, ajude com o próximo passo; se não deixar claro, pergunte se a reunião destravou o combinado. Relatório é contexto gerado: não afirme execução que ele não mostra. Se a reunião não tiver relação com um combinado aberto, ou se essa retomada já foi feita sem novidade, answer=SEM_NOVIDADE. Seja curto: até 60 palavras e no máximo uma pergunta.`;
+}
+/** What an 8h or 18h message says when the coaching part did not pass the checks; the 8h list is appended after it. */
+export async function checkinFallback(userId:string,kind:"morning"|"evening",timezone:string,now:Date){
+ if(kind==="morning")return "Sua lista de hoje está abaixo. Me diga por onde quer começar que eu te ajudo a priorizar.";
+ const due=await dueTasks(userId,timezone,now,30).catch(()=>null);
+ const today=(due?.items||[]).filter(item=>item.vence_hoje).slice(0,5).map(item=>`• ${item.titulo}`);
+ return today.length?["Como foi hoje? Estas venciam hoje e seguem abertas; alguma já saiu?",...today].join("\n"):"Como foi hoje? Me conta o que andou e o que travou.";
 }
 export function coachCheckinQuestion(kind:"morning"|"evening"|"nudge"){
  return kind==="morning"?"Ajude a pensar no que merece atenção hoje a partir dos objetivos, dificuldades conhecidas, prazos, dependências e combinados disponíveis. Se a dificuldade é priorizar, compare as alternativas concretas conhecidas e recomende um começo com seu motivo; não devolva apenas a ordem de escolher um foco. Aproveite o propósito declarado dos blocos existentes para propor uma questão útil a explorar na conversa. Se a prioridade já foi definida, prepare o próximo passo em vez de escolhê-la de novo. Se faltar informação decisiva, faça uma pergunta focal. Confira se algum combinado anterior precisa ser retomado antes de abrir outro. Uma proposta sua só vira combinado após aceite do usuário. O sistema anexa depois da sua resposta a lista do que vence hoje, das atrasadas e da agenda do dia: não repita essa lista."
@@ -339,6 +417,6 @@ export async function generateCheckin(userId:string,kind:"morning"|"evening"|"nu
  if(!meeting)return;
  const at=new Date((meeting as {context_at?:string}).context_at||meeting.recorded_at||now);
  const localTime=new Intl.DateTimeFormat("pt-BR",{timeZone:profile.timezone,day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}).format(at);
- return chatWithCoach(userId,meetingFollowupQuestion(meeting.id,localTime),now,runId,"meeting");
+ return chatWithCoach(userId,meetingFollowupQuestion(meeting.id,localTime),now,runId,"meeting",meeting.id);
 }
 export { StaleCoachRunError };

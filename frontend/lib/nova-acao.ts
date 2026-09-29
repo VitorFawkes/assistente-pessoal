@@ -40,7 +40,7 @@ export type PedidoDeAcao = {
   time_id?: string | null;
   /** Objetivo (que quem pede enxerga). */
   objetivo_id?: string | null;
-  origem: "manual" | "captura_texto" | "agente";
+  origem: "manual" | "captura_texto" | "agente" | "coach";
   raw?: string;
 };
 

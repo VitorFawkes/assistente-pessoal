@@ -1,11 +1,11 @@
 import { withTenant } from "../db";
 import { listCommitments } from "./coach-commitments";
-import { createHash } from "node:crypto";
-import { accountabilityFingerprint, commitmentsDueForFollowup, meetingMentionsCommitment } from "./follow-up";
+import { commitmentsDueForFollowup, meetingMentionsCommitment } from "./follow-up";
 import { coachStore } from "./store";
 import { reviewPeriod } from "./evidence";
 import { attentionBudget,claimJob,type ClaimedCoachJob,dueCheckins,enqueueJob,extraFollowupAllowed,finishJob,localJobDay,renewJob,type CadenceProfile,type CheckinKind } from "./jobs";
-import { CoachProviderUnavailableError } from "./model";
+import { CoachAIError, CoachProviderUnavailableError } from "./model";
+import { CoachBudgetError } from "./budget";
 
 /** Scheduled work waits past the next 15-minute runner tick; chat answers stay immediate. */
 export const PROVIDER_RETRY_DELAY_SECONDS=20*60;
@@ -26,12 +26,16 @@ export async function drainJobs(userId:string,options:{maxJobs?:number;deadline?
    else await service.generateCheckin(userId,job.payload.checkin as CheckinKind,new Date(),job.id,typeof job.payload.meeting_id==="string"?job.payload.meeting_id:undefined);
    if(await finishJob(userId,job.id,job.lease_token)){completed++;await whatsapp(userId,job,"deliverJob");}
   }catch(error){
+   // Past the day's AI spend ceiling, scheduled work waits for the next day instead of burning its retries.
+   if(error instanceof CoachBudgetError){await finishJob(userId,job.id,job.lease_token,{error:error.message,retry:true,delaySeconds:error.retryAfterSeconds});continue;}
    const unavailable=job.kind!=="chat"&&error instanceof CoachProviderUnavailableError;
    const waitProvider=unavailable&&job.attempts<3;
-   const retry=error instanceof service.CoachBusyError||error instanceof service.CoachPendingError||waitProvider;
+   // The week has one review: when the checks reject it, it gets one more try later instead of being lost.
+   const reviewAgain=job.kind==="review"&&!unavailable&&error instanceof CoachAIError&&job.attempts<2;
+   const retry=error instanceof service.CoachBusyError||error instanceof service.CoachPendingError||waitProvider||reviewAgain;
    const stale=error instanceof service.StaleCoachRunError;
-   const message=stale?"Seu contexto mudou durante esta leitura. Faça um novo pedido.":waitProvider?"A IA do coach está indisponível agora. Vou tentar de novo automaticamente.":unavailable?"A IA do coach continuou indisponível. Seu histórico está preservado; tente novamente.":retry?"Aguardando a conclusão das análises em andamento.":"O coach não conseguiu concluir. Seu histórico está preservado; tente novamente.";
-   await finishJob(userId,job.id,job.lease_token,{error:message,retry,...(waitProvider?{delaySeconds:PROVIDER_RETRY_DELAY_SECONDS}:{})});
+   const message=stale?"Seu contexto mudou durante esta leitura. Faça um novo pedido.":waitProvider?"A IA do coach está indisponível agora. Vou tentar de novo automaticamente.":reviewAgain?"A revisão não passou na conferência. Vou tentar de novo automaticamente.":unavailable?"A IA do coach continuou indisponível. Seu histórico está preservado; tente novamente.":retry?"Aguardando a conclusão das análises em andamento.":"O coach não conseguiu concluir. Seu histórico está preservado; tente novamente.";
+   await finishJob(userId,job.id,job.lease_token,{error:message,retry,...(waitProvider||reviewAgain?{delaySeconds:PROVIDER_RETRY_DELAY_SECONDS}:{})});
    if(!retry){failed++;await whatsapp(userId,job,"notifyChatFailure");}
   }finally{clearInterval(heartbeat);}
  }
@@ -48,14 +52,12 @@ export async function scheduleCoachJobs(userId:string,now=new Date()){
  const store=coachStore(userId);const profile=await store.profile();if(!profile.enabled)return;
  const coverage=await store.coverage();
  if(coverage.pending_meetings>0)await enqueueJob(userId,{kind:"analyze",key:`scheduled:analyze:${Math.floor(now.getTime()/900000)}:${coverage.analyzed_chunks}:${coverage.pending_meetings}`});
- const commitments=profile.weekly_enabled||profile.nudges_enabled?await listCommitments(userId):[];
+ const commitments=profile.nudges_enabled?await listCommitments(userId):[];
  if(profile.weekly_enabled){
+  // One scheduled review per week, right after its slot. Changes during the week wait for the next one
+  // (or the manual refresh): regenerating on every new message cost 20 model calls in 4 days.
   const period=reviewPeriod(now,profile.timezone,profile.review_day,profile.review_hour);
-  const week=await store.analysesInPeriod(period.from,period.to);
-  const newest=week.analyses.reduce((last,item)=>item.created_at>last?item.created_at:last,"")||"empty";
-  const [memories,messages]=await Promise.all([store.memories(),store.userMessages()]);
-  const fingerprint=createHash("sha256").update(JSON.stringify([week.report_fingerprint||"legacy",newest,accountabilityFingerprint(commitments,memories,messages)])).digest("hex");
-  await enqueueJob(userId,{kind:"review",key:`scheduled:review:${period.weekStart}:${profile.revision}:${fingerprint}`});
+  if(!(await store.reviews()).some(review=>review.week_start===period.weekStart))await enqueueJob(userId,{kind:"review",key:`scheduled:review:${period.weekStart}:${profile.revision}`});
  }
  const cadence=profile as typeof profile & CadenceProfile;
  if(!cadence.morning_enabled&&!cadence.evening_enabled&&!cadence.nudges_enabled)return;

@@ -2,7 +2,14 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { chatWithCoach, generateReview, generateCheckin, grounded, analyzeMeetings } from "./service";
 import * as stores from "./store";
 import * as commitments from "./coach-commitments";
-import { CoachAIError } from "./model";
+import * as budget from "./budget";
+import * as taskActions from "./task-actions";
+import * as assistant from "./assistant";
+import type { Dossier } from "./assistant-types";
+import { meetingReport, transcriptFallbackMeetings } from "./meeting-reports";
+import { selectChunks } from "./investigation";
+import { CoachAIError, CoachProviderUnavailableError } from "./model";
+import * as agenda from "./morning-agenda";
 import type { CoachMeeting, CoachMemory, CoachCommitment, CoachCommitmentReceipt, CoachMessage, CoachReview, ReportSource, ReportPeriodSource, Observation, ReviewContent } from "./types";
 const meeting:CoachMeeting={id:"owned",nome:"QA",original_filename:"qa",recorded_at:null,transcription:"Eu vou concluir uma única prioridade.",segments:[{speaker:"A",start:1,end:5,text:"Eu vou concluir uma única prioridade."}],speaker_labels:{A:"QA"},speaker_pessoas:{A:"self"}};
 const observation={competency:"focus",observation:"Uma prioridade",hypothesis:"Mais foco",alternative:"Pontual",experiment:"Acompanhar",evidence:[{meeting_id:"owned",chunk_index:0,quote:meeting.transcription}]};
@@ -31,19 +38,25 @@ afterEach(()=>{
 
 // Stub only external persistence and HTTP: exercise the real schema, investigation,
 // grounding, verifier, authorization and presentation code together.
-function fixture(meetings:CoachMeeting[],result:Record<string,unknown>,periodObservations:Observation[]=[],options:{storedMessages?:CoachMessage[];retrievedMessages?:CoachMessage[];storedReviews?:CoachReview[];resynthesis?:Record<string,unknown>;supported?:boolean;receipt?:string;existingAssistantKey?:string;existingUserKey?:string;storedMemories?:CoachMemory[];storedCommitments?:CoachCommitment[];nullMutation?:boolean;allowCommitmentWrites?:boolean;concurrentProfileRevision?:number;periodComplete?:boolean;verificationResults?:boolean[];verificationRepair?:Record<string,unknown>;toolContext?:{query:string;context:Record<string,unknown>;at:string;memory:Record<string,unknown>};verifyContext?:(data:Record<string,unknown>)=>boolean}={}){
+function fixtureDossier(meetings:CoachMeeting[],question:string):Dossier{
+ const reunioes=meetings.map(m=>({id:m.id,titulo:m.nome||m.original_filename,data:m.recorded_at,participantes:[],resumo:meetingReport(m).text?.slice(0,700)||"",resumo_parcial:false,ligacao:"texto" as const}));
+ return {pessoas_citadas:[],reunioes_citadas:[],consultas:reunioes.length?[{consulta:"reuniões ligadas à pergunta",tipo:"reunioes_por_assunto",total:reunioes.length,mostrados:reunioes.length,reunioes}]:[],limitacoes:[],excerpts:selectChunks(transcriptFallbackMeetings(meetings),question,6)};
+}
+const toolNames=(tools:unknown)=>((tools as {name?:string;function?:{name:string}}[]|undefined)||[]).map(t=>t.function?.name??t.name);
+function fixture(meetings:CoachMeeting[],result:Record<string,unknown>,periodObservations:Observation[]=[],options:{storedMessages?:CoachMessage[];retrievedMessages?:CoachMessage[];storedReviews?:CoachReview[];resynthesis?:Record<string,unknown>;supported?:boolean;receipt?:string;existingAssistantKey?:string;existingUserKey?:string;storedMemories?:CoachMemory[];storedCommitments?:CoachCommitment[];nullMutation?:boolean;allowCommitmentWrites?:boolean;concurrentProfileRevision?:number;periodComplete?:boolean;verificationResults?:boolean[];verificationRepair?:Record<string,unknown>;toolContext?:{query:string;context:Record<string,unknown>;at:string;memory:Record<string,unknown>};verifyContext?:(data:Record<string,unknown>)=>boolean;dossier?:Dossier;askAssistant?:string}={}){
  const saved:{id:string;role:string;content:string;evidence:unknown[];idempotency_key?:string;context_sources:ReportSource[];context_periods:ReportPeriodSource[]}[]=[];
  const memories:unknown[]=[];
  const reviews:ReviewContent[]=[];
  let modelInput:Record<string,unknown>={};
  let checkerInput:Record<string,unknown>={};const checkerInputs:Record<string,unknown>[]=[];
  let resynthesisInput:Record<string,unknown>={};
- let contextRequest:unknown;let repairInput:Record<string,unknown>={};let repairTools:unknown;const repairOutcomeWrites:number[]=[];
+ let contextRequest:unknown;let repairInput:Record<string,unknown>={};let repairTools:unknown;let mainTools:unknown;const repairOutcomeWrites:number[]=[];
  let requests=0,checks=0,commitmentWrites=0;const goalWrites:unknown[]=[];const tracked:unknown[]=[];const outcomes:unknown[]=[];const commitmentUpdates:unknown[]=[];
  const fake={
   profile:async()=>({enabled:true,weekly_enabled:true,revision:tracked.length&&options.concurrentProfileRevision?options.concurrentProfileRevision:1,goals:"",context:"",timezone:"America/Sao_Paulo",review_day:5,review_hour:17}),
   claimLease:async()=>"lease",releaseLease:async()=>{},runReceipt:async()=>options.receipt||null,
   meetingById:async(id:string)=>{const found=meetings.find(item=>item.id===id);return found?{...found,context_at:found.recorded_at}:null;},
+  reportMeetings:async(ids:string[])=>meetings.filter(item=>ids.includes(item.id)),
   context:async(search?:string,contextOptions?:unknown)=>{contextRequest={search,options:contextOptions};return {meetings,messages:options.retrievedMessages||[],tasks:[],events:[],analyses:[],limitations:[],...(options.toolContext&&search===options.toolContext.query?options.toolContext.context:{})};},
   memories:async()=>options.storedMemories||[],memoryContext:async(at?:string)=>(options.toolContext&&at===options.toolContext.at?options.toolContext.memory:{active_goals:[],corrections:options.storedMemories||[],memories:[],legacy_goals:null}),messages:async()=>options.storedMessages||[],userMessages:async()=>(options.storedMessages||[]).filter(m=>m.role==="user"),selfPersonIds:async()=>["self"],reviews:async()=>options.storedReviews||[],
   coverage:async()=>({total_meetings:137,analyzed_meetings:2,analyzed_chunks:3,pending_meetings:135}),
@@ -57,6 +70,9 @@ function fixture(meetings:CoachMeeting[],result:Record<string,unknown>,periodObs
   saveReview:async(_week:string,content:ReviewContent)=>{reviews.push(content);return {content};},
  } as unknown as ReturnType<typeof stores.coachStore>;
  const storeSpy=spyOn(stores,"coachStore").mockReturnValue(fake);
+ // The assistant's lookups are replaced by a dossier built from the fixture's meetings (or the one given).
+ const dossierSpy=spyOn(assistant,"buildDossier").mockImplementation(async input=>options.dossier??fixtureDossier(meetings,input.message));
+ const proactiveSpy=spyOn(assistant,"proactiveDossier").mockImplementation(async()=>options.dossier??fixtureDossier(meetings,""));
  const commitmentsSpy=spyOn(commitments,"listCommitments").mockResolvedValue(options.storedCommitments||[]);
  const createSpy=spyOn(commitments,"createCommitment").mockImplementation(async()=>{commitmentWrites++;throw new Error("Unexpected commitment write in this fixture");});
  const trackSpy=spyOn(commitments,"trackCommitment").mockImplementation(async(_user,input)=>{if(!options.allowCommitmentWrites)throw new Error("Unexpected tracked agreement");tracked.push(input);return {id:"tracked",...input,tarefa_id:null,status:"open",profile_revision:2} as unknown as CoachCommitmentReceipt;});
@@ -75,7 +91,10 @@ function fixture(meetings:CoachMeeting[],result:Record<string,unknown>,periodObs
   }else if(request.messages[0].content.includes("RESSÍNTESE APÓS CORREÇÃO")){
    resynthesisInput=input;output=options.resynthesis||result;
   }else{
-   modelInput=input;
+   modelInput=input;mainTools=request.tools;
+   if(options.askAssistant&&!request.messages.some((message:{role:string})=>message.role==="tool")){
+    return Response.json({choices:[{finish_reason:"tool_calls",message:{content:null,tool_calls:[{id:"ask",type:"function",function:{name:"pedir_ao_assistente",arguments:JSON.stringify({pedido:options.askAssistant})}}]}}],usage:{prompt_tokens:100,completion_tokens:30}});
+   }
    if(options.toolContext&&!request.messages.some((message:{role:string})=>message.role==="tool")){
     return Response.json({choices:[{finish_reason:"tool_calls",message:{content:null,tool_calls:[
      {id:"read-tasks",type:"function",function:{name:"read_tasks",arguments:JSON.stringify({query:options.toolContext.query})}},
@@ -86,7 +105,7 @@ function fixture(meetings:CoachMeeting[],result:Record<string,unknown>,periodObs
   }
   return Response.json({choices:[{finish_reason:"stop",message:{content:JSON.stringify(output)}}],usage:{prompt_tokens:100,completion_tokens:30}});
  }) as unknown as typeof fetch;
- return {saved,memories,reviews,goalWrites,tracked,outcomes,commitmentUpdates,input:()=>modelInput,checkerInput:()=>checkerInput,checkerInputs:()=>checkerInputs,resynthesisInput:()=>resynthesisInput,repairInput:()=>repairInput,repairTools:()=>repairTools,repairOutcomeWrites,requests:()=>requests,checks:()=>checks,commitmentWrites:()=>commitmentWrites,contextRequest:()=>contextRequest,restore:()=>{storeSpy.mockRestore();commitmentsSpy.mockRestore();createSpy.mockRestore();trackSpy.mockRestore();outcomeSpy.mockRestore();updateSpy.mockRestore();}};
+ return {saved,memories,reviews,goalWrites,tracked,outcomes,commitmentUpdates,input:()=>modelInput,checkerInput:()=>checkerInput,checkerInputs:()=>checkerInputs,resynthesisInput:()=>resynthesisInput,repairInput:()=>repairInput,repairTools:()=>repairTools,mainTools:()=>mainTools,repairOutcomeWrites,requests:()=>requests,checks:()=>checks,commitmentWrites:()=>commitmentWrites,contextRequest:()=>contextRequest,restore:()=>{storeSpy.mockRestore();dossierSpy.mockRestore();proactiveSpy.mockRestore();commitmentsSpy.mockRestore();createSpy.mockRestore();trackSpy.mockRestore();outcomeSpy.mockRestore();updateSpy.mockRestore();}};
 }
 
 test("saved chat preserves grounded hypothesis and alternative, with actual selected coverage",async()=>{
@@ -166,13 +185,14 @@ test("today questions use the user's timezone and include dates on retrieved tra
  const now=new Date("2026-09-20T01:00:00Z");
  try{
   await chatWithCoach("synthetic-user","Como foi meu dia hoje?",now);
-  expect(run.contextRequest()).toEqual({search:"Como foi meu dia hoje?",options:{timezone:"America/Sao_Paulo",now}});
+  expect(assistant.buildDossier).toHaveBeenCalledWith(expect.objectContaining({message:"Como foi meu dia hoje?",lane:"coach",timezone:"America/Sao_Paulo",now}));
   expect(run.input().current_time).toBe(now.toISOString());
   expect(run.input().timezone).toBe("America/Sao_Paulo");
-  expect(run.input().transcripts).toMatchObject([{recorded_at:dated.recorded_at}]);
+  // The model reads each record date once, in the user's timezone.
+  expect(run.input().transcripts).toMatchObject([{recorded_at_local:"19/09/2026, 09:00:00 (America/Sao_Paulo)"}]);
+  expect((run.input().transcripts as Record<string,unknown>[])[0]).not.toHaveProperty("recorded_at");
  }finally{run.restore();}
 });
-
 test("explicit user goals become literal self-report memories",async()=>{
  const message="Meu objetivo agora é delegar a operação comercial.";
  const run=fixture([],{answer:"Vamos usar esse objetivo para escolher o próximo passo.",observations:[],memories:[],user_memories:[{kind:"goal",quote:message}]});
@@ -427,16 +447,20 @@ test("when every weekly quote is vetoed the resynthesis may reflect on goals wit
 });
 
 
-test("report-first chat sends existing reports for all supplied meetings without transcript by default",async()=>{
+test("report-first chat reads the reports the assistant found, without transcripts",async()=>{
  const meetings=Array.from({length:12},(_,index)=>({...meeting,id:`reported-${index}`,summary:"Resumo curto",executive_summary:`## Decisões\nFrente ${index}: preparar proposta.`}));
  const run=fixture(meetings,{answer:"Pelos relatórios, escolha a proposta mais ligada ao objetivo antes de abrir outra frente.",observations:[],memories:[]});
  try{
   await chatWithCoach("synthetic-user","Como organizar hoje?");
   expect(run.input().transcripts).toEqual([]);
   expect(run.input().sources).toEqual({});
-  expect(run.input().meeting_reports).toHaveLength(12);
+  expect((run.input().assistant_dossier as {consultas:{reunioes:unknown[]}[]}).consultas[0].reunioes).toHaveLength(12);
+  expect(run.input()).not.toHaveProperty("meeting_reports");
+  expect(toolNames(run.mainTools())).toEqual(["pedir_ao_assistente"]);
   expect(run.saved[1].evidence).toEqual([]);
   expect(run.saved[1].content).toContain("relatórios/resumos de 12 reuniões");
+  // The reply goes stale if any report it read changes later.
+  expect(run.saved[1].context_sources.map(source=>source.meeting_id).sort()).toEqual(meetings.map(m=>m.id).sort());
  }finally{run.restore();}
 });
 test("weekly uses reports even while full behavioral analysis backlog is incomplete",async()=>{
@@ -510,15 +534,16 @@ test("a repaired authorized action is validated and committed once only after it
 const priorPeriod={from:"1999-01-01T00:00:00.000Z",to:"1999-01-08T00:00:00.000Z",fingerprint:"empty-period-version"};
 const inheritedMessage=(id:string):CoachMessage=>({id,role:"assistant",content:"Orientação baseada em relatório anterior.",evidence:[],created_at:"2026-09-01T12:00:00Z",context_version:1,context_freshness:"current",context_sources:[{meeting_id:id,context_hash:"historical-report-version"}],context_periods:[priorPeriod]});
 const inheritedReview:CoachReview={id:"old-review",week_start:"1999-01-01",model:"fixture",created_at:"1999-01-08T12:00:00Z",content:{headline:"Foco anterior",focus:"Contexto anterior",observations:[],progress:"Sem novas evidências",experiment:"Rever a prioridade",question:"",limitations:[],context_sources:[{meeting_id:"review-source",context_hash:"review-version"}],report_context:priorPeriod}};
-test("chat inherits sources and period membership only from guidance actually supplied to the model",async()=>{
+test("chat inherits sources and period membership only from the history and reviews it read",async()=>{
  const history=inheritedMessage("history-source"),retrieved=inheritedMessage("retrieved-source");
  const stale={...inheritedMessage("stale-source"),stale:true};
  const unknown={...inheritedMessage("unknown-source"),context_freshness:"unknown" as const};
  const run=fixture([],{answer:"Confirme se a prioridade anterior continua válida antes de retomá-la.",observations:[],memories:[]},[],{storedMessages:[history,stale,unknown],retrievedMessages:[retrieved,stale],storedReviews:[inheritedReview,{...inheritedReview,id:"stale-review",stale:true,content:{...inheritedReview.content,context_sources:[{meeting_id:"stale-review-source",context_hash:"old"}]}}]});
  try{
   await chatWithCoach("synthetic-user","Qual próximo passo?");
-  expect(run.saved[1].context_sources).toEqual(expect.arrayContaining([...history.context_sources!,...retrieved.context_sources!,...inheritedReview.content.context_sources!]));
-  expect(run.saved[1].context_sources).toHaveLength(3);
+  expect(run.saved[1].context_sources).toEqual(expect.arrayContaining([...history.context_sources!,...inheritedReview.content.context_sources!]));
+  // Older conversations are no longer searched into the package, so they cannot be inherited.
+  expect(run.saved[1].context_sources).toHaveLength(2);
   expect(run.saved[1].context_periods).toEqual([priorPeriod]);
  }finally{run.restore();}
 });
@@ -538,7 +563,9 @@ test("weekly review receives accepted agreements and their latest outcomes witho
  const run=fixture([],{headline:"Destravar a proposta",focus:"Confirmar o preço pendente",observations:[],progress:"Pelo seu relato, o preço ainda falta.",experiment:"Pedir o preço antes de outra frente",question:"",limitations:[]},[],{storedCommitments:[commitment]});
  try{
   await generateReview("synthetic-user",new Date("2026-09-21T12:00:00Z"));
-  expect(run.input().commitments).toMatchObject([commitment]);
+  const {created_at,updated_at,user_id,...rest}=commitment;
+  expect(run.input().commitments).toMatchObject([{...rest,created_at_local:"20/09/2026, 07:00:00 (America/Sao_Paulo)",updated_at_local:"20/09/2026, 09:00:00 (America/Sao_Paulo)"}]);
+  expect(created_at&&updated_at&&user_id).toBeTruthy();
   expect(run.reviews).toHaveLength(1);
  }finally{run.restore();}
 });
@@ -664,28 +691,39 @@ function hasDecisionReadFacts(data:Record<string,unknown>):boolean{
   &&reads.some(read=>read.tool==="read_memory"&&read.input.at==="2026-09-01T12:00:00Z"&&read.result.active_goals?.some(goal=>goal.content==="Expandir aquisição"));
 }
 
-test("forwarded task and memory reads support chat verification and its bounded repair",async()=>{
+test("the verifier and its bounded repair read the same assistant dossier the Coach read, with no tools of their own",async()=>{
  const initial={answer:"Aurora ainda é sua prioridade atual e você já resolveu o preço.",observations:[],memories:[]};
- const repaired={answer:"A tarefa Aurora depende da sua decisão de preço. A meta de aquisição é de 1º de setembro; confirme se ainda vale antes de priorizar o envio.",observations:[],memories:[]};
- const run=fixture([],initial,[],{toolContext:decisionReadContext,verifyContext:hasDecisionReadFacts,verificationResults:[false,true],verificationRepair:repaired});
+ const repaired={answer:"A tarefa Aurora depende da sua decisão de preço; confirme se ainda vale antes de priorizar o envio.",observations:[],memories:[]};
+ const dossier:Dossier={pessoas_citadas:[],reunioes_citadas:[],limitacoes:[],excerpts:[],consultas:[{consulta:"tarefas sobre Aurora",tipo:"tarefas_por_assunto",total:1,mostrados:1,tarefas:[{titulo:"Definir preço Aurora",owner:"vitor",status:"aberta",prazo:"2026-09-22T14:00:00Z",prioridade:"alta",criada_em:"2026-09-10T12:00:00Z",concluida_em:null,reuniao:null}]}]};
+ const hasAurora=(data:Record<string,unknown>)=>JSON.stringify(data?.assistant_dossier??{}).includes("Definir preço Aurora");
+ const run=fixture([],initial,[],{dossier,verifyContext:hasAurora,verificationResults:[false,true],verificationRepair:repaired});
  try{
   await chatWithCoach("synthetic-user","Como deve ser minha rotina amanhã?",new Date("2026-09-21T18:00:00Z"));
-  expect(run.input().tasks).toEqual([]);
+  expect(hasAurora(run.input())).toBe(true);
+  expect(toolNames(run.mainTools())).toEqual(["pedir_ao_assistente"]);
   expect(run.checkerInputs()).toHaveLength(2);
-  for(const check of run.checkerInputs())expect(hasDecisionReadFacts(check.data as Record<string,unknown>)).toBe(true);
-  expect(hasDecisionReadFacts(run.repairInput())).toBe(true);
-  expect(run.repairInput().additional_context_reads).toMatchObject([
-   {tool:"read_tasks",result:{tasks:[{prazo_local:"22/09/2026, 11:00:00 (America/Sao_Paulo)"}],selection:{tasks_selected:1,tasks_total:80}}},
-   {tool:"read_memory",input:{at:"2026-09-01T12:00:00Z",at_local:"01/09/2026, 09:00:00 (America/Sao_Paulo)"}},
-  ]);
+  for(const check of run.checkerInputs())expect(hasAurora(check.data as Record<string,unknown>)).toBe(true);
+  expect(hasAurora(run.repairInput())).toBe(true);
   expect(run.repairTools()).toBeUndefined();
-  expect(run.requests()).toBe(5);expect(run.saved).toHaveLength(2);
-  expect(run.saved[1].content).toContain("A tarefa Aurora depende da sua decisão de preço.");
+  expect(run.requests()).toBe(4);expect(run.saved).toHaveLength(2);
+  expect(run.saved[1].content).toContain("A tarefa Aurora depende da sua decisão de preço");
   expect(run.saved[1].content).not.toContain("você já resolveu o preço");
-  expect(run.memories).toEqual([]);expect(run.commitmentWrites()).toBe(0);
  }finally{run.restore();}
 });
-
+test("the Coach asks the assistant for data its dossier lacks; the verifier reads what came back",async()=>{
+ const extra:Dossier={pessoas_citadas:[],reunioes_citadas:[],limitacoes:[],excerpts:[],consultas:[{consulta:"reuniões com Ana",tipo:"reunioes_da_pessoa",total:1,mostrados:1,reunioes:[{id:meeting.id,titulo:"Papel da Ana",data:"2026-09-19T12:57:00Z",participantes:["Ana"],resumo:"Relatório: Ana assume projetos e operação.",resumo_parcial:false,ligacao:"participou"}]}]};
+ const run=fixture([meeting],{answer:"Segundo o relatório de 19/09, a Ana assume projetos e operação: comece confirmando o que isso muda na rotina dela.",observations:[],memories:[]},[],{askAssistant:"reuniões com a Ana sobre o papel dela",dossier:{pessoas_citadas:[],reunioes_citadas:[],limitacoes:[],excerpts:[],consultas:[]}});
+ const lookups=spyOn(assistant,"buildDossier").mockImplementation(async input=>input.message==="reuniões com a Ana sobre o papel dela"?extra:{pessoas_citadas:[],reunioes_citadas:[],limitacoes:[],excerpts:[],consultas:[]});
+ try{
+  await chatWithCoach("synthetic-user","Me ajuda a preparar a conversa com a Ana sobre o papel dela");
+  expect(lookups.mock.calls.map(([input])=>[input.message,input.lane])).toEqual([["Me ajuda a preparar a conversa com a Ana sobre o papel dela","coach"],["reuniões com a Ana sobre o papel dela","tarefas"]]);
+  expect(run.requests()).toBe(3);
+  const checked=run.checkerInputs()[0].data as {additional_dossiers:{pedido:string}[]};
+  expect(checked.additional_dossiers.map(d=>d.pedido)).toEqual(["reuniões com a Ana sobre o papel dela"]);
+  expect(JSON.stringify(checked.additional_dossiers)).toContain("Ana assume projetos e operação");
+  expect(run.saved[1].context_sources.map(source=>source.meeting_id)).toEqual([meeting.id]);
+ }finally{lookups.mockRestore();run.restore();}
+});
 test("forwarded task and memory reads survive weekly correction resynthesis and repair without restoring vetoed evidence",async()=>{
  const first={...independentWeekly,observations:[{...observation,evidence:undefined,evidence_ids:["e0"],experiment:""},...independentWeekly.observations]};
  const repaired={...independentWeekly,headline:"Destravar preço da proposta Aurora",focus:"A tarefa Aurora depende da decisão de preço.",experiment:"Rever o preço antes de decidir se envia a proposta; a meta de aquisição consultada é histórica."};
@@ -759,4 +797,156 @@ test("two quoted questions in action guidance receive one repair before persisti
   expect(run.saved[1].content).not.toContain("Quer ajuda para pedir o preço");
   expect(run.commitmentWrites()).toBe(0);expect(run.memories).toEqual([]);
  }finally{run.restore();}
+});
+
+test("the package a chat sends stays bounded with a long history and a full dossier",async()=>{
+ const lineage="b".repeat(64);
+ const storedMessages=Array.from({length:24},(_,i)=>({id:`h${i}`,role:i%2?"assistant":"user",content:i%2?`**Orientação**\n\n${"Resposta longa. ".repeat(200)}`:`Pergunta ${i}`,evidence:[],created_at:`2026-09-2${i%5}T12:00:00Z`,context_freshness:"current",context_sources:Array.from({length:30},(_,j)=>({meeting_id:`m${j}`,context_hash:lineage}))})) as CoachMessage[];
+ const tarefa=(i:number)=>({titulo:`Tarefa ${i} ${"com descrição ".repeat(8)}`,owner:"Ana",status:"aberta",prazo:"2026-09-28T15:00:00Z",prioridade:"alta",criada_em:"2026-09-01T12:00:00Z",concluida_em:null,reuniao:{titulo:"Reunião de produto",data:"2026-09-20T12:00:00Z"}});
+ const reuniao=(i:number)=>({id:`m${i}`,titulo:`Reunião ${i}`,data:"2026-09-20T12:00:00Z",participantes:["Ana","Tiago"],resumo:"Decisão. ".repeat(80),resumo_parcial:true});
+ const dossier:Dossier={pessoas_citadas:[],reunioes_citadas:[],limitacoes:[],excerpts:[],consultas:[
+  {consulta:"tarefas da Ana",tipo:"tarefas_da_pessoa",total:40,mostrados:20,tarefas:Array.from({length:20},(_,i)=>tarefa(i))},
+  {consulta:"reuniões com a Ana",tipo:"reunioes_da_pessoa",total:9,mostrados:5,reunioes:Array.from({length:5},(_,i)=>reuniao(i))},
+ ]};
+ const run=fixture([],{answer:"Comece pela proposta.",observations:[],memories:[]},[],{storedMessages,dossier});
+ try{
+  await chatWithCoach("synthetic-user","Como organizar hoje?",new Date("2026-09-25T12:00:00Z"));
+  const sent=JSON.stringify(run.input());
+  // Before the assistant this package passed 400 thousand characters, re-sent to the verifier.
+  expect(sent.length).toBeLessThan(45000);
+  expect(sent).not.toContain(lineage);
+  expect(run.input().history).toHaveLength(12);
+  expect(toolNames(run.mainTools())).toEqual(["pedir_ao_assistente"]);
+ }finally{run.restore();}
+});
+test("past the day's AI spend ceiling a message gets a short refusal without any model call",async()=>{
+ const run=fixture([],{answer:"Não deveria chamar a IA.",observations:[],memories:[]});
+ const state=spyOn(budget,"budgetState").mockResolvedValue({cap:3,spent:3.4,exceeded:true});
+ try{
+  await chatWithCoach("synthetic-user","Me ajuda a escolher o foco de hoje?",new Date("2026-09-25T12:00:00Z"),"capped-run");
+  expect(run.requests()).toBe(0);
+  expect(run.saved.map(message=>message.role)).toEqual(["user","assistant"]);
+  expect(run.saved[1]).toMatchObject({content:budget.budgetReply(3),idempotency_key:"capped-run:assistant"});
+ }finally{state.mockRestore();run.restore();}
+});
+
+test("past the ceiling a scheduled check-in stays silent and the weekly review waits for the next day",async()=>{
+ const run=fixture([],{answer:"Não deveria chamar a IA.",observations:[],memories:[]});
+ const state=spyOn(budget,"budgetState").mockResolvedValue({cap:3,spent:3,exceeded:true});
+ try{
+  await generateCheckin("synthetic-user","morning",new Date("2026-09-25T11:00:00Z"),"morning-run");
+  expect(run.requests()).toBe(0);expect(run.saved).toEqual([]);
+  const error=await generateReview("synthetic-user",new Date("2026-09-25T20:00:00Z")).catch(e=>e);
+  expect(error).toBeInstanceOf(budget.CoachBudgetError);
+  // 17h in São Paulo: it tries again at 00:05.
+  expect((error as budget.CoachBudgetError).retryAfterSeconds).toBe(7*3600+5*60);
+  expect(run.requests()).toBe(0);
+ }finally{state.mockRestore();run.restore();}
+});
+
+test("the answer that reaches the ceiling tells the user",async()=>{
+ const run=fixture([],{answer:"Comece pela proposta.",observations:[],memories:[]});
+ const state=spyOn(budget,"budgetState").mockResolvedValue({cap:3,spent:2.9999,exceeded:false});
+ try{
+  await chatWithCoach("synthetic-user","Como organizar hoje?",new Date("2026-09-25T12:00:00Z"));
+  expect(run.requests()).toBe(2);
+  expect(run.saved[1].content).toContain(budget.budgetNotice(3));
+ }finally{state.mockRestore();run.restore();}
+});
+
+test("a message about tasks goes through the cheap lane: no coaching call and no verifier",async()=>{
+ const run=fixture([],{answer:"Não deveria chamar o coaching.",observations:[],memories:[]});
+ const handled=spyOn(taskActions,"handleTaskMessage").mockResolvedValue({done:['Concluí "Enviar proposta".'],waiting:["Posso concluir as 5 do Tiago? Responda sim ou não."],lane:"tarefas"});
+ const answer=spyOn(assistant,"answerInfo").mockResolvedValue("Ainda estão atrasadas: Cobrar contrato com a Paula (23/09).");
+ try{
+  await chatWithCoach("synthetic-user","Concluí a proposta. O que mais está atrasado?",new Date("2026-09-25T12:00:00Z"),"task-run");
+  expect(run.requests()).toBe(0);
+  expect(answer).toHaveBeenCalledTimes(1);
+  expect(run.saved.map(message=>message.role)).toEqual(["user","assistant"]);
+  expect(run.saved[1].content).toContain("Ainda estão atrasadas");
+  expect(run.saved[1].content).toContain('Concluí "Enviar proposta".');
+  // What the server did comes first; the question still waiting for a yes comes after the answer.
+  const content=run.saved[1].content;
+  expect(content.indexOf("Concluí")).toBeLessThan(content.indexOf("Ainda estão atrasadas"));
+  expect(content.indexOf("Ainda estão atrasadas")).toBeLessThan(content.indexOf("Posso concluir as 5 do Tiago?"));
+  expect(answer.mock.calls[0][0]).toMatchObject({done:['Concluí "Enviar proposta".'],waiting:["Posso concluir as 5 do Tiago? Responda sim ou não."]});
+  expect(run.saved[1].idempotency_key).toBe("task-run:assistant");
+ }finally{handled.mockRestore();answer.mockRestore();run.restore();}
+});
+
+test("coaching keeps the full answer with its verifier",async()=>{
+ const run=fixture([],{answer:"Comece pela proposta que destrava o contrato.",observations:[],memories:[]});
+ const handled=spyOn(taskActions,"handleTaskMessage").mockResolvedValue({done:[],waiting:[],lane:"coach"});
+ const answer=spyOn(assistant,"answerInfo").mockResolvedValue("não deveria ser usado");
+ try{
+  await chatWithCoach("synthetic-user","Estou travado, por onde começo hoje?",new Date("2026-09-25T12:00:00Z"));
+  expect(answer).not.toHaveBeenCalled();
+  expect(run.requests()).toBe(2);
+  expect(run.saved[1].content).toContain("Comece pela proposta");
+ }finally{handled.mockRestore();answer.mockRestore();run.restore();}
+});
+
+test("an 8h message the checks reject twice still goes out: the day's list and calendar, without the coaching part",async()=>{
+ const run=fixture([],{answer:"Comece pela proposta: ela destrava o contrato.",observations:[],memories:[]},[],{supported:false});
+ const list=spyOn(agenda,"morningAgenda").mockResolvedValue("**Para hoje**\n- Enviar proposta (vence hoje)");
+ try{
+  await generateCheckin("synthetic-user","morning",new Date("2026-09-28T11:00:00Z"),"morning-fallback");
+  expect(run.checks()).toBe(2);
+  expect(run.saved).toHaveLength(1);
+  const content=run.saved[0].content;
+  expect(content).toContain("Foco do dia");
+  expect(content).toContain("Sua lista de hoje está abaixo.");
+  expect(content).toContain("- Enviar proposta (vence hoje)");
+  expect(content).not.toContain("destrava o contrato");
+ }finally{list.mockRestore();run.restore();}
+});
+
+test("an 18h message the checks reject twice asks how the day went, naming what was due today",async()=>{
+ const run=fixture([],{answer:"Você concluiu a proposta?",observations:[],memories:[]},[],{supported:false});
+ const due=spyOn(agenda,"dueTasks").mockResolvedValue({due_today:1,overdue:1,listed:2,no_due:0,later:0,note:"",items:[
+  {id:"1",titulo:"Enviar proposta",owner:"vitor",acao:"executar",prazo:"2026-09-28T15:00:00.000Z",vence_hoje:true,shown_at_8h:true},
+  {id:"2",titulo:"Antiga",owner:"vitor",acao:"executar",prazo:"2026-09-20T15:00:00.000Z",vence_hoje:false,shown_at_8h:true}]});
+ try{
+  await generateCheckin("synthetic-user","evening",new Date("2026-09-28T21:00:00Z"),"evening-fallback");
+  const content=run.saved[0].content;
+  expect(content).toContain("Fechamento do dia");
+  expect(content).toContain("Como foi hoje? Estas venciam hoje e seguem abertas; alguma já saiu?");
+  expect(content).toContain("• Enviar proposta");
+  expect(content).not.toContain("Antiga");
+ }finally{due.mockRestore();run.restore();}
+});
+
+test("a conversation the checks reject still fails, and a provider outage never becomes the short 8h message",async()=>{
+ const run=fixture([],{answer:"Resposta sem base.",observations:[],memories:[]},[],{supported:false});
+ try{
+  await expect(chatWithCoach("synthetic-user","Como organizar hoje?",new Date("2026-09-28T12:00:00Z"))).rejects.toBeInstanceOf(CoachAIError);
+ }finally{run.restore();}
+ const down=fixture([],{answer:"x",observations:[],memories:[]});
+ const failing=globalThis.fetch;
+ globalThis.fetch=(async()=>new Response("{}",{status:503})) as unknown as typeof fetch;
+ try{
+  await expect(generateCheckin("synthetic-user","morning",new Date("2026-09-28T11:00:00Z"),"morning-down")).rejects.toBeInstanceOf(CoachProviderUnavailableError);
+  expect(down.saved).toEqual([]);
+ }finally{globalThis.fetch=failing;down.restore();}
+});
+
+test("goals the user announces are kept even when the model leaves them out (Vitor, 28/09)",async()=>{
+ const run=fixture([],{answer:"Comece pelas propostas mais perto de fechar.",observations:[],memories:[],user_memories:[]});
+ try{
+  await chatWithCoach("synthetic-user","Eu já entreguei a parte de produção\n\nAgora tenho 2 grandes objetivos\nVender mais e fazer vender mais hospedagem, passagens e extras para convidados.",new Date("2026-09-28T12:35:00Z"));
+  expect(run.memories).toEqual([{kind:"goal",content:"Informado por você na conversa: Agora tenho 2 grandes objetivos: Vender mais e fazer vender mais hospedagem, passagens e extras para convidados.",status:"confirmed",evidence:[]}]);
+  expect(run.saved[1].content).toContain("Guardei o que você informou");
+ }finally{run.restore();}
+});
+
+test("a conversation whose tasks changed still says what changed when the coaching part is rejected",async()=>{
+ const run=fixture([],{answer:"Resposta sem base.",observations:[],memories:[]},[],{supported:false});
+ const handled=spyOn(taskActions,"handleTaskMessage").mockResolvedValue({done:['Concluí "Enviar proposta".','Se não era isso, responda "desfaz".'],waiting:[],lane:"coach"});
+ try{
+  await chatWithCoach("synthetic-user","Concluí a proposta. E como priorizo o resto?",new Date("2026-09-28T12:00:00Z"),"mixed-run");
+  const content=run.saved[1].content;
+  expect(content).toContain("Não consegui fechar agora uma orientação segura");
+  expect(content).toContain('Concluí "Enviar proposta".');
+  expect(content).not.toContain("Resposta sem base");
+ }finally{handled.mockRestore();run.restore();}
 });

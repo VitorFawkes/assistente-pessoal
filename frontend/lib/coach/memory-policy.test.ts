@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { memoryContext, memoriesAt, inferenceBlocked } from "./memory-policy";
+import { memoryContext, memoriesAt, inferenceBlocked, hideLifeGoals, lifeGoalsRequested } from "./memory-policy";
 import type { CoachMemory, Evidence } from "./types";
 const at="2026-09-01T00:00:00.000Z";
 function memory(id:string,patch:Partial<CoachMemory>={}):CoachMemory{return {id,user_id:"a",kind:"context",content:id,status:"confirmed",evidence:[],history:[],created_at:at,updated_at:at,...patch};}
@@ -61,4 +61,15 @@ test("overlapping corrected quotes are blocked in the same source version",()=>{
 test("a correction without quoted evidence still blocks equivalent old interpretation text",()=>{
  const corrected=memory("corrected",{content:"O escopo é somente a revisão visual",history:[{content:"Você centraliza todas as decisões comerciais",status:"hypothesis",at:"2026-09-10T00:00:00Z"}]});
  expect(inferenceBlocked({kind:"pattern",content:"Você centraliza as decisões comerciais",evidence:[]},[corrected])).toBe(true);
+});
+
+test("objetivo de vida fica fora das conversas de trabalho e aparece quando o usuário puxa o assunto",()=>{
+ const work=memory("w",{kind:"goal",content:"Ter a produção de casamentos rodando no TARS"});
+ const life=memory("l",{kind:"goal",goal_area:"life",content:"Voltar a correr três vezes por semana"});
+ expect(hideLifeGoals([work,life,memory("c")]).map(m=>m.id)).toEqual(["w","c"]);
+ expect(lifeGoalsRequested("adia a proposta pra sexta",[work,life])).toBe(false);
+ expect(lifeGoalsRequested("me ajuda a priorizar a produção hoje",[work,life])).toBe(false);
+ expect(lifeGoalsRequested("essa semana não consegui correr nenhuma vez",[work,life])).toBe(true);
+ expect(lifeGoalsRequested("quero falar da minha vida pessoal",[work,life])).toBe(true);
+ expect(lifeGoalsRequested("essa semana não consegui correr",[work,{...life,lifecycle:"paused"}])).toBe(false);
 });

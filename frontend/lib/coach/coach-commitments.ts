@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import type { PoolClient } from "pg";
 import { withTenant } from "../db";
+import { getOwnerSlug } from "../owner-slug";
+import { resolverDono } from "../compartilhar";
+import { ajustarPrincipal, colegasDe, registrarEvento } from "../equipe-compartilhado";
+import { isTeamMode } from "../team-mode";
 import { StaleCoachRunError } from "./store";
 import type { CoachCommitment,CoachCommitmentReceipt } from "./types";
 export type {CoachCommitmentReceipt} from "./types";
@@ -56,8 +60,11 @@ export async function createCommitment(userId:string,input:CommitmentInput,revis
  const action=input.action||"executar";
  if(!["executar","cobrar","aguardar"].includes(action)||input.owner!==undefined&&(typeof input.owner!=="string"||input.owner.length>200))throw new Error("invalid_input");
  if(action!=="executar"&&!input.owner?.trim())throw new Error("Informe quem assumiu o compromisso delegado.");
- const normalized={source_message_id:input.source_message_id,title:input.title.trim(),description:input.description?.trim()||null,due_at:deadline(input.due_at),action,owner:action==="executar"?"vitor":input.owner!.trim()};
+ const normalized={source_message_id:input.source_message_id,title:input.title.trim(),description:input.description?.trim()||null,due_at:deadline(input.due_at),action,owner:action==="executar"?getOwnerSlug():input.owner!.trim()};
  const requestHash=createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
+ // Ações da equipe: combinado com colega da Welcome vai para a lista dele, pela mesma regra da tela (resolverDono).
+ const dono=isTeamMode()&&action!=="executar"?resolverDono({owner:normalized.owner,acao:action},{donoId:userId,colegas:await colegasDe(userId),slug:getOwnerSlug()}):null;
+ if(dono?.erro)throw new Error(dono.erro);
  return withTenant(userId,async(db)=>{
   const currentRevision=await lockProfile(db,userId);
   const existing=(await db.query<CoachCommitment&{request_hash:string}>("SELECT * FROM coach_commitments WHERE user_id=$1 AND idempotency_key=$2",[userId,input.idempotency_key])).rows[0];
@@ -65,11 +72,14 @@ export async function createCommitment(userId:string,input:CommitmentInput,revis
   assertExpectedRevision(currentRevision,revision);
   const source=(await db.query<{role:string}>("SELECT role FROM coach_messages WHERE user_id=$1 AND id=$2 FOR SHARE",[userId,input.source_message_id])).rows[0];
   if(source?.role!=="user")throw new Error("O compromisso precisa estar vinculado a uma mensagem sua.");
-  const task=(await db.query<{id:string}>(`INSERT INTO tarefas(user_id,titulo,descricao,owner,acao,prazo,prioridade,status)
-   VALUES($1,$2,$3,$4,$5,$6,'media','aberta') RETURNING id`,[userId,normalized.title,normalized.description,normalized.owner,action,normalized.due_at])).rows[0];
+  const owner=dono?.owner??normalized.owner,acao=dono?.acao??action;
+  const task=(await db.query<{id:string}>(isTeamMode()?`INSERT INTO tarefas(user_id,titulo,descricao,owner,acao,prazo,prioridade,status,responsavel_user_id)
+   VALUES($1,$2,$3,$4,$5,$6,'media','aberta',$7) RETURNING id`:`INSERT INTO tarefas(user_id,titulo,descricao,owner,acao,prazo,prioridade,status)
+   VALUES($1,$2,$3,$4,$5,$6,'media','aberta') RETURNING id`,[userId,normalized.title,normalized.description,owner,acao,normalized.due_at,...(isTeamMode()?[dono?.responsavel??null]:[])])).rows[0];
+  if(isTeamMode())await ajustarPrincipal(db,task.id,userId,acao,owner);
   const commitment=(await db.query<CoachCommitment>(`INSERT INTO coach_commitments(user_id,tarefa_id,source_message_id,idempotency_key,request_hash,title,due_at)
    VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,[userId,task.id,input.source_message_id,input.idempotency_key,requestHash,normalized.title,normalized.due_at])).rows[0];
-  await db.query("INSERT INTO tarefa_eventos(tarefa_id,evento,payload) VALUES($1,'criada',$2::jsonb)",[task.id,JSON.stringify({origem:"coach",commitment_id:commitment.id,source_message_id:input.source_message_id})]);
+  await registrarEvento(db,task.id,"criada",{origem:"coach",commitment_id:commitment.id,source_message_id:input.source_message_id},userId);
   const writtenRevision=await bumpCommitmentRevision(db,userId,runId);
   return receipt(commitment,writtenRevision);
  });
@@ -106,7 +116,7 @@ export async function updateCommitment(userId:string,id:string,patch:CommitmentU
     await db.query(`UPDATE tarefas SET status=$3,prazo=$4,updated_at=now(),situacao_desde=now(),
       concluida_em=CASE WHEN $3='concluida' THEN now() ELSE NULL END,cancelada_em=CASE WHEN $3='cancelada' THEN now() ELSE NULL END WHERE user_id=$1 AND id=$2`,[userId,previous.tarefa_id,taskStatus,nextDue]);
     const event=taskStatus==="concluida"?"concluida":taskStatus==="cancelada"?"cancelada":patch.status==="renegotiated"?"prazo_alterado":"reaberta";
-    await db.query("INSERT INTO tarefa_eventos(tarefa_id,evento,payload) VALUES($1,$2,$3::jsonb)",[previous.tarefa_id,event,JSON.stringify({origem:"coach",commitment_id:id,status:taskStatus,outcome_source:"user_report",due_at:nextDue})]);
+    await registrarEvento(db,previous.tarefa_id,event,{origem:"coach",commitment_id:id,status:taskStatus,outcome_source:"user_report",due_at:nextDue},userId);
    }
   }
   const writtenRevision=await bumpCommitmentRevision(db,userId,runId);

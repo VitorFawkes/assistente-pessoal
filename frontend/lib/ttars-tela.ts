@@ -68,7 +68,7 @@ function juntar(xs: string[]): string {
 export function textoDoEvento(evento: string, payload: Record<string, unknown> | null): string | null {
   switch (evento) {
     case "criada":
-      return payload?.origem === "agente" ? "criou pelo Assistente" : "criou";
+      return payload?.origem === "agente" ? "criou pelo Assistente" : payload?.origem === "coach" ? "criou pelo Coach" : "criou";
     case "concluida":
       return "concluiu";
     case "cancelada":

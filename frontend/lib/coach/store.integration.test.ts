@@ -4,12 +4,13 @@ import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
 import { reportSources, reportPeriodFingerprint } from "./meeting-reports";
 import { chunkMeeting, sourceHash } from "./evidence";
-import { coachStore, enabledUserIds, StaleCoachRunError } from "./store";
+import { coachStore, enabledUserIds, GoalLimitError, StaleCoachRunError } from "./store";
 import { createCommitment, updateCommitment, listCommitments } from "./coach-commitments";
 import { indexChunk, semanticSearch, recordModelRuns } from "./retrieval";
 import type { CoachTelemetry } from "./model";
 import { getPool, withTenant } from "../db";
 import type { CoachMeeting, Evidence, Observation, ReviewContent } from "./types";
+import { spentToday } from "./budget";
 
 // Intentionally opt-in: never applies fixtures to the normal DATABASE_URL.
 // COACH_TEST_DATABASE_URL=postgresql://<owner>@localhost:55432/coach_test bun test lib/coach/store.integration.test.ts
@@ -85,6 +86,10 @@ describe.skipIf(!connection)("coach store: real Postgres isolation and lifecycle
     await admin.query(await readFile(new URL("../../../db/0033_coach_report_context.sql",import.meta.url),"utf8"));
     const lineageMigration=await readFile(new URL("../../../db/0034_coach_context_lineage.sql",import.meta.url),"utf8");
     await admin.query(lineageMigration);await admin.query(lineageMigration);
+    const goalsMigration=await readFile(new URL("../../../db/0039_coach_goals_areas.sql",import.meta.url),"utf8");
+    await admin.query(goalsMigration);await admin.query(goalsMigration);
+    const costMigration=await readFile(new URL("../../../db/0040_coach_model_runs_cost.sql",import.meta.url),"utf8");
+    await admin.query(costMigration);await admin.query(costMigration);
     await admin.query("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS situacao_desde timestamptz");
     await admin.query("INSERT INTO users (id,nome,consent_terms_at) VALUES ($1,'Fixture A',now()),($2,'Fixture B',now())", [userA,userB]);
     await admin.query(`INSERT INTO meetings (id,user_id,nome,original_filename,recorded_at,transcription,segments,speaker_labels,speaker_pessoas,status,summary)
@@ -459,10 +464,14 @@ describe.skipIf(!connection)("coach store: real Postgres isolation and lifecycle
       expect(await indexChunk(userA,meeting,chunk,revision)).toBe(false);invalidate=false;
       expect((await semanticSearch(userA,"delegação")).matches).toEqual([]);
       revision=(await a.profile()).revision;expect(await indexChunk(userA,meeting,chunk,revision)).toBe(true);
-      const event:CoachTelemetry={provider:"openai",model:"fixture",role:"primary",reasoningEffort:"high",effectiveReasoningEffort:"high",requests:1,toolCalls:0,inputTokens:11,outputTokens:7,cachedInputTokens:3,usageComplete:false,latencyMs:12,success:true};
+      const event:CoachTelemetry={provider:"openai",model:"fixture",role:"primary",reasoningEffort:"high",effectiveReasoningEffort:"high",requests:1,toolCalls:0,inputTokens:11,outputTokens:7,cachedInputTokens:3,cacheWriteTokens:2,costUsd:0.0125,usageComplete:false,latencyMs:12,success:true};
       await recordModelRuns(userA,"fixture",null,[event],revision);
-      const recorded=(await withTenant(userA,db=>db.query("SELECT input_tokens,cached_input_tokens,usage_complete FROM coach_model_runs WHERE user_id=$1",[userA]))).rows[0];
-      expect(recorded).toEqual({input_tokens:"11",cached_input_tokens:"3",usage_complete:false});
+      const recorded=(await withTenant(userA,db=>db.query("SELECT input_tokens,cached_input_tokens,cache_write_tokens,cost_usd,usage_complete FROM coach_model_runs WHERE user_id=$1",[userA]))).rows[0];
+      expect(recorded).toEqual({input_tokens:"11",cached_input_tokens:"3",cache_write_tokens:"2",cost_usd:"0.012500",usage_complete:false});
+      // The day's spend is per person and per local day.
+      expect(await spentToday(userA,"America/Sao_Paulo")).toBeCloseTo(0.0125,6);
+      expect(await spentToday(userB,"America/Sao_Paulo")).toBe(0);
+      expect(await spentToday(userA,"America/Sao_Paulo",new Date(Date.now()+2*86400_000))).toBe(0);
       await recordModelRuns(userA,"stale",null,[event],revision-1);
       expect((await withTenant(userA,db=>db.query("SELECT * FROM coach_model_runs WHERE user_id=$1",[userA]))).rowCount).toBe(1);
       expect((await withTenant(userB,db=>db.query("SELECT * FROM coach_model_runs"))).rowCount).toBe(0);
@@ -562,6 +571,29 @@ describe.skipIf(!connection)("coach store: real Postgres isolation and lifecycle
     await admin.query("UPDATE coach_reviews SET content=content-'context_version' WHERE id=$1",[saved.id]);
     expect((await a.reviews()).find(item=>item.id===saved.id)?.stale).toBe(true);
     expect((await a.saveReview("2041-01-01",review,"fixture",revision,true)).stale).toBe(false);
+  });
+
+  test("objetivos: até 3 por área, os de vida fora do perfil e do contexto de trabalho", async () => {
+    const userC = randomUUID();
+    await admin.query("INSERT INTO users (id,nome,consent_terms_at) VALUES ($1,'Fixture C',now())", [userC]);
+    const c = coachStore(userC);
+    await c.saveProfile({ enabled: true });
+    for (const content of ["Produção rodando no TARS", "Contratar a closer", "Fechar o orçamento de 2027"]) await c.saveGoal({ area: "work", content, due: null, measure: null });
+    await expect(c.saveGoal({ area: "work", content: "Quarto objetivo", due: null, measure: null })).rejects.toBeInstanceOf(GoalLimitError);
+    await c.saveGoal({ area: "life", content: "Correr uma meia maratona", due: "2026-12-06", measure: "terminar a prova" });
+    const profile = await c.profile();
+    expect(profile.goals).toContain("Contratar a closer");
+    expect(profile.goals).not.toContain("maratona");
+    expect((await c.memoryContext()).active_goals.map(g => g.content)).not.toContain("Correr uma meia maratona");
+    expect((await c.memoryContext(undefined, true)).active_goals.map(g => g.content)).toContain("Correr uma meia maratona");
+    const goals = await c.goals();
+    expect(goals.find(g => g.area === "life")).toMatchObject({ content: "Correr uma meia maratona", due: "2026-12-06", measure: "terminar a prova", lifecycle: "active" });
+    const first = goals.find(g => g.content === "Produção rodando no TARS")!;
+    await c.transitionMemory(first.id, { lifecycle: "paused" });
+    await c.saveGoal({ area: "work", content: "Quarto objetivo", due: null, measure: null });
+    await expect(c.transitionMemory(first.id, { lifecycle: "active" })).rejects.toBeInstanceOf(GoalLimitError);
+    const note = await c.rememberUserNote({ kind: "goal", content: "Meu objetivo de trabalho é revisar o funil", status: "confirmed", evidence: [] }, (await c.profile()).revision);
+    expect(note).toMatchObject({ lifecycle: "paused", goal_area: "work" });
   });
 
   test("reset removes private coach data, keeps meetings, and blocks in-flight repopulation", async () => {

@@ -46,7 +46,8 @@ export function SiteHeader({
         { href: "/quadros", label: "Projetos" },
         { href: "/reunioes", label: "Reuniões" },
         { href: "/reunioes/gravar", label: "Gravar" },
-        ...NAV.filter((i) => !["/", "/quadros", "/reunioes"].includes(i.href)),
+        // O Coach da equipe é só pelo WhatsApp (sem página).
+        ...NAV.filter((i) => !["/", "/quadros", "/reunioes", "/coach"].includes(i.href)),
       ]
     : NAV;
   const filteredNav = teamMode && user && !user.is_admin

@@ -16,7 +16,7 @@ describe.skipIf(process.env.COACH_PROVIDER_TEST!=="1")("coach real provider life
   const url=new URL(process.env.DATABASE_URL||"");
   if(!["localhost","127.0.0.1"].includes(url.hostname)||url.pathname!=="/coach_qa")throw new Error("Only local coach_qa is allowed");
   url.username=process.env.USER||"vitorgambetti";url.password="";admin=new Pool({connectionString:url.toString()});
-  for(const migration of ["0033_coach_report_context.sql","0034_coach_context_lineage.sql"])
+  for(const migration of ["0033_coach_report_context.sql","0034_coach_context_lineage.sql","0039_coach_goals_areas.sql"])
    await admin.query(await readFile(new URL("../../../db/"+migration,import.meta.url),"utf8"));
   await admin.query("INSERT INTO users(id,nome,consent_terms_at) VALUES($1,'Coach provider fixture',now())",[userId]);
   await admin.query("INSERT INTO pessoas(id,user_id,nome,is_vitor) VALUES($1,$2,'Coach provider fixture',true)",[personId,userId]);

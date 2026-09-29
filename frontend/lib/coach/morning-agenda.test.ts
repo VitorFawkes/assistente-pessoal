@@ -26,6 +26,10 @@ describe("lista da mensagem das 8h", () => {
  test("sem tarefas e sem agenda, nada é acrescentado", () => {
   expect(agendaText([], { today: 0, overdue: 0 }, [], SP)).toBe("");
  });
+ test("cobrança marcada com a própria pessoa como responsável não vira \"Cobrar Vitor\"", () => {
+  expect(agendaText([task("Analisar currículos", "2026-09-24T15:00:00Z", false, { owner: "Vitor", acao: "cobrar", is_mine: false })], { today: 0, overdue: 1 }, [], SP))
+   .toBe("**Para hoje**\n- Analisar currículos (venceu em 24/09)");
+ });
  test("agenda do dia em ordem, com compromisso particular sem título", () => {
   const text = agendaText([], { today: 0, overdue: 0 }, [
    { subject: "Almoço com cliente", start: "2026-09-25T15:00:00Z", is_all_day: false, is_private: false },
