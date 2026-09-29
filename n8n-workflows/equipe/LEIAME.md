@@ -10,5 +10,13 @@ Diferenças em relação aos fluxos do Vitor:
   junto com a leitura de pessoas/reunião (`dono_nome`), filtrado por `user_id`;
 - o normalizador de dono troca o nome/primeiro nome do dono por "eu".
 
+Desde 29/09/2026 a leitura é a mesma do Ações pessoal (#23, #24 e #29 do repo):
+o Stage A chama o sub-fluxo `Equipe - Acoes - Relatorio Luna` (id `EqRelatorioLuna1`,
+relatório em etapas com GPT-6 Luna e reserva GPT-6 Sol), Distiller e Judge em
+`gpt-6-luna` sem temperature, sem o Think no Distiller. O "Prepara relatório" manda
+o `dono_nome` para o sub-fluxo: para o Vitor os textos ficam idênticos aos do Ações
+pessoal; para outra pessoa, as frases sobre o dono da lista usam o nome dela.
+
 Para aplicar: `n8n import:workflow` + `n8n publish:workflow` dentro do
-container n8n do servidor da equipe, depois reiniciar o n8n.
+container n8n do servidor da equipe (o sub-fluxo antes dos outros 4), depois
+reiniciar o n8n (conferir antes que não há reunião sendo lida).

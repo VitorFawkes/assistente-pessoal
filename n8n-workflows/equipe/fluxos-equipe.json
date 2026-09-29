@@ -1,6 +1,8 @@
 [
   {
+    "id": "EqAudioIngest001",
     "name": "Equipe - Acoes - Audio Ingest",
+    "active": true,
     "nodes": [
       {
         "parameters": {
@@ -338,13 +340,13 @@
         "parameters": {
           "modelId": {
             "__rl": true,
-            "mode": "list",
-            "value": "gpt-5.1"
+            "mode": "id",
+            "value": "gpt-6-luna"
           },
           "messages": {
             "values": [
               {
-                "content": "Você é o segundo cérebro de {{ $('7f. SELECT pessoas').first().json.dono_nome }}. Sua função AQUI: transformar o RELATÓRIO EXECUTIVO de uma reunião (já destilado) em uma lista de TAREFAS estruturadas e rastreáveis — em geral UMA tarefa por passo/compromisso concreto.\n\nVocê recebe:\n1. RELATÓRIO EXECUTIVO — seções Contexto / Problemas / Decisões e alinhamentos / Insights / Próximos passos.\n2. TRANSCRIÇÃO ROTULADA por falante (fonte de verdade para owner e evidência).\n\n══════════════════════════════════════════════════════════\nRECALL — de onde tirar as tarefas\n══════════════════════════════════════════════════════════\nA seção \"Próximos passos\" É a lista de tarefas — ela é a fonte AUTORITATIVA. Trabalhe primariamente com ela; \"Decisões e alinhamentos\" e a transcrição servem para confirmar dono/evidência. NÃO crie tarefa a partir de \"Problemas levantados\" nem de \"Insights\" — isso é contexto, não ação, mesmo que soe acionável.\n\nESPELHE OS \"PRÓXIMOS PASSOS\". Eles já vêm na granularidade e na clareza certas — e o que os torna bons (frase direta, dono explícito, entregável concreto) é EXATAMENTE o que a tarefa precisa ter. Regra base: **cada próximo passo = UMA tarefa**, preservando o passo (não resuma, não funda, não jogue fora).\n\nSó adicione uma tarefa vinda de \"Decisões e alinhamentos\" se ela for um entregável concreto com dono que NENHUM próximo passo cobre — nem mesmo parcialmente. Se uma decisão detalha algo que um próximo passo já menciona (ainda que com \"etc.\" ou entre parênteses), ela NÃO é tarefa nova: é a descrição daquele próximo passo.\n\n══════════════════════════════════════════════════════════\nGRANULARIDADE — espelhe os Próximos passos (nem funde, nem fragmente)\n══════════════════════════════════════════════════════════\n1. ÂNCORA: o nº de tarefas deve ficar PRÓXIMO do nº de \"Próximos passos\" (± poucas). Se você está gerando MUITO mais tarefas que próximos passos, você fragmentou sub-itens — pare e devolva-os para a descrição do próximo passo correspondente.\n2. NÃO FUNDA passos / temas / donos diferentes numa tarefa só. Configurar uma integração ≠ criar logins ≠ adotar uma ferramenta nova ≠ migrar arquivos — são tarefas SEPARADAS. Se você escrever um título com \"e\" ligando ações distintas (\"X e Y e Z\"), separe. (Erro nº 1 — o pior.)\n3. NÃO FRAGMENTA um próximo passo em vários. Se um próximo passo diz \"revisar a página (campos de tarifas, políticas, notas, linha do tempo, anexos...)\", isso é UMA tarefa — os campos citados vão na DESCRIÇÃO, NÃO viram uma tarefa por campo. (Erro nº 2 — igualmente ruim.)\n\n══════════════════════════════════════════════════════════\nPRECISÃO — o que NÃO vira tarefa\n══════════════════════════════════════════════════════════\n1. DESCARTE orientação CONTÍNUA / princípio / cultura que é responsabilidade permanente de alguém — NÃO vira tarefa. Ex. a CORTAR: \"ajustar discurso da SDR\", \"comunicar racional ao time\", \"tratar fofoca como ruído\", \"reforçar ao time o princípio de trazer solução\", \"adotar o CRM como fonte única de verdade / 'se não está no CRM não existe'\", \"incluir fulano nas próximas conversas\". Só vira tarefa se for um entregável ESPECÍFICO com fim claro.\n2. TESTE PRAGMÁTICO: \"se o dono abrir o app amanhã e não vir isso, ele fica irritado, ou dirá 'isso era só contexto/desabafo'?\" Só fica o que o irritaria não ver.\n3. TRIVIAL → VAZIO: se o relatório é treinamento genérico, papo, teste, reflexão sem compromisso concreto com dono → retorne actions: [].\n\nNÃO INVENTE: só o que está explícito no relatório/transcrição. Sem dono e entregável claros, não crie.\n\n══════════════════════════════════════════════════════════\nATRIBUIÇÃO — \"quem põe a mão na massa?\"\n══════════════════════════════════════════════════════════\nPara a tarefa ficar pronta, QUEM faz o trabalho?\n- É o dono da conta → owner=\"eu\", acao=\"executar\" (tarefa que EU FAÇO).\n- O dono da conta é {{ $('7f. SELECT pessoas').first().json.dono_nome }}. Quando a tarefa for dele(a), escreva owner=\"eu\" — nunca o nome.\n- É OUTRA pessoa — nomeada, por CARGO/PAPEL (\"a líder de Weddings\", \"a gestora\") ou desconhecida → acao=\"cobrar\" (eu acompanho/cobro) ou \"aguardar\" (só visibilidade). owner = essa pessoa.\n- O dono QUERER que algo aconteça NÃO o torna executor. \"Garantir que ⟨fulano⟩ faça X\", \"⟨fulano⟩ vai trazer X\" → owner=⟨fulano⟩, acao=\"cobrar\".\n- CONVERSA/1:1/REUNIÃO que o dono vai conduzir com alguém (ex.: \"vou chamar a Vanessa\", \"conversar com X\") = owner=\"eu\", acao=\"executar\" — mesmo que o nome da outra pessoa apareça no título (ela é pessoa_envolvida, não a dona).\n- Resolva CARGO/PAPEL → nome pelo contexto da conversa (ex.: a líder/interlocutora da reunião; a gestora intermediária citada pelo nome). Se não der pra resolver com segurança, use o papel literal como owner — nunca caia em \"eu\".\n- EXCEÇÃO (cobrança externa = dono executa): quando quem corre atrás é o próprio dono junto a TERCEIRO EXTERNO (boleto/pagamento de cliente, resposta de fornecedor) e não há entregável de alguém do time → owner=\"eu\", acao=\"executar\".\n- Invariante: owner=\"eu\" ⇔ acao=\"executar\"; owner≠\"eu\" ⇒ acao ∈ {\"cobrar\",\"aguardar\"}.\n\n══════════════════════════════════════════════════════════\nTÍTULO — direto e autossuficiente (no estilo do próprio \"Próximo passo\")\n══════════════════════════════════════════════════════════\nO título é a coisa que o dono mais lê. Escreva como o próximo passo foi escrito, mas SEM o nome do dono na frente (o app já mostra o owner num chip):\n- Verbo no infinitivo + o ENTREGÁVEL CONCRETO + (propósito curto, se houver). Ex.: \"Finalizar a revisão da página do casamento no CRM e enviar ao time para validação\".\n- Diz O QUÊ de forma que se entende SOZINHO, sem depender da descrição. NADA de rótulo genérico tipo \"Configurar anexos\", \"Ajustar CRM\", \"Configurar integrações\".\n- Enumerações longas e parênteses (\"campos de tarifas, políticas, notas...\") vão na DESCRIÇÃO, não no título.\n- Em cobrar/aguardar, o título descreve o ENTREGÁVEL que a pessoa vai produzir (ex.: \"Revisar a página do casamento e retornar feedback sobre o que falta\"). O campo acao já marca que é cobrança — NÃO precisa começar com \"Cobrar\".\n\n══════════════════════════════════════════════════════════\nPRAZO — resolva SEMPRE a partir da DATA DA REUNIÃO\n══════════════════════════════════════════════════════════\nO topo da mensagem informa QUANDO a reunião aconteceu (\"a reunião foi gravada em …\"). Resolva TODA expressão de tempo — \"hoje\", \"amanhã\", \"segunda\"/\"sexta\", \"semana que vem\", \"até sexta\", \"dia 3\", \"3 de agosto\" — a partir DESSA data, inclusive o ANO. NUNCA use a data de hoje/agora como referência (você não sabe que dia é hoje; a única referência válida é a data da reunião).\n- prazo_iso: a data absoluta resolvida, formato YYYY-MM-DD. Ex.: reunião em 03/07/2026 (quinta) → \"até sexta\" = \"2026-07-04\"; \"3 de agosto\" = \"2026-08-03\". O ano vem da data da reunião, nunca 2024/2025.\n- prazo_text: a expressão temporal literal dita (\"até sexta\", \"amanhã\", \"3 de agosto\"), ou null.\n- SEM expressão temporal REAL dita na reunião → prazo_iso E prazo_text = null. NUNCA invente prazo.\n\n══════════════════════════════════════════════════════════\nCAMPOS / FORMATO (retorne SÓ este JSON)\n══════════════════════════════════════════════════════════\n{\n  \"actions\": [\n    {\n      \"titulo\": \"<frase direta e autossuficiente; verbo infinitivo + entregável concreto; SEM o nome do dono na frente>\",\n      \"descricao\": \"<1-2 frases com o detalhe concreto do passo (sub-itens, campos, parênteses, propósito). Não repita o título literalmente.>\",\n      \"owner\": \"<'eu' se dono faz | nome/cargo de quem faz | '?'>\",\n      \"acao\": \"<'executar' | 'cobrar' | 'aguardar'>\",\n      \"prazo_iso\": \"<data absoluta YYYY-MM-DD resolvida a partir da data da reunião; null se nada foi dito>\",\n      \"prazo_text\": \"<expressão temporal literal dita, senão null>\",\n      \"prioridade\": \"<'baixa'|'media'|'alta'|'urgente'>\",\n      \"evidencia\": \"<trecho literal da transcrição, até 200 chars>\",\n      \"pessoas_envolvidas\": [\"<nome>\", ...],\n      \"area\": \"<frente curta ou null>\",\n      \"confidence\": \"<'high'|'medium'|'low'>\",\n      \"confidence_rationale\": \"<1 frase>\"\n    }\n  ]\n}\nSem ação concreta → \"actions\": []. Nunca omita campos. null para prazos não ditos. Não inclua o dono em pessoas_envolvidas (já está no owner).\n",
+                "content": "Você é o segundo cérebro de {{ $('7f. SELECT pessoas').first().json.dono_nome }}. Sua função AQUI: transformar o RELATÓRIO EXECUTIVO de uma reunião (já destilado) em uma lista de TAREFAS estruturadas e rastreáveis — em geral UMA tarefa por passo/compromisso concreto.\n\nVocê recebe:\n1. RELATÓRIO EXECUTIVO — seções Contexto / Problemas / Decisões e alinhamentos / Insights / Próximos passos.\n2. TRANSCRIÇÃO ROTULADA por falante (fonte de verdade para owner e evidência).\n\n══════════════════════════════════════════════════════════\nRECALL — de onde tirar as tarefas\n══════════════════════════════════════════════════════════\nA seção \"Próximos passos\" É a lista de tarefas — ela é a fonte AUTORITATIVA. Trabalhe primariamente com ela; \"Decisões e alinhamentos\" e a transcrição servem para confirmar dono/evidência. NÃO crie tarefa a partir de \"Problemas levantados\" nem de \"Insights\" — isso é contexto, não ação, mesmo que soe acionável. Também NÃO crie tarefa a partir de \"Pendências e ideias (não viram tarefa)\": são assuntos que ficaram em aberto sem ninguém assumir.\n\nESPELHE OS \"PRÓXIMOS PASSOS\". Eles já vêm na granularidade e na clareza certas — e o que os torna bons (frase direta, dono explícito, entregável concreto) é EXATAMENTE o que a tarefa precisa ter. Regra base: **cada próximo passo = UMA tarefa**, preservando o passo (não resuma, não funda, não jogue fora).\n\nSó adicione uma tarefa vinda de \"Decisões e alinhamentos\" se ela for um entregável concreto com dono que NENHUM próximo passo cobre — nem mesmo parcialmente. Se uma decisão detalha algo que um próximo passo já menciona (ainda que com \"etc.\" ou entre parênteses), ela NÃO é tarefa nova: é a descrição daquele próximo passo.\n\n══════════════════════════════════════════════════════════\nGRANULARIDADE — espelhe os Próximos passos (nem funde, nem fragmente)\n══════════════════════════════════════════════════════════\n1. ÂNCORA: o nº de tarefas deve ficar PRÓXIMO do nº de \"Próximos passos\" (± poucas). Se você está gerando MUITO mais tarefas que próximos passos, você fragmentou sub-itens — pare e devolva-os para a descrição do próximo passo correspondente.\n2. NÃO FUNDA passos / temas / donos diferentes numa tarefa só. Configurar uma integração ≠ criar logins ≠ adotar uma ferramenta nova ≠ migrar arquivos — são tarefas SEPARADAS. Se você escrever um título com \"e\" ligando ações distintas (\"X e Y e Z\"), separe. (Erro nº 1 — o pior.)\n3. NÃO FRAGMENTA um próximo passo em vários. Se um próximo passo diz \"revisar a página (campos de tarifas, políticas, notas, linha do tempo, anexos...)\", isso é UMA tarefa — os campos citados vão na DESCRIÇÃO, NÃO viram uma tarefa por campo. (Erro nº 2 — igualmente ruim.)\n\n══════════════════════════════════════════════════════════\nPRECISÃO — o que NÃO vira tarefa\n══════════════════════════════════════════════════════════\n1. DESCARTE orientação CONTÍNUA / princípio / cultura que é responsabilidade permanente de alguém — NÃO vira tarefa. Ex. a CORTAR: \"ajustar discurso da SDR\", \"comunicar racional ao time\", \"tratar fofoca como ruído\", \"reforçar ao time o princípio de trazer solução\", \"adotar o CRM como fonte única de verdade / 'se não está no CRM não existe'\", \"incluir fulano nas próximas conversas\". Só vira tarefa se for um entregável ESPECÍFICO com fim claro.\n2. TESTE PRAGMÁTICO: \"se o dono abrir o app amanhã e não vir isso, ele fica irritado, ou dirá 'isso era só contexto/desabafo'?\" Só fica o que o irritaria não ver.\n3. TRIVIAL → VAZIO: se o relatório é treinamento genérico, papo, teste, reflexão sem compromisso concreto com dono → retorne actions: [].\n\nNÃO INVENTE: só o que está explícito no relatório/transcrição. Sem dono e entregável claros, não crie.\n\n══════════════════════════════════════════════════════════\nATRIBUIÇÃO — \"quem põe a mão na massa?\"\n══════════════════════════════════════════════════════════\nPara a tarefa ficar pronta, QUEM faz o trabalho?\n- É o dono da conta → owner=\"eu\", acao=\"executar\" (tarefa que EU FAÇO).\n- O dono da conta é {{ $('7f. SELECT pessoas').first().json.dono_nome }}. Quando a tarefa for dele(a), escreva owner=\"eu\" — nunca o nome.\n- É OUTRA pessoa — nomeada, por CARGO/PAPEL (\"a líder de Weddings\", \"a gestora\") ou desconhecida → acao=\"cobrar\" (eu acompanho/cobro) ou \"aguardar\" (só visibilidade). owner = essa pessoa.\n- O dono QUERER que algo aconteça NÃO o torna executor. \"Garantir que ⟨fulano⟩ faça X\", \"⟨fulano⟩ vai trazer X\" → owner=⟨fulano⟩, acao=\"cobrar\".\n- CONVERSA/1:1/REUNIÃO que o dono vai conduzir com alguém (ex.: \"vou chamar a Vanessa\", \"conversar com X\") = owner=\"eu\", acao=\"executar\" — mesmo que o nome da outra pessoa apareça no título (ela é pessoa_envolvida, não a dona).\n- Resolva CARGO/PAPEL → nome pelo contexto da conversa (ex.: a líder/interlocutora da reunião; a gestora intermediária citada pelo nome). Se não der pra resolver com segurança, use o papel literal como owner — nunca caia em \"eu\".\n- EXCEÇÃO (cobrança externa = dono executa): quando quem corre atrás é o próprio dono junto a TERCEIRO EXTERNO (boleto/pagamento de cliente, resposta de fornecedor) e não há entregável de alguém do time → owner=\"eu\", acao=\"executar\".\n- Invariante: owner=\"eu\" ⇔ acao=\"executar\"; owner≠\"eu\" ⇒ acao ∈ {\"cobrar\",\"aguardar\"}.\n\n══════════════════════════════════════════════════════════\nTÍTULO — direto e autossuficiente (no estilo do próprio \"Próximo passo\")\n══════════════════════════════════════════════════════════\nO título é a coisa que o dono mais lê. Escreva como o próximo passo foi escrito, mas SEM o nome do dono na frente (o app já mostra o owner num chip):\n- Verbo no infinitivo + o ENTREGÁVEL CONCRETO + (propósito curto, se houver). Ex.: \"Finalizar a revisão da página do casamento no CRM e enviar ao time para validação\".\n- Diz O QUÊ de forma que se entende SOZINHO, sem depender da descrição. NADA de rótulo genérico tipo \"Configurar anexos\", \"Ajustar CRM\", \"Configurar integrações\".\n- Enumerações longas e parênteses (\"campos de tarifas, políticas, notas...\") vão na DESCRIÇÃO, não no título.\n- Em cobrar/aguardar, o título descreve o ENTREGÁVEL que a pessoa vai produzir (ex.: \"Revisar a página do casamento e retornar feedback sobre o que falta\"). O campo acao já marca que é cobrança — NÃO precisa começar com \"Cobrar\".\n\n══════════════════════════════════════════════════════════\nPRAZO — resolva SEMPRE a partir da DATA DA REUNIÃO\n══════════════════════════════════════════════════════════\nO topo da mensagem informa QUANDO a reunião aconteceu (\"a reunião foi gravada em …\"). Resolva TODA expressão de tempo — \"hoje\", \"amanhã\", \"segunda\"/\"sexta\", \"semana que vem\", \"até sexta\", \"dia 3\", \"3 de agosto\" — a partir DESSA data, inclusive o ANO. NUNCA use a data de hoje/agora como referência (você não sabe que dia é hoje; a única referência válida é a data da reunião).\n- prazo_iso: a data absoluta resolvida, formato YYYY-MM-DD. Ex.: reunião em 03/07/2026 (quinta) → \"até sexta\" = \"2026-07-04\"; \"3 de agosto\" = \"2026-08-03\". O ano vem da data da reunião, nunca 2024/2025.\n- prazo_text: a expressão temporal literal dita (\"até sexta\", \"amanhã\", \"3 de agosto\"), ou null.\n- SEM expressão temporal REAL dita na reunião → prazo_iso E prazo_text = null. NUNCA invente prazo.\n\n══════════════════════════════════════════════════════════\nCAMPOS / FORMATO (retorne SÓ este JSON)\n══════════════════════════════════════════════════════════\n{\n  \"actions\": [\n    {\n      \"titulo\": \"<frase direta e autossuficiente; verbo infinitivo + entregável concreto; SEM o nome do dono na frente>\",\n      \"descricao\": \"<1-2 frases com o detalhe concreto do passo (sub-itens, campos, parênteses, propósito). Não repita o título literalmente.>\",\n      \"owner\": \"<'eu' se dono faz | nome/cargo de quem faz | '?'>\",\n      \"acao\": \"<'executar' | 'cobrar' | 'aguardar'>\",\n      \"prazo_iso\": \"<data absoluta YYYY-MM-DD resolvida a partir da data da reunião; null se nada foi dito>\",\n      \"prazo_text\": \"<expressão temporal literal dita, senão null>\",\n      \"prioridade\": \"<'baixa'|'media'|'alta'|'urgente'>\",\n      \"evidencia\": \"<trecho literal da transcrição, até 200 chars>\",\n      \"pessoas_envolvidas\": [\"<nome>\", ...],\n      \"area\": \"<frente curta ou null>\",\n      \"confidence\": \"<'high'|'medium'|'low'>\",\n      \"confidence_rationale\": \"<1 frase>\"\n    }\n  ]\n}\nSem ação concreta → \"actions\": []. Nunca omita campos. null para prazos não ditos. Não inclua o dono em pessoas_envolvidas (já está no owner).\n",
                 "role": "system"
               },
               {
@@ -353,9 +355,7 @@
             ]
           },
           "jsonOutput": true,
-          "options": {
-            "temperature": 0.2
-          }
+          "options": {}
         },
         "id": "00000000-0000-0000-0000-000000000009",
         "name": "Distiller",
@@ -544,17 +544,6 @@
         }
       },
       {
-        "parameters": {},
-        "type": "@n8n/n8n-nodes-langchain.toolThink",
-        "typeVersion": 1.1,
-        "position": [
-          96,
-          128
-        ],
-        "id": "6e384d6c-aa6a-4b4d-af3c-9c0ad8c6beff",
-        "name": "Think"
-      },
-      {
         "parameters": {
           "method": "POST",
           "url": "http://voice-svc:8000/identify",
@@ -667,8 +656,8 @@
         "parameters": {
           "modelId": {
             "__rl": true,
-            "mode": "list",
-            "value": "gpt-5.1"
+            "mode": "id",
+            "value": "gpt-6-luna"
           },
           "messages": {
             "values": [
@@ -678,9 +667,7 @@
             ]
           },
           "jsonOutput": true,
-          "options": {
-            "temperature": 0.2
-          }
+          "options": {}
         },
         "id": "sc-judge",
         "name": "Judge",
@@ -709,45 +696,6 @@
           276,
           -96
         ]
-      },
-      {
-        "parameters": {
-          "modelId": {
-            "__rl": true,
-            "mode": "list",
-            "value": "gpt-5.1"
-          },
-          "messages": {
-            "values": [
-              {
-                "content": "Você lê a transcrição rotulada por falante de uma reunião/áudio de {{ $('7f. SELECT pessoas').first().json.dono_nome }} e escreve um RELATÓRIO DE LEITURA. NÃO extraia tarefas/ações, NÃO produza listas de \"actions\" — apenas o relatório.\n\nEscreva um relatório em markdown-lite com EXATAMENTE estas seções, nesta ordem (cada seção é \"**Título:**\" numa linha, seguida de bullets que começam com \"- \"). Omita uma seção só se for genuinamente vazia:\n\n**Contexto:** tipo de áudio, quem participa (nomes quando rotulados) e o assunto central.\n**Problemas levantados:** cada dor, gargalo, risco ou insatisfação. Específico.\n**Decisões e alinhamentos:** cada decisão/acordo — e para CADA um deixe explícito QUEM é o dono (nome próprio quando a transcrição permitir; senão o papel/cargo) e qual o ENTREGÁVEL. Inclua decisões sobre PESSOAS/papéis (reavaliar/ajustar/trocar quem lidera) e criação de ROTINAS/rituais recorrentes (checklist, daily).\n**Insights / observações relevantes:** constatações, números, padrões — coisas que valem registrar mesmo sem virar ação.\n**Próximos passos:** o que vem a seguir — cada passo com dono e entregável.\n\nRegras: extraia só do que foi dito; preserve nomes próprios, números, prazos e termos do domínio (Trips, Weddings, Edis, CRM, SDR). Reunião densa → relatório detalhado. Português, voz objetiva.\n\nSAÍDA — retorne SÓ este JSON. O campo executive_summary é OBRIGATÓRIO e deve conter o relatório completo das seções acima (use null APENAS em áudio trivial: teste, saudação, ruído):\n{ \"summary\": \"<1-2 frases de contexto, não as tarefas>\", \"executive_summary\": \"<relatório markdown-lite com as seções acima>\" }\n",
-                "role": "system"
-              },
-              {
-                "content": "=Transcrição rotulada:\n\n{{ $('7e. Build Labeled Text').first().json.labeled_text }}"
-              }
-            ]
-          },
-          "jsonOutput": true,
-          "options": {
-            "temperature": 0.2
-          }
-        },
-        "id": "stagea-summary",
-        "name": "Stage A Summary",
-        "type": "@n8n/n8n-nodes-langchain.openAi",
-        "typeVersion": 1.7,
-        "position": [
-          -364,
-          -136
-        ],
-        "credentials": {
-          "openAiApi": {
-            "id": "QSdaVgPRKxfvwcXr",
-            "name": "OpenAi account"
-          }
-        },
-        "executeOnce": true
       },
       {
         "parameters": {
@@ -814,6 +762,77 @@
             "name": "Ações frontend (x-admin-token)"
           }
         }
+      },
+      {
+        "parameters": {
+          "modelId": {
+            "__rl": true,
+            "mode": "list",
+            "value": "gpt-5.1"
+          },
+          "messages": {
+            "values": [
+              {
+                "content": "Você lê a transcrição rotulada por falante de uma reunião/áudio de {{ $('7f. SELECT pessoas').first().json.dono_nome }} e escreve um RELATÓRIO DE LEITURA. NÃO extraia tarefas/ações, NÃO produza listas de \"actions\" — apenas o relatório.\n\nEscreva um relatório em markdown-lite com EXATAMENTE estas seções, nesta ordem (cada seção é \"**Título:**\" numa linha, seguida de bullets que começam com \"- \"). Omita uma seção só se for genuinamente vazia:\n\n**Contexto:** tipo de áudio, quem participa (nomes quando rotulados) e o assunto central.\n**Problemas levantados:** cada dor, gargalo, risco ou insatisfação. Específico.\n**Decisões e alinhamentos:** cada decisão/acordo — e para CADA um deixe explícito QUEM é o dono (nome próprio quando a transcrição permitir; senão o papel/cargo) e qual o ENTREGÁVEL. Inclua decisões sobre PESSOAS/papéis (reavaliar/ajustar/trocar quem lidera) e criação de ROTINAS/rituais recorrentes (checklist, daily).\n**Insights / observações relevantes:** constatações, números, padrões — coisas que valem registrar mesmo sem virar ação.\n**Próximos passos:** o que vem a seguir — cada passo com dono e entregável.\n\nRegras: extraia só do que foi dito; preserve nomes próprios, números, prazos e termos do domínio (Trips, Weddings, Edis, CRM, SDR). Reunião densa → relatório detalhado. Português, voz objetiva.\n\nSAÍDA — retorne SÓ este JSON. O campo executive_summary é OBRIGATÓRIO e deve conter o relatório completo das seções acima (use null APENAS em áudio trivial: teste, saudação, ruído):\n{ \"summary\": \"<1-2 frases de contexto, não as tarefas>\", \"executive_summary\": \"<relatório markdown-lite com as seções acima>\" }\n",
+                "role": "system"
+              },
+              {
+                "content": "=Transcrição rotulada:\n\n{{ $('7e. Build Labeled Text').first().json.labeled_text }}"
+              }
+            ]
+          },
+          "jsonOutput": true,
+          "options": {
+            "temperature": 0.2
+          }
+        },
+        "id": "787270bf-4c9c-439e-8222-ad321231ee04",
+        "name": "Stage A Summary (antigo GPT-5.1, desligado)",
+        "type": "@n8n/n8n-nodes-langchain.openAi",
+        "typeVersion": 1.7,
+        "position": [
+          -364,
+          184
+        ],
+        "credentials": {
+          "openAiApi": {
+            "id": "QSdaVgPRKxfvwcXr",
+            "name": "OpenAi account"
+          }
+        },
+        "executeOnce": true,
+        "disabled": true
+      },
+      {
+        "parameters": {
+          "workflowId": "EqRelatorioLuna1",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        },
+        "name": "Stage A Summary",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1,
+        "position": [
+          -364,
+          -136
+        ],
+        "executeOnce": true,
+        "id": "422fb461-55c8-472c-97db-92577745f017"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Junta o que o relatório precisa (transcrição, data e pessoas) para o fluxo \"Equipe - Acoes - Relatorio Luna\"\nlet recorded_at = null; try { recorded_at = $('7e. Build Labeled Text').first().json.recorded_at || null; } catch (e) {}\nlet pessoas = []; try { pessoas = $('7f. SELECT pessoas').all().map(p => ({ nome: p.json.nome, aliases: p.json.aliases || [] })); } catch (e) {}\nlet dono_nome = ''; try { dono_nome = String($('7f. SELECT pessoas').first().json.dono_nome || ''); } catch (e) {}\nreturn [{ json: { dono_nome, labeled_text: String($('7e. Build Labeled Text').first().json.labeled_text || ''), recorded_at, pessoas } }];\n"
+        },
+        "name": "Prepara relatório",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -564,
+          24
+        ],
+        "executeOnce": true,
+        "id": "5568617f-ba88-4c03-a73b-923ec9fde294"
       }
     ],
     "connections": {
@@ -951,17 +970,6 @@
           ]
         ]
       },
-      "Think": {
-        "ai_tool": [
-          [
-            {
-              "node": "Distiller",
-              "type": "ai_tool",
-              "index": 0
-            }
-          ]
-        ]
-      },
       "6. Use Pretranscribed": {
         "main": [
           [
@@ -1043,7 +1051,7 @@
         "main": [
           [
             {
-              "node": "Stage A Summary",
+              "node": "Prepara relatório",
               "type": "main",
               "index": 0
             }
@@ -1148,6 +1156,17 @@
             }
           ]
         ]
+      },
+      "Prepara relatório": {
+        "main": [
+          [
+            {
+              "node": "Stage A Summary",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
       }
     },
     "settings": {
@@ -1157,12 +1176,12 @@
       "saveManualExecutions": true,
       "saveDataErrorExecution": "all",
       "saveDataSuccessExecution": "all"
-    },
-    "id": "EqAudioIngest001",
-    "active": false
+    }
   },
   {
+    "id": "EqProcSegment001",
     "name": "Equipe - Acoes - Process Segment",
+    "active": true,
     "nodes": [
       {
         "id": "06ea163d-3c26-41df-b540-cffe57cf4c7e",
@@ -1313,13 +1332,13 @@
         "parameters": {
           "modelId": {
             "__rl": true,
-            "mode": "list",
-            "value": "gpt-5.1"
+            "mode": "id",
+            "value": "gpt-6-luna"
           },
           "messages": {
             "values": [
               {
-                "content": "Você é o segundo cérebro de {{ $('2b. SELECT meeting').first().json.dono_nome }}. Sua função AQUI: transformar o RELATÓRIO EXECUTIVO de uma reunião (já destilado) em uma lista de TAREFAS estruturadas e rastreáveis — em geral UMA tarefa por passo/compromisso concreto.\n\nVocê recebe:\n1. RELATÓRIO EXECUTIVO — seções Contexto / Problemas / Decisões e alinhamentos / Insights / Próximos passos.\n2. TRANSCRIÇÃO ROTULADA por falante (fonte de verdade para owner e evidência).\n\n══════════════════════════════════════════════════════════\nRECALL — de onde tirar as tarefas\n══════════════════════════════════════════════════════════\nA seção \"Próximos passos\" É a lista de tarefas — ela é a fonte AUTORITATIVA. Trabalhe primariamente com ela; \"Decisões e alinhamentos\" e a transcrição servem para confirmar dono/evidência. NÃO crie tarefa a partir de \"Problemas levantados\" nem de \"Insights\" — isso é contexto, não ação, mesmo que soe acionável.\n\nESPELHE OS \"PRÓXIMOS PASSOS\". Eles já vêm na granularidade e na clareza certas — e o que os torna bons (frase direta, dono explícito, entregável concreto) é EXATAMENTE o que a tarefa precisa ter. Regra base: **cada próximo passo = UMA tarefa**, preservando o passo (não resuma, não funda, não jogue fora).\n\nSó adicione uma tarefa vinda de \"Decisões e alinhamentos\" se ela for um entregável concreto com dono que NENHUM próximo passo cobre — nem mesmo parcialmente. Se uma decisão detalha algo que um próximo passo já menciona (ainda que com \"etc.\" ou entre parênteses), ela NÃO é tarefa nova: é a descrição daquele próximo passo.\n\n══════════════════════════════════════════════════════════\nGRANULARIDADE — espelhe os Próximos passos (nem funde, nem fragmente)\n══════════════════════════════════════════════════════════\n1. ÂNCORA: o nº de tarefas deve ficar PRÓXIMO do nº de \"Próximos passos\" (± poucas). Se você está gerando MUITO mais tarefas que próximos passos, você fragmentou sub-itens — pare e devolva-os para a descrição do próximo passo correspondente.\n2. NÃO FUNDA passos / temas / donos diferentes numa tarefa só. Configurar uma integração ≠ criar logins ≠ adotar uma ferramenta nova ≠ migrar arquivos — são tarefas SEPARADAS. Se você escrever um título com \"e\" ligando ações distintas (\"X e Y e Z\"), separe. (Erro nº 1 — o pior.)\n3. NÃO FRAGMENTA um próximo passo em vários. Se um próximo passo diz \"revisar a página (campos de tarifas, políticas, notas, linha do tempo, anexos...)\", isso é UMA tarefa — os campos citados vão na DESCRIÇÃO, NÃO viram uma tarefa por campo. (Erro nº 2 — igualmente ruim.)\n\n══════════════════════════════════════════════════════════\nPRECISÃO — o que NÃO vira tarefa\n══════════════════════════════════════════════════════════\n1. DESCARTE orientação CONTÍNUA / princípio / cultura que é responsabilidade permanente de alguém — NÃO vira tarefa. Ex. a CORTAR: \"ajustar discurso da SDR\", \"comunicar racional ao time\", \"tratar fofoca como ruído\", \"reforçar ao time o princípio de trazer solução\", \"adotar o CRM como fonte única de verdade / 'se não está no CRM não existe'\", \"incluir fulano nas próximas conversas\". Só vira tarefa se for um entregável ESPECÍFICO com fim claro.\n2. TESTE PRAGMÁTICO: \"se o dono abrir o app amanhã e não vir isso, ele fica irritado, ou dirá 'isso era só contexto/desabafo'?\" Só fica o que o irritaria não ver.\n3. TRIVIAL → VAZIO: se o relatório é treinamento genérico, papo, teste, reflexão sem compromisso concreto com dono → retorne actions: [].\n\nNÃO INVENTE: só o que está explícito no relatório/transcrição. Sem dono e entregável claros, não crie.\n\n══════════════════════════════════════════════════════════\nATRIBUIÇÃO — \"quem põe a mão na massa?\"\n══════════════════════════════════════════════════════════\nPara a tarefa ficar pronta, QUEM faz o trabalho?\n- É o dono da conta → owner=\"eu\", acao=\"executar\" (tarefa que EU FAÇO).\n- O dono da conta é {{ $('2b. SELECT meeting').first().json.dono_nome }}. Quando a tarefa for dele(a), escreva owner=\"eu\" — nunca o nome.\n- É OUTRA pessoa — nomeada, por CARGO/PAPEL (\"a líder de Weddings\", \"a gestora\") ou desconhecida → acao=\"cobrar\" (eu acompanho/cobro) ou \"aguardar\" (só visibilidade). owner = essa pessoa.\n- O dono QUERER que algo aconteça NÃO o torna executor. \"Garantir que ⟨fulano⟩ faça X\", \"⟨fulano⟩ vai trazer X\" → owner=⟨fulano⟩, acao=\"cobrar\".\n- CONVERSA/1:1/REUNIÃO que o dono vai conduzir com alguém (ex.: \"vou chamar a Vanessa\", \"conversar com X\") = owner=\"eu\", acao=\"executar\" — mesmo que o nome da outra pessoa apareça no título (ela é pessoa_envolvida, não a dona).\n- Resolva CARGO/PAPEL → nome pelo contexto da conversa (ex.: a líder/interlocutora da reunião; a gestora intermediária citada pelo nome). Se não der pra resolver com segurança, use o papel literal como owner — nunca caia em \"eu\".\n- EXCEÇÃO (cobrança externa = dono executa): quando quem corre atrás é o próprio dono junto a TERCEIRO EXTERNO (boleto/pagamento de cliente, resposta de fornecedor) e não há entregável de alguém do time → owner=\"eu\", acao=\"executar\".\n- Invariante: owner=\"eu\" ⇔ acao=\"executar\"; owner≠\"eu\" ⇒ acao ∈ {\"cobrar\",\"aguardar\"}.\n\n══════════════════════════════════════════════════════════\nTÍTULO — direto e autossuficiente (no estilo do próprio \"Próximo passo\")\n══════════════════════════════════════════════════════════\nO título é a coisa que o dono mais lê. Escreva como o próximo passo foi escrito, mas SEM o nome do dono na frente (o app já mostra o owner num chip):\n- Verbo no infinitivo + o ENTREGÁVEL CONCRETO + (propósito curto, se houver). Ex.: \"Finalizar a revisão da página do casamento no CRM e enviar ao time para validação\".\n- Diz O QUÊ de forma que se entende SOZINHO, sem depender da descrição. NADA de rótulo genérico tipo \"Configurar anexos\", \"Ajustar CRM\", \"Configurar integrações\".\n- Enumerações longas e parênteses (\"campos de tarifas, políticas, notas...\") vão na DESCRIÇÃO, não no título.\n- Em cobrar/aguardar, o título descreve o ENTREGÁVEL que a pessoa vai produzir (ex.: \"Revisar a página do casamento e retornar feedback sobre o que falta\"). O campo acao já marca que é cobrança — NÃO precisa começar com \"Cobrar\".\n\n══════════════════════════════════════════════════════════\nPRAZO — resolva SEMPRE a partir da DATA DA REUNIÃO\n══════════════════════════════════════════════════════════\nO topo da mensagem informa QUANDO a reunião aconteceu (\"a reunião foi gravada em …\"). Resolva TODA expressão de tempo — \"hoje\", \"amanhã\", \"segunda\"/\"sexta\", \"semana que vem\", \"até sexta\", \"dia 3\", \"3 de agosto\" — a partir DESSA data, inclusive o ANO. NUNCA use a data de hoje/agora como referência (você não sabe que dia é hoje; a única referência válida é a data da reunião).\n- prazo_iso: a data absoluta resolvida, formato YYYY-MM-DD. Ex.: reunião em 03/07/2026 (quinta) → \"até sexta\" = \"2026-07-04\"; \"3 de agosto\" = \"2026-08-03\". O ano vem da data da reunião, nunca 2024/2025.\n- prazo_text: a expressão temporal literal dita (\"até sexta\", \"amanhã\", \"3 de agosto\"), ou null.\n- SEM expressão temporal REAL dita na reunião → prazo_iso E prazo_text = null. NUNCA invente prazo.\n\n══════════════════════════════════════════════════════════\nCAMPOS / FORMATO (retorne SÓ este JSON)\n══════════════════════════════════════════════════════════\n{\n  \"actions\": [\n    {\n      \"titulo\": \"<frase direta e autossuficiente; verbo infinitivo + entregável concreto; SEM o nome do dono na frente>\",\n      \"descricao\": \"<1-2 frases com o detalhe concreto do passo (sub-itens, campos, parênteses, propósito). Não repita o título literalmente.>\",\n      \"owner\": \"<'eu' se dono faz | nome/cargo de quem faz | '?'>\",\n      \"acao\": \"<'executar' | 'cobrar' | 'aguardar'>\",\n      \"prazo_iso\": \"<data absoluta YYYY-MM-DD resolvida a partir da data da reunião; null se nada foi dito>\",\n      \"prazo_text\": \"<expressão temporal literal dita, senão null>\",\n      \"prioridade\": \"<'baixa'|'media'|'alta'|'urgente'>\",\n      \"evidencia\": \"<trecho literal da transcrição, até 200 chars>\",\n      \"pessoas_envolvidas\": [\"<nome>\", ...],\n      \"area\": \"<frente curta ou null>\",\n      \"confidence\": \"<'high'|'medium'|'low'>\",\n      \"confidence_rationale\": \"<1 frase>\"\n    }\n  ]\n}\nSem ação concreta → \"actions\": []. Nunca omita campos. null para prazos não ditos. Não inclua o dono em pessoas_envolvidas (já está no owner).\n",
+                "content": "Você é o segundo cérebro de {{ $('2b. SELECT meeting').first().json.dono_nome }}. Sua função AQUI: transformar o RELATÓRIO EXECUTIVO de uma reunião (já destilado) em uma lista de TAREFAS estruturadas e rastreáveis — em geral UMA tarefa por passo/compromisso concreto.\n\nVocê recebe:\n1. RELATÓRIO EXECUTIVO — seções Contexto / Problemas / Decisões e alinhamentos / Insights / Próximos passos.\n2. TRANSCRIÇÃO ROTULADA por falante (fonte de verdade para owner e evidência).\n\n══════════════════════════════════════════════════════════\nRECALL — de onde tirar as tarefas\n══════════════════════════════════════════════════════════\nA seção \"Próximos passos\" É a lista de tarefas — ela é a fonte AUTORITATIVA. Trabalhe primariamente com ela; \"Decisões e alinhamentos\" e a transcrição servem para confirmar dono/evidência. NÃO crie tarefa a partir de \"Problemas levantados\" nem de \"Insights\" — isso é contexto, não ação, mesmo que soe acionável. Também NÃO crie tarefa a partir de \"Pendências e ideias (não viram tarefa)\": são assuntos que ficaram em aberto sem ninguém assumir.\n\nESPELHE OS \"PRÓXIMOS PASSOS\". Eles já vêm na granularidade e na clareza certas — e o que os torna bons (frase direta, dono explícito, entregável concreto) é EXATAMENTE o que a tarefa precisa ter. Regra base: **cada próximo passo = UMA tarefa**, preservando o passo (não resuma, não funda, não jogue fora).\n\nSó adicione uma tarefa vinda de \"Decisões e alinhamentos\" se ela for um entregável concreto com dono que NENHUM próximo passo cobre — nem mesmo parcialmente. Se uma decisão detalha algo que um próximo passo já menciona (ainda que com \"etc.\" ou entre parênteses), ela NÃO é tarefa nova: é a descrição daquele próximo passo.\n\n══════════════════════════════════════════════════════════\nGRANULARIDADE — espelhe os Próximos passos (nem funde, nem fragmente)\n══════════════════════════════════════════════════════════\n1. ÂNCORA: o nº de tarefas deve ficar PRÓXIMO do nº de \"Próximos passos\" (± poucas). Se você está gerando MUITO mais tarefas que próximos passos, você fragmentou sub-itens — pare e devolva-os para a descrição do próximo passo correspondente.\n2. NÃO FUNDA passos / temas / donos diferentes numa tarefa só. Configurar uma integração ≠ criar logins ≠ adotar uma ferramenta nova ≠ migrar arquivos — são tarefas SEPARADAS. Se você escrever um título com \"e\" ligando ações distintas (\"X e Y e Z\"), separe. (Erro nº 1 — o pior.)\n3. NÃO FRAGMENTA um próximo passo em vários. Se um próximo passo diz \"revisar a página (campos de tarifas, políticas, notas, linha do tempo, anexos...)\", isso é UMA tarefa — os campos citados vão na DESCRIÇÃO, NÃO viram uma tarefa por campo. (Erro nº 2 — igualmente ruim.)\n\n══════════════════════════════════════════════════════════\nPRECISÃO — o que NÃO vira tarefa\n══════════════════════════════════════════════════════════\n1. DESCARTE orientação CONTÍNUA / princípio / cultura que é responsabilidade permanente de alguém — NÃO vira tarefa. Ex. a CORTAR: \"ajustar discurso da SDR\", \"comunicar racional ao time\", \"tratar fofoca como ruído\", \"reforçar ao time o princípio de trazer solução\", \"adotar o CRM como fonte única de verdade / 'se não está no CRM não existe'\", \"incluir fulano nas próximas conversas\". Só vira tarefa se for um entregável ESPECÍFICO com fim claro.\n2. TESTE PRAGMÁTICO: \"se o dono abrir o app amanhã e não vir isso, ele fica irritado, ou dirá 'isso era só contexto/desabafo'?\" Só fica o que o irritaria não ver.\n3. TRIVIAL → VAZIO: se o relatório é treinamento genérico, papo, teste, reflexão sem compromisso concreto com dono → retorne actions: [].\n\nNÃO INVENTE: só o que está explícito no relatório/transcrição. Sem dono e entregável claros, não crie.\n\n══════════════════════════════════════════════════════════\nATRIBUIÇÃO — \"quem põe a mão na massa?\"\n══════════════════════════════════════════════════════════\nPara a tarefa ficar pronta, QUEM faz o trabalho?\n- É o dono da conta → owner=\"eu\", acao=\"executar\" (tarefa que EU FAÇO).\n- O dono da conta é {{ $('2b. SELECT meeting').first().json.dono_nome }}. Quando a tarefa for dele(a), escreva owner=\"eu\" — nunca o nome.\n- É OUTRA pessoa — nomeada, por CARGO/PAPEL (\"a líder de Weddings\", \"a gestora\") ou desconhecida → acao=\"cobrar\" (eu acompanho/cobro) ou \"aguardar\" (só visibilidade). owner = essa pessoa.\n- O dono QUERER que algo aconteça NÃO o torna executor. \"Garantir que ⟨fulano⟩ faça X\", \"⟨fulano⟩ vai trazer X\" → owner=⟨fulano⟩, acao=\"cobrar\".\n- CONVERSA/1:1/REUNIÃO que o dono vai conduzir com alguém (ex.: \"vou chamar a Vanessa\", \"conversar com X\") = owner=\"eu\", acao=\"executar\" — mesmo que o nome da outra pessoa apareça no título (ela é pessoa_envolvida, não a dona).\n- Resolva CARGO/PAPEL → nome pelo contexto da conversa (ex.: a líder/interlocutora da reunião; a gestora intermediária citada pelo nome). Se não der pra resolver com segurança, use o papel literal como owner — nunca caia em \"eu\".\n- EXCEÇÃO (cobrança externa = dono executa): quando quem corre atrás é o próprio dono junto a TERCEIRO EXTERNO (boleto/pagamento de cliente, resposta de fornecedor) e não há entregável de alguém do time → owner=\"eu\", acao=\"executar\".\n- Invariante: owner=\"eu\" ⇔ acao=\"executar\"; owner≠\"eu\" ⇒ acao ∈ {\"cobrar\",\"aguardar\"}.\n\n══════════════════════════════════════════════════════════\nTÍTULO — direto e autossuficiente (no estilo do próprio \"Próximo passo\")\n══════════════════════════════════════════════════════════\nO título é a coisa que o dono mais lê. Escreva como o próximo passo foi escrito, mas SEM o nome do dono na frente (o app já mostra o owner num chip):\n- Verbo no infinitivo + o ENTREGÁVEL CONCRETO + (propósito curto, se houver). Ex.: \"Finalizar a revisão da página do casamento no CRM e enviar ao time para validação\".\n- Diz O QUÊ de forma que se entende SOZINHO, sem depender da descrição. NADA de rótulo genérico tipo \"Configurar anexos\", \"Ajustar CRM\", \"Configurar integrações\".\n- Enumerações longas e parênteses (\"campos de tarifas, políticas, notas...\") vão na DESCRIÇÃO, não no título.\n- Em cobrar/aguardar, o título descreve o ENTREGÁVEL que a pessoa vai produzir (ex.: \"Revisar a página do casamento e retornar feedback sobre o que falta\"). O campo acao já marca que é cobrança — NÃO precisa começar com \"Cobrar\".\n\n══════════════════════════════════════════════════════════\nPRAZO — resolva SEMPRE a partir da DATA DA REUNIÃO\n══════════════════════════════════════════════════════════\nO topo da mensagem informa QUANDO a reunião aconteceu (\"a reunião foi gravada em …\"). Resolva TODA expressão de tempo — \"hoje\", \"amanhã\", \"segunda\"/\"sexta\", \"semana que vem\", \"até sexta\", \"dia 3\", \"3 de agosto\" — a partir DESSA data, inclusive o ANO. NUNCA use a data de hoje/agora como referência (você não sabe que dia é hoje; a única referência válida é a data da reunião).\n- prazo_iso: a data absoluta resolvida, formato YYYY-MM-DD. Ex.: reunião em 03/07/2026 (quinta) → \"até sexta\" = \"2026-07-04\"; \"3 de agosto\" = \"2026-08-03\". O ano vem da data da reunião, nunca 2024/2025.\n- prazo_text: a expressão temporal literal dita (\"até sexta\", \"amanhã\", \"3 de agosto\"), ou null.\n- SEM expressão temporal REAL dita na reunião → prazo_iso E prazo_text = null. NUNCA invente prazo.\n\n══════════════════════════════════════════════════════════\nCAMPOS / FORMATO (retorne SÓ este JSON)\n══════════════════════════════════════════════════════════\n{\n  \"actions\": [\n    {\n      \"titulo\": \"<frase direta e autossuficiente; verbo infinitivo + entregável concreto; SEM o nome do dono na frente>\",\n      \"descricao\": \"<1-2 frases com o detalhe concreto do passo (sub-itens, campos, parênteses, propósito). Não repita o título literalmente.>\",\n      \"owner\": \"<'eu' se dono faz | nome/cargo de quem faz | '?'>\",\n      \"acao\": \"<'executar' | 'cobrar' | 'aguardar'>\",\n      \"prazo_iso\": \"<data absoluta YYYY-MM-DD resolvida a partir da data da reunião; null se nada foi dito>\",\n      \"prazo_text\": \"<expressão temporal literal dita, senão null>\",\n      \"prioridade\": \"<'baixa'|'media'|'alta'|'urgente'>\",\n      \"evidencia\": \"<trecho literal da transcrição, até 200 chars>\",\n      \"pessoas_envolvidas\": [\"<nome>\", ...],\n      \"area\": \"<frente curta ou null>\",\n      \"confidence\": \"<'high'|'medium'|'low'>\",\n      \"confidence_rationale\": \"<1 frase>\"\n    }\n  ]\n}\nSem ação concreta → \"actions\": []. Nunca omita campos. null para prazos não ditos. Não inclua o dono em pessoas_envolvidas (já está no owner).\n",
                 "role": "system"
               },
               {
@@ -1328,9 +1347,7 @@
             ]
           },
           "jsonOutput": true,
-          "options": {
-            "temperature": 0.2
-          }
+          "options": {}
         },
         "id": "18063831-5e65-4808-b963-c7cdc2f46b88",
         "name": "Distiller",
@@ -1484,8 +1501,8 @@
         "parameters": {
           "modelId": {
             "__rl": true,
-            "mode": "list",
-            "value": "gpt-5.1"
+            "mode": "id",
+            "value": "gpt-6-luna"
           },
           "messages": {
             "values": [
@@ -1495,9 +1512,7 @@
             ]
           },
           "jsonOutput": true,
-          "options": {
-            "temperature": 0.2
-          }
+          "options": {}
         },
         "id": "sc-judge",
         "name": "Judge",
@@ -1526,44 +1541,6 @@
           20,
           0
         ]
-      },
-      {
-        "parameters": {
-          "modelId": {
-            "__rl": true,
-            "mode": "list",
-            "value": "gpt-5.1"
-          },
-          "messages": {
-            "values": [
-              {
-                "content": "Você lê a transcrição rotulada por falante de uma reunião/áudio de {{ $('2b. SELECT meeting').first().json.dono_nome }} e escreve um RELATÓRIO DE LEITURA. NÃO extraia tarefas/ações, NÃO produza listas de \"actions\" — apenas o relatório.\n\nEscreva um relatório em markdown-lite com EXATAMENTE estas seções, nesta ordem (cada seção é \"**Título:**\" numa linha, seguida de bullets que começam com \"- \"). Omita uma seção só se for genuinamente vazia:\n\n**Contexto:** tipo de áudio, quem participa (nomes quando rotulados) e o assunto central.\n**Problemas levantados:** cada dor, gargalo, risco ou insatisfação. Específico.\n**Decisões e alinhamentos:** cada decisão/acordo — e para CADA um deixe explícito QUEM é o dono (nome próprio quando a transcrição permitir; senão o papel/cargo) e qual o ENTREGÁVEL. Inclua decisões sobre PESSOAS/papéis (reavaliar/ajustar/trocar quem lidera) e criação de ROTINAS/rituais recorrentes (checklist, daily).\n**Insights / observações relevantes:** constatações, números, padrões — coisas que valem registrar mesmo sem virar ação.\n**Próximos passos:** o que vem a seguir — cada passo com dono e entregável.\n\nRegras: extraia só do que foi dito; preserve nomes próprios, números, prazos e termos do domínio (Trips, Weddings, Edis, CRM, SDR). Reunião densa → relatório detalhado. Português, voz objetiva.\n\nSAÍDA — retorne SÓ este JSON. O campo executive_summary é OBRIGATÓRIO e deve conter o relatório completo das seções acima (use null APENAS em áudio trivial: teste, saudação, ruído):\n{ \"summary\": \"<1-2 frases de contexto, não as tarefas>\", \"executive_summary\": \"<relatório markdown-lite com as seções acima>\" }\n",
-                "role": "system"
-              },
-              {
-                "content": "=Transcrição rotulada:\n\n{{ $('6. Use Pretranscribed').first().json.text }}"
-              }
-            ]
-          },
-          "jsonOutput": true,
-          "options": {
-            "temperature": 0.2
-          }
-        },
-        "id": "stagea-summary",
-        "name": "Stage A Summary",
-        "type": "@n8n/n8n-nodes-langchain.openAi",
-        "typeVersion": 1.7,
-        "position": [
-          -620,
-          -40
-        ],
-        "credentials": {
-          "openAiApi": {
-            "id": "QSdaVgPRKxfvwcXr",
-            "name": "OpenAi account"
-          }
-        }
       },
       {
         "parameters": {
@@ -1630,6 +1607,76 @@
             "name": "Ações frontend (x-admin-token)"
           }
         }
+      },
+      {
+        "parameters": {
+          "modelId": {
+            "__rl": true,
+            "mode": "list",
+            "value": "gpt-5.1"
+          },
+          "messages": {
+            "values": [
+              {
+                "content": "Você lê a transcrição rotulada por falante de uma reunião/áudio de {{ $('2b. SELECT meeting').first().json.dono_nome }} e escreve um RELATÓRIO DE LEITURA. NÃO extraia tarefas/ações, NÃO produza listas de \"actions\" — apenas o relatório.\n\nEscreva um relatório em markdown-lite com EXATAMENTE estas seções, nesta ordem (cada seção é \"**Título:**\" numa linha, seguida de bullets que começam com \"- \"). Omita uma seção só se for genuinamente vazia:\n\n**Contexto:** tipo de áudio, quem participa (nomes quando rotulados) e o assunto central.\n**Problemas levantados:** cada dor, gargalo, risco ou insatisfação. Específico.\n**Decisões e alinhamentos:** cada decisão/acordo — e para CADA um deixe explícito QUEM é o dono (nome próprio quando a transcrição permitir; senão o papel/cargo) e qual o ENTREGÁVEL. Inclua decisões sobre PESSOAS/papéis (reavaliar/ajustar/trocar quem lidera) e criação de ROTINAS/rituais recorrentes (checklist, daily).\n**Insights / observações relevantes:** constatações, números, padrões — coisas que valem registrar mesmo sem virar ação.\n**Próximos passos:** o que vem a seguir — cada passo com dono e entregável.\n\nRegras: extraia só do que foi dito; preserve nomes próprios, números, prazos e termos do domínio (Trips, Weddings, Edis, CRM, SDR). Reunião densa → relatório detalhado. Português, voz objetiva.\n\nSAÍDA — retorne SÓ este JSON. O campo executive_summary é OBRIGATÓRIO e deve conter o relatório completo das seções acima (use null APENAS em áudio trivial: teste, saudação, ruído):\n{ \"summary\": \"<1-2 frases de contexto, não as tarefas>\", \"executive_summary\": \"<relatório markdown-lite com as seções acima>\" }\n",
+                "role": "system"
+              },
+              {
+                "content": "=Transcrição rotulada:\n\n{{ $('6. Use Pretranscribed').first().json.text }}"
+              }
+            ]
+          },
+          "jsonOutput": true,
+          "options": {
+            "temperature": 0.2
+          }
+        },
+        "id": "bf6cfa27-af68-4335-a08c-9947d700eb0c",
+        "name": "Stage A Summary (antigo GPT-5.1, desligado)",
+        "type": "@n8n/n8n-nodes-langchain.openAi",
+        "typeVersion": 1.7,
+        "position": [
+          -620,
+          280
+        ],
+        "credentials": {
+          "openAiApi": {
+            "id": "QSdaVgPRKxfvwcXr",
+            "name": "OpenAi account"
+          }
+        },
+        "disabled": true
+      },
+      {
+        "parameters": {
+          "workflowId": "EqRelatorioLuna1",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        },
+        "name": "Stage A Summary",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1,
+        "position": [
+          -620,
+          -40
+        ],
+        "executeOnce": true,
+        "id": "3f3edda3-f991-41a5-b649-5f3d5faaa7ed"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Junta o que o relatório precisa (transcrição, data e pessoas) para o fluxo \"Equipe - Acoes - Relatorio Luna\"\nlet recorded_at = null; try { recorded_at = $('3. Prepare Metadata').first().json.recorded_at || null; } catch (e) {}\nlet pessoas = []; try { pessoas = []; } catch (e) {}\nlet dono_nome = ''; try { dono_nome = String($('2b. SELECT meeting').first().json.dono_nome || ''); } catch (e) {}\nreturn [{ json: { dono_nome, labeled_text: String($('6. Use Pretranscribed').first().json.text || ''), recorded_at, pessoas } }];\n"
+        },
+        "name": "Prepara relatório",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -820,
+          120
+        ],
+        "executeOnce": true,
+        "id": "881f8d73-4501-4b43-90cf-b1757e37124c"
       }
     ],
     "connections": {
@@ -1681,7 +1728,7 @@
         "main": [
           [
             {
-              "node": "Stage A Summary",
+              "node": "Prepara relatório",
               "type": "main",
               "index": 0
             }
@@ -1826,16 +1873,27 @@
             }
           ]
         ]
+      },
+      "Prepara relatório": {
+        "main": [
+          [
+            {
+              "node": "Stage A Summary",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
       }
     },
     "settings": {
       "executionOrder": "v1"
-    },
-    "id": "EqProcSegment001",
-    "active": false
+    }
   },
   {
+    "id": "EqReprocTaref001",
     "name": "Equipe - Acoes - Reprocess Tarefas",
+    "active": true,
     "nodes": [
       {
         "parameters": {
@@ -1892,13 +1950,13 @@
         "parameters": {
           "modelId": {
             "__rl": true,
-            "mode": "list",
-            "value": "gpt-5.1"
+            "mode": "id",
+            "value": "gpt-6-luna"
           },
           "messages": {
             "values": [
               {
-                "content": "Você é o segundo cérebro de {{ $('SELECT meeting').first().json.dono_nome }}. Sua função AQUI: transformar o RELATÓRIO EXECUTIVO de uma reunião (já destilado) em uma lista de TAREFAS estruturadas e rastreáveis — em geral UMA tarefa por passo/compromisso concreto.\n\nVocê recebe:\n1. RELATÓRIO EXECUTIVO — seções Contexto / Problemas / Decisões e alinhamentos / Insights / Próximos passos.\n2. TRANSCRIÇÃO ROTULADA por falante (fonte de verdade para owner e evidência).\n\n══════════════════════════════════════════════════════════\nRECALL — de onde tirar as tarefas\n══════════════════════════════════════════════════════════\nA seção \"Próximos passos\" É a lista de tarefas — ela é a fonte AUTORITATIVA. Trabalhe primariamente com ela; \"Decisões e alinhamentos\" e a transcrição servem para confirmar dono/evidência. NÃO crie tarefa a partir de \"Problemas levantados\" nem de \"Insights\" — isso é contexto, não ação, mesmo que soe acionável.\n\nESPELHE OS \"PRÓXIMOS PASSOS\". Eles já vêm na granularidade e na clareza certas — e o que os torna bons (frase direta, dono explícito, entregável concreto) é EXATAMENTE o que a tarefa precisa ter. Regra base: **cada próximo passo = UMA tarefa**, preservando o passo (não resuma, não funda, não jogue fora).\n\nSó adicione uma tarefa vinda de \"Decisões e alinhamentos\" se ela for um entregável concreto com dono que NENHUM próximo passo cobre — nem mesmo parcialmente. Se uma decisão detalha algo que um próximo passo já menciona (ainda que com \"etc.\" ou entre parênteses), ela NÃO é tarefa nova: é a descrição daquele próximo passo.\n\n══════════════════════════════════════════════════════════\nGRANULARIDADE — espelhe os Próximos passos (nem funde, nem fragmente)\n══════════════════════════════════════════════════════════\n1. ÂNCORA: o nº de tarefas deve ficar PRÓXIMO do nº de \"Próximos passos\" (± poucas). Se você está gerando MUITO mais tarefas que próximos passos, você fragmentou sub-itens — pare e devolva-os para a descrição do próximo passo correspondente.\n2. NÃO FUNDA passos / temas / donos diferentes numa tarefa só. Configurar uma integração ≠ criar logins ≠ adotar uma ferramenta nova ≠ migrar arquivos — são tarefas SEPARADAS. Se você escrever um título com \"e\" ligando ações distintas (\"X e Y e Z\"), separe. (Erro nº 1 — o pior.)\n3. NÃO FRAGMENTA um próximo passo em vários. Se um próximo passo diz \"revisar a página (campos de tarifas, políticas, notas, linha do tempo, anexos...)\", isso é UMA tarefa — os campos citados vão na DESCRIÇÃO, NÃO viram uma tarefa por campo. (Erro nº 2 — igualmente ruim.)\n\n══════════════════════════════════════════════════════════\nPRECISÃO — o que NÃO vira tarefa\n══════════════════════════════════════════════════════════\n1. DESCARTE orientação CONTÍNUA / princípio / cultura que é responsabilidade permanente de alguém — NÃO vira tarefa. Ex. a CORTAR: \"ajustar discurso da SDR\", \"comunicar racional ao time\", \"tratar fofoca como ruído\", \"reforçar ao time o princípio de trazer solução\", \"adotar o CRM como fonte única de verdade / 'se não está no CRM não existe'\", \"incluir fulano nas próximas conversas\". Só vira tarefa se for um entregável ESPECÍFICO com fim claro.\n2. TESTE PRAGMÁTICO: \"se o dono abrir o app amanhã e não vir isso, ele fica irritado, ou dirá 'isso era só contexto/desabafo'?\" Só fica o que o irritaria não ver.\n3. TRIVIAL → VAZIO: se o relatório é treinamento genérico, papo, teste, reflexão sem compromisso concreto com dono → retorne actions: [].\n\nNÃO INVENTE: só o que está explícito no relatório/transcrição. Sem dono e entregável claros, não crie.\n\n══════════════════════════════════════════════════════════\nATRIBUIÇÃO — \"quem põe a mão na massa?\"\n══════════════════════════════════════════════════════════\nPara a tarefa ficar pronta, QUEM faz o trabalho?\n- É o dono da conta → owner=\"eu\", acao=\"executar\" (tarefa que EU FAÇO).\n- O dono da conta é {{ $('SELECT meeting').first().json.dono_nome }}. Quando a tarefa for dele(a), escreva owner=\"eu\" — nunca o nome.\n- É OUTRA pessoa — nomeada, por CARGO/PAPEL (\"a líder de Weddings\", \"a gestora\") ou desconhecida → acao=\"cobrar\" (eu acompanho/cobro) ou \"aguardar\" (só visibilidade). owner = essa pessoa.\n- O dono QUERER que algo aconteça NÃO o torna executor. \"Garantir que ⟨fulano⟩ faça X\", \"⟨fulano⟩ vai trazer X\" → owner=⟨fulano⟩, acao=\"cobrar\".\n- CONVERSA/1:1/REUNIÃO que o dono vai conduzir com alguém (ex.: \"vou chamar a Vanessa\", \"conversar com X\") = owner=\"eu\", acao=\"executar\" — mesmo que o nome da outra pessoa apareça no título (ela é pessoa_envolvida, não a dona).\n- Resolva CARGO/PAPEL → nome pelo contexto da conversa (ex.: a líder/interlocutora da reunião; a gestora intermediária citada pelo nome). Se não der pra resolver com segurança, use o papel literal como owner — nunca caia em \"eu\".\n- EXCEÇÃO (cobrança externa = dono executa): quando quem corre atrás é o próprio dono junto a TERCEIRO EXTERNO (boleto/pagamento de cliente, resposta de fornecedor) e não há entregável de alguém do time → owner=\"eu\", acao=\"executar\".\n- Invariante: owner=\"eu\" ⇔ acao=\"executar\"; owner≠\"eu\" ⇒ acao ∈ {\"cobrar\",\"aguardar\"}.\n\n══════════════════════════════════════════════════════════\nTÍTULO — direto e autossuficiente (no estilo do próprio \"Próximo passo\")\n══════════════════════════════════════════════════════════\nO título é a coisa que o dono mais lê. Escreva como o próximo passo foi escrito, mas SEM o nome do dono na frente (o app já mostra o owner num chip):\n- Verbo no infinitivo + o ENTREGÁVEL CONCRETO + (propósito curto, se houver). Ex.: \"Finalizar a revisão da página do casamento no CRM e enviar ao time para validação\".\n- Diz O QUÊ de forma que se entende SOZINHO, sem depender da descrição. NADA de rótulo genérico tipo \"Configurar anexos\", \"Ajustar CRM\", \"Configurar integrações\".\n- Enumerações longas e parênteses (\"campos de tarifas, políticas, notas...\") vão na DESCRIÇÃO, não no título.\n- Em cobrar/aguardar, o título descreve o ENTREGÁVEL que a pessoa vai produzir (ex.: \"Revisar a página do casamento e retornar feedback sobre o que falta\"). O campo acao já marca que é cobrança — NÃO precisa começar com \"Cobrar\".\n\n══════════════════════════════════════════════════════════\nPRAZO — resolva SEMPRE a partir da DATA DA REUNIÃO\n══════════════════════════════════════════════════════════\nO topo da mensagem informa QUANDO a reunião aconteceu (\"a reunião foi gravada em …\"). Resolva TODA expressão de tempo — \"hoje\", \"amanhã\", \"segunda\"/\"sexta\", \"semana que vem\", \"até sexta\", \"dia 3\", \"3 de agosto\" — a partir DESSA data, inclusive o ANO. NUNCA use a data de hoje/agora como referência (você não sabe que dia é hoje; a única referência válida é a data da reunião).\n- prazo_iso: a data absoluta resolvida, formato YYYY-MM-DD. Ex.: reunião em 03/07/2026 (quinta) → \"até sexta\" = \"2026-07-04\"; \"3 de agosto\" = \"2026-08-03\". O ano vem da data da reunião, nunca 2024/2025.\n- prazo_text: a expressão temporal literal dita (\"até sexta\", \"amanhã\", \"3 de agosto\"), ou null.\n- SEM expressão temporal REAL dita na reunião → prazo_iso E prazo_text = null. NUNCA invente prazo.\n\n══════════════════════════════════════════════════════════\nCAMPOS / FORMATO (retorne SÓ este JSON)\n══════════════════════════════════════════════════════════\n{\n  \"actions\": [\n    {\n      \"titulo\": \"<frase direta e autossuficiente; verbo infinitivo + entregável concreto; SEM o nome do dono na frente>\",\n      \"descricao\": \"<1-2 frases com o detalhe concreto do passo (sub-itens, campos, parênteses, propósito). Não repita o título literalmente.>\",\n      \"owner\": \"<'eu' se dono faz | nome/cargo de quem faz | '?'>\",\n      \"acao\": \"<'executar' | 'cobrar' | 'aguardar'>\",\n      \"prazo_iso\": \"<data absoluta YYYY-MM-DD resolvida a partir da data da reunião; null se nada foi dito>\",\n      \"prazo_text\": \"<expressão temporal literal dita, senão null>\",\n      \"prioridade\": \"<'baixa'|'media'|'alta'|'urgente'>\",\n      \"evidencia\": \"<trecho literal da transcrição, até 200 chars>\",\n      \"pessoas_envolvidas\": [\"<nome>\", ...],\n      \"area\": \"<frente curta ou null>\",\n      \"confidence\": \"<'high'|'medium'|'low'>\",\n      \"confidence_rationale\": \"<1 frase>\"\n    }\n  ]\n}\nSem ação concreta → \"actions\": []. Nunca omita campos. null para prazos não ditos. Não inclua o dono em pessoas_envolvidas (já está no owner).\n",
+                "content": "Você é o segundo cérebro de {{ $('SELECT meeting').first().json.dono_nome }}. Sua função AQUI: transformar o RELATÓRIO EXECUTIVO de uma reunião (já destilado) em uma lista de TAREFAS estruturadas e rastreáveis — em geral UMA tarefa por passo/compromisso concreto.\n\nVocê recebe:\n1. RELATÓRIO EXECUTIVO — seções Contexto / Problemas / Decisões e alinhamentos / Insights / Próximos passos.\n2. TRANSCRIÇÃO ROTULADA por falante (fonte de verdade para owner e evidência).\n\n══════════════════════════════════════════════════════════\nRECALL — de onde tirar as tarefas\n══════════════════════════════════════════════════════════\nA seção \"Próximos passos\" É a lista de tarefas — ela é a fonte AUTORITATIVA. Trabalhe primariamente com ela; \"Decisões e alinhamentos\" e a transcrição servem para confirmar dono/evidência. NÃO crie tarefa a partir de \"Problemas levantados\" nem de \"Insights\" — isso é contexto, não ação, mesmo que soe acionável. Também NÃO crie tarefa a partir de \"Pendências e ideias (não viram tarefa)\": são assuntos que ficaram em aberto sem ninguém assumir.\n\nESPELHE OS \"PRÓXIMOS PASSOS\". Eles já vêm na granularidade e na clareza certas — e o que os torna bons (frase direta, dono explícito, entregável concreto) é EXATAMENTE o que a tarefa precisa ter. Regra base: **cada próximo passo = UMA tarefa**, preservando o passo (não resuma, não funda, não jogue fora).\n\nSó adicione uma tarefa vinda de \"Decisões e alinhamentos\" se ela for um entregável concreto com dono que NENHUM próximo passo cobre — nem mesmo parcialmente. Se uma decisão detalha algo que um próximo passo já menciona (ainda que com \"etc.\" ou entre parênteses), ela NÃO é tarefa nova: é a descrição daquele próximo passo.\n\n══════════════════════════════════════════════════════════\nGRANULARIDADE — espelhe os Próximos passos (nem funde, nem fragmente)\n══════════════════════════════════════════════════════════\n1. ÂNCORA: o nº de tarefas deve ficar PRÓXIMO do nº de \"Próximos passos\" (± poucas). Se você está gerando MUITO mais tarefas que próximos passos, você fragmentou sub-itens — pare e devolva-os para a descrição do próximo passo correspondente.\n2. NÃO FUNDA passos / temas / donos diferentes numa tarefa só. Configurar uma integração ≠ criar logins ≠ adotar uma ferramenta nova ≠ migrar arquivos — são tarefas SEPARADAS. Se você escrever um título com \"e\" ligando ações distintas (\"X e Y e Z\"), separe. (Erro nº 1 — o pior.)\n3. NÃO FRAGMENTA um próximo passo em vários. Se um próximo passo diz \"revisar a página (campos de tarifas, políticas, notas, linha do tempo, anexos...)\", isso é UMA tarefa — os campos citados vão na DESCRIÇÃO, NÃO viram uma tarefa por campo. (Erro nº 2 — igualmente ruim.)\n\n══════════════════════════════════════════════════════════\nPRECISÃO — o que NÃO vira tarefa\n══════════════════════════════════════════════════════════\n1. DESCARTE orientação CONTÍNUA / princípio / cultura que é responsabilidade permanente de alguém — NÃO vira tarefa. Ex. a CORTAR: \"ajustar discurso da SDR\", \"comunicar racional ao time\", \"tratar fofoca como ruído\", \"reforçar ao time o princípio de trazer solução\", \"adotar o CRM como fonte única de verdade / 'se não está no CRM não existe'\", \"incluir fulano nas próximas conversas\". Só vira tarefa se for um entregável ESPECÍFICO com fim claro.\n2. TESTE PRAGMÁTICO: \"se o dono abrir o app amanhã e não vir isso, ele fica irritado, ou dirá 'isso era só contexto/desabafo'?\" Só fica o que o irritaria não ver.\n3. TRIVIAL → VAZIO: se o relatório é treinamento genérico, papo, teste, reflexão sem compromisso concreto com dono → retorne actions: [].\n\nNÃO INVENTE: só o que está explícito no relatório/transcrição. Sem dono e entregável claros, não crie.\n\n══════════════════════════════════════════════════════════\nATRIBUIÇÃO — \"quem põe a mão na massa?\"\n══════════════════════════════════════════════════════════\nPara a tarefa ficar pronta, QUEM faz o trabalho?\n- É o dono da conta → owner=\"eu\", acao=\"executar\" (tarefa que EU FAÇO).\n- O dono da conta é {{ $('SELECT meeting').first().json.dono_nome }}. Quando a tarefa for dele(a), escreva owner=\"eu\" — nunca o nome.\n- É OUTRA pessoa — nomeada, por CARGO/PAPEL (\"a líder de Weddings\", \"a gestora\") ou desconhecida → acao=\"cobrar\" (eu acompanho/cobro) ou \"aguardar\" (só visibilidade). owner = essa pessoa.\n- O dono QUERER que algo aconteça NÃO o torna executor. \"Garantir que ⟨fulano⟩ faça X\", \"⟨fulano⟩ vai trazer X\" → owner=⟨fulano⟩, acao=\"cobrar\".\n- CONVERSA/1:1/REUNIÃO que o dono vai conduzir com alguém (ex.: \"vou chamar a Vanessa\", \"conversar com X\") = owner=\"eu\", acao=\"executar\" — mesmo que o nome da outra pessoa apareça no título (ela é pessoa_envolvida, não a dona).\n- Resolva CARGO/PAPEL → nome pelo contexto da conversa (ex.: a líder/interlocutora da reunião; a gestora intermediária citada pelo nome). Se não der pra resolver com segurança, use o papel literal como owner — nunca caia em \"eu\".\n- EXCEÇÃO (cobrança externa = dono executa): quando quem corre atrás é o próprio dono junto a TERCEIRO EXTERNO (boleto/pagamento de cliente, resposta de fornecedor) e não há entregável de alguém do time → owner=\"eu\", acao=\"executar\".\n- Invariante: owner=\"eu\" ⇔ acao=\"executar\"; owner≠\"eu\" ⇒ acao ∈ {\"cobrar\",\"aguardar\"}.\n\n══════════════════════════════════════════════════════════\nTÍTULO — direto e autossuficiente (no estilo do próprio \"Próximo passo\")\n══════════════════════════════════════════════════════════\nO título é a coisa que o dono mais lê. Escreva como o próximo passo foi escrito, mas SEM o nome do dono na frente (o app já mostra o owner num chip):\n- Verbo no infinitivo + o ENTREGÁVEL CONCRETO + (propósito curto, se houver). Ex.: \"Finalizar a revisão da página do casamento no CRM e enviar ao time para validação\".\n- Diz O QUÊ de forma que se entende SOZINHO, sem depender da descrição. NADA de rótulo genérico tipo \"Configurar anexos\", \"Ajustar CRM\", \"Configurar integrações\".\n- Enumerações longas e parênteses (\"campos de tarifas, políticas, notas...\") vão na DESCRIÇÃO, não no título.\n- Em cobrar/aguardar, o título descreve o ENTREGÁVEL que a pessoa vai produzir (ex.: \"Revisar a página do casamento e retornar feedback sobre o que falta\"). O campo acao já marca que é cobrança — NÃO precisa começar com \"Cobrar\".\n\n══════════════════════════════════════════════════════════\nPRAZO — resolva SEMPRE a partir da DATA DA REUNIÃO\n══════════════════════════════════════════════════════════\nO topo da mensagem informa QUANDO a reunião aconteceu (\"a reunião foi gravada em …\"). Resolva TODA expressão de tempo — \"hoje\", \"amanhã\", \"segunda\"/\"sexta\", \"semana que vem\", \"até sexta\", \"dia 3\", \"3 de agosto\" — a partir DESSA data, inclusive o ANO. NUNCA use a data de hoje/agora como referência (você não sabe que dia é hoje; a única referência válida é a data da reunião).\n- prazo_iso: a data absoluta resolvida, formato YYYY-MM-DD. Ex.: reunião em 03/07/2026 (quinta) → \"até sexta\" = \"2026-07-04\"; \"3 de agosto\" = \"2026-08-03\". O ano vem da data da reunião, nunca 2024/2025.\n- prazo_text: a expressão temporal literal dita (\"até sexta\", \"amanhã\", \"3 de agosto\"), ou null.\n- SEM expressão temporal REAL dita na reunião → prazo_iso E prazo_text = null. NUNCA invente prazo.\n\n══════════════════════════════════════════════════════════\nCAMPOS / FORMATO (retorne SÓ este JSON)\n══════════════════════════════════════════════════════════\n{\n  \"actions\": [\n    {\n      \"titulo\": \"<frase direta e autossuficiente; verbo infinitivo + entregável concreto; SEM o nome do dono na frente>\",\n      \"descricao\": \"<1-2 frases com o detalhe concreto do passo (sub-itens, campos, parênteses, propósito). Não repita o título literalmente.>\",\n      \"owner\": \"<'eu' se dono faz | nome/cargo de quem faz | '?'>\",\n      \"acao\": \"<'executar' | 'cobrar' | 'aguardar'>\",\n      \"prazo_iso\": \"<data absoluta YYYY-MM-DD resolvida a partir da data da reunião; null se nada foi dito>\",\n      \"prazo_text\": \"<expressão temporal literal dita, senão null>\",\n      \"prioridade\": \"<'baixa'|'media'|'alta'|'urgente'>\",\n      \"evidencia\": \"<trecho literal da transcrição, até 200 chars>\",\n      \"pessoas_envolvidas\": [\"<nome>\", ...],\n      \"area\": \"<frente curta ou null>\",\n      \"confidence\": \"<'high'|'medium'|'low'>\",\n      \"confidence_rationale\": \"<1 frase>\"\n    }\n  ]\n}\nSem ação concreta → \"actions\": []. Nunca omita campos. null para prazos não ditos. Não inclua o dono em pessoas_envolvidas (já está no owner).\n",
                 "role": "system"
               },
               {
@@ -1907,9 +1965,7 @@
             ]
           },
           "jsonOutput": true,
-          "options": {
-            "temperature": 0.2
-          }
+          "options": {}
         },
         "id": "gpt-1",
         "name": "Distiller",
@@ -2043,8 +2099,8 @@
         "parameters": {
           "modelId": {
             "__rl": true,
-            "mode": "list",
-            "value": "gpt-5.1"
+            "mode": "id",
+            "value": "gpt-6-luna"
           },
           "messages": {
             "values": [
@@ -2054,9 +2110,7 @@
             ]
           },
           "jsonOutput": true,
-          "options": {
-            "temperature": 0.2
-          }
+          "options": {}
         },
         "id": "sc-judge",
         "name": "Judge",
@@ -2120,44 +2174,6 @@
           680,
           180
         ]
-      },
-      {
-        "parameters": {
-          "modelId": {
-            "__rl": true,
-            "mode": "list",
-            "value": "gpt-5.1"
-          },
-          "messages": {
-            "values": [
-              {
-                "content": "Você lê a transcrição rotulada por falante de uma reunião/áudio de {{ $('SELECT meeting').first().json.dono_nome }} e escreve um RELATÓRIO DE LEITURA. NÃO extraia tarefas/ações, NÃO produza listas de \"actions\" — apenas o relatório.\n\nEscreva um relatório em markdown-lite com EXATAMENTE estas seções, nesta ordem (cada seção é \"**Título:**\" numa linha, seguida de bullets que começam com \"- \"). Omita uma seção só se for genuinamente vazia:\n\n**Contexto:** tipo de áudio, quem participa (nomes quando rotulados) e o assunto central.\n**Problemas levantados:** cada dor, gargalo, risco ou insatisfação. Específico.\n**Decisões e alinhamentos:** cada decisão/acordo — e para CADA um deixe explícito QUEM é o dono (nome próprio quando a transcrição permitir; senão o papel/cargo) e qual o ENTREGÁVEL. Inclua decisões sobre PESSOAS/papéis (reavaliar/ajustar/trocar quem lidera) e criação de ROTINAS/rituais recorrentes (checklist, daily).\n**Insights / observações relevantes:** constatações, números, padrões — coisas que valem registrar mesmo sem virar ação.\n**Próximos passos:** o que vem a seguir — cada passo com dono e entregável.\n\nRegras: extraia só do que foi dito; preserve nomes próprios, números, prazos e termos do domínio (Trips, Weddings, Edis, CRM, SDR). Reunião densa → relatório detalhado. Português, voz objetiva.\n\nSAÍDA — retorne SÓ este JSON. O campo executive_summary é OBRIGATÓRIO e deve conter o relatório completo das seções acima (use null APENAS em áudio trivial: teste, saudação, ruído):\n{ \"summary\": \"<1-2 frases de contexto, não as tarefas>\", \"executive_summary\": \"<relatório markdown-lite com as seções acima>\" }\n",
-                "role": "system"
-              },
-              {
-                "content": "=Transcrição rotulada:\n\n{{ $('Build Labeled Text').first().json.labeled_text }}"
-              }
-            ]
-          },
-          "jsonOutput": true,
-          "options": {
-            "temperature": 0.2
-          }
-        },
-        "id": "stagea-summary",
-        "name": "Stage A Summary",
-        "type": "@n8n/n8n-nodes-langchain.openAi",
-        "typeVersion": 1.7,
-        "position": [
-          740,
-          260
-        ],
-        "credentials": {
-          "openAiApi": {
-            "id": "QSdaVgPRKxfvwcXr",
-            "name": "OpenAi account"
-          }
-        }
       },
       {
         "parameters": {
@@ -2269,6 +2285,76 @@
             "name": "Ações frontend (x-admin-token)"
           }
         }
+      },
+      {
+        "parameters": {
+          "modelId": {
+            "__rl": true,
+            "mode": "list",
+            "value": "gpt-5.1"
+          },
+          "messages": {
+            "values": [
+              {
+                "content": "Você lê a transcrição rotulada por falante de uma reunião/áudio de {{ $('SELECT meeting').first().json.dono_nome }} e escreve um RELATÓRIO DE LEITURA. NÃO extraia tarefas/ações, NÃO produza listas de \"actions\" — apenas o relatório.\n\nEscreva um relatório em markdown-lite com EXATAMENTE estas seções, nesta ordem (cada seção é \"**Título:**\" numa linha, seguida de bullets que começam com \"- \"). Omita uma seção só se for genuinamente vazia:\n\n**Contexto:** tipo de áudio, quem participa (nomes quando rotulados) e o assunto central.\n**Problemas levantados:** cada dor, gargalo, risco ou insatisfação. Específico.\n**Decisões e alinhamentos:** cada decisão/acordo — e para CADA um deixe explícito QUEM é o dono (nome próprio quando a transcrição permitir; senão o papel/cargo) e qual o ENTREGÁVEL. Inclua decisões sobre PESSOAS/papéis (reavaliar/ajustar/trocar quem lidera) e criação de ROTINAS/rituais recorrentes (checklist, daily).\n**Insights / observações relevantes:** constatações, números, padrões — coisas que valem registrar mesmo sem virar ação.\n**Próximos passos:** o que vem a seguir — cada passo com dono e entregável.\n\nRegras: extraia só do que foi dito; preserve nomes próprios, números, prazos e termos do domínio (Trips, Weddings, Edis, CRM, SDR). Reunião densa → relatório detalhado. Português, voz objetiva.\n\nSAÍDA — retorne SÓ este JSON. O campo executive_summary é OBRIGATÓRIO e deve conter o relatório completo das seções acima (use null APENAS em áudio trivial: teste, saudação, ruído):\n{ \"summary\": \"<1-2 frases de contexto, não as tarefas>\", \"executive_summary\": \"<relatório markdown-lite com as seções acima>\" }\n",
+                "role": "system"
+              },
+              {
+                "content": "=Transcrição rotulada:\n\n{{ $('Build Labeled Text').first().json.labeled_text }}"
+              }
+            ]
+          },
+          "jsonOutput": true,
+          "options": {
+            "temperature": 0.2
+          }
+        },
+        "id": "de536ffa-7344-4248-b6a5-a6356e7046e8",
+        "name": "Stage A Summary (antigo GPT-5.1, desligado)",
+        "type": "@n8n/n8n-nodes-langchain.openAi",
+        "typeVersion": 1.7,
+        "position": [
+          740,
+          580
+        ],
+        "credentials": {
+          "openAiApi": {
+            "id": "QSdaVgPRKxfvwcXr",
+            "name": "OpenAi account"
+          }
+        },
+        "disabled": true
+      },
+      {
+        "parameters": {
+          "workflowId": "EqRelatorioLuna1",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        },
+        "name": "Stage A Summary",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1,
+        "position": [
+          740,
+          260
+        ],
+        "executeOnce": true,
+        "id": "660295b9-5954-474e-a75f-9fe47d904c6e"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Junta o que o relatório precisa (transcrição, data e pessoas) para o fluxo \"Equipe - Acoes - Relatorio Luna\"\nlet recorded_at = null; try { recorded_at = $('Build Labeled Text').first().json.recorded_at || null; } catch (e) {}\nlet pessoas = []; try { pessoas = []; } catch (e) {}\nlet dono_nome = ''; try { dono_nome = String($('SELECT meeting').first().json.dono_nome || ''); } catch (e) {}\nreturn [{ json: { dono_nome, labeled_text: String($('Build Labeled Text').first().json.labeled_text || ''), recorded_at, pessoas } }];\n"
+        },
+        "name": "Prepara relatório",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          540,
+          420
+        ],
+        "executeOnce": true,
+        "id": "3e5f11a5-ec50-4eb7-9e3e-01736add057c"
       }
     ],
     "connections": {
@@ -2393,7 +2479,7 @@
         "main": [
           [
             {
-              "node": "Stage A Summary",
+              "node": "Prepara relatório",
               "type": "main",
               "index": 0
             }
@@ -2465,16 +2551,27 @@
             }
           ]
         ]
+      },
+      "Prepara relatório": {
+        "main": [
+          [
+            {
+              "node": "Stage A Summary",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
       }
     },
     "settings": {
       "executionOrder": "v1"
-    },
-    "id": "EqReprocTaref001",
-    "active": false
+    }
   },
   {
+    "id": "EqReprocMeet0001",
     "name": "Equipe - Acoes - Reprocess Meeting",
+    "active": true,
     "nodes": [
       {
         "parameters": {
@@ -2545,13 +2642,13 @@
         "parameters": {
           "modelId": {
             "__rl": true,
-            "mode": "list",
-            "value": "gpt-5.1"
+            "mode": "id",
+            "value": "gpt-6-luna"
           },
           "messages": {
             "values": [
               {
-                "content": "Você é o segundo cérebro de {{ $('SELECT meeting').first().json.dono_nome }}. Sua função AQUI: transformar o RELATÓRIO EXECUTIVO de uma reunião (já destilado) em uma lista de TAREFAS estruturadas e rastreáveis — em geral UMA tarefa por passo/compromisso concreto.\n\nVocê recebe:\n1. RELATÓRIO EXECUTIVO — seções Contexto / Problemas / Decisões e alinhamentos / Insights / Próximos passos.\n2. TRANSCRIÇÃO ROTULADA por falante (fonte de verdade para owner e evidência).\n\n══════════════════════════════════════════════════════════\nRECALL — de onde tirar as tarefas\n══════════════════════════════════════════════════════════\nA seção \"Próximos passos\" É a lista de tarefas — ela é a fonte AUTORITATIVA. Trabalhe primariamente com ela; \"Decisões e alinhamentos\" e a transcrição servem para confirmar dono/evidência. NÃO crie tarefa a partir de \"Problemas levantados\" nem de \"Insights\" — isso é contexto, não ação, mesmo que soe acionável.\n\nESPELHE OS \"PRÓXIMOS PASSOS\". Eles já vêm na granularidade e na clareza certas — e o que os torna bons (frase direta, dono explícito, entregável concreto) é EXATAMENTE o que a tarefa precisa ter. Regra base: **cada próximo passo = UMA tarefa**, preservando o passo (não resuma, não funda, não jogue fora).\n\nSó adicione uma tarefa vinda de \"Decisões e alinhamentos\" se ela for um entregável concreto com dono que NENHUM próximo passo cobre — nem mesmo parcialmente. Se uma decisão detalha algo que um próximo passo já menciona (ainda que com \"etc.\" ou entre parênteses), ela NÃO é tarefa nova: é a descrição daquele próximo passo.\n\n══════════════════════════════════════════════════════════\nGRANULARIDADE — espelhe os Próximos passos (nem funde, nem fragmente)\n══════════════════════════════════════════════════════════\n1. ÂNCORA: o nº de tarefas deve ficar PRÓXIMO do nº de \"Próximos passos\" (± poucas). Se você está gerando MUITO mais tarefas que próximos passos, você fragmentou sub-itens — pare e devolva-os para a descrição do próximo passo correspondente.\n2. NÃO FUNDA passos / temas / donos diferentes numa tarefa só. Configurar uma integração ≠ criar logins ≠ adotar uma ferramenta nova ≠ migrar arquivos — são tarefas SEPARADAS. Se você escrever um título com \"e\" ligando ações distintas (\"X e Y e Z\"), separe. (Erro nº 1 — o pior.)\n3. NÃO FRAGMENTA um próximo passo em vários. Se um próximo passo diz \"revisar a página (campos de tarifas, políticas, notas, linha do tempo, anexos...)\", isso é UMA tarefa — os campos citados vão na DESCRIÇÃO, NÃO viram uma tarefa por campo. (Erro nº 2 — igualmente ruim.)\n\n══════════════════════════════════════════════════════════\nPRECISÃO — o que NÃO vira tarefa\n══════════════════════════════════════════════════════════\n1. DESCARTE orientação CONTÍNUA / princípio / cultura que é responsabilidade permanente de alguém — NÃO vira tarefa. Ex. a CORTAR: \"ajustar discurso da SDR\", \"comunicar racional ao time\", \"tratar fofoca como ruído\", \"reforçar ao time o princípio de trazer solução\", \"adotar o CRM como fonte única de verdade / 'se não está no CRM não existe'\", \"incluir fulano nas próximas conversas\". Só vira tarefa se for um entregável ESPECÍFICO com fim claro.\n2. TESTE PRAGMÁTICO: \"se o dono abrir o app amanhã e não vir isso, ele fica irritado, ou dirá 'isso era só contexto/desabafo'?\" Só fica o que o irritaria não ver.\n3. TRIVIAL → VAZIO: se o relatório é treinamento genérico, papo, teste, reflexão sem compromisso concreto com dono → retorne actions: [].\n\nNÃO INVENTE: só o que está explícito no relatório/transcrição. Sem dono e entregável claros, não crie.\n\n══════════════════════════════════════════════════════════\nATRIBUIÇÃO — \"quem põe a mão na massa?\"\n══════════════════════════════════════════════════════════\nPara a tarefa ficar pronta, QUEM faz o trabalho?\n- É o dono da conta → owner=\"eu\", acao=\"executar\" (tarefa que EU FAÇO).\n- O dono da conta é {{ $('SELECT meeting').first().json.dono_nome }}. Quando a tarefa for dele(a), escreva owner=\"eu\" — nunca o nome.\n- É OUTRA pessoa — nomeada, por CARGO/PAPEL (\"a líder de Weddings\", \"a gestora\") ou desconhecida → acao=\"cobrar\" (eu acompanho/cobro) ou \"aguardar\" (só visibilidade). owner = essa pessoa.\n- O dono QUERER que algo aconteça NÃO o torna executor. \"Garantir que ⟨fulano⟩ faça X\", \"⟨fulano⟩ vai trazer X\" → owner=⟨fulano⟩, acao=\"cobrar\".\n- CONVERSA/1:1/REUNIÃO que o dono vai conduzir com alguém (ex.: \"vou chamar a Vanessa\", \"conversar com X\") = owner=\"eu\", acao=\"executar\" — mesmo que o nome da outra pessoa apareça no título (ela é pessoa_envolvida, não a dona).\n- Resolva CARGO/PAPEL → nome pelo contexto da conversa (ex.: a líder/interlocutora da reunião; a gestora intermediária citada pelo nome). Se não der pra resolver com segurança, use o papel literal como owner — nunca caia em \"eu\".\n- EXCEÇÃO (cobrança externa = dono executa): quando quem corre atrás é o próprio dono junto a TERCEIRO EXTERNO (boleto/pagamento de cliente, resposta de fornecedor) e não há entregável de alguém do time → owner=\"eu\", acao=\"executar\".\n- Invariante: owner=\"eu\" ⇔ acao=\"executar\"; owner≠\"eu\" ⇒ acao ∈ {\"cobrar\",\"aguardar\"}.\n\n══════════════════════════════════════════════════════════\nTÍTULO — direto e autossuficiente (no estilo do próprio \"Próximo passo\")\n══════════════════════════════════════════════════════════\nO título é a coisa que o dono mais lê. Escreva como o próximo passo foi escrito, mas SEM o nome do dono na frente (o app já mostra o owner num chip):\n- Verbo no infinitivo + o ENTREGÁVEL CONCRETO + (propósito curto, se houver). Ex.: \"Finalizar a revisão da página do casamento no CRM e enviar ao time para validação\".\n- Diz O QUÊ de forma que se entende SOZINHO, sem depender da descrição. NADA de rótulo genérico tipo \"Configurar anexos\", \"Ajustar CRM\", \"Configurar integrações\".\n- Enumerações longas e parênteses (\"campos de tarifas, políticas, notas...\") vão na DESCRIÇÃO, não no título.\n- Em cobrar/aguardar, o título descreve o ENTREGÁVEL que a pessoa vai produzir (ex.: \"Revisar a página do casamento e retornar feedback sobre o que falta\"). O campo acao já marca que é cobrança — NÃO precisa começar com \"Cobrar\".\n\n══════════════════════════════════════════════════════════\nPRAZO — resolva SEMPRE a partir da DATA DA REUNIÃO\n══════════════════════════════════════════════════════════\nO topo da mensagem informa QUANDO a reunião aconteceu (\"a reunião foi gravada em …\"). Resolva TODA expressão de tempo — \"hoje\", \"amanhã\", \"segunda\"/\"sexta\", \"semana que vem\", \"até sexta\", \"dia 3\", \"3 de agosto\" — a partir DESSA data, inclusive o ANO. NUNCA use a data de hoje/agora como referência (você não sabe que dia é hoje; a única referência válida é a data da reunião).\n- prazo_iso: a data absoluta resolvida, formato YYYY-MM-DD. Ex.: reunião em 03/07/2026 (quinta) → \"até sexta\" = \"2026-07-04\"; \"3 de agosto\" = \"2026-08-03\". O ano vem da data da reunião, nunca 2024/2025.\n- prazo_text: a expressão temporal literal dita (\"até sexta\", \"amanhã\", \"3 de agosto\"), ou null.\n- SEM expressão temporal REAL dita na reunião → prazo_iso E prazo_text = null. NUNCA invente prazo.\n\n══════════════════════════════════════════════════════════\nCAMPOS / FORMATO (retorne SÓ este JSON)\n══════════════════════════════════════════════════════════\n{\n  \"actions\": [\n    {\n      \"titulo\": \"<frase direta e autossuficiente; verbo infinitivo + entregável concreto; SEM o nome do dono na frente>\",\n      \"descricao\": \"<1-2 frases com o detalhe concreto do passo (sub-itens, campos, parênteses, propósito). Não repita o título literalmente.>\",\n      \"owner\": \"<'eu' se dono faz | nome/cargo de quem faz | '?'>\",\n      \"acao\": \"<'executar' | 'cobrar' | 'aguardar'>\",\n      \"prazo_iso\": \"<data absoluta YYYY-MM-DD resolvida a partir da data da reunião; null se nada foi dito>\",\n      \"prazo_text\": \"<expressão temporal literal dita, senão null>\",\n      \"prioridade\": \"<'baixa'|'media'|'alta'|'urgente'>\",\n      \"evidencia\": \"<trecho literal da transcrição, até 200 chars>\",\n      \"pessoas_envolvidas\": [\"<nome>\", ...],\n      \"area\": \"<frente curta ou null>\",\n      \"confidence\": \"<'high'|'medium'|'low'>\",\n      \"confidence_rationale\": \"<1 frase>\"\n    }\n  ]\n}\nSem ação concreta → \"actions\": []. Nunca omita campos. null para prazos não ditos. Não inclua o dono em pessoas_envolvidas (já está no owner).\n",
+                "content": "Você é o segundo cérebro de {{ $('SELECT meeting').first().json.dono_nome }}. Sua função AQUI: transformar o RELATÓRIO EXECUTIVO de uma reunião (já destilado) em uma lista de TAREFAS estruturadas e rastreáveis — em geral UMA tarefa por passo/compromisso concreto.\n\nVocê recebe:\n1. RELATÓRIO EXECUTIVO — seções Contexto / Problemas / Decisões e alinhamentos / Insights / Próximos passos.\n2. TRANSCRIÇÃO ROTULADA por falante (fonte de verdade para owner e evidência).\n\n══════════════════════════════════════════════════════════\nRECALL — de onde tirar as tarefas\n══════════════════════════════════════════════════════════\nA seção \"Próximos passos\" É a lista de tarefas — ela é a fonte AUTORITATIVA. Trabalhe primariamente com ela; \"Decisões e alinhamentos\" e a transcrição servem para confirmar dono/evidência. NÃO crie tarefa a partir de \"Problemas levantados\" nem de \"Insights\" — isso é contexto, não ação, mesmo que soe acionável. Também NÃO crie tarefa a partir de \"Pendências e ideias (não viram tarefa)\": são assuntos que ficaram em aberto sem ninguém assumir.\n\nESPELHE OS \"PRÓXIMOS PASSOS\". Eles já vêm na granularidade e na clareza certas — e o que os torna bons (frase direta, dono explícito, entregável concreto) é EXATAMENTE o que a tarefa precisa ter. Regra base: **cada próximo passo = UMA tarefa**, preservando o passo (não resuma, não funda, não jogue fora).\n\nSó adicione uma tarefa vinda de \"Decisões e alinhamentos\" se ela for um entregável concreto com dono que NENHUM próximo passo cobre — nem mesmo parcialmente. Se uma decisão detalha algo que um próximo passo já menciona (ainda que com \"etc.\" ou entre parênteses), ela NÃO é tarefa nova: é a descrição daquele próximo passo.\n\n══════════════════════════════════════════════════════════\nGRANULARIDADE — espelhe os Próximos passos (nem funde, nem fragmente)\n══════════════════════════════════════════════════════════\n1. ÂNCORA: o nº de tarefas deve ficar PRÓXIMO do nº de \"Próximos passos\" (± poucas). Se você está gerando MUITO mais tarefas que próximos passos, você fragmentou sub-itens — pare e devolva-os para a descrição do próximo passo correspondente.\n2. NÃO FUNDA passos / temas / donos diferentes numa tarefa só. Configurar uma integração ≠ criar logins ≠ adotar uma ferramenta nova ≠ migrar arquivos — são tarefas SEPARADAS. Se você escrever um título com \"e\" ligando ações distintas (\"X e Y e Z\"), separe. (Erro nº 1 — o pior.)\n3. NÃO FRAGMENTA um próximo passo em vários. Se um próximo passo diz \"revisar a página (campos de tarifas, políticas, notas, linha do tempo, anexos...)\", isso é UMA tarefa — os campos citados vão na DESCRIÇÃO, NÃO viram uma tarefa por campo. (Erro nº 2 — igualmente ruim.)\n\n══════════════════════════════════════════════════════════\nPRECISÃO — o que NÃO vira tarefa\n══════════════════════════════════════════════════════════\n1. DESCARTE orientação CONTÍNUA / princípio / cultura que é responsabilidade permanente de alguém — NÃO vira tarefa. Ex. a CORTAR: \"ajustar discurso da SDR\", \"comunicar racional ao time\", \"tratar fofoca como ruído\", \"reforçar ao time o princípio de trazer solução\", \"adotar o CRM como fonte única de verdade / 'se não está no CRM não existe'\", \"incluir fulano nas próximas conversas\". Só vira tarefa se for um entregável ESPECÍFICO com fim claro.\n2. TESTE PRAGMÁTICO: \"se o dono abrir o app amanhã e não vir isso, ele fica irritado, ou dirá 'isso era só contexto/desabafo'?\" Só fica o que o irritaria não ver.\n3. TRIVIAL → VAZIO: se o relatório é treinamento genérico, papo, teste, reflexão sem compromisso concreto com dono → retorne actions: [].\n\nNÃO INVENTE: só o que está explícito no relatório/transcrição. Sem dono e entregável claros, não crie.\n\n══════════════════════════════════════════════════════════\nATRIBUIÇÃO — \"quem põe a mão na massa?\"\n══════════════════════════════════════════════════════════\nPara a tarefa ficar pronta, QUEM faz o trabalho?\n- É o dono da conta → owner=\"eu\", acao=\"executar\" (tarefa que EU FAÇO).\n- O dono da conta é {{ $('SELECT meeting').first().json.dono_nome }}. Quando a tarefa for dele(a), escreva owner=\"eu\" — nunca o nome.\n- É OUTRA pessoa — nomeada, por CARGO/PAPEL (\"a líder de Weddings\", \"a gestora\") ou desconhecida → acao=\"cobrar\" (eu acompanho/cobro) ou \"aguardar\" (só visibilidade). owner = essa pessoa.\n- O dono QUERER que algo aconteça NÃO o torna executor. \"Garantir que ⟨fulano⟩ faça X\", \"⟨fulano⟩ vai trazer X\" → owner=⟨fulano⟩, acao=\"cobrar\".\n- CONVERSA/1:1/REUNIÃO que o dono vai conduzir com alguém (ex.: \"vou chamar a Vanessa\", \"conversar com X\") = owner=\"eu\", acao=\"executar\" — mesmo que o nome da outra pessoa apareça no título (ela é pessoa_envolvida, não a dona).\n- Resolva CARGO/PAPEL → nome pelo contexto da conversa (ex.: a líder/interlocutora da reunião; a gestora intermediária citada pelo nome). Se não der pra resolver com segurança, use o papel literal como owner — nunca caia em \"eu\".\n- EXCEÇÃO (cobrança externa = dono executa): quando quem corre atrás é o próprio dono junto a TERCEIRO EXTERNO (boleto/pagamento de cliente, resposta de fornecedor) e não há entregável de alguém do time → owner=\"eu\", acao=\"executar\".\n- Invariante: owner=\"eu\" ⇔ acao=\"executar\"; owner≠\"eu\" ⇒ acao ∈ {\"cobrar\",\"aguardar\"}.\n\n══════════════════════════════════════════════════════════\nTÍTULO — direto e autossuficiente (no estilo do próprio \"Próximo passo\")\n══════════════════════════════════════════════════════════\nO título é a coisa que o dono mais lê. Escreva como o próximo passo foi escrito, mas SEM o nome do dono na frente (o app já mostra o owner num chip):\n- Verbo no infinitivo + o ENTREGÁVEL CONCRETO + (propósito curto, se houver). Ex.: \"Finalizar a revisão da página do casamento no CRM e enviar ao time para validação\".\n- Diz O QUÊ de forma que se entende SOZINHO, sem depender da descrição. NADA de rótulo genérico tipo \"Configurar anexos\", \"Ajustar CRM\", \"Configurar integrações\".\n- Enumerações longas e parênteses (\"campos de tarifas, políticas, notas...\") vão na DESCRIÇÃO, não no título.\n- Em cobrar/aguardar, o título descreve o ENTREGÁVEL que a pessoa vai produzir (ex.: \"Revisar a página do casamento e retornar feedback sobre o que falta\"). O campo acao já marca que é cobrança — NÃO precisa começar com \"Cobrar\".\n\n══════════════════════════════════════════════════════════\nPRAZO — resolva SEMPRE a partir da DATA DA REUNIÃO\n══════════════════════════════════════════════════════════\nO topo da mensagem informa QUANDO a reunião aconteceu (\"a reunião foi gravada em …\"). Resolva TODA expressão de tempo — \"hoje\", \"amanhã\", \"segunda\"/\"sexta\", \"semana que vem\", \"até sexta\", \"dia 3\", \"3 de agosto\" — a partir DESSA data, inclusive o ANO. NUNCA use a data de hoje/agora como referência (você não sabe que dia é hoje; a única referência válida é a data da reunião).\n- prazo_iso: a data absoluta resolvida, formato YYYY-MM-DD. Ex.: reunião em 03/07/2026 (quinta) → \"até sexta\" = \"2026-07-04\"; \"3 de agosto\" = \"2026-08-03\". O ano vem da data da reunião, nunca 2024/2025.\n- prazo_text: a expressão temporal literal dita (\"até sexta\", \"amanhã\", \"3 de agosto\"), ou null.\n- SEM expressão temporal REAL dita na reunião → prazo_iso E prazo_text = null. NUNCA invente prazo.\n\n══════════════════════════════════════════════════════════\nCAMPOS / FORMATO (retorne SÓ este JSON)\n══════════════════════════════════════════════════════════\n{\n  \"actions\": [\n    {\n      \"titulo\": \"<frase direta e autossuficiente; verbo infinitivo + entregável concreto; SEM o nome do dono na frente>\",\n      \"descricao\": \"<1-2 frases com o detalhe concreto do passo (sub-itens, campos, parênteses, propósito). Não repita o título literalmente.>\",\n      \"owner\": \"<'eu' se dono faz | nome/cargo de quem faz | '?'>\",\n      \"acao\": \"<'executar' | 'cobrar' | 'aguardar'>\",\n      \"prazo_iso\": \"<data absoluta YYYY-MM-DD resolvida a partir da data da reunião; null se nada foi dito>\",\n      \"prazo_text\": \"<expressão temporal literal dita, senão null>\",\n      \"prioridade\": \"<'baixa'|'media'|'alta'|'urgente'>\",\n      \"evidencia\": \"<trecho literal da transcrição, até 200 chars>\",\n      \"pessoas_envolvidas\": [\"<nome>\", ...],\n      \"area\": \"<frente curta ou null>\",\n      \"confidence\": \"<'high'|'medium'|'low'>\",\n      \"confidence_rationale\": \"<1 frase>\"\n    }\n  ]\n}\nSem ação concreta → \"actions\": []. Nunca omita campos. null para prazos não ditos. Não inclua o dono em pessoas_envolvidas (já está no owner).\n",
                 "role": "system"
               },
               {
@@ -2560,9 +2657,7 @@
             ]
           },
           "jsonOutput": true,
-          "options": {
-            "temperature": 0.2
-          }
+          "options": {}
         },
         "id": "00000000-0000-0000-0000-000000000009",
         "name": "Distiller",
@@ -2802,8 +2897,8 @@
         "parameters": {
           "modelId": {
             "__rl": true,
-            "mode": "list",
-            "value": "gpt-5.1"
+            "mode": "id",
+            "value": "gpt-6-luna"
           },
           "messages": {
             "values": [
@@ -2813,9 +2908,7 @@
             ]
           },
           "jsonOutput": true,
-          "options": {
-            "temperature": 0.2
-          }
+          "options": {}
         },
         "id": "sc-judge",
         "name": "Judge",
@@ -2844,44 +2937,6 @@
           20,
           0
         ]
-      },
-      {
-        "parameters": {
-          "modelId": {
-            "__rl": true,
-            "mode": "list",
-            "value": "gpt-5.1"
-          },
-          "messages": {
-            "values": [
-              {
-                "content": "Você lê a transcrição rotulada por falante de uma reunião/áudio de {{ $('SELECT meeting').first().json.dono_nome }} e escreve um RELATÓRIO DE LEITURA. NÃO extraia tarefas/ações, NÃO produza listas de \"actions\" — apenas o relatório.\n\nEscreva um relatório em markdown-lite com EXATAMENTE estas seções, nesta ordem (cada seção é \"**Título:**\" numa linha, seguida de bullets que começam com \"- \"). Omita uma seção só se for genuinamente vazia:\n\n**Contexto:** tipo de áudio, quem participa (nomes quando rotulados) e o assunto central.\n**Problemas levantados:** cada dor, gargalo, risco ou insatisfação. Específico.\n**Decisões e alinhamentos:** cada decisão/acordo — e para CADA um deixe explícito QUEM é o dono (nome próprio quando a transcrição permitir; senão o papel/cargo) e qual o ENTREGÁVEL. Inclua decisões sobre PESSOAS/papéis (reavaliar/ajustar/trocar quem lidera) e criação de ROTINAS/rituais recorrentes (checklist, daily).\n**Insights / observações relevantes:** constatações, números, padrões — coisas que valem registrar mesmo sem virar ação.\n**Próximos passos:** o que vem a seguir — cada passo com dono e entregável.\n\nRegras: extraia só do que foi dito; preserve nomes próprios, números, prazos e termos do domínio (Trips, Weddings, Edis, CRM, SDR). Reunião densa → relatório detalhado. Português, voz objetiva.\n\nSAÍDA — retorne SÓ este JSON. O campo executive_summary é OBRIGATÓRIO e deve conter o relatório completo das seções acima (use null APENAS em áudio trivial: teste, saudação, ruído):\n{ \"summary\": \"<1-2 frases de contexto, não as tarefas>\", \"executive_summary\": \"<relatório markdown-lite com as seções acima>\" }\n",
-                "role": "system"
-              },
-              {
-                "content": "=Transcrição rotulada:\n\n{{ $('Build Labeled Text').first().json.labeled_text }}"
-              }
-            ]
-          },
-          "jsonOutput": true,
-          "options": {
-            "temperature": 0.2
-          }
-        },
-        "id": "stagea-summary",
-        "name": "Stage A Summary",
-        "type": "@n8n/n8n-nodes-langchain.openAi",
-        "typeVersion": 1.7,
-        "position": [
-          -620,
-          -40
-        ],
-        "credentials": {
-          "openAiApi": {
-            "id": "QSdaVgPRKxfvwcXr",
-            "name": "OpenAi account"
-          }
-        }
       },
       {
         "parameters": {
@@ -2948,6 +3003,76 @@
             "name": "Ações frontend (x-admin-token)"
           }
         }
+      },
+      {
+        "parameters": {
+          "modelId": {
+            "__rl": true,
+            "mode": "list",
+            "value": "gpt-5.1"
+          },
+          "messages": {
+            "values": [
+              {
+                "content": "Você lê a transcrição rotulada por falante de uma reunião/áudio de {{ $('SELECT meeting').first().json.dono_nome }} e escreve um RELATÓRIO DE LEITURA. NÃO extraia tarefas/ações, NÃO produza listas de \"actions\" — apenas o relatório.\n\nEscreva um relatório em markdown-lite com EXATAMENTE estas seções, nesta ordem (cada seção é \"**Título:**\" numa linha, seguida de bullets que começam com \"- \"). Omita uma seção só se for genuinamente vazia:\n\n**Contexto:** tipo de áudio, quem participa (nomes quando rotulados) e o assunto central.\n**Problemas levantados:** cada dor, gargalo, risco ou insatisfação. Específico.\n**Decisões e alinhamentos:** cada decisão/acordo — e para CADA um deixe explícito QUEM é o dono (nome próprio quando a transcrição permitir; senão o papel/cargo) e qual o ENTREGÁVEL. Inclua decisões sobre PESSOAS/papéis (reavaliar/ajustar/trocar quem lidera) e criação de ROTINAS/rituais recorrentes (checklist, daily).\n**Insights / observações relevantes:** constatações, números, padrões — coisas que valem registrar mesmo sem virar ação.\n**Próximos passos:** o que vem a seguir — cada passo com dono e entregável.\n\nRegras: extraia só do que foi dito; preserve nomes próprios, números, prazos e termos do domínio (Trips, Weddings, Edis, CRM, SDR). Reunião densa → relatório detalhado. Português, voz objetiva.\n\nSAÍDA — retorne SÓ este JSON. O campo executive_summary é OBRIGATÓRIO e deve conter o relatório completo das seções acima (use null APENAS em áudio trivial: teste, saudação, ruído):\n{ \"summary\": \"<1-2 frases de contexto, não as tarefas>\", \"executive_summary\": \"<relatório markdown-lite com as seções acima>\" }\n",
+                "role": "system"
+              },
+              {
+                "content": "=Transcrição rotulada:\n\n{{ $('Build Labeled Text').first().json.labeled_text }}"
+              }
+            ]
+          },
+          "jsonOutput": true,
+          "options": {
+            "temperature": 0.2
+          }
+        },
+        "id": "6dd7305a-5806-4493-b32d-3e619b8a3a41",
+        "name": "Stage A Summary (antigo GPT-5.1, desligado)",
+        "type": "@n8n/n8n-nodes-langchain.openAi",
+        "typeVersion": 1.7,
+        "position": [
+          -620,
+          280
+        ],
+        "credentials": {
+          "openAiApi": {
+            "id": "QSdaVgPRKxfvwcXr",
+            "name": "OpenAi account"
+          }
+        },
+        "disabled": true
+      },
+      {
+        "parameters": {
+          "workflowId": "EqRelatorioLuna1",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        },
+        "name": "Stage A Summary",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1,
+        "position": [
+          -620,
+          -40
+        ],
+        "executeOnce": true,
+        "id": "05d5f832-46a6-4fe0-9c3e-b9fb4c7ebf44"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Junta o que o relatório precisa (transcrição, data e pessoas) para o fluxo \"Equipe - Acoes - Relatorio Luna\"\nlet recorded_at = null; try { recorded_at = $('Build Labeled Text').first().json.recorded_at || null; } catch (e) {}\nlet pessoas = []; try { pessoas = []; } catch (e) {}\nlet dono_nome = ''; try { dono_nome = String($('SELECT meeting').first().json.dono_nome || ''); } catch (e) {}\nreturn [{ json: { dono_nome, labeled_text: String($('Build Labeled Text').first().json.labeled_text || ''), recorded_at, pessoas } }];\n"
+        },
+        "name": "Prepara relatório",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -820,
+          120
+        ],
+        "executeOnce": true,
+        "id": "63e3c56a-92b5-46c8-87ab-78685d2e6c13"
       }
     ],
     "connections": {
@@ -3050,7 +3175,7 @@
         "main": [
           [
             {
-              "node": "Stage A Summary",
+              "node": "Prepara relatório",
               "type": "main",
               "index": 0
             }
@@ -3155,6 +3280,17 @@
             }
           ]
         ]
+      },
+      "Prepara relatório": {
+        "main": [
+          [
+            {
+              "node": "Stage A Summary",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
       }
     },
     "settings": {
@@ -3163,8 +3299,461 @@
       "saveManualExecutions": true,
       "saveDataErrorExecution": "all",
       "saveDataSuccessExecution": "all"
+    }
+  },
+  {
+    "id": "EqRelatorioLuna1",
+    "name": "Equipe - Acoes - Relatorio Luna",
+    "active": true,
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "passthrough"
+        },
+        "name": "Recebe reunião",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          0,
+          300
+        ],
+        "id": "efbd625e-a0ac-4ee8-a076-f1d8853fe9ef"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Prepara a leitura da reunião pelo GPT-6 Luna (relatório em etapas: extrai, revisa 2x, escreve o contexto)\nconst PROMPTS = {\"BASE\": \"Você é o analista de reuniões do Vitor Gambetti. A mensagem traz a transcrição completa de uma reunião, rotulada por falante, e no fim uma TAREFA. Faça só a tarefa pedida.\\nCuidados que valem sempre:\\n- Nunca acrescente nome, lugar, data, número, prazo ou fato que não esteja na transcrição. Preserve nomes como aparecem.\\n- Os rótulos de falante podem estar errados (às vezes tudo aparece como \\\"Vitor\\\", ou alguém aparece como \\\"Speaker A\\\"). Antes de dizer quem vai fazer algo, confira pelo conteúdo quem está falando com quem (quem diz \\\"eu te mando\\\" para o Vitor não é o Vitor). Se não der para saber, use o rótulo.\", \"EXTRAI\": \"TAREFA: leia a transcrição acima do começo ao fim, fala por fala, e monte a lista de compromissos e pendências. Não deixe passar nenhum compromisso, por menor que seja (agenda, convite, envio, olhar algo, conversar com alguém, intenções do Vitor, trabalho em andamento).\\n\\n1. Junte repetidos: o mesmo compromisso dito mais de uma vez (ou dito de formas diferentes, mais e menos específicas) vira um item só, com a versão mais específica. Se duas pessoas fazem a mesma ação (ex.: uma entrevista entre as duas), é um item só, com os dois nomes.\\n2. Classifique:\\n   - \\\"compromisso\\\": ação concreta que alguém assumiu, ou recebeu o pedido e aceitou (\\\"tá bom\\\", \\\"beleza\\\", \\\"pode deixar\\\", \\\"faço\\\"). Inclui agenda combinada (reunião marcada, convite, envio, conferência).\\n   - Também é compromisso: (a) ação concreta que o VITOR disse que vai fazer agora ou em breve, ou \\\"vamos fazer\\\" em algo que é dele (os sistemas dele, como TARS e Ações, e as decisões dele), mesmo sem aceite de ninguém — o Vitor é o dono deste sistema de tarefas; (b) trabalho em andamento que ainda precisa ser terminado (\\\"já tô construindo\\\" vira \\\"terminar X\\\").\\n   - NÃO é compromisso: continuar fazendo o que a pessoa já faz SEM uma entrega nova (\\\"continuar à frente do vinho\\\"); informar agenda que já existe (\\\"hoje tenho 3 reuniões\\\") sem ação nova; desejo vago para o futuro (\\\"em algum momento\\\", \\\"no futuro\\\", \\\"depois eu quero\\\"); esperar que outra pessoa faça algo que ela não assumiu (mas se alguém assumiu cobrar ou conversar com essa pessoa, isso é compromisso de quem assumiu).\\n   - Sistemas do Vitor (TARS, Wedme, Ações, Rumo, telas, CRM): quando o Vitor diz o que o sistema \\\"precisa ter\\\", \\\"tem que ter\\\", \\\"vai ter\\\", \\\"a gente vai fazer\\\", isso é compromisso do Vitor de construir ou ajustar aquilo. Em reunião de desenho de sistema, agrupe por tela ou módulo: UM item por tela/módulo, listando dentro dele TODAS as funcionalidades definidas, separadas por ponto e vírgula (ex.: \\\"Construir na tela de Produção: orçamentos dentro de cada etapa; filtro de tipo e de etapa nos documentos; tarefas por etapa; datas automáticas por etapa\\\"). Nenhuma funcionalidade definida pode ficar de fora, e nunca use item genérico como \\\"concluir as alterações discutidas\\\". Só vira pendência o que ficou explicitamente em aberto (\\\"ainda vamos definir\\\", \\\"não sei ainda\\\").\\n   - Plano que depende de outro acontecimento futuro (\\\"depois de fechar a vaga, ampliar a equipe\\\", \\\"quando contratar, passar as vendas\\\") é pendência, não tarefa agora.\\n   - Um item nunca aparece nas duas listas.\\n   - É compromisso, mesmo com \\\"continuar/seguir\\\": quando há entrega ou próximo passo concreto (\\\"seguir pesquisando e apresentar as opções\\\", \\\"levar os casamentos para o TARS até sexta\\\").\\n   - Na dúvida entre compromisso e pendência, prefira compromisso quando há responsável claro e ação concreta: esquecer um combinado é pior do que registrar um a mais.\\n   - \\\"pendencia\\\": todo o resto que vale registrar mas NÃO é tarefa: ideia, sugestão, possibilidade, \\\"vou pensar\\\", \\\"vale avaliar\\\", pedido sem aceite, desejo, desabafo, relato de algo já feito ou do que a pessoa faz sempre (rotina),  plano condicional (\\\"se precisar\\\", \\\"se concluir que...\\\"), oferta genérica de ajuda sem ação definida, problema resolvido na hora.\\n3. Para cada compromisso: \\\"dono\\\" (confira pelo conteúdo quem é; nunca deduza pelo cargo), \\\"o_que\\\" (entregável claro, começando por verbo), \\\"prazo\\\" (só se foi dito), \\\"trecho\\\" (copie o trecho literal do candidato que melhor prova).\\n4. Na dúvida entre compromisso e pendência, olhe a resposta de quem recebeu: aceitou uma ação concreta → compromisso.\\nCada item precisa de \\\"trecho\\\": citação LITERAL da transcrição, 8 a 30 palavras.\\nSAÍDA: só JSON {\\\"compromissos\\\":[{\\\"dono\\\":\\\"\\\",\\\"o_que\\\":\\\"\\\",\\\"prazo\\\":\\\"\\\",\\\"trecho\\\":\\\"\\\"}],\\\"pendencias\\\":[{\\\"texto\\\":\\\"\\\",\\\"trecho\\\":\\\"\\\"}],\\\"descartados\\\":[{\\\"candidato\\\":0,\\\"motivo\\\":\\\"\\\"}]}\", \"COBERTURA\": \"TAREFA: você é o revisor final. Abaixo vem a lista de compromissos já encontrados. Leia a transcrição acima do começo ao fim, fala por fala, e encontre TODO compromisso real que NÃO está na lista.\\nCompromisso real = ação concreta que alguém disse que vai fazer, ou recebeu o pedido e aceitou; também tudo que o VITOR disse que vai fazer ou \\\"vamos fazer\\\" em algo que é dele, e trabalho em andamento que ainda vai ser terminado. Preste atenção a: combinados curtos no meio de outro assunto, agenda (reunião, convite, horário), pedidos respondidos com \\\"tá bom\\\"/\\\"beleza\\\", intenções do Vitor (\\\"vou\\\", \\\"vamos mudar\\\", \\\"já tô construindo\\\"), o que o Vitor definiu que os sistemas dele \\\"precisam ter\\\" (cada funcionalidade precisa aparecer, agrupada no item da sua tela), troca de contatos, combinados no final da conversa.\\nNÃO inclua: o que já está na lista (mesmo com outras palavras ou de forma menos específica), ideia de outra pessoa sem aceite, relato de algo já feito, continuar fazendo o que já faz sem entrega nova, agenda já existente sem ação nova, desejo vago para o futuro, plano condicional, oferta genérica de ajuda. Na dúvida, com responsável claro e ação concreta, inclua.\\nPara cada faltante: \\\"dono\\\", \\\"o_que\\\", \\\"prazo\\\" (só se dito), \\\"trecho\\\" (citação LITERAL da transcrição, 10 a 40 palavras).\\nSAÍDA: só JSON {\\\"faltando\\\":[...]} (lista vazia se não faltar nada).\", \"COBERTURA_PESSOA\": \"TAREFA: revisão por pessoa. Abaixo vem a lista de compromissos já encontrados. Agora releia a transcrição acima olhando UMA PESSOA DE CADA VEZ (cada participante, inclusive o Vitor): o que ela disse que vai fazer, o que pediram a ela e ela aceitou, o que ela ficou de conversar, mandar, olhar, conferir, marcar ou terminar — inclusive frases curtas e indiretas (\\\"agora vai ser a conversa com ela\\\", \\\"deixa que eu vejo\\\", \\\"vou atrás disso\\\").\\nListe só compromissos reais que NÃO estão na lista (nem com outras palavras). Não inclua ideia sem aceite, relato de algo já feito, continuar o que já faz sem entrega nova, desejo vago para o futuro.\\nPara cada faltante: \\\"dono\\\", \\\"o_que\\\", \\\"prazo\\\" (só se dito), \\\"trecho\\\" (citação LITERAL da transcrição, 10 a 40 palavras).\\nSAÍDA: só JSON {\\\"faltando\\\":[...]} (lista vazia se não faltar nada).\", \"NARRATIVA\": \"TAREFA: escreva as seções de CONTEXTO do relatório desta reunião. Os próximos passos e as pendências já foram levantados por outra etapa e vêm abaixo; use-os para manter o relatório coerente, mas NÃO escreva as seções \\\"Próximos passos\\\" nem \\\"Pendências\\\".\\nEscreva em markdown-lite com EXATAMENTE estas seções, nesta ordem (cada seção é \\\"**Título:**\\\" numa linha, seguida de bullets que começam com \\\"- \\\"). Omita uma seção só se for genuinamente vazia:\\n**Contexto:** tipo de áudio, quem participa (nomes quando rotulados) e o assunto central.\\n**Problemas levantados:** cada dor, gargalo, risco ou insatisfação. Específico.\\n**Decisões e alinhamentos:** só o que foi de fato decidido ou acordado. Dono só quando alguém assumiu; senão \\\"sem dono definido\\\".\\n**Insights / observações relevantes:** constatações, números, padrões que valem registrar.\\nReunião densa → relatório detalhado. Português, voz objetiva.\\nSAÍDA: só JSON {\\\"summary\\\":\\\"<1-2 frases de contexto, não as tarefas>\\\",\\\"secoes\\\":\\\"<markdown das 4 seções>\\\"}\"};\n// Ações da equipe: a reunião é de quem gravou (users.nome, vem do fluxo que chama). Para o Vitor os\n// textos ficam iguais aos do Ações pessoal; para outra pessoa, a lista de ações é dela.\nconst DONO = String($input.first().json.dono_nome || '').trim();\nconst PRIMEIRO = DONO.split(/\\s+/)[0] || '';\nconst OUTRO_DONO = !!PRIMEIRO && PRIMEIRO.toLowerCase() !== 'vitor';\nif (OUTRO_DONO) {\n  const troca = [\n    ['do Vitor Gambetti', `de ${DONO}`],\n    ['tudo aparece como \"Vitor\"', `tudo aparece como \"${PRIMEIRO}\"`],\n    ['para o Vitor não é o Vitor', `para ${PRIMEIRO} não é ${PRIMEIRO}`],\n    ['(os sistemas dele, como TARS e Ações, e as decisões dele)', '(o trabalho dele e as decisões dele)'],\n    ['o Vitor é o dono deste sistema de tarefas', `${PRIMEIRO} é o dono desta lista de ações`],\n    ['intenções do Vitor', `intenções de ${PRIMEIRO}`],\n    ['inclusive o Vitor', `inclusive ${PRIMEIRO}`],\n  ];\n  for (const k of Object.keys(PROMPTS)) for (const [de, para] of troca) PROMPTS[k] = PROMPTS[k].split(de).join(para);\n}\nconst inp = $input.first().json;\nconst text = String(inp.labeled_text || '');\nconst pessoas = (inp.pessoas || []).map(p => p.nome + ((p.aliases && p.aliases.length) ? ` (também: ${p.aliases.join(', ')})` : '')).join('; ');\nlet data = ''; try { if (inp.recorded_at) data = new Date(inp.recorded_at).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'America/Sao_Paulo' }); } catch (e) {}\nconst header = `Data da reunião: ${data}. Pessoas conhecidas ${OUTRO_DONO ? 'de ' + PRIMEIRO : 'do Vitor'}: ${pessoas}.`;\nconst pre = `TRANSCRIÇÃO COMPLETA:\\n${text}\\n\\n${header}\\n\\n`;\nconst prep = { modelo: 'gpt-6-luna', chave: 'reuniao-' + String(text.length) + '-' + String(inp.recorded_at || ''), prompts: PROMPTS, pre, text };\n\nconst nrm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\\s+/g, ' ').trim();\nfunction makeOk(transcript) {\n  const T = nrm(transcript);\n  const lines = String(transcript).split('\\n').filter(l => l.trim()).map(l => new Set(nrm(l).split(' ')));\n  return quote => {\n    const q = nrm(quote); if (q.length < 8) return false; if (T.includes(q)) return true;\n    const w = q.split(' ');\n    if (w.length >= 5) { let hit = 0, tot = 0; for (let i = 0; i + 5 <= w.length; i++) { tot++; if (T.includes(w.slice(i, i + 5).join(' '))) hit++; } if (tot && hit / tot >= 0.85) return true; }\n    const qw = w.filter(x => x.length > 2); if (qw.length < 3) return false;\n    let best = 0; for (const L of lines) { let h = 0; for (const x of qw) if (L.has(x)) h++; if (h / qw.length > best) best = h / qw.length; }\n    return best >= 0.6;\n  };\n}\nfunction saida(r) {\n  const msg = (r.output || []).find(o => o.type === 'message');\n  const txt = msg && msg.content && (msg.content.find(c => c.type === 'output_text') || {}).text;\n  if (!txt) throw new Error('Luna sem resposta de texto');\n  return JSON.parse(txt);\n}\nfunction pedido(prep, tarefa, esforco) {\n  return { model: prep.modelo, store: false, prompt_cache_key: prep.chave, input: [{ role: 'system', content: prep.prompts.BASE }, { role: 'user', content: prep.pre + tarefa }], reasoning: { effort: esforco }, text: { format: { type: 'json_object' } }, max_output_tokens: 30000 };\n}\nfunction uso(r) { const u = r.usage || {}; return { entrada: u.input_tokens || 0, cache: (u.input_tokens_details || {}).cached_tokens || 0, saida: u.output_tokens || 0 }; }\nfunction lista(comps) { return comps.map((c, i) => `${i + 1}. ${c.dono}: ${c.o_que}${c.prazo ? ' (prazo: ' + c.prazo + ')' : ''}`).join('\\n'); }\n\nreturn [{ json: { prep, body: pedido(prep, PROMPTS.EXTRAI, 'medium') } }];\n"
+        },
+        "name": "Prepara leitura",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          220,
+          300
+        ],
+        "onError": "continueErrorOutput",
+        "id": "6c01750e-c6ea-46cb-ac71-de6ca4057786"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.openai.com/v1/responses",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "openAiApi",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify($json.body) }}",
+          "options": {
+            "timeout": 300000
+          }
+        },
+        "name": "Luna extrai",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          440,
+          300
+        ],
+        "credentials": {
+          "openAiApi": {
+            "id": "QSdaVgPRKxfvwcXr",
+            "name": "OpenAi account"
+          }
+        },
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 5000,
+        "onError": "continueErrorOutput",
+        "id": "be1e19b9-e0ba-4095-a1d0-3c73d7f93073"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Confere os trechos citados (o que não existe na conversa não entra) e prepara a revisão cronológica\n\nconst nrm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\\s+/g, ' ').trim();\nfunction makeOk(transcript) {\n  const T = nrm(transcript);\n  const lines = String(transcript).split('\\n').filter(l => l.trim()).map(l => new Set(nrm(l).split(' ')));\n  return quote => {\n    const q = nrm(quote); if (q.length < 8) return false; if (T.includes(q)) return true;\n    const w = q.split(' ');\n    if (w.length >= 5) { let hit = 0, tot = 0; for (let i = 0; i + 5 <= w.length; i++) { tot++; if (T.includes(w.slice(i, i + 5).join(' '))) hit++; } if (tot && hit / tot >= 0.85) return true; }\n    const qw = w.filter(x => x.length > 2); if (qw.length < 3) return false;\n    let best = 0; for (const L of lines) { let h = 0; for (const x of qw) if (L.has(x)) h++; if (h / qw.length > best) best = h / qw.length; }\n    return best >= 0.6;\n  };\n}\nfunction saida(r) {\n  const msg = (r.output || []).find(o => o.type === 'message');\n  const txt = msg && msg.content && (msg.content.find(c => c.type === 'output_text') || {}).text;\n  if (!txt) throw new Error('Luna sem resposta de texto');\n  return JSON.parse(txt);\n}\nfunction pedido(prep, tarefa, esforco) {\n  return { model: prep.modelo, store: false, prompt_cache_key: prep.chave, input: [{ role: 'system', content: prep.prompts.BASE }, { role: 'user', content: prep.pre + tarefa }], reasoning: { effort: esforco }, text: { format: { type: 'json_object' } }, max_output_tokens: 30000 };\n}\nfunction uso(r) { const u = r.usage || {}; return { entrada: u.input_tokens || 0, cache: (u.input_tokens_details || {}).cached_tokens || 0, saida: u.output_tokens || 0 }; }\nfunction lista(comps) { return comps.map((c, i) => `${i + 1}. ${c.dono}: ${c.o_que}${c.prazo ? ' (prazo: ' + c.prazo + ')' : ''}`).join('\\n'); }\n\nconst prep = $('Prepara leitura').first().json.prep;\nconst r = $input.first().json; const out = saida(r); const ok = makeOk(prep.text);\nconst comps = (out.compromissos || []).filter(c => c && c.o_que && ok(c.trecho));\nconst pendencias = (out.pendencias || []).filter(p => p && p.texto && ok(p.trecho));\nconst t = prep.prompts.COBERTURA + '\\n\\nCOMPROMISSOS JÁ ENCONTRADOS:\\n' + lista(comps);\nreturn [{ json: { comps, pendencias, usos: [uso(r)], body: pedido(prep, t, 'high') } }];\n"
+        },
+        "name": "Confere trechos",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          660,
+          300
+        ],
+        "onError": "continueErrorOutput",
+        "id": "9fdadd56-f9b6-439a-896d-8d87ac85688f"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.openai.com/v1/responses",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "openAiApi",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify($json.body) }}",
+          "options": {
+            "timeout": 300000
+          }
+        },
+        "name": "Luna revisa",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          880,
+          300
+        ],
+        "credentials": {
+          "openAiApi": {
+            "id": "QSdaVgPRKxfvwcXr",
+            "name": "OpenAi account"
+          }
+        },
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 5000,
+        "onError": "continueErrorOutput",
+        "id": "591e2a8d-71e9-4e0a-a399-f6e231d6c777"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Junta o que a revisão cronológica achou e prepara a revisão pessoa por pessoa\n\nconst nrm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\\s+/g, ' ').trim();\nfunction makeOk(transcript) {\n  const T = nrm(transcript);\n  const lines = String(transcript).split('\\n').filter(l => l.trim()).map(l => new Set(nrm(l).split(' ')));\n  return quote => {\n    const q = nrm(quote); if (q.length < 8) return false; if (T.includes(q)) return true;\n    const w = q.split(' ');\n    if (w.length >= 5) { let hit = 0, tot = 0; for (let i = 0; i + 5 <= w.length; i++) { tot++; if (T.includes(w.slice(i, i + 5).join(' '))) hit++; } if (tot && hit / tot >= 0.85) return true; }\n    const qw = w.filter(x => x.length > 2); if (qw.length < 3) return false;\n    let best = 0; for (const L of lines) { let h = 0; for (const x of qw) if (L.has(x)) h++; if (h / qw.length > best) best = h / qw.length; }\n    return best >= 0.6;\n  };\n}\nfunction saida(r) {\n  const msg = (r.output || []).find(o => o.type === 'message');\n  const txt = msg && msg.content && (msg.content.find(c => c.type === 'output_text') || {}).text;\n  if (!txt) throw new Error('Luna sem resposta de texto');\n  return JSON.parse(txt);\n}\nfunction pedido(prep, tarefa, esforco) {\n  return { model: prep.modelo, store: false, prompt_cache_key: prep.chave, input: [{ role: 'system', content: prep.prompts.BASE }, { role: 'user', content: prep.pre + tarefa }], reasoning: { effort: esforco }, text: { format: { type: 'json_object' } }, max_output_tokens: 30000 };\n}\nfunction uso(r) { const u = r.usage || {}; return { entrada: u.input_tokens || 0, cache: (u.input_tokens_details || {}).cached_tokens || 0, saida: u.output_tokens || 0 }; }\nfunction lista(comps) { return comps.map((c, i) => `${i + 1}. ${c.dono}: ${c.o_que}${c.prazo ? ' (prazo: ' + c.prazo + ')' : ''}`).join('\\n'); }\n\nconst prep = $('Prepara leitura').first().json.prep; const antes = $('Confere trechos').first().json;\nconst r = $input.first().json; const out = saida(r); const ok = makeOk(prep.text);\nconst add = (out.faltando || []).filter(c => c && c.o_que && ok(c.trecho)).map(c => ({ ...c, origem: 'revisao' }));\nconst comps = antes.comps.concat(add);\nconst t = prep.prompts.COBERTURA_PESSOA + '\\n\\nCOMPROMISSOS JÁ ENCONTRADOS:\\n' + lista(comps);\nreturn [{ json: { comps, pendencias: antes.pendencias, usos: antes.usos.concat([uso(r)]), body: pedido(prep, t, 'medium') } }];\n"
+        },
+        "name": "Junta revisão",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1100,
+          300
+        ],
+        "onError": "continueErrorOutput",
+        "id": "61f43042-7be4-4c49-b6bb-e341c97c0db5"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.openai.com/v1/responses",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "openAiApi",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify($json.body) }}",
+          "options": {
+            "timeout": 300000
+          }
+        },
+        "name": "Luna revisa por pessoa",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1320,
+          300
+        ],
+        "credentials": {
+          "openAiApi": {
+            "id": "QSdaVgPRKxfvwcXr",
+            "name": "OpenAi account"
+          }
+        },
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 5000,
+        "onError": "continueErrorOutput",
+        "id": "2ccb6cd0-eae5-4d79-a1fa-01690803e876"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Junta o que a revisão por pessoa achou e prepara a escrita do contexto do relatório\n\nconst nrm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\\s+/g, ' ').trim();\nfunction makeOk(transcript) {\n  const T = nrm(transcript);\n  const lines = String(transcript).split('\\n').filter(l => l.trim()).map(l => new Set(nrm(l).split(' ')));\n  return quote => {\n    const q = nrm(quote); if (q.length < 8) return false; if (T.includes(q)) return true;\n    const w = q.split(' ');\n    if (w.length >= 5) { let hit = 0, tot = 0; for (let i = 0; i + 5 <= w.length; i++) { tot++; if (T.includes(w.slice(i, i + 5).join(' '))) hit++; } if (tot && hit / tot >= 0.85) return true; }\n    const qw = w.filter(x => x.length > 2); if (qw.length < 3) return false;\n    let best = 0; for (const L of lines) { let h = 0; for (const x of qw) if (L.has(x)) h++; if (h / qw.length > best) best = h / qw.length; }\n    return best >= 0.6;\n  };\n}\nfunction saida(r) {\n  const msg = (r.output || []).find(o => o.type === 'message');\n  const txt = msg && msg.content && (msg.content.find(c => c.type === 'output_text') || {}).text;\n  if (!txt) throw new Error('Luna sem resposta de texto');\n  return JSON.parse(txt);\n}\nfunction pedido(prep, tarefa, esforco) {\n  return { model: prep.modelo, store: false, prompt_cache_key: prep.chave, input: [{ role: 'system', content: prep.prompts.BASE }, { role: 'user', content: prep.pre + tarefa }], reasoning: { effort: esforco }, text: { format: { type: 'json_object' } }, max_output_tokens: 30000 };\n}\nfunction uso(r) { const u = r.usage || {}; return { entrada: u.input_tokens || 0, cache: (u.input_tokens_details || {}).cached_tokens || 0, saida: u.output_tokens || 0 }; }\nfunction lista(comps) { return comps.map((c, i) => `${i + 1}. ${c.dono}: ${c.o_que}${c.prazo ? ' (prazo: ' + c.prazo + ')' : ''}`).join('\\n'); }\n\nconst prep = $('Prepara leitura').first().json.prep; const antes = $('Junta revisão').first().json;\nconst r = $input.first().json; const out = saida(r); const ok = makeOk(prep.text);\nconst add = (out.faltando || []).filter(c => c && c.o_que && ok(c.trecho)).map(c => ({ ...c, origem: 'revisao_pessoa' }));\nconst comps = antes.comps.concat(add);\nconst t = prep.prompts.NARRATIVA + '\\n\\nPRÓXIMOS PASSOS E PENDÊNCIAS JÁ LEVANTADOS:\\n' + comps.map(c => '- ' + c.dono + ': ' + c.o_que).join('\\n') + '\\n' + antes.pendencias.map(p => '- pendência: ' + p.texto).join('\\n');\nreturn [{ json: { comps, pendencias: antes.pendencias, usos: antes.usos.concat([uso(r)]), body: pedido(prep, t, 'low') } }];\n"
+        },
+        "name": "Junta revisão por pessoa",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1540,
+          300
+        ],
+        "onError": "continueErrorOutput",
+        "id": "48e96864-ab68-40c9-b3f2-8646c06f1b4f"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.openai.com/v1/responses",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "openAiApi",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify($json.body) }}",
+          "options": {
+            "timeout": 300000
+          }
+        },
+        "name": "Luna escreve contexto",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1760,
+          300
+        ],
+        "credentials": {
+          "openAiApi": {
+            "id": "QSdaVgPRKxfvwcXr",
+            "name": "OpenAi account"
+          }
+        },
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 5000,
+        "onError": "continueErrorOutput",
+        "id": "45893059-ff28-4774-91ab-8327a8165212"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Monta o relatório final no mesmo formato de antes (summary + executive_summary)\n\nconst nrm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\\s+/g, ' ').trim();\nfunction makeOk(transcript) {\n  const T = nrm(transcript);\n  const lines = String(transcript).split('\\n').filter(l => l.trim()).map(l => new Set(nrm(l).split(' ')));\n  return quote => {\n    const q = nrm(quote); if (q.length < 8) return false; if (T.includes(q)) return true;\n    const w = q.split(' ');\n    if (w.length >= 5) { let hit = 0, tot = 0; for (let i = 0; i + 5 <= w.length; i++) { tot++; if (T.includes(w.slice(i, i + 5).join(' '))) hit++; } if (tot && hit / tot >= 0.85) return true; }\n    const qw = w.filter(x => x.length > 2); if (qw.length < 3) return false;\n    let best = 0; for (const L of lines) { let h = 0; for (const x of qw) if (L.has(x)) h++; if (h / qw.length > best) best = h / qw.length; }\n    return best >= 0.6;\n  };\n}\nfunction saida(r) {\n  const msg = (r.output || []).find(o => o.type === 'message');\n  const txt = msg && msg.content && (msg.content.find(c => c.type === 'output_text') || {}).text;\n  if (!txt) throw new Error('Luna sem resposta de texto');\n  return JSON.parse(txt);\n}\nfunction pedido(prep, tarefa, esforco) {\n  return { model: prep.modelo, store: false, prompt_cache_key: prep.chave, input: [{ role: 'system', content: prep.prompts.BASE }, { role: 'user', content: prep.pre + tarefa }], reasoning: { effort: esforco }, text: { format: { type: 'json_object' } }, max_output_tokens: 30000 };\n}\nfunction uso(r) { const u = r.usage || {}; return { entrada: u.input_tokens || 0, cache: (u.input_tokens_details || {}).cached_tokens || 0, saida: u.output_tokens || 0 }; }\nfunction lista(comps) { return comps.map((c, i) => `${i + 1}. ${c.dono}: ${c.o_que}${c.prazo ? ' (prazo: ' + c.prazo + ')' : ''}`).join('\\n'); }\n\nconst antes = $('Junta revisão por pessoa').first().json;\nconst r = $input.first().json; const out = saida(r);\nconst passos = antes.comps.map(c => `- ${c.dono}: ${c.o_que}${c.prazo ? ` (prazo: ${c.prazo})` : ''}`).join('\\n');\nconst pend = antes.pendencias.map(p => `- ${p.texto}`).join('\\n');\nlet exec = String(out.secoes || '').trim();\nexec += `\\n\\n**Próximos passos:**\\n${passos || '- Nenhum compromisso combinado nesta conversa.'}`;\nif (pend) exec += `\\n\\n**Pendências e ideias (não viram tarefa):**\\n${pend}`;\nconst usos = antes.usos.concat([uso(r)]);\nconst custo = usos.reduce((s, u) => s + (u.entrada - u.cache) * 0.10 / 1e6 + u.cache * 0.01 / 1e6 + u.saida * 0.50 / 1e6, 0);\nreturn [{ json: { summary: out.summary || '', executive_summary: exec, relatorio_modelo: 'gpt-6-luna', relatorio_compromissos: antes.comps, relatorio_pendencias: antes.pendencias, relatorio_custo_usd: Number(custo.toFixed(5)) } }];\n"
+        },
+        "name": "Monta relatório",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1980,
+          300
+        ],
+        "onError": "continueErrorOutput",
+        "id": "68e5067f-ac59-4768-9566-2968a89be213"
+      },
+      {
+        "parameters": {
+          "modelId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "gpt-6-sol"
+          },
+          "messages": {
+            "values": [
+              {
+                "role": "system",
+                "content": "=Você lê a transcrição rotulada por falante de uma reunião/áudio {{ (($('Recebe reunião').first().json.dono_nome || '').trim() && !/^vitor\\b/i.test(($('Recebe reunião').first().json.dono_nome || '').trim())) ? 'de ' + $('Recebe reunião').first().json.dono_nome.trim() : 'do Vitor Gambetti' }} e escreve um RELATÓRIO DE LEITURA. NÃO extraia tarefas/ações, NÃO produza listas de \"actions\" — apenas o relatório.\n\nEscreva um relatório em markdown-lite com EXATAMENTE estas seções, nesta ordem (cada seção é \"**Título:**\" numa linha, seguida de bullets que começam com \"- \"). Omita uma seção só se for genuinamente vazia:\n\n**Contexto:** tipo de áudio, quem participa (nomes quando rotulados) e o assunto central.\n**Problemas levantados:** cada dor, gargalo, risco ou insatisfação. Específico.\n**Decisões e alinhamentos:** só o que foi de fato decidido ou acordado na conversa. Diga quem é o dono apenas quando alguém assumiu ou recebeu a responsabilidade e aceitou; se ninguém assumiu, escreva \"sem dono definido\". Inclua decisões sobre PESSOAS/papéis e criação de ROTINAS quando foram de fato decididas.\n**Insights / observações relevantes:** constatações, números, padrões — coisas que valem registrar mesmo sem virar ação.\n**Próximos passos:** SOMENTE compromissos combinados: alguém disse que vai fazer, ou recebeu a tarefa e aceitou. Cada passo com dono (o nome como aparece na transcrição) e entregável; prazo só se foi dito. Cubra TODOS os compromissos: antes de fechar esta seção, releia a transcrição inteira e confira que nenhum ficou de fora (reuniões marcadas, convites, envios, conferências, prazos).\n**Ideias e pendências sem combinado:** sugestões, possibilidades, desejos, desabafos e assuntos que ficaram em aberto sem ninguém assumir. Esta seção NÃO vira tarefa.\n\nRegras:\n- Extraia só do que foi dito. Nunca acrescente nome, lugar, data, número, prazo ou fato que não esteja na transcrição. Preserve nomes próprios exatamente como aparecem (mesmo que pareçam errados), números, prazos e termos do domínio (Trips, Weddings, Edis, CRM, SDR).\n- Não deduza dono pelo cargo nem por quem costuma fazer. Não confunda quem falou do assunto com quem vai fazer. Não junte pessoas diferentes numa só.\n- Ideia, sugestão, \"vou pensar\", \"vale avaliar\", problema que se resolveu na hora ou compromisso sem dono vai para \"Ideias e pendências sem combinado\", nunca para \"Próximos passos\".\n- Reunião densa → relatório detalhado. Português, voz objetiva.\n\nSAÍDA — retorne SÓ este JSON. O campo executive_summary é OBRIGATÓRIO e deve conter o relatório completo das seções acima (use null APENAS em áudio trivial: teste, saudação, ruído):\n{ \"summary\": \"<1-2 frases de contexto, não as tarefas>\", \"executive_summary\": \"<relatório markdown-lite com as seções acima>\" }\n"
+              },
+              {
+                "content": "=Transcrição rotulada:\n\n{{ $('Recebe reunião').first().json.labeled_text }}"
+              }
+            ]
+          },
+          "jsonOutput": true,
+          "options": {}
+        },
+        "name": "Reserva: relatório em 1 chamada (GPT-6 Sol)",
+        "type": "@n8n/n8n-nodes-langchain.openAi",
+        "typeVersion": 1.7,
+        "position": [
+          1100,
+          600
+        ],
+        "credentials": {
+          "openAiApi": {
+            "id": "QSdaVgPRKxfvwcXr",
+            "name": "OpenAi account"
+          }
+        },
+        "executeOnce": true,
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 5000,
+        "id": "6b623fc7-f393-442d-ba63-40bb9f956c2a"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Reserva: se alguma etapa do Luna falhar, usa o relatório em 1 chamada (GPT-6 Sol) para a reunião não travar\nconst raw = $input.first().json;\nlet p = raw;\ntry { if (raw.message && raw.message.content) p = typeof raw.message.content === 'string' ? JSON.parse(raw.message.content) : raw.message.content; else if (raw.content) p = typeof raw.content === 'string' ? JSON.parse(raw.content) : raw.content; } catch (e) {}\nreturn [{ json: { summary: (p && p.summary) || '', executive_summary: (p && p.executive_summary) || '', relatorio_modelo: 'gpt-6-sol-reserva' } }];\n"
+        },
+        "name": "Monta relatório (reserva)",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1320,
+          600
+        ],
+        "id": "171dbf10-fcf0-4dcf-af24-e80c01267c16"
+      }
+    ],
+    "connections": {
+      "Recebe reunião": {
+        "main": [
+          [
+            {
+              "node": "Prepara leitura",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepara leitura": {
+        "main": [
+          [
+            {
+              "node": "Luna extrai",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Reserva: relatório em 1 chamada (GPT-6 Sol)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Luna extrai": {
+        "main": [
+          [
+            {
+              "node": "Confere trechos",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Reserva: relatório em 1 chamada (GPT-6 Sol)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Confere trechos": {
+        "main": [
+          [
+            {
+              "node": "Luna revisa",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Reserva: relatório em 1 chamada (GPT-6 Sol)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Luna revisa": {
+        "main": [
+          [
+            {
+              "node": "Junta revisão",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Reserva: relatório em 1 chamada (GPT-6 Sol)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Junta revisão": {
+        "main": [
+          [
+            {
+              "node": "Luna revisa por pessoa",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Reserva: relatório em 1 chamada (GPT-6 Sol)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Luna revisa por pessoa": {
+        "main": [
+          [
+            {
+              "node": "Junta revisão por pessoa",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Reserva: relatório em 1 chamada (GPT-6 Sol)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Junta revisão por pessoa": {
+        "main": [
+          [
+            {
+              "node": "Luna escreve contexto",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Reserva: relatório em 1 chamada (GPT-6 Sol)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Luna escreve contexto": {
+        "main": [
+          [
+            {
+              "node": "Monta relatório",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Reserva: relatório em 1 chamada (GPT-6 Sol)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Monta relatório": {
+        "main": [
+          [],
+          [
+            {
+              "node": "Reserva: relatório em 1 chamada (GPT-6 Sol)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Reserva: relatório em 1 chamada (GPT-6 Sol)": {
+        "main": [
+          [
+            {
+              "node": "Monta relatório (reserva)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
     },
-    "id": "EqReprocMeet0001",
-    "active": false
+    "settings": {
+      "executionOrder": "v1",
+      "callerPolicy": "workflowsFromSameOwner"
+    }
   }
 ]
