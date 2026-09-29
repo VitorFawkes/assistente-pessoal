@@ -5,7 +5,7 @@ import { mudarQuemVeDaTarefa } from "@/lib/quem-ve";
 
 export const dynamic = "force-dynamic";
 
-// Caixa "Nova ação" das telas do Ações no TTARS. Corpo: { texto, quem_email?, prazo? (AAAA-MM-DD),
+// Caixa "Nova ação" das telas do Ações no TTARS. Corpo: { texto, quem_email?, quem_nome_fora?, prazo? (AAAA-MM-DD),
 // projeto_id?, meeting_id?, workspace?, time_id?, objetivo_id?, pessoas? (e-mails que também veem) }. Devolve a ação
 // criada do ponto de vista de quem criou.
 export const POST = withAuth(async (user, req) => {
@@ -17,6 +17,7 @@ export const POST = withAuth(async (user, req) => {
   const r = await criarPelaCaixa(user, {
     texto: body.texto,
     quem_email: txt(body.quem_email),
+    quem_nome_fora: txt(body.quem_nome_fora),
     prazo: txt(body.prazo),
     projeto_id: txt(body.projeto_id),
     meeting_id: txt(body.meeting_id),

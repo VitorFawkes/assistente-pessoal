@@ -95,7 +95,7 @@ export async function criarAcao(user: User, p: PedidoDeAcao): Promise<Criada> {
       if (owner !== slug) pessoas = [{ nome: owner, principal: true }];
     }
   } else if (p.quem_nome_fora?.trim()) {
-    owner = p.quem_nome_fora.trim().slice(0, 80);
+    owner = p.quem_nome_fora.replace(/\s+/g, " ").trim().slice(0, 80);
     acao = "cobrar";
     pessoas = [{ nome: owner, principal: true }];
   }
@@ -230,6 +230,8 @@ export async function criarPelaCaixa(
   entrada: {
     texto: string;
     quem_email?: string | null;
+    /** Alguém de fora da Welcome escolhido na tela (só o nome). */
+    quem_nome_fora?: string | null;
     prazo?: string | null;
     projeto_id?: string | null;
     meeting_id?: string | null;
@@ -240,7 +242,7 @@ export async function criarPelaCaixa(
 ): Promise<Criada> {
   const texto = (entrada.texto ?? "").trim();
   if (!texto) return { ok: false, erro: "Escreva o que precisa ser feito.", status: 400 };
-  const marcouQuem = !!entrada.quem_email;
+  const marcouQuem = !!entrada.quem_email || !!entrada.quem_nome_fora;
   const marcouPrazo = !!entrada.prazo;
   let lida: FraseLida | null = null;
   let aviso: string | null = null;
@@ -254,7 +256,8 @@ export async function criarPelaCaixa(
     }
   }
   let quem: { quem_email?: string; quem_nome_fora?: string; aviso?: string } = {};
-  if (marcouQuem) quem = { quem_email: entrada.quem_email! };
+  if (entrada.quem_email) quem = { quem_email: entrada.quem_email };
+  else if (entrada.quem_nome_fora) quem = { quem_nome_fora: entrada.quem_nome_fora };
   else if (lida?.quem) quem = quemDaFrase(lida.quem, await pessoasDaEquipe());
   const r = await criarAcao(user, {
     titulo: lida?.titulo || texto,

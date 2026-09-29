@@ -38,6 +38,8 @@ export type PedidoDono = {
   acao?: Acao;
   responsavel_user_id?: string | null;
   pessoas?: { nome: string; principal?: boolean }[];
+  /** O nome é de alguém de fora da Welcome, escolhido assim na tela: não procura colega com esse nome. */
+  de_fora?: boolean;
 };
 
 export type DonoResolvido = {
@@ -56,7 +58,7 @@ export type DonoResolvido = {
  *     tarefa vai para a lista dele (owner = nome dele, cobrar);
  *   - o próprio criador → volta a ser dele (owner = slug, executar);
  *   - o slug sem colega → é do criador (quem não criou e escolhe "sem dono" devolve a ele);
- *   - nome de fora da equipe → só o nome, como sempre foi.
+ *   - nome de fora da equipe (ou marcado `de_fora`, mesmo igual ao de um colega) → só o nome, como sempre foi.
  */
 export function resolverDono(
   pedido: PedidoDono,
@@ -76,7 +78,7 @@ export function resolverDono(
     if (!nome || nome === "?" || slugNome(nome) === slugNome(ctx.slug)) {
       Object.assign(out, doCriador());
     } else {
-      const c = acharColegaPorNome(ctx.colegas, nome);
+      const c = pedido.de_fora ? null : acharColegaPorNome(ctx.colegas, nome);
       if (c) Object.assign(out, c.id === ctx.donoId ? doCriador() : paraColega(c));
       else
         Object.assign(out, {

@@ -45,6 +45,8 @@ export type MudancaDeTarefa = Partial<{
   responsavel_user_id: string | null;
   /** Equipe: pessoa do TTARS pelo e-mail (ganha conta aqui se ainda não tem) ou "notion:<id>". */
   responsavel_email: string;
+  /** Quem faz é alguém de fora da Welcome (fornecedor, cliente), pelo nome: a ação fica com quem criou, para cobrar. */
+  quem_nome_fora: string;
   /** Workspace do TTARS de quem pede (área no Notion do marketing). */
   workspace: string;
   /** Hub: ação do time (id do time do TTARS) ou pessoal (null). Só quem criou muda. */
@@ -97,6 +99,21 @@ export async function prepararMudanca(
   if (escolha) Object.assign(body, escolha.corpo);
   delete body.responsavel_email;
 
+  // Alguém de fora da Welcome, escolhido na tela: só o nome, mesmo que um colega tenha o mesmo.
+  // Só quem criou: para quem recebeu, a ação sairia da lista dele (fica com quem criou, que cobra).
+  let deFora = false;
+  if (body.quem_nome_fora !== undefined) {
+    const nome = typeof body.quem_nome_fora === "string" ? body.quem_nome_fora.replace(/\s+/g, " ").trim().slice(0, 80) : "";
+    delete body.quem_nome_fora;
+    if (!nome || nome === "?") return erro(400, "Escreva o nome de quem faz.");
+    if (escolha) return erro(400, "Escolha uma pessoa só para fazer.");
+    if (acesso.papel !== "dono") return erro(403, "Só quem criou a ação passa para alguém de fora da Welcome.");
+    body.owner = nome;
+    if (body.acao !== "aguardar") body.acao = "cobrar";
+    delete body.responsavel_user_id;
+    deFora = true;
+  }
+
   const sets: string[] = [];
   const values: unknown[] = [];
   const push = (col: string, val: unknown) => {
@@ -116,6 +133,7 @@ export async function prepararMudanca(
         acao: body.acao,
         responsavel_user_id: body.responsavel_user_id,
         pessoas: Array.isArray(body.pessoas) ? body.pessoas : undefined,
+        de_fora: deFora,
       },
       { donoId, colegas: await colegasDe(user.id), slug: getOwnerSlug() },
     );

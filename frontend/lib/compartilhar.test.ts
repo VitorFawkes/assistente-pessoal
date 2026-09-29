@@ -70,6 +70,14 @@ describe("trocar o dono", () => {
       owner: "Fornecedor X", acao: "aguardar", responsavel: null,
     });
   });
+  it("marcado como de fora na tela: fica só o nome, mesmo igual ao de um colega", () => {
+    expect(resolverDono({ owner: "Marina", acao: "cobrar", de_fora: true }, ctx)).toEqual({
+      owner: "Marina", acao: "cobrar", responsavel: null,
+    });
+    expect(resolverDono({ owner: "Marina Souza", acao: "aguardar", de_fora: true }, ctx)).toEqual({
+      owner: "Marina Souza", acao: "aguardar", responsavel: null,
+    });
+  });
   it("recusa colega que não está no Ações", () => {
     expect(resolverDono({ responsavel_user_id: "u-estranho" }, ctx).erro).toBeTruthy();
   });
