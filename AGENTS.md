@@ -151,7 +151,9 @@ soft_deleted_at IS NULL` — se passar de ~10k, está na hora de migrar.
   padrões.
 - **Mac-agent:** bash scripts em `mac-agent/`. Lê áudio do iCloud,
   transcreve com **AssemblyAI Universal-3.5 Pro** (`speech_models=["universal-3-5-pro","universal-2"]`)
-  com `speaker_labels=true`, envia ao n8n via webhook. Migrado em 2026-05-23
+  com `speaker_labels=true`, envia ao n8n via webhook. **Desde 29/09/2026 o
+  webhook é o do Ações da equipe (TTARS)**, não o do Ações pessoal: ver
+  "Destino" em `mac-agent/README.md` (`~/.acoes/destino-gravacoes.env`). Migrado em 2026-05-23
   de `gpt-4o-transcribe-diarize` (que tinha limite efetivo de 1500s/chamada
   e resetava speaker labels entre chunks manuais). Backup do pipeline OpenAI
   em `mac-agent/transcribe-openai.sh.bak` pra rollback. Env: `ASSEMBLYAI_API_KEY`,

@@ -12,9 +12,21 @@ Roda como **LaunchAgent** do macOS, observa as duas pastas de áudio e dispara o
                                                   └─ falha → move pra failed/ + log
 ```
 
+## Destino (desde 29/09/2026)
+
+As reuniões vão para o **Ações da equipe** (dentro do TTARS), não mais para o Ações pessoal:
+`~/.acoes/destino-gravacoes.env` (fora do repo, chmod 600) define `DESTINO_WEBHOOK_URL`
+(`https://srv2007125.hstgr.cloud/webhook/acoes-audio-ingest`, único caminho do n8n aberto no
+Caddy da equipe), `DESTINO_WEBHOOK_TOKEN` (= `WEBHOOK_TOKEN` de `/opt/acoes-equipe/.env`),
+`DESTINO_USER_ID` (conta do Vitor na equipe) e `DESTINO_FRONTEND_URL`. Sem o arquivo, vale o `.env`.
+Voltar pro Ações pessoal: apagar o arquivo e `launchctl kickstart -k gui/$(id -u)/com.vitor.assistente-pessoal`.
+O `START watching` do `watcher.log` diz para onde está mandando. O `check-backup.sh` confere as
+duas instâncias.
+
 ## Arquivos
 
 - `audio-watcher.sh` — observa as pastas, faz o POST multipart
+- `check-backup.sh` + `com.vitor.check-backup.plist` — a cada 30 min, avisa se um áudio do backup não virou reunião
 - `com.vitor.assistente-pessoal.plist` — descritor do launchd
 - `install.sh` — instala fswatch (brew), renderiza o plist e carrega
 - `uninstall.sh` — descarrega e remove

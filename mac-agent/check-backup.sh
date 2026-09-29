@@ -35,16 +35,16 @@ LOG="$SCRIPT_DIR/check-backup.log"
 # Cria pasta de backup se ainda não existe (idempotente)
 mkdir -p "$BACKUP_DIR"
 
-# Pega lista de meetings recentes (últimas 48h)
-API_URL="$FRONTEND_API_URL/api/admin/check-recent-meetings?user_id=$WEBHOOK_USER_ID&hours=48"
-resp=$(curl -sS --max-time 15 "$API_URL" -H "X-Admin-Token: $WEBHOOK_TOKEN" 2>/dev/null)
-if [ -z "$resp" ]; then
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] API offline ou sem resposta" >> "$LOG"
-  exit 0
-fi
-
-# Lista filenames já no DB
-db_files=$(echo "$resp" | python3 -c "
+# Filenames que já viraram meeting (últimas 48h) numa instância do Ações.
+# API sem resposta → falha (quem chama sai sem alertar, como antes).
+nomes_no_banco() {
+  local resp
+  resp=$(curl -sS --max-time 15 "$1/api/admin/check-recent-meetings?user_id=$3&hours=48" -H "X-Admin-Token: $2" 2>/dev/null)
+  if [ -z "$resp" ]; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] API offline ou sem resposta ($1)" >> "$LOG"
+    return 1
+  fi
+  echo "$resp" | python3 -c "
 import sys, json
 try:
   d = json.load(sys.stdin)
@@ -53,11 +53,22 @@ try:
     if fn: print(fn)
 except Exception as e:
   print(f'PARSE_ERR: {e}', file=sys.stderr)
-")
+"
+}
 
-if [ -z "$db_files" ]; then
-  total=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('count', '?'))" 2>/dev/null)
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] API retornou 0 meetings (count=$total) — verifica auth/user_id" >> "$LOG"
+db_files=$(nomes_no_banco "$FRONTEND_API_URL" "$WEBHOOK_TOKEN" "$WEBHOOK_USER_ID") || exit 0
+
+# Desde 29/09/2026 as reuniões novas vão para o Ações da equipe (TTARS): junta os nomes de lá.
+DESTINO_ENV="${DESTINO_ENV:-$HOME/.acoes/destino-gravacoes.env}"
+if [ -f "$DESTINO_ENV" ]; then
+  # shellcheck disable=SC1090
+  source "$DESTINO_ENV"
+  db_equipe=$(nomes_no_banco "${DESTINO_FRONTEND_URL:-}" "${DESTINO_WEBHOOK_TOKEN:-}" "${DESTINO_USER_ID:-}") || exit 0
+  db_files=$(printf '%s\n%s' "$db_files" "$db_equipe")
+fi
+
+if [ -z "$(printf '%s' "$db_files" | tr -d '[:space:]')" ]; then
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] API retornou 0 meetings — verifica auth/user_id" >> "$LOG"
 fi
 
 # Lista arquivos no backup das últimas 48h
