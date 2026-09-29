@@ -1029,42 +1029,50 @@ async function baixarComLimite(url: string, max: number): Promise<{ bytes: Uint8
   return { bytes, tipo: r.headers.get("content-type") };
 }
 
-async function novoAnexoLink(l: Link, url: string, titulo: string | null): Promise<string | null> {
-  const r = await withTenant(l.tarefa_dono_id, (db) =>
-    db.query<{ id: string }>(
+/** Grava o anexo e, na MESMA transação, o registro dele (`registrar`): queda no meio nunca deixa
+ *  anexo sem registro (que viraria outro anexo na rodada seguinte). */
+type Registrar = (db: PoolClient, anexoId: string) => Promise<void>;
+
+async function novoAnexoLink(l: Link, url: string, titulo: string | null, registrar: Registrar): Promise<string | null> {
+  return withTenant(l.tarefa_dono_id, async (db) => {
+    const r = await db.query<{ id: string }>(
       `INSERT INTO tarefa_anexos (tarefa_id, tipo, url, titulo, ordem)
        VALUES ($1, 'link', $2, $3, COALESCE((SELECT max(ordem) + 1 FROM tarefa_anexos WHERE tarefa_id = $1), 0))
        RETURNING id::text AS id`,
       [l.tarefa_id, url, titulo ? titulo.slice(0, 200) : null],
-    ),
-  );
-  return r.rows[0]?.id ?? null;
+    );
+    const id = r.rows[0]?.id ?? null;
+    if (id) await registrar(db, id);
+    return id;
+  });
 }
 
 /** Arquivo do Notion vira anexo da ação: link fica link; arquivo guardado lá é baixado (o link de
  *  lá vence em 1 hora). Grande demais, de tipo que o Ações não guarda ou que não baixou: fica o
  *  caminho pra abrir no Notion. Devolve "" quando não há o que guardar (link inválido). */
-async function anexoDoNotion(l: Link, f: ArquivoDoNotion): Promise<string | null> {
+async function anexoDoNotion(l: Link, f: ArquivoDoNotion, registrar: Registrar): Promise<string | null> {
   if (f.tipo === "external") {
     const url = normalizeUrl(f.url);
     if (!url) return "";
-    return novoAnexoLink(l, url, f.nome && f.nome !== f.url ? f.nome : null);
+    return novoAnexoLink(l, url, f.nome && f.nome !== f.url ? f.nome : null, registrar);
   }
   const nome = sanitizeFilename(f.nome.split("?")[0].split("/").pop() || f.nome) || "arquivo";
   const baixado = isAllowedFile(nome) ? await baixarComLimite(f.url, MAX_FILE_BYTES) : null;
   if (baixado) {
     const tipo = resolveContentType(nome, baixado.tipo);
-    const r = await withTenant(l.tarefa_dono_id, (db) =>
-      db.query<{ id: string }>(
+    return withTenant(l.tarefa_dono_id, async (db) => {
+      const r = await db.query<{ id: string }>(
         `INSERT INTO tarefa_anexos (tarefa_id, tipo, filename, content_type, size_bytes, conteudo, titulo, ordem)
          VALUES ($1, 'arquivo', $2, $3, $4, $5, NULL, COALESCE((SELECT max(ordem) + 1 FROM tarefa_anexos WHERE tarefa_id = $1), 0))
          RETURNING id::text AS id`,
         [l.tarefa_id, nome, tipo, baixado.bytes.length, Buffer.from(baixado.bytes)],
-      ),
-    );
-    return r.rows[0]?.id ?? null;
+      );
+      const id = r.rows[0]?.id ?? null;
+      if (id) await registrar(db, id);
+      return id;
+    });
   }
-  return l.url ? novoAnexoLink(l, l.url, `${nome} (abrir no Notion)`) : "";
+  return l.url ? novoAnexoLink(l, l.url, `${nome} (abrir no Notion)`, registrar) : "";
 }
 
 /** Como um arquivo que já está no Notion volta na lista ao gravar (a lista vai inteira; conferido
@@ -1117,9 +1125,12 @@ async function sincronizarArquivos(c: Conexao, r: Rodada) {
         if (lida && !lida.noLixo) {
           for (const f of lida.arquivos) {
             if (guardados.some((g) => g.chave === f.chave)) continue;
-            const anexo = await anexoDoNotion(l, f);
+            const item: ArquivoGuardado = { chave: f.chave, anexo_id: "", nome: f.nome };
+            const anexo = await anexoDoNotion(l, f, (db, id) =>
+              db.query(`UPDATE notion_paginas SET arquivos = $2 WHERE page_id = $1`, [l.page_id, JSON.stringify([...guardados, { ...item, anexo_id: id }])]).then(() => undefined),
+            );
             if (anexo === null) continue;
-            guardados.push({ chave: f.chave, anexo_id: anexo, nome: f.nome });
+            guardados.push({ ...item, anexo_id: anexo });
             if (anexo) aqui.set(anexo, { id: anexo, tarefa_id: l.tarefa_id, tipo: "link", url: null, titulo: null, filename: null, content_type: null, size_bytes: null });
             mudou = true;
           }
@@ -1127,11 +1138,14 @@ async function sincronizarArquivos(c: Conexao, r: Rodada) {
           const chaves = new Set(lida.arquivos.map((f) => f.chave));
           for (const g of guardados.filter((x) => !x.so_aqui && !chaves.has(x.chave))) {
             const outro = guardados.some((x) => x !== g && x.anexo_id === g.anexo_id);
-            if (g.anexo_id && !outro) {
-              await withTenant(l.tarefa_dono_id, (db) => db.query(`DELETE FROM tarefa_anexos WHERE id = $1 AND tarefa_id = $2`, [g.anexo_id, l.tarefa_id]));
-              aqui.delete(g.anexo_id);
-            }
-            guardados = guardados.filter((x) => x !== g);
+            const sobram = guardados.filter((x) => x !== g);
+            // Apagar e tirar do registro juntos.
+            await withTenant(l.tarefa_dono_id, async (db) => {
+              if (g.anexo_id && !outro) await db.query(`DELETE FROM tarefa_anexos WHERE id = $1 AND tarefa_id = $2`, [g.anexo_id, l.tarefa_id]);
+              await db.query(`UPDATE notion_paginas SET arquivos = $2 WHERE page_id = $1`, [l.page_id, JSON.stringify(sobram)]);
+            });
+            if (g.anexo_id && !outro) aqui.delete(g.anexo_id);
+            guardados = sobram;
             mudou = true;
           }
         }
@@ -1206,6 +1220,8 @@ async function sincronizarArquivos(c: Conexao, r: Rodada) {
               guardados.push({ chave: f.chave, anexo_id: v.anexo.id, nome: f.nome });
               falhasDeEnvio.delete(v.anexo.id);
             }
+            // Registro logo depois de gravar lá (a janela de queda fica mínima).
+            await query(`UPDATE notion_paginas SET arquivos = $2 WHERE page_id = $1`, [l.page_id, JSON.stringify(guardados)]);
             mudou = true;
           }
         }
@@ -1259,16 +1275,29 @@ async function sincronizarComentarios(c: Conexao, r: Rodada, pessoas: Map<string
         if (!texto) continue;
         const autor = pessoas.get(cm.created_by?.id ?? "");
         const corpo = (autor?.user_id ? texto : `${autor?.nome ?? "Alguém no Notion"}: ${texto}`).slice(0, TEXTO_MAX_DO_COMENTARIO);
-        const novo = await withTenant(l.tarefa_dono_id, (db) =>
-          db.query<{ id: string }>(
-            `INSERT INTO tarefa_comentarios (tarefa_id, texto, autor_user_id, created_at) VALUES ($1, $2, $3, $4) RETURNING id::text AS id`,
-            [l.tarefa_id, corpo, autor?.user_id ?? c.dono_user_id, cm.created_time],
-          ),
-        );
-        await query(
-          `INSERT INTO notion_comentarios (comment_id, conexao_id, page_id, comentario_id, origem) VALUES ($1, $2, $3, $4, 'notion') ON CONFLICT DO NOTHING`,
-          [cm.id, c.id, l.page_id, novo.rows[0]?.id ?? null],
-        );
+        // A cópia e o registro na mesma transação: nunca fica cópia sem registro (que viraria outra
+        // cópia na rodada seguinte). Cópia sem registro de uma rodada que caiu é reconhecida.
+        await withTenant(l.tarefa_dono_id, async (db) => {
+          const ja = await db.query<{ id: string }>(
+            `SELECT cm.id::text AS id FROM tarefa_comentarios cm
+              WHERE cm.tarefa_id = $1 AND cm.texto = $2 AND cm.created_at = $3
+                AND NOT EXISTS (SELECT 1 FROM notion_comentarios n WHERE n.comentario_id = cm.id)
+              LIMIT 1`,
+            [l.tarefa_id, corpo, cm.created_time],
+          );
+          const id =
+            ja.rows[0]?.id ??
+            (
+              await db.query<{ id: string }>(
+                `INSERT INTO tarefa_comentarios (tarefa_id, texto, autor_user_id, created_at) VALUES ($1, $2, $3, $4) RETURNING id::text AS id`,
+                [l.tarefa_id, corpo, autor?.user_id ?? c.dono_user_id, cm.created_time],
+              )
+            ).rows[0]?.id;
+          await db.query(
+            `INSERT INTO notion_comentarios (comment_id, conexao_id, page_id, comentario_id, origem) VALUES ($1, $2, $3, $4, 'notion') ON CONFLICT DO NOTHING`,
+            [cm.id, c.id, l.page_id, id ?? null],
+          );
+        });
       }
       // Não apaga aqui o que sumiu da leitura: o Notion só devolve discussão NÃO resolvida, e
       // resolver uma discussão lá não é apagar a conversa.
@@ -1295,13 +1324,24 @@ async function sincronizarComentarios(c: Conexao, r: Rodada, pessoas: Map<string
     for (const cm of novos.rows) {
       const pageId = pagina.get(cm.tarefa_id);
       if (!pageId) continue;
+      // Registra ANTES de mandar: se o registro falhar, nada vai; se cair depois de mandar, o
+      // registro "pendente" já impede mandar de novo (nunca sai duplicado no Notion).
+      const pendente = `pendente:${cm.id}`;
+      const marcado = await query<{ comment_id: string }>(
+        `INSERT INTO notion_comentarios (comment_id, conexao_id, page_id, comentario_id, origem) VALUES ($1, $2, $3, $4, 'acoes')
+         ON CONFLICT DO NOTHING RETURNING comment_id`,
+        [pendente, c.id, pageId, cm.id],
+      ).catch((e) => {
+        console.error("[notion] registrar comentário", pageId, e instanceof Error ? e.message : e);
+        return [];
+      });
+      if (!marcado.length) continue;
       try {
         const criado = await comentarNaPagina(c.token, pageId, `${nomeLimpo(cm.autor) || "Alguém"} (pelo TTARS): ${cm.texto}`);
-        await query(
-          `INSERT INTO notion_comentarios (comment_id, conexao_id, page_id, comentario_id, origem) VALUES ($1, $2, $3, $4, 'acoes') ON CONFLICT DO NOTHING`,
-          [criado.id, c.id, pageId, cm.id],
-        );
+        await query(`UPDATE notion_comentarios SET comment_id = $2 WHERE comment_id = $1`, [pendente, criado.id]);
       } catch (e) {
+        // Não foi: tira o registro pra tentar de novo na próxima rodada.
+        await query(`DELETE FROM notion_comentarios WHERE comment_id = $1`, [pendente]).catch(() => undefined);
         console.error("[notion] comentar", pageId, e instanceof Error ? e.message : e);
       }
     }
