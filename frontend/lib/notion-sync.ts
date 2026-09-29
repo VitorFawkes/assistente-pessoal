@@ -65,7 +65,6 @@ const NOME_DO_DONO = "Marketing (Notion)";
 const NOME_DO_PRINCIPAL = "Marketing · sem projeto";
 const DESCRICAO_DO_PRINCIPAL =
   "As tarefas do Notion do marketing que não estão em nenhum projeto de lá. O que você pedir a alguém do marketing aparece aqui também.";
-const DESCRICAO_DO_PROJETO = "Projeto do Notion do marketing: o que mudar aqui vai pra lá, e o que mudar lá aparece aqui.";
 /** Comentários: lidos a cada 5 minutos nas tarefas abertas (e na hora nas que mudaram). */
 const A_CADA_COMENTARIOS = 5 * 60_000;
 const TEXTO_MAX_DO_COMENTARIO = 4000;
@@ -381,7 +380,8 @@ async function quadroDoProjeto(c: Conexao, r: Rodada, pageId: string): Promise<s
   const g = r.projetos.get(pageId);
   if (!g || arquivado(g)) return null;
   if (g.quadro_id) return g.quadro_id;
-  const q = await quadrosFor(c.dono_user_id).criar(g.nome, DESCRICAO_DO_PROJETO);
+  // Sem descrição: a tela mostra como ele está no Notion (etapa, período, líder).
+  const q = await quadrosFor(c.dono_user_id).criar(g.nome);
   if (c.quadro_id) {
     // As mesmas pessoas do projeto principal (quem ligou e quem é do marketing no TTARS).
     await withTenant(c.dono_user_id, (db) =>
