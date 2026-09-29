@@ -1,24 +1,41 @@
 // A tarefa como as telas do Ações dentro do TTARS usam: do ponto de vista de quem vê, com
 // projetos, nome curto da reunião, Notion e (no painel) o histórico de quem mudou o quê.
-import { withTenant } from "./db";
+import { query, withTenant } from "./db";
 import { meetingSubject } from "./meeting-label";
 import { notionDasAcoes } from "./notion-sync";
 import type { Tarefa } from "./queries";
 import { acessoTarefa, carregarTarefas, comProjetos, nomesDeUsuarios, type Papel } from "./equipe-compartilhado";
 import { nomesDosObjetivos, nomesDosTimes, origemDaReuniao, UUID_RE } from "./hub";
 
+/** Nome e e-mail de quem também faz cada ação (subresponsáveis). */
+async function genteQueTambemFaz(tarefas: Tarefa[]): Promise<Map<string, { nome: string; email: string | null }>> {
+  const ids = [...new Set(tarefas.flatMap((t) => t.tambem_fazem_ids ?? []))];
+  if (!ids.length) return new Map();
+  const r = await query<{ id: string; nome: string; email: string | null }>(
+    `SELECT id::text AS id, nome, LOWER(email) AS email FROM users WHERE id = ANY($1::uuid[])`,
+    [ids],
+  );
+  return new Map(r.map((x) => [x.id, { nome: x.nome, email: x.email }]));
+}
+
 export async function paraTela(userId: string, tarefas: Tarefa[]) {
   const comTime = tarefas.some((t) => t.time_id);
-  const [comP, notion, objetivos, times] = await Promise.all([
+  const [comP, notion, objetivos, times, tambem] = await Promise.all([
     comProjetos(userId, tarefas),
     notionDasAcoes(tarefas.map((t) => t.id)),
     nomesDosObjetivos(userId, tarefas.map((t) => t.objetivo_id ?? "").filter(Boolean)),
     comTime ? nomesDosTimes() : Promise.resolve(new Map<string, string>()),
+    genteQueTambemFaz(tarefas),
   ]);
   return comP.map((t) => {
     const objetivoNome = t.objetivo_id ? objetivos.get(t.objetivo_id) : undefined;
+    // Quem criou ou quem faz não aparece de novo como "também faz" (ex.: virou quem faz depois).
+    const ids = (t.tambem_fazem_ids ?? []).filter((id) => id !== t.responsavel_user_id && id !== t.user_id);
     return {
       ...t,
+      // Quem também faz (subresponsáveis): quem vê a ação sabe quem são; "faco_tambem" é o próprio.
+      tambem_fazem: ids.map((id) => ({ nome: id === userId ? "Você" : (tambem.get(id)?.nome ?? "Colega"), email: tambem.get(id)?.email ?? null })),
+      faco_tambem: ids.includes(userId),
       reuniao_rotulo: t.meeting_id ? meetingSubject(t.meeting_summary, t.meeting_nome) || "Reunião" : null,
       meeting_origem: t.meeting_id ? origemDaReuniao(t.meeting_source) : null,
       time_nome: t.time_id ? (times.get(t.time_id) ?? null) : null,
@@ -58,6 +75,7 @@ const CAMPO: Record<string, string> = {
   time_id: "o time",
   objetivo_id: "o objetivo",
   quem_ve: "quem vê",
+  tambem_fazem: "quem também faz",
 };
 
 function juntar(xs: string[]): string {

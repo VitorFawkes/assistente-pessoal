@@ -195,3 +195,54 @@ export async function mudarQuemVeDaTarefa(
   });
   return "ok";
 }
+
+/**
+ * Quem também faz a ação (subresponsáveis, pedido do Vitor 29/09/2026). Quem criou e quem faz mudam; a lista vem
+ * inteira (e-mails da Welcome). Mora em tarefa_acessos com faz: quem entra passa a ver e mexer (como quem foi
+ * marcado para ver) e a ação aparece na lista dela; quem sai continua vendo (só deixa de fazer).
+ */
+export async function mudarTambemFazem(
+  userId: string,
+  tarefaId: string,
+  emails: string[],
+): Promise<"ok" | "nao_achou" | "so_quem_cuida" | "pessoa"> {
+  if (!UUID_RE.test(tarefaId)) return "nao_achou";
+  const r = await withTenant(userId, (c) =>
+    c.query<{ dono_id: string; papel: string }>(`SELECT dono_id::text AS dono_id, papel FROM equipe_acesso_tarefa($1)`, [tarefaId]),
+  );
+  const acesso = r.rows[0];
+  if (!acesso) return "nao_achou";
+  if (acesso.papel !== "dono" && acesso.papel !== "responsavel") return "so_quem_cuida";
+  const donoId = acesso.dono_id;
+
+  const principal = await withTenant(donoId, (c) =>
+    c.query<{ responsavel: string | null }>(`SELECT responsavel_user_id::text AS responsavel FROM tarefas WHERE id = $1`, [tarefaId]),
+  );
+  if (!principal.rows[0]) return "nao_achou";
+  // Quem criou e quem já faz não entram como "também faz".
+  const fora = new Set([donoId, principal.rows[0].responsavel].filter((x): x is string => !!x));
+  const ids: string[] = [];
+  for (const e of emails.slice(0, 20)) {
+    if (typeof e !== "string" || !e.trim()) continue;
+    const colega = await garantirColegaDoTtars(e);
+    if (!colega) return "pessoa";
+    if (!fora.has(colega.id) && !ids.includes(colega.id)) ids.push(colega.id);
+  }
+
+  await withTenant(donoId, async (c) => {
+    const antes = (
+      await c.query<{ user_id: string }>(`SELECT user_id::text AS user_id FROM tarefa_acessos WHERE tarefa_id = $1 AND faz`, [tarefaId])
+    ).rows.map((x) => x.user_id);
+    await c.query(`UPDATE tarefa_acessos SET faz = false WHERE tarefa_id = $1 AND faz AND NOT (user_id = ANY ($2::uuid[]))`, [tarefaId, ids]);
+    for (const uid of ids) {
+      await c.query(
+        `INSERT INTO tarefa_acessos (tarefa_id, user_id, created_by, faz) VALUES ($1, $2, $3, true)
+         ON CONFLICT (tarefa_id, user_id) DO UPDATE SET faz = true`,
+        [tarefaId, uid, userId],
+      );
+    }
+    const mudou = antes.length !== ids.length || antes.some((x) => !ids.includes(x));
+    if (mudou) await registrarEvento(c, tarefaId, "editada", { changed: { tambem_fazem: { de: antes.length, para: ids.length } } }, userId);
+  });
+  return "ok";
+}

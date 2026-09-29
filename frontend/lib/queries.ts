@@ -131,6 +131,8 @@ export type Tarefa = {
   // ─── Equipe (tarefa compartilhada) ───
   /** Colega para quem a tarefa foi passada: ela aparece na lista dele. */
   responsavel_user_id?: string | null;
+  /** Quem TAMBÉM faz (subresponsáveis, 29/09/2026): tarefa_acessos com faz. */
+  tambem_fazem_ids?: string[];
   /** Quem está vendo não criou a tarefa (veio de colega ou de projeto). */
   compartilhada?: boolean;
   /** Nome de quem criou — só vem quando compartilhada. */
@@ -222,7 +224,11 @@ const TAREFA_COLUNAS = `
                     'size_bytes', a.size_bytes, 'created_at', a.created_at)
                   ORDER BY a.ordem, a.created_at)
            FROM tarefa_anexos a WHERE a.tarefa_id = t.id
-         ), '[]'::jsonb) AS anexos`;
+         ), '[]'::jsonb) AS anexos,
+         COALESCE((
+           SELECT jsonb_agg(ta.user_id::text ORDER BY ta.created_at)
+           FROM tarefa_acessos ta WHERE ta.tarefa_id = t.id AND ta.faz
+         ), '[]'::jsonb) AS tambem_fazem_ids`;
 
 // Só o dono vê de que outras reuniões a tarefa voltou a ser falada e com qual
 // card ela parece repetida: isso cita reuniões e tarefas fora do quadro.
