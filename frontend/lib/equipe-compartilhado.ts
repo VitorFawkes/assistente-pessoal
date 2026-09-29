@@ -73,15 +73,16 @@ export async function comoDonoDoProjeto<T>(
  * que já têm conta aqui (criada quando alguém passou uma tarefa pra elas).
  */
 export async function colegasDe(userId: string): Promise<Colega[]> {
+  // Quem só está no Teams fica de fora (o dono digitado pelo nome continua indo para quem tem TTARS).
   return query<Colega>(
     `SELECT u.id::text AS id, u.nome
        FROM users u
       WHERE u.deleted_at IS NULL
         AND (u.id = $1
              OR EXISTS (SELECT 1 FROM acessos_equipe a WHERE a.email = u.email AND a.liberado)
-             OR EXISTS (SELECT 1 FROM ttars_pessoas p WHERE p.email = LOWER(u.email) AND p.organizacao <> ''))
+             OR EXISTS (SELECT 1 FROM ttars_pessoas p WHERE p.email = LOWER(u.email) AND p.organizacao <> '' AND LEFT(p.organizacao, $2) <> $3))
       ORDER BY u.nome`,
-    [userId],
+    [userId, MARCA_DO_TEAMS.length, MARCA_DO_TEAMS],
   );
 }
 

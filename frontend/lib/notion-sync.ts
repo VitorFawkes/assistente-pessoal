@@ -18,6 +18,7 @@ import { getOwnerSlug } from "./owner-slug";
 import { ErroDoNotion, criarPagina, lerBase, lerPaginaDoNotion, mudarPagina, paginasEditadas, quemSouEu } from "./notion-api";
 import { CHAVES, decidir, lerPagina, nomeLimpo, propriedadesPara, statusParaNotion, type Campos, type PaginaLida } from "./notion-mapa";
 import { slugNome } from "./compartilhar";
+import { MARCA_DO_TEAMS } from "./ttars-auth";
 import { diaBR, ehDataValida, fimDoDiaBR } from "./data-br";
 
 /** A base "Tasks" do Notion do marketing (link visto no Notion do Vitor, 25/09/2026). */
@@ -138,7 +139,11 @@ async function registrarPessoas(c: Conexao, pessoas: { id: string; nome: string;
   for (const p of vistas.values()) {
     let email = p.email;
     if (!email) {
-      const r = await query<{ email: string; nome: string }>(`SELECT email, nome FROM ttars_pessoas WHERE organizacao <> ''`);
+      // Quem só está no Teams não entra no casamento de nome (continua como pessoa só do Notion).
+      const r = await query<{ email: string; nome: string }>(
+        `SELECT email, nome FROM ttars_pessoas WHERE organizacao <> '' AND LEFT(organizacao, $1) <> $2`,
+        [MARCA_DO_TEAMS.length, MARCA_DO_TEAMS],
+      );
       const alvo = slugNome(nomeLimpo(p.nome));
       const achadas = r.filter((x) => slugNome(x.nome) === alvo);
       if (achadas.length === 1) email = achadas[0].email;

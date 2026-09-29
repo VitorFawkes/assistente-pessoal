@@ -8,6 +8,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { query, withTenant } from "./db";
 import { garantirColegaDoTtars } from "./equipe-compartilhado";
+import { MARCA_DO_TEAMS } from "./ttars-auth";
 import {
   type Candidato,
   type ContextoDaDecisao,
@@ -40,7 +41,12 @@ async function contexto(candidatos: Candidato[]): Promise<ContextoDaDecisao> {
       `SELECT LOWER(email) AS email FROM acessos_equipe WHERE liberado
        UNION SELECT LOWER(email) FROM users WHERE is_admin AND deleted_at IS NULL AND email IS NOT NULL`,
     ),
-    query<{ email: string }>(`SELECT email FROM ttars_pessoas WHERE organizacao <> ''`),
+    // Quem só está no Teams (sem TTARS) não conta como "da Welcome" para reunião: a reunião
+    // nasceria numa conta que ninguém abre (revisão de 29/09/2026).
+    query<{ email: string }>(`SELECT email FROM ttars_pessoas WHERE organizacao <> '' AND LEFT(organizacao, $1) <> $2`, [
+      MARCA_DO_TEAMS.length,
+      MARCA_DO_TEAMS,
+    ]),
   ]);
   const ctx: ContextoDaDecisao = {
     liberados: new Set(lib.map((r) => r.email)),
