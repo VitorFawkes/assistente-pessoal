@@ -18,6 +18,17 @@ if [ -f "$PROJECT_DIR/.env" ]; then
   set +a
 fi
 
+# Destino das reuniões. Desde 29/09/2026 vão para o Ações da equipe (dentro do TTARS):
+# ~/.acoes/destino-gravacoes.env troca endereço, senha e conta. Sem o arquivo, vale o .env.
+DESTINO_ENV="${DESTINO_ENV:-$HOME/.acoes/destino-gravacoes.env}"
+if [ -f "$DESTINO_ENV" ]; then
+  # shellcheck disable=SC1090
+  source "$DESTINO_ENV"
+  WEBHOOK_URL="${DESTINO_WEBHOOK_URL:-}"
+  WEBHOOK_TOKEN="${DESTINO_WEBHOOK_TOKEN:-}"
+  WEBHOOK_USER_ID="${DESTINO_USER_ID:-}"
+fi
+
 : "${WEBHOOK_URL:?WEBHOOK_URL não definida — copie .env.example para .env}"
 : "${WEBHOOK_TOKEN:?WEBHOOK_TOKEN não definida}"
 : "${WEBHOOK_USER_ID:?WEBHOOK_USER_ID não definida — busque com: psql \"\$DATABASE_URL\" -c \"SELECT id FROM users WHERE is_admin\"}"
@@ -446,7 +457,7 @@ command -v fswatch >/dev/null 2>&1 || {
 
 mkdir -p "$MACBOOK_FOLDER" "$IPHONE_FOLDER"
 
-log "START watching $MACBOOK_FOLDER and $IPHONE_FOLDER"
+log "START watching $MACBOOK_FOLDER and $IPHONE_FOLDER → ${WEBHOOK_URL%%/webhook*} (user $WEBHOOK_USER_ID)"
 
 # fswatch:
 #  --event Created     → só dispara quando arquivo é criado

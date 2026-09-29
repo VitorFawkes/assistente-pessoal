@@ -77,6 +77,21 @@ if [ -f "$MON_SRC" ]; then
   echo "✓ Monitor de auto-stop do Audio Hijack carregado (limite via AH_MAX_SECONDS no plist)."
 fi
 
+# 8) Conferência de áudio sem reunião (check-backup.sh a cada 30 min, pelo launchd)
+CB_LABEL="com.vitor.check-backup"
+CB_SRC="$SCRIPT_DIR/$CB_LABEL.plist"
+CB_DST="$HOME/Library/LaunchAgents/$CB_LABEL.plist"
+if [ -f "$CB_SRC" ]; then
+  chmod +x "$SCRIPT_DIR/check-backup.sh"
+  sed "s|__PROJECT_DIR__|$PROJECT_DIR|g" "$CB_SRC" > "$CB_DST"
+  if launchctl print "gui/$(id -u)/$CB_LABEL" >/dev/null 2>&1; then
+    launchctl bootout "gui/$(id -u)" "$CB_DST" 2>/dev/null || true
+  fi
+  launchctl bootstrap "gui/$(id -u)" "$CB_DST"
+  launchctl enable "gui/$(id -u)/$CB_LABEL" 2>/dev/null || true
+  echo "✓ Conferência de áudio sem reunião carregada (a cada 30 min)."
+fi
+
 echo ""
 echo "Status:"
 launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null | grep -E "(state|pid|last exit code)" || true
