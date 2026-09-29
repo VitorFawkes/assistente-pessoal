@@ -2,7 +2,18 @@
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
-export function RecordingGuide({ onConfirm, onBack }: { onConfirm: () => void; onBack: () => void }) {
+export function RecordingGuide({
+  onConfirm,
+  onBack,
+  semVoltar = false,
+  corDaMarca = false,
+}: {
+  onConfirm: () => void;
+  onBack: () => void;
+  /** Aberto num jeito pelo TTARS: o Voltar da barra do TTARS é a única saída. */
+  semVoltar?: boolean;
+  corDaMarca?: boolean;
+}) {
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
@@ -73,15 +84,17 @@ export function RecordingGuide({ onConfirm, onBack }: { onConfirm: () => void; o
       </div>
 
       <div className="flex gap-3 pt-4">
-        <button
-          onClick={onBack}
-          className="px-6 py-3 rounded-lg border border-[color:var(--border)] text-[color:var(--foreground)] hover:bg-[color:var(--card)] transition"
-        >
-          Voltar
-        </button>
+        {!semVoltar && (
+          <button
+            onClick={onBack}
+            className="px-6 py-3 rounded-lg border border-[color:var(--border)] text-[color:var(--foreground)] hover:bg-[color:var(--card)] transition"
+          >
+            Voltar
+          </button>
+        )}
         <button
           onClick={onConfirm}
-          className="flex-1 px-6 py-3 rounded-lg bg-[color:var(--foreground)] text-[color:var(--background)] font-medium hover:opacity-90 transition"
+          className={`flex-1 px-6 py-3 rounded-lg ${corDaMarca ? "bg-[color:var(--calm)] text-white" : "bg-[color:var(--foreground)] text-[color:var(--background)]"} font-medium hover:opacity-90 transition`}
         >
           Entendi, começar
         </button>

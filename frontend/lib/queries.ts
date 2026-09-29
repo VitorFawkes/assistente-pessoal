@@ -562,11 +562,12 @@ export const meetingsFor = (userId: string) => ({
   /** Lista todas as reuniões visíveis pro usuário (próprias + compartilhadas) com contagem de tarefas. */
   /** Telas do Ações dentro do TTARS: as minhas e as que colegas abriram pra mim, com quem falou. */
   listParaTtars: async () => {
+    // "Não é ação" (cancelada) não saiu da reunião: n_tarefas conta só abertas e concluídas.
     const campos = `m.id, m.user_id::text AS user_id, (SELECT u.nome FROM users u WHERE u.id = m.user_id) AS dono_nome,
            m.nome, m.summary, m.status, m.duration_seconds, m.meeting_type, m.source,
            to_char(coalesce(m.recorded_at, m.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
            COALESCE((SELECT array_agg(DISTINCT v) FROM jsonb_each_text(COALESCE(m.speaker_labels, '{}'::jsonb)) AS e(k, v) WHERE v <> ''), '{}') AS falantes,
-           (SELECT count(*) FROM tarefas WHERE meeting_id = m.id)::int AS n_tarefas`;
+           (SELECT count(*) FROM tarefas WHERE meeting_id = m.id AND status IS DISTINCT FROM 'cancelada')::int AS n_tarefas`;
     type Linha = {
       id: string; user_id: string; dono_nome: string | null; nome: string | null; summary: string | null;
       status: string; duration_seconds: number | null; meeting_type: string | null; source: string;

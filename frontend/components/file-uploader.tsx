@@ -1,16 +1,55 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Upload, ChevronLeft } from "lucide-react";
 import { toast } from "sonner";
 
 const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB
 
-export function FileUploader({ onClose, userId }: { onClose: () => void; userId: string }) {
+export function FileUploader({
+  onClose,
+  userId,
+  semCabecalho = false,
+  origensTtars = [],
+}: {
+  onClose: () => void;
+  userId: string;
+  /** Aberto num jeito pelo TTARS: a barra do TTARS já tem o Voltar e o nome "Subir arquivo". */
+  semCabecalho?: boolean;
+  /** Endereços do TTARS que recebem o aviso de envio em andamento. */
+  origensTtars?: string[];
+}) {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [fileName, setFileName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Sair no meio do envio corta o arquivo e não dá para retomar: dentro do TTARS avisa (motivo
+  // "envio") para ele perguntar antes de trocar de tela; fechar ou recarregar a aba pergunta também.
+  const origensChave = origensTtars.join(",");
+  useEffect(() => {
+    if (!uploading) return;
+    const avisar = (ativo: boolean) => {
+      if (window.parent === window) return;
+      for (const o of origensChave.split(",").filter(Boolean)) {
+        try {
+          window.parent.postMessage({ tipo: "acoes:gravando", ativo, motivo: "envio" }, o);
+        } catch {
+          // origem que não é a do pai: o navegador descarta
+        }
+      }
+    };
+    const aoFechar = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    avisar(true);
+    window.addEventListener("beforeunload", aoFechar);
+    return () => {
+      avisar(false);
+      window.removeEventListener("beforeunload", aoFechar);
+    };
+  }, [uploading, origensChave]);
 
   async function uploadFile(file: File) {
     const sessionId = crypto.randomUUID();
@@ -72,21 +111,26 @@ export function FileUploader({ onClose, userId }: { onClose: () => void; userId:
 
   return (
     <div className="space-y-8 max-w-2xl">
-      <button
-        onClick={onClose}
-        className="flex items-center gap-2 text-sm text-[color:var(--muted)] hover:text-[color:var(--foreground)] transition"
-      >
-        <ChevronLeft size={16} />
-        Voltar
-      </button>
+      {/* Durante o envio, o Voltar largaria o arquivo no meio do caminho. */}
+      {!uploading && !semCabecalho && (
+        <button
+          onClick={onClose}
+          className="flex items-center gap-2 text-sm text-[color:var(--muted)] hover:text-[color:var(--foreground)] transition"
+        >
+          <ChevronLeft size={16} />
+          Voltar
+        </button>
+      )}
 
       <div className="text-center space-y-6">
-        <div>
-          <p className="text-sm text-[color:var(--muted)] mb-3">Subir arquivo</p>
-          <p className="text-[color:var(--muted-strong)]">
-            Áudio ou vídeo já gravado
-          </p>
-        </div>
+        {!semCabecalho && (
+          <div>
+            <p className="text-sm text-[color:var(--muted)] mb-3">Subir arquivo</p>
+            <p className="text-[color:var(--muted-strong)]">
+              Áudio ou vídeo já gravado
+            </p>
+          </div>
+        )}
 
         {!uploading ? (
           <>
@@ -141,7 +185,7 @@ export function FileUploader({ onClose, userId }: { onClose: () => void; userId:
             </div>
 
             <p className="text-xs text-[color:var(--muted)]">
-              Fazendo upload do arquivo…
+              Enviando o arquivo… Deixe esta tela aberta até terminar.
             </p>
           </div>
         )}

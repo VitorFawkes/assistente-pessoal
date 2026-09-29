@@ -3,6 +3,7 @@ import { isTeamMode } from "@/lib/team-mode";
 import { RecordingScreen } from "@/components/recording-screen";
 import { redirect } from "next/navigation";
 import { origensQuePodemEmbutir } from "@/lib/cookie-sessao";
+import { peleAtual } from "@/lib/pele";
 
 export const dynamic = "force-dynamic";
 
@@ -30,5 +31,14 @@ export default async function GravarNoModoPage({
   const escolhido = MODOS[modo as keyof typeof MODOS];
   if (!escolhido) redirect("/reunioes/gravar");
 
-  return <RecordingScreen userId={user.id} modoInicial={escolhido} origensTtars={origensQuePodemEmbutir()} />;
+  // Na pele do TTARS o Começar segue a cor do workspace, não o preto do Ações.
+  const pele = await peleAtual();
+  return (
+    <RecordingScreen
+      userId={user.id}
+      modoInicial={escolhido}
+      origensTtars={origensQuePodemEmbutir()}
+      corDaMarca={!!pele}
+    />
+  );
 }

@@ -14,6 +14,8 @@ export function RecordingControls({
   onStop,
   onRetry,
   onBack,
+  semCabecalho = false,
+  corDaMarca = false,
 }: {
   mode: "na-sala" | "online";
   recording: boolean;
@@ -24,6 +26,10 @@ export function RecordingControls({
   onStop: () => void;
   onRetry: () => void;
   onBack: () => void;
+  /** Aberto num jeito pelo TTARS: a barra do TTARS já tem o Voltar e o nome do jeito. */
+  semCabecalho?: boolean;
+  /** Dentro do TTARS: o Começar usa a cor do workspace (dourado Weddings, azul Trips). */
+  corDaMarca?: boolean;
 }) {
   const [elapsed, setElapsed] = useState(0);
   const [levelValue, setLevelValue] = useState(0);
@@ -110,18 +116,23 @@ export function RecordingControls({
 
   return (
     <div className="space-y-8 max-w-2xl">
-      <button
-        onClick={onBack}
-        className="flex items-center gap-2 text-sm text-[color:var(--muted)] hover:text-[color:var(--foreground)] transition"
-      >
-        <ChevronLeft size={16} />
-        Voltar
-      </button>
+      {/* Gravando, o Voltar cortaria a gravação sem perguntar: a saída é o Parar. */}
+      {!recording && !semCabecalho && (
+        <button
+          onClick={onBack}
+          className="flex items-center gap-2 text-sm text-[color:var(--muted)] hover:text-[color:var(--foreground)] transition"
+        >
+          <ChevronLeft size={16} />
+          Voltar
+        </button>
+      )}
 
       <div className="text-center">
-        <p className="text-sm text-[color:var(--muted)] mb-3">
-          {mode === "na-sala" ? "Reunião na sala" : "Reunião online"}
-        </p>
+        {!semCabecalho && (
+          <p className="text-sm text-[color:var(--muted)] mb-3">
+            {mode === "na-sala" ? "Reunião na sala" : "Reunião online"}
+          </p>
+        )}
 
         {recording ? (
           <div className="space-y-6">
@@ -180,7 +191,7 @@ export function RecordingControls({
         ) : (
           <button
             onClick={onStart}
-            className="w-full py-6 px-6 rounded-lg bg-[color:var(--foreground)] text-[color:var(--background)] font-semibold hover:opacity-90 transition flex items-center justify-center gap-3 text-lg"
+            className={`w-full py-6 px-6 rounded-lg ${corDaMarca ? "bg-[color:var(--calm)] text-white" : "bg-[color:var(--foreground)] text-[color:var(--background)]"} font-semibold hover:opacity-90 transition flex items-center justify-center gap-3 text-lg`}
           >
             <Circle className="w-6 h-6 fill-current" />
             Começar

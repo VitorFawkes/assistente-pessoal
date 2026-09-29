@@ -15,7 +15,7 @@ import {
 } from "@/components/transcription-view";
 import { SpeakersStrip } from "@/components/speakers-strip";
 import { buildSpeakerCards } from "@/lib/speakers";
-import { ArrowLeft, Mic, Video, FileQuestion, UsersRound } from "lucide-react";
+import { ArrowLeft, Mic, Video, FileQuestion, UsersRound, Monitor, Smartphone } from "lucide-react";
 import { ExecutiveSummary } from "./executive-summary";
 import { AutoLabelByContent } from "./auto-label-by-content";
 import { DeleteMeetingButton } from "@/components/delete-meeting-button";
@@ -26,6 +26,9 @@ import { MeetingVisibilitySelector } from "@/components/meeting-visibility-selec
 import { MeetingGuestView, type ReuniaoCompartilhada } from "@/components/meeting-guest-view";
 import { OwnerTaskProvider } from "@/lib/task-mutations";
 import { comProjetos } from "@/lib/equipe-compartilhado";
+import { peleAtual } from "@/lib/pele";
+import { trocarFalantes } from "@/lib/falantes";
+import { origemDaReuniao } from "@/lib/hub";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +54,7 @@ type Meeting = {
   segments_removidos_count: number;
   share_token: string | null;
   visibilidade: string | null;
+  nome: string | null;
   tem_audio: boolean;
 };
 
@@ -71,6 +75,10 @@ export default async function ReuniaoDetalhePage({
   if (!meeting) notFound();
 
   const isOwner = meeting.user_id === user.id;
+  // Dentro do TTARS esta página é a "Conversa inteira": resumo, ações, quem vê e excluir já estão
+  // na página da reunião do TTARS. Aqui fica só o que ele não tem: ouvir, a conversa, cortar e baixar.
+  // Fora do TTARS (e no app do iPhone) a página continua inteira.
+  const noTtars = !!(await peleAtual());
 
   // Reunião de colega (liberada pra mim): só leitura, sem ouvir, editar nem rotular.
   if (isTeamMode() && !isOwner) {
@@ -114,6 +122,17 @@ export default async function ReuniaoDetalhePage({
       : meeting.meeting_type === "presencial"
       ? "presencial"
       : "voice note";
+  // No TTARS o selo diz só por onde foi gravada, com o mesmo texto da página da reunião de lá.
+  const origem = noTtars ? origemDaReuniao(meeting.source) : null;
+  const OrigemIcon = origem === "teams" ? Video : origem === "celular" ? Smartphone : Monitor;
+  // No TTARS o baixar oferece só o que a página mostra: sem conversa escrita, sem transcrição;
+  // o resumo fica na página da reunião do TTARS, então aqui não entra.
+  const segmentosParaBaixar = noTtars && !meeting.transcription ? [] : meeting.segments || [];
+  const resumoParaBaixar = noTtars ? null : meeting.executive_summary;
+  // No TTARS, o mesmo título da página da reunião de lá.
+  const titulo = noTtars
+    ? trocarFalantes(meetingSubject(meeting.summary, meeting.nome), meeting.speaker_labels) || "Reunião"
+    : meetingSubject(meeting.summary) || "Reunião sem resumo";
 
   const speakerCards =
     meeting.segments && meeting.segments.length > 0
@@ -140,7 +159,7 @@ export default async function ReuniaoDetalhePage({
         </Link>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {isTeamMode() && isOwner && (
+          {isTeamMode() && isOwner && !noTtars && (
             <MeetingVisibilitySelector
               meetingId={meeting.id}
               currentVisibilidade={(meeting.visibilidade as "todos" | "so_eu" | "escolhidos") || "so_eu"}
@@ -154,16 +173,20 @@ export default async function ReuniaoDetalhePage({
           {isOwner && (
             <>
               <MeetingExportMenu
-                segments={meeting.segments || []}
+                segments={segmentosParaBaixar}
                 labels={meeting.speaker_labels || {}}
                 sections={meeting.sections || []}
-                summaryMd={meeting.executive_summary}
+                summaryMd={resumoParaBaixar}
                 duracao={meeting.duration_seconds || 0}
                 exportBase={`/api/meetings/${meeting.id}/export`}
                 printBase={`/reunioes/${meeting.id}/imprimir`}
               />
-              <MeetingShareButton meetingId={meeting.id} tokenInicial={meeting.share_token} />
-              <DeleteMeetingButton meetingId={meeting.id} redirectTo="/reunioes" label="Apagar" tarefasCount={tarefas.length} comOutros={comOutros} />
+              {!noTtars && (
+                <>
+                  <MeetingShareButton meetingId={meeting.id} tokenInicial={meeting.share_token} />
+                  <DeleteMeetingButton meetingId={meeting.id} redirectTo="/reunioes" label="Apagar" tarefasCount={tarefas.length} comOutros={comOutros} />
+                </>
+              )}
             </>
           )}
         </div>
@@ -171,6 +194,22 @@ export default async function ReuniaoDetalhePage({
 
       {/* HEADER da reunião */}
       <header className="space-y-4">
+        {noTtars ? (
+          (origem || !!meeting.duration_seconds) && (
+            <div className="flex items-center gap-2 flex-wrap text-[12px] text-[color:var(--muted)]">
+              {origem && (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[color:var(--accent)] text-[color:var(--muted-strong)]">
+                  <OrigemIcon size={14} strokeWidth={1.75} />
+                  {origem === "teams" ? "gravada no Teams" : origem === "celular" ? "gravada no celular" : "gravada no computador"}
+                </span>
+              )}
+              {origem && !!meeting.duration_seconds && <span>·</span>}
+              {!!meeting.duration_seconds && (
+                <span>{Math.max(1, Math.round(meeting.duration_seconds / 60))} min</span>
+              )}
+            </div>
+          )
+        ) : (
         <div className="flex items-center gap-2 flex-wrap text-[11px] tracking-[0.16em] uppercase text-[color:var(--muted)]">
           <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[color:var(--accent)] text-[color:var(--muted-strong)] normal-case tracking-normal text-[12px]">
             <MeetingTypeIcon type={meeting.meeting_type} />
@@ -185,11 +224,15 @@ export default async function ReuniaoDetalhePage({
             </>
           ) : null}
         </div>
+        )}
 
         {/* Título = o assunto. O resumo inteiro como h1 tomava 6 linhas e
             fazia toda reunião "começar igual" em qualquer lista. */}
+        {noTtars && (
+          <p className="text-[12px] font-medium text-[color:var(--muted-strong)]">Conversa inteira</p>
+        )}
         <h1 className="font-display text-2xl sm:text-3xl leading-[1.2] tracking-tight">
-          {meetingSubject(meeting.summary) || "Reunião sem resumo"}
+          {titulo}
         </h1>
 
         <div className="space-y-1">
@@ -198,7 +241,7 @@ export default async function ReuniaoDetalhePage({
               {fmtDate(meeting.recorded_at)}
             </p>
           )}
-          {meeting.summary && (
+          {meeting.summary && !noTtars && (
             <p className="text-[13px] leading-relaxed text-[color:var(--muted-strong)]">
               {meeting.summary}
             </p>
@@ -220,7 +263,9 @@ export default async function ReuniaoDetalhePage({
           </div>
         ) : (
           <p className="text-[13px] text-[color:var(--muted-strong)]">
-            Gravada no Teams: o vídeo continua lá. Aqui ficam a conversa, o resumo e as ações.
+            {noTtars
+              ? "Gravada no Teams: o vídeo continua lá. Aqui fica a conversa escrita."
+              : "Gravada no Teams: o vídeo continua lá. Aqui ficam a conversa, o resumo e as ações."}
           </p>
         )}
 
@@ -250,7 +295,7 @@ export default async function ReuniaoDetalhePage({
       )}
 
       {/* RESUMO EXECUTIVO */}
-      {meeting.executive_summary && (
+      {meeting.executive_summary && !noTtars && (
         <section className="space-y-3">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <h2 className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
@@ -265,6 +310,7 @@ export default async function ReuniaoDetalhePage({
       )}
 
       {/* AÇÕES */}
+      {!noTtars && (
       <section className="space-y-4">
         <h2 className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--muted)]">
           Ações ({tarefas.length})
@@ -331,6 +377,7 @@ export default async function ReuniaoDetalhePage({
           </div>
         )}
       </section>
+      )}
 
       {/* TRANSCRIÇÃO */}
       {meeting.transcription && (
@@ -362,6 +409,13 @@ export default async function ReuniaoDetalhePage({
             />
           </div>
         </section>
+      )}
+      {noTtars && !meeting.transcription && (
+        <div className="rounded-2xl border border-dashed border-[color:var(--border)] p-8 text-center">
+          <p className="text-sm text-[color:var(--muted-strong)]">
+            A conversa escrita ainda não chegou. Ela aparece aqui quando a reunião terminar de ser processada.
+          </p>
+        </div>
       )}
     </div>
     </OwnerTaskProvider>

@@ -9,17 +9,30 @@ import { FileUploader } from "./file-uploader";
 
 type RecordingState = "init" | "recording" | "stopping" | "stopped" | "erro-envio";
 
+/** O que fazer quando o TTARS pede "parar e salvar" (a pessoa quer sair no meio). Com erro de envio, é o
+ *  mesmo que "Tentar de novo"; já enviando o fim, nada (ele avisa ao terminar). */
+export function pedidoDeParar(estado: RecordingState, gravador: MediaRecorder["state"] | undefined) {
+  if (estado === "stopping") return "nada" as const;
+  if (estado === "erro-envio") return "tentar-de-novo" as const;
+  return gravador === "recording" ? ("parar" as const) : ("nada" as const);
+}
+
 export function RecordingScreen({
   userId,
   modoInicial,
   origensTtars = [],
+  corDaMarca = false,
 }: {
   userId: string;
   /** Abre direto num jeito, como se a pessoa tivesse clicado no cartão (página /reunioes/gravar/[modo]). */
   modoInicial?: "na-sala" | "online" | "arquivo";
   /** Endereços do TTARS que podem receber o aviso de gravação (os mesmos que podem embutir o Ações). */
   origensTtars?: string[];
+  /** Dentro do TTARS: botões principais na cor do workspace (dourado Weddings, azul Trips). */
+  corDaMarca?: boolean;
 }) {
+  // Aberto num jeito pelo TTARS: a barra do TTARS tem o Voltar e o nome do jeito; os de dentro somem.
+  const semCabecalho = !!modoInicial;
   // Com modoInicial, espera saber se há gravação interrompida: a retomada vem primeiro.
   const [esperandoModo, setEsperandoModo] = useState(!!modoInicial);
   const [mode, setMode] = useState<"na-sala" | "online" | null>(null);
@@ -57,11 +70,14 @@ export function RecordingScreen({
     const iphone = /iPhone|iPad|iPod/.test(navigator.userAgent);
     setIsFirefox(/Firefox/.test(navigator.userAgent));
     setIsIPhone(iphone);
-    checkActiveSession().then((temAtiva) => {
-      if (!modoInicial) return;
+    // Sair da tela antes da resposta cancela a pergunta (não é erro: era "Failed to fetch" no console).
+    const saida = new AbortController();
+    checkActiveSession(saida.signal).then((temAtiva) => {
+      if (saida.signal.aborted || !modoInicial) return;
       if (!temAtiva) abrirNoModo(modoInicial, iphone);
       setEsperandoModo(false);
     });
+    return () => saida.abort();
     // O jeito inicial só vale na abertura da tela.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -86,16 +102,37 @@ export function RecordingScreen({
     return () => avisar(false);
   }, [gravandoAgora, origensChave]);
 
-  async function checkActiveSession(): Promise<boolean> {
+  // O TTARS pede "parar e salvar" (a pessoa quer sair no meio): o mesmo que clicar em Parar, que manda
+  // o trecho em andamento e fecha a gravação; ao terminar, o aviso acima diz ao TTARS que parou.
+  const pararAgora = useRef<() => void>(() => {});
+  useEffect(() => {
+    pararAgora.current = () => {
+      const pedido = pedidoDeParar(recordingState, mediaRecorderRef.current?.state);
+      if (pedido === "tentar-de-novo") void finalizar();
+      else if (pedido === "parar") void stopRecording();
+    };
+  });
+  useEffect(() => {
+    if (window.parent === window) return;
+    const origens = origensChave.split(",").filter(Boolean);
+    const aoReceber = (e: MessageEvent) => {
+      if (!origens.includes(e.origin)) return;
+      if ((e.data as { tipo?: string } | null)?.tipo === "acoes:parar") pararAgora.current();
+    };
+    window.addEventListener("message", aoReceber);
+    return () => window.removeEventListener("message", aoReceber);
+  }, [origensChave]);
+
+  async function checkActiveSession(signal?: AbortSignal): Promise<boolean> {
     try {
-      const response = await fetch("/api/gravacao/ativa");
+      const response = await fetch("/api/gravacao/ativa", { signal });
       const data = await response.json();
       if (data.active) {
         setResumeSession(data.active);
         return true;
       }
     } catch (err) {
-      console.error("Error checking active session:", err);
+      if (!signal?.aborted) console.error("Error checking active session:", err);
     }
     return false;
   }
@@ -384,9 +421,20 @@ export function RecordingScreen({
   }
 
   const handleRetryStop = useCallback(() => finalizar(), []);
+  const principal = corDaMarca
+    ? "bg-[color:var(--calm)] text-white"
+    : "bg-[color:var(--foreground)] text-[color:var(--background)]";
 
   if (showUploader) {
-    return <FileUploader onClose={() => setShowUploader(false)} userId={userId} />;
+    return (
+      <FileUploader
+        // No jeito "arquivo" do TTARS não há escolha para voltar: depois de enviar, fica pronto para outro.
+        onClose={() => !semCabecalho && setShowUploader(false)}
+        userId={userId}
+        semCabecalho={semCabecalho}
+        origensTtars={origensTtars}
+      />
+    );
   }
 
   if (recordingState === "stopping") {
@@ -416,7 +464,7 @@ export function RecordingScreen({
         <p className="text-[color:var(--muted-strong)]">Confira a internet e toque no botão abaixo. Não feche esta aba.</p>
         <button
           onClick={() => finalizar()}
-          className="w-full py-4 rounded-2xl bg-[color:var(--foreground)] text-[color:var(--background)] font-semibold text-lg"
+          className={`w-full py-4 rounded-2xl ${principal} font-semibold text-lg`}
         >
           Tentar de novo
         </button>
@@ -444,7 +492,7 @@ export function RecordingScreen({
             onClick={() => {
               window.location.href = "/reunioes";
             }}
-            className="w-full py-4 px-6 rounded-lg bg-[color:var(--foreground)] text-[color:var(--background)] font-semibold hover:opacity-90 transition"
+            className={`w-full py-4 px-6 rounded-lg ${principal} font-semibold hover:opacity-90 transition`}
           >
             Ver minhas reuniões
           </button>
@@ -480,7 +528,7 @@ export function RecordingScreen({
                 setResumeSession(null);
                 startRecording(resumeSession.id, modo);
               }}
-              className="flex-1 py-3 px-4 rounded-lg bg-[color:var(--foreground)] text-[color:var(--background)] font-semibold hover:opacity-90 transition"
+              className={`flex-1 py-3 px-4 rounded-lg ${principal} font-semibold hover:opacity-90 transition`}
             >
               Continuar gravando
             </button>
@@ -631,7 +679,14 @@ export function RecordingScreen({
   }
 
   if (showGuide && mode === "online") {
-    return <RecordingGuide onConfirm={() => setShowGuide(false)} onBack={() => setMode(null)} />;
+    return (
+      <RecordingGuide
+        onConfirm={() => setShowGuide(false)}
+        onBack={() => setMode(null)}
+        semVoltar={semCabecalho}
+        corDaMarca={corDaMarca}
+      />
+    );
   }
 
   return (
@@ -645,9 +700,13 @@ export function RecordingScreen({
       onStop={stopRecording}
       onRetry={handleRetryStop}
       onBack={() => {
+        // Gravando, voltar cortaria o áudio sem avisar o TTARS (a pergunta ficaria presa ligada).
+        if (recording) return;
         setMode(null);
         stopAllStreams();
       }}
+      semCabecalho={semCabecalho}
+      corDaMarca={corDaMarca}
     />
   );
 }

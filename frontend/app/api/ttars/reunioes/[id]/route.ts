@@ -37,6 +37,7 @@ type Detalhe = {
   visibilidade: string | null;
   source: string;
   tem_audio: boolean;
+  transcription: string | null;
 };
 
 type TarefaNaReuniao = Tarefa & {
@@ -113,6 +114,8 @@ export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
       dono_nome: m.user_nome,
       origem: m.source,
       tem_audio: m.tem_audio,
+      // "Conversa inteira" só faz sentido com a conversa escrita pronta (colega não vê a conversa).
+      tem_transcricao: souDono && !!m.transcription?.trim(),
       resumo: trocarFalantes(m.executive_summary, m.speaker_labels),
       secoes: m.sections ?? [],
     },
