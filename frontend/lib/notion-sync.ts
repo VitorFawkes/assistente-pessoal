@@ -230,10 +230,22 @@ function quadrosDaRodada(c: Conexao, projetos: Map<string, ProjetoGuardado>): st
   return c.quadro_id ? [c.quadro_id, ...ids] : ids;
 }
 
-/** Quem aparece nas tarefas do Notion: se é da Welcome no TTARS (e-mail ou nome inteiro), vira colega no Ações. */
-async function registrarPessoas(c: Conexao, pessoas: { id: string; nome: string; email: string | null }[], quadros: string[]) {
+/** Quem aparece nas tarefas do Notion: se é da Welcome no TTARS (e-mail ou nome inteiro), vira colega no
+ *  Ações e entra nos projetos do marketing. `soNome`: quem só criou a tarefa (guarda nome e e-mail, sem
+ *  conta nem acesso). */
+async function registrarPessoas(c: Conexao, pessoas: { id: string; nome: string; email: string | null }[], quadros: string[], soNome = false) {
   const vistas = new Map(pessoas.map((p) => [p.id, p]));
   for (const p of vistas.values()) {
+    if (soNome) {
+      await query(
+        `INSERT INTO notion_pessoas (conexao_id, notion_user_id, nome, email, user_id, atualizado_em)
+         VALUES ($1, $2, $3, $4, NULL, now())
+         ON CONFLICT (conexao_id, notion_user_id) DO UPDATE
+           SET nome = EXCLUDED.nome, email = COALESCE(EXCLUDED.email, notion_pessoas.email), atualizado_em = now()`,
+        [c.id, p.id, nomeLimpo(p.nome) || "Pessoa do Notion", p.email],
+      );
+      continue;
+    }
     let email = p.email;
     if (!email) {
       // Quem só está no Teams não entra no casamento de nome (continua como pessoa só do Notion).
@@ -739,9 +751,11 @@ async function puxar(c: Conexao, r: Rodada, pessoas: Map<string, PessoaNotion>):
   const completa = !c.cursor_editado || Date.now() - ultimaVarreduraCompleta > 10 * 60_000;
   const desde = completa ? null : new Date(Date.parse(c.cursor_editado!) - 3 * 60_000).toISOString();
   const paginas = (await paginasEditadas(c.token, c.data_source_id, desde)).map(lerPagina);
-  // Quem faz (Person/Assign) e é do TTARS entra nos projetos do marketing; quem só CRIOU a
-  // tarefa lá (outra área pedindo algo) entra só com o nome, pra "quem pediu" (29/09: sem sujeira).
-  const novasPessoas = paginas.flatMap((p) => p.pessoas).filter((x) => !pessoas.has(x.id));
+  // Quem faz (Person/Assign) e é do TTARS entra nos projetos do marketing UMA vez, quando aparece
+  // fazendo pela primeira vez (depois, "sair do projeto" vale). Quem só CRIOU a tarefa lá (outra
+  // área pedindo algo) entra só com o nome, pra "quem pediu"; se um dia aparecer fazendo, é aí que
+  // entra (por isso quem ainda não tem conta aqui é olhado de novo). 29/09: sem sujeira.
+  const novasPessoas = paginas.flatMap((p) => p.pessoas).filter((x) => !pessoas.get(x.id)?.user_id);
   if (novasPessoas.length) {
     await registrarPessoas(c, novasPessoas, quadrosDaRodada(c, r.projetos));
     pessoas = await pessoasDaConexao(c);
@@ -749,21 +763,8 @@ async function puxar(c: Conexao, r: Rodada, pessoas: Map<string, PessoaNotion>):
   if (bancoNovo) {
     const criadores = await pessoasQueCriaram(c, paginas, pessoas);
     if (criadores.length) {
-      await registrarPessoas(c, criadores, []);
+      await registrarPessoas(c, criadores, [], true);
       pessoas = await pessoasDaConexao(c);
-    }
-    // Quem aparece fazendo (Person/Assign) e é do TTARS está nos projetos, mesmo que tenha
-    // entrado antes só como quem criou uma tarefa.
-    const fazem = [...new Set(paginas.flatMap((p) => p.pessoas).map((x) => pessoas.get(x.id)?.user_id).filter((x): x is string => !!x))];
-    const quadros = quadrosDaRodada(c, r.projetos);
-    if (fazem.length && quadros.length) {
-      await withTenant(c.dono_user_id, (db) =>
-        db.query(
-          `INSERT INTO quadro_membros (quadro_id, user_id, adicionado_por)
-           SELECT q, u, NULL FROM unnest($1::uuid[]) AS q CROSS JOIN unnest($2::uuid[]) AS u ON CONFLICT DO NOTHING`,
-          [quadros, fazem],
-        ),
-      );
     }
   }
   // O banco devolve o cursor como data: compara sempre em texto ISO (antes ele nunca andava).
