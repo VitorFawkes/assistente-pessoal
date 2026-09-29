@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
 import { UUID_RE } from "@/lib/hub";
-import { historicoDaTarefa, tarefaNaTela } from "@/lib/ttars-tela";
+import { comentariosDaTarefa, historicoDaTarefa, tarefaNaTela } from "@/lib/ttars-tela";
 import { pessoasQueVeemATarefa, reuniaoDaTarefa } from "@/lib/quem-ve";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ id: string }> };
 
 // Uma ação aberta no painel do TTARS, venha de onde vier (busca, projeto, pessoa, Assistente):
-// a tarefa do ponto de vista de quem vê, o papel dela, o histórico e quem vê (pessoas marcadas; para quem criou,
+// a tarefa do ponto de vista de quem vê, o papel dela, o histórico, os comentários e quem vê (pessoas marcadas; para quem criou,
 // também como está a reunião de onde ela saiu).
 export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
   const { id } = await ctx.params;
@@ -18,8 +18,9 @@ export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
     return NextResponse.json({ error: "Essa ação não existe mais ou não está com você." }, { status: 404 });
   }
   const souDono = achada.papel === "dono";
-  const [historico, pessoas, reuniao] = await Promise.all([
+  const [historico, comentarios, pessoas, reuniao] = await Promise.all([
     historicoDaTarefa(achada.donoId, id, user.id),
+    comentariosDaTarefa(achada.donoId, id, user.id),
     pessoasQueVeemATarefa(achada.donoId, id),
     souDono && achada.tarefa.meeting_id ? reuniaoDaTarefa(achada.donoId, id) : Promise.resolve(null),
   ]);
@@ -27,6 +28,7 @@ export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
     tarefa: achada.tarefa,
     papel: achada.papel,
     historico,
+    comentarios,
     quem_ve: {
       pessoas: pessoas.map(({ nome, email }) => ({ nome, email })),
       reuniao,

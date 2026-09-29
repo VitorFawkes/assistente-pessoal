@@ -9,7 +9,16 @@ import { FileUploader } from "./file-uploader";
 
 type RecordingState = "init" | "recording" | "stopping" | "stopped" | "erro-envio";
 
-export function RecordingScreen({ userId }: { userId: string }) {
+export function RecordingScreen({
+  userId,
+  modoInicial,
+}: {
+  userId: string;
+  /** Abre direto num jeito, como se a pessoa tivesse clicado no cartão (página /reunioes/gravar/[modo]). */
+  modoInicial?: "na-sala" | "online" | "arquivo";
+}) {
+  // Com modoInicial, espera saber se há gravação interrompida: a retomada vem primeiro.
+  const [esperandoModo, setEsperandoModo] = useState(!!modoInicial);
   const [mode, setMode] = useState<"na-sala" | "online" | null>(null);
   const [showGuide, setShowGuide] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -42,20 +51,51 @@ export function RecordingScreen({ userId }: { userId: string }) {
   const [isIPhone, setIsIPhone] = useState(false);
 
   useEffect(() => {
+    const iphone = /iPhone|iPad|iPod/.test(navigator.userAgent);
     setIsFirefox(/Firefox/.test(navigator.userAgent));
-    setIsIPhone(/iPhone|iPad|iPod/.test(navigator.userAgent));
-    checkActiveSession();
+    setIsIPhone(iphone);
+    checkActiveSession().then((temAtiva) => {
+      if (!modoInicial) return;
+      if (!temAtiva) abrirNoModo(modoInicial, iphone);
+      setEsperandoModo(false);
+    });
+    // O jeito inicial só vale na abertura da tela.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function checkActiveSession() {
+  // Dentro do TTARS: avisa quando está gravando (ou enviando o fim), para o TTARS perguntar
+  // antes de sair da tela; ao parar, terminar, dar erro ou fechar o gravador, avisa que parou.
+  const gravandoAgora = recordingState === "recording" || recordingState === "stopping";
+  useEffect(() => {
+    if (window.parent === window || !gravandoAgora) return;
+    window.parent.postMessage({ tipo: "acoes:gravando", ativo: true }, "*");
+    return () => window.parent.postMessage({ tipo: "acoes:gravando", ativo: false }, "*");
+  }, [gravandoAgora]);
+
+  async function checkActiveSession(): Promise<boolean> {
     try {
       const response = await fetch("/api/gravacao/ativa");
       const data = await response.json();
       if (data.active) {
         setResumeSession(data.active);
+        return true;
       }
     } catch (err) {
       console.error("Error checking active session:", err);
+    }
+    return false;
+  }
+
+  // O mesmo que o clique em cada cartão. No iPhone não há reunião online: fica a escolha, com o aviso.
+  function abrirNoModo(modo: "na-sala" | "online" | "arquivo", iphone: boolean) {
+    if (modo === "arquivo") {
+      setShowUploader(true);
+    } else if (modo === "na-sala") {
+      setMode("na-sala");
+      setShowGuide(false);
+    } else if (!iphone) {
+      setMode("online");
+      setShowGuide(true);
     }
   }
 
@@ -396,6 +436,12 @@ export function RecordingScreen({ userId }: { userId: string }) {
           </button>
         </div>
       </div>
+    );
+  }
+
+  if (esperandoModo) {
+    return (
+      <p className="text-sm text-[color:var(--muted-strong)]">Abrindo o gravador…</p>
     );
   }
 

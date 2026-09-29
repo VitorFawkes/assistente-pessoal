@@ -5,7 +5,7 @@ import { meetingSubject } from "./meeting-label";
 import { notionDasAcoes } from "./notion-sync";
 import type { Tarefa } from "./queries";
 import { acessoTarefa, carregarTarefas, comProjetos, nomesDeUsuarios, type Papel } from "./equipe-compartilhado";
-import { nomesDosObjetivos, nomesDosTimes, origemDaReuniao } from "./hub";
+import { nomesDosObjetivos, nomesDosTimes, origemDaReuniao, UUID_RE } from "./hub";
 
 export async function paraTela(userId: string, tarefas: Tarefa[]) {
   const comTime = tarefas.some((t) => t.time_id);
@@ -108,4 +108,89 @@ export async function historicoDaTarefa(donoId: string, tarefaId: string, viewer
     itens.push({ quando: e.quando, quem, texto });
   }
   return itens;
+}
+
+// ── Comentários (pedido do Vitor, 28/09/2026) ─────────────────────────────────────────
+// Tabela tarefa_comentarios (db/equipe/014), no tenant do dono da tarefa. Quem vê a ação
+// comenta; só quem escreveu apaga. Não avisa ninguém (regra do dono: não dispara nada).
+
+export type ComentarioDaTarefa = { id: string; quem: string; quando: string; texto: string; meu: boolean };
+
+export const TEXTO_MAX_DO_COMENTARIO = 4000;
+
+export async function comentariosDaTarefa(donoId: string, tarefaId: string, viewerId: string): Promise<ComentarioDaTarefa[]> {
+  // Sem a tabela (servidor publicado antes da 014), o painel da ação continua abrindo, só sem comentários.
+  const r = await withTenant(donoId, (c) =>
+    c.query<{ id: string; texto: string | null; ator: string | null; quando: string }>(
+      `SELECT id::text AS id, texto, autor_user_id::text AS ator,
+              to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS quando
+         FROM (SELECT * FROM tarefa_comentarios WHERE tarefa_id = $1
+                ORDER BY created_at DESC LIMIT 200) ultimos
+        ORDER BY created_at ASC`,
+      [tarefaId],
+    ),
+  ).catch((e: unknown) => {
+    if (semTabela(e)) return { rows: [] as { id: string; texto: string | null; ator: string | null; quando: string }[] };
+    throw e;
+  });
+  const nomes = await nomesDeUsuarios(r.rows.map((x) => x.ator));
+  return r.rows
+    .filter((x) => x.texto)
+    .map((x) => ({
+      id: x.id,
+      quem: x.ator === viewerId ? "Você" : (x.ator && nomes.get(x.ator)) || "Alguém",
+      quando: x.quando,
+      texto: x.texto!,
+      meu: !!x.ator && x.ator === viewerId,
+    }));
+}
+
+type Resultado<T> = { ok: true; valor: T } | { ok: false; status: number; erro: string };
+
+const NAO_ACHOU = { ok: false, status: 404, erro: "Essa ação não existe mais ou não está com você." } as const;
+
+// A tabela chega pela db/equipe/014, aplicada à parte: até lá o painel abre sem comentários e comentar avisa.
+const SEM_COMENTARIOS = { ok: false, status: 503, erro: "Os comentários ainda estão sendo ligados. Tente de novo mais tarde." } as const;
+const semTabela = (e: unknown) => (e as { code?: string })?.code === "42P01";
+
+export async function comentarNaTarefa(userId: string, tarefaId: string, bruto: unknown): Promise<Resultado<ComentarioDaTarefa>> {
+  // O banco recusa o caractere nulo (viraria erro 500 em vez de 400).
+  const texto = typeof bruto === "string" ? bruto.replace(/\u0000/g, "").trim() : "";
+  if (!texto) return { ok: false, status: 400, erro: "Escreva o comentário." };
+  if (texto.length > TEXTO_MAX_DO_COMENTARIO) return { ok: false, status: 400, erro: `O comentário passa de ${TEXTO_MAX_DO_COMENTARIO} letras.` };
+  const acesso = UUID_RE.test(tarefaId) ? await acessoTarefa(userId, tarefaId) : null;
+  if (!acesso) return NAO_ACHOU;
+  const r = await withTenant(acesso.donoId, (c) =>
+    c.query<{ id: string; quando: string }>(
+      `INSERT INTO tarefa_comentarios (tarefa_id, texto, autor_user_id) VALUES ($1, $2, $3)
+       RETURNING id::text AS id, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS quando`,
+      [tarefaId, texto, userId],
+    ),
+  ).catch((e: unknown) => {
+    if (semTabela(e)) return null;
+    throw e;
+  });
+  if (!r) return SEM_COMENTARIOS;
+  const linha = r.rows[0];
+  if (!linha) return NAO_ACHOU;
+  return { ok: true, valor: { id: linha.id, quem: "Você", quando: linha.quando, texto, meu: true } };
+}
+
+export async function apagarComentarioDaTarefa(userId: string, tarefaId: string, comentarioId: string): Promise<Resultado<null>> {
+  const acesso = UUID_RE.test(tarefaId) && UUID_RE.test(comentarioId) ? await acessoTarefa(userId, tarefaId) : null;
+  if (!acesso) return NAO_ACHOU;
+  return withTenant(acesso.donoId, async (c): Promise<Resultado<null>> => {
+    const achado = await c.query<{ ator: string | null }>(
+      `SELECT autor_user_id::text AS ator FROM tarefa_comentarios WHERE id = $1 AND tarefa_id = $2`,
+      [comentarioId, tarefaId],
+    );
+    const ator = achado.rows[0];
+    if (!ator) return { ok: false, status: 404, erro: "Esse comentário já foi apagado." } as const;
+    if (ator.ator !== userId) return { ok: false, status: 403, erro: "Só quem escreveu apaga o comentário." } as const;
+    await c.query(`DELETE FROM tarefa_comentarios WHERE id = $1 AND tarefa_id = $2 AND autor_user_id = $3`, [comentarioId, tarefaId, userId]);
+    return { ok: true, valor: null } as const;
+  }).catch((e: unknown) => {
+    if (semTabela(e)) return SEM_COMENTARIOS;
+    throw e;
+  });
 }
