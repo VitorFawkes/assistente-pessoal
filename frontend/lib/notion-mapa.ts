@@ -22,8 +22,9 @@ export type Campos = {
   projeto: string;
 };
 
-/** Onde a descrição mora na página: a equipe usa Description ou Text (nunca as duas). */
-export type CampoDaDescricao = "Description" | "Text";
+/** Onde a descrição mora na página: a equipe usa Description OU Text. Com as duas preenchidas, o
+ *  Ações mostra as duas juntas e, se mudar a descrição aqui, grava tudo na Description (Text vazio). */
+export type CampoDaDescricao = "Description" | "Text" | "Ambos";
 
 /** Um arquivo da coluna "Files & media". `chave` identifica o arquivo entre leituras (o link de
  *  arquivo guardado no Notion muda a cada leitura; o caminho, não). */
@@ -41,6 +42,8 @@ export type PaginaLida = Campos & {
   /** Quem criou a página no Notion (id). */
   criadoPor: string | null;
   campoDescricao: CampoDaDescricao;
+  /** Todos os projetos da coluna Project (quase sempre um só). */
+  projetos: string[];
   arquivos: ArquivoDoNotion[];
   pessoas: { id: string; nome: string; email: string | null }[];
 };
@@ -189,15 +192,16 @@ export function lerPagina(pg: PaginaNotion): PaginaLida {
   const statusNotion = ((pr[PROPS.status]?.status as { name?: string } | null)?.name ?? "").trim();
   const descricao = textoRico(pr[PROPS.descricao]?.rich_text);
   const texto = textoRico(pr[PROPS.texto]?.rich_text);
-  const projetos = (pr[PROPS.projeto]?.relation as { id?: string }[] | undefined) ?? [];
+  const projetos = ((pr[PROPS.projeto]?.relation as { id?: string }[] | undefined) ?? []).map((x) => x?.id ?? "").filter(Boolean);
   return {
     pageId: pg.id,
     url: pg.url ?? null,
     titulo: textoRico(pr[PROPS.titulo]?.title).trim() || "(sem título no Notion)",
-    // Quem usa a coluna Text escreve ali o que seria a descrição; as duas nunca vêm juntas.
-    descricao: descricao || texto,
-    campoDescricao: !descricao && texto ? "Text" : "Description",
-    projeto: projetos.find((x) => x?.id)?.id ?? "",
+    // Quem usa a coluna Text escreve ali o que seria a descrição; com as duas, vão juntas.
+    descricao: [descricao, texto].filter(Boolean).join("\n\n"),
+    campoDescricao: descricao && texto ? "Ambos" : texto ? "Text" : "Description",
+    projeto: projetos[0] ?? "",
+    projetos,
     arquivos: arquivosDe(pr[PROPS.arquivos]),
     criadoPor: pg.created_by?.id ?? null,
     prazo: diaDoNotion(pr[PROPS.prazo]),
@@ -213,6 +217,13 @@ export function lerPagina(pg: PaginaNotion): PaginaLida {
   };
 }
 
+/** Texto longo em pedaços de 2000 (o limite de cada pedaço no Notion; a lista aceita 100). */
+function emPedacos(texto: string): { text: { content: string } }[] {
+  const out: { text: { content: string } }[] = [];
+  for (let i = 0; i < texto.length && out.length < 100; i += 2000) out.push({ text: { content: texto.slice(i, i + 2000) } });
+  return out;
+}
+
 /** Propriedades do Notion para gravar estes campos (só os pedidos). */
 export function propriedadesPara(
   campos: Partial<Campos>,
@@ -220,10 +231,11 @@ export function propriedadesPara(
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   if (campos.titulo !== undefined) out[PROPS.titulo] = { title: [{ text: { content: campos.titulo.slice(0, 2000) } }] };
-  if (campos.descricao !== undefined)
-    out[ctx.campoDescricao === "Text" ? PROPS.texto : PROPS.descricao] = {
-      rich_text: campos.descricao ? [{ text: { content: campos.descricao.slice(0, 2000) } }] : [],
-    };
+  if (campos.descricao !== undefined) {
+    out[ctx.campoDescricao === "Text" ? PROPS.texto : PROPS.descricao] = { rich_text: emPedacos(campos.descricao) };
+    // Estava nas duas colunas: tudo vai pra Description e o Text fica vazio (senão aparece dobrado).
+    if (ctx.campoDescricao === "Ambos") out[PROPS.texto] = { rich_text: [] };
+  }
   if (campos.projeto !== undefined) out[PROPS.projeto] = { relation: campos.projeto ? [{ id: campos.projeto }] : [] };
   if (campos.prazo !== undefined) out[PROPS.prazo] = { date: campos.prazo ? { start: campos.prazo } : null };
   if (campos.status !== undefined) {
