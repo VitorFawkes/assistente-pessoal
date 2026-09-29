@@ -80,6 +80,13 @@ describe("lendo uma página do Notion", () => {
     });
   });
 
+  test("descrição longa vai inteira, em pedaços de 2000", () => {
+    const longa = "a".repeat(2000) + "b".repeat(1200);
+    const p = propriedadesPara({ descricao: longa }, { campoDescricao: "Ambos" }) as { Description: { rich_text: { text: { content: string } }[] } };
+    expect(p.Description.rich_text.map((x) => x.text.content.length)).toEqual([2000, 1200]);
+    expect(p.Description.rich_text.map((x) => x.text.content).join("")).toBe(longa);
+  });
+
   test("projeto, quem criou e arquivos", () => {
     const p = lerPagina(
       pagina(

@@ -217,6 +217,13 @@ export function lerPagina(pg: PaginaNotion): PaginaLida {
   };
 }
 
+/** Texto longo em pedaços de 2000 (o limite de cada pedaço no Notion; a lista aceita 100). */
+function emPedacos(texto: string): { text: { content: string } }[] {
+  const out: { text: { content: string } }[] = [];
+  for (let i = 0; i < texto.length && out.length < 100; i += 2000) out.push({ text: { content: texto.slice(i, i + 2000) } });
+  return out;
+}
+
 /** Propriedades do Notion para gravar estes campos (só os pedidos). */
 export function propriedadesPara(
   campos: Partial<Campos>,
@@ -225,9 +232,7 @@ export function propriedadesPara(
   const out: Record<string, unknown> = {};
   if (campos.titulo !== undefined) out[PROPS.titulo] = { title: [{ text: { content: campos.titulo.slice(0, 2000) } }] };
   if (campos.descricao !== undefined) {
-    out[ctx.campoDescricao === "Text" ? PROPS.texto : PROPS.descricao] = {
-      rich_text: campos.descricao ? [{ text: { content: campos.descricao.slice(0, 2000) } }] : [],
-    };
+    out[ctx.campoDescricao === "Text" ? PROPS.texto : PROPS.descricao] = { rich_text: emPedacos(campos.descricao) };
     // Estava nas duas colunas: tudo vai pra Description e o Text fica vazio (senão aparece dobrado).
     if (ctx.campoDescricao === "Ambos") out[PROPS.texto] = { rich_text: [] };
   }
