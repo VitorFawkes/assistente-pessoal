@@ -70,6 +70,16 @@ describe("lendo uma página do Notion", () => {
     expect(lerPagina(pagina()).campoDescricao).toBe("Description");
   });
 
+  test("Description e Text preenchidas: as duas aparecem; mudar aqui grava tudo na Description", () => {
+    const p = lerPagina(pagina({}, { Text: { rich_text: [{ plain_text: "nota da Fabí" }] } }));
+    expect(p.descricao).toBe("Desenvolver junto ao comercial\n\nnota da Fabí");
+    expect(p.campoDescricao).toBe("Ambos");
+    expect(propriedadesPara({ descricao: "tudo junto" }, { campoDescricao: "Ambos" })).toEqual({
+      Description: { rich_text: [{ text: { content: "tudo junto" } }] },
+      Text: { rich_text: [] },
+    });
+  });
+
   test("projeto, quem criou e arquivos", () => {
     const p = lerPagina(
       pagina(

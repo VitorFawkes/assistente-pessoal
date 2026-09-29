@@ -56,7 +56,7 @@ import {
 import { slugNome } from "./compartilhar";
 import { MARCA_DO_TEAMS } from "./ttars-auth";
 import { diaBR, ehDataValida, fimDoDiaBR } from "./data-br";
-import { MAX_FILE_BYTES, isAllowedFile, resolveContentType, sanitizeFilename } from "./anexos";
+import { MAX_FILE_BYTES, isAllowedFile, normalizeUrl, resolveContentType, sanitizeFilename } from "./anexos";
 
 /** A base "Tasks" do Notion do marketing (link visto no Notion do Vitor, 25/09/2026). */
 export const BASE_DO_MARKETING = "3d6d6db4-1ae7-8062-b937-e865b2e9cf72";
@@ -65,11 +65,11 @@ const NOME_DO_DONO = "Marketing (Notion)";
 const NOME_DO_PRINCIPAL = "Marketing · sem projeto";
 const DESCRICAO_DO_PRINCIPAL =
   "As tarefas do Notion do marketing que não estão em nenhum projeto de lá. O que você pedir a alguém do marketing aparece aqui também.";
-/** Comentários: lidos a cada 5 minutos nas tarefas abertas (e na hora nas que mudaram). */
+/** Comentários: lidos a cada 5 minutos nas tarefas abertas (e na hora nas que mudaram); em todas, a cada 30. */
 const A_CADA_COMENTARIOS = 5 * 60_000;
+const A_CADA_COMENTARIOS_TODAS = 30 * 60_000;
+let ultimaLeituraDeTodosOsComentarios = 0;
 const TEXTO_MAX_DO_COMENTARIO = 4000;
-/** O Notion aceita até 20 MB num envio único. */
-const MAX_PRO_NOTION = 20 * 1024 * 1024;
 
 export type Conexao = {
   id: string;
@@ -88,7 +88,9 @@ export type Conexao = {
   comentarios_em?: string | null;
 };
 
-type ArquivoGuardado = { chave: string; anexo_id: string; nome: string };
+/** Um arquivo da ação: a chave dele no Notion e o anexo no Ações ("" = não há anexo aqui, ex.:
+ *  link inválido). `so_aqui`: não pode ir pro Notion (grande, tipo, erro): fica só no Ações. */
+type ArquivoGuardado = { chave: string; anexo_id: string; nome: string; so_aqui?: boolean };
 
 type Link = {
   page_id: string;
@@ -142,6 +144,8 @@ type Rodada = {
   lugares: Map<string, Lugar>;
   /** Páginas lidas do Notion nesta rodada (pra arquivos e comentários). */
   lidas: Map<string, PaginaLida>;
+  /** O que deu errado sem parar a rodada (vai pro aviso da tela). */
+  avisos: string[];
 };
 
 /** Enquanto as tabelas do Notion não existem no banco, tudo aqui age como "Notion desligado". */
@@ -327,11 +331,20 @@ async function sincronizarProjetos(c: Conexao): Promise<Map<string, ProjetoGuard
   }
   const guardados = await projetosGuardados(c);
   const lidos: ProjetoLido[] = (await paginasEditadas(c.token, fonte, null)).map(lerProjeto);
-  // Projeto que foi pra lixeira some da consulta: vira "no lixo" aqui também.
+  // Projeto que foi pra lixeira some da consulta. Sumir numa leitura não basta: confere a página
+  // (404 ou lixeira = saiu; senão, vale o que ela diz).
   const vistos = new Set(lidos.map((p) => p.pageId));
   for (const g of guardados.values()) {
     if (vistos.has(g.page_id) || g.no_lixo) continue;
-    lidos.push({ pageId: g.page_id, url: g.url, nome: g.nome, etapa: g.etapa, inicio: g.inicio, fim: g.fim, lider: g.lider, noLixo: true, editadoEm: new Date().toISOString() });
+    const pg = await lerPaginaDoNotion(c.token, g.page_id).catch((e) => {
+      if (e instanceof ErroDoNotion && e.status === 404) return null;
+      throw e;
+    });
+    lidos.push(
+      pg
+        ? lerProjeto(pg)
+        : { pageId: g.page_id, url: g.url, nome: g.nome, etapa: g.etapa, inicio: g.inicio, fim: g.fim, lider: g.lider, noLixo: true, editadoEm: new Date().toISOString() },
+    );
   }
   for (const p of lidos) {
     const g = guardados.get(p.pageId);
@@ -402,6 +415,11 @@ async function quadroDoProjeto(c: Conexao, r: Rodada, pageId: string): Promise<s
 function projetoVivo(r: Rodada, pageId: string): string {
   const g = pageId ? r.projetos.get(pageId) : undefined;
   return g && !arquivado(g) ? pageId : "";
+}
+
+/** O 1º projeto vivo da coluna Project da página (quase sempre há um só). */
+function primeiroVivo(r: Rodada, p: PaginaLida): string {
+  return (p.projetos ?? [p.projeto]).map((x) => projetoVivo(r, x)).find(Boolean) ?? "";
 }
 
 /** A "última vez" com o projeto que vale hoje. Projeto arquivado (ou que a conexão não vê) conta
@@ -603,12 +621,13 @@ async function criarAcaoDaPagina(c: Conexao, r: Rodada, p: PaginaLida, pessoas: 
       [criada.id, p.status, quem?.user_id ?? null],
     ),
   );
-  const projeto = r.projetosOk ? projetoVivo(r, p.projeto) : "";
-  await colocarNoLugar(c, r, criada.id, projeto);
+  const projeto = r.projetosOk ? primeiroVivo(r, p) : "";
   const valendo: Campos = { ...p, projeto };
   // Sem a base Projects nesta rodada, o projeto fica sem "última vez": a próxima rodada decide.
   if (!r.projetosOk) delete (valendo as Partial<Campos>).projeto;
+  // O vínculo vem antes de pôr no projeto: se algo falhar daqui pra frente, a página não vira outra ação.
   await gravarLink(c, p, { tarefa_id: criada.id, tarefa_dono_id: c.dono_user_id }, valendo, p.statusNotion);
+  await colocarNoLugar(c, r, criada.id, projeto);
 }
 
 async function tratarPagina(c: Conexao, r: Rodada, p: PaginaLida, pessoas: Map<string, PessoaNotion>) {
@@ -628,7 +647,7 @@ async function tratarPagina(c: Conexao, r: Rodada, p: PaginaLida, pessoas: Map<s
   const projetoAqui = r.lugares.get(t.id)?.projeto ?? "";
   const noAcoes = camposDaAcao(t, pessoas, link.ultimos, projetoAqui);
   // Sem a base Projects nesta rodada (ou banco antigo), o projeto não muda de nenhum lado.
-  const projetoLa = r.projetosOk ? projetoVivo(r, p.projeto) : projetoAqui;
+  const projetoLa = r.projetosOk ? primeiroVivo(r, p) : projetoAqui;
   const noNotion: Campos = { ...p, projeto: projetoLa, status: p.noLixo ? "cancelada" : p.status };
   const d = decidir(noNotion, noAcoes, ultimosQueValem(r, link.ultimos), { notion: p.editadoEm, acoes: iso(t.updated_at) });
   const editor = p.editadoPor ? (pessoas.get(p.editadoPor)?.nome ?? null) : null;
@@ -682,17 +701,30 @@ async function conferirLixeira(c: Conexao, r: Rodada, vivas: Set<string>, pessoa
       if (e instanceof ErroDoNotion && e.status === 404) return null;
       throw e;
     });
-    if (pg) await tratarPagina(c, r, lerPagina(pg), pessoas);
+    if (!pg) continue;
+    try {
+      await tratarPagina(c, r, lerPagina(pg), pessoas);
+    } catch (e) {
+      r.avisos.push(`uma tarefa do Notion não foi conferida (${e instanceof Error ? e.message.slice(0, 200) : String(e)})`);
+    }
   }
 }
 
+// Quem criou uma página e o Notion não devolve (convidado que saiu, robô): não pergunta de novo.
+const criadoresSemResposta = new Set<string>();
+
 /** Quem criou páginas e ainda não é conhecido: o Notion diz nome e e-mail. */
 async function pessoasQueCriaram(c: Conexao, paginas: PaginaLida[], pessoas: Map<string, PessoaNotion>) {
-  const ids = [...new Set(paginas.map((p) => p.criadoPor).filter((x): x is string => !!x && !pessoas.has(x) && x !== c.bot_id))];
+  const ids = [
+    ...new Set(paginas.map((p) => p.criadoPor).filter((x): x is string => !!x && !pessoas.has(x) && x !== c.bot_id && !criadoresSemResposta.has(x))),
+  ];
   const out: { id: string; nome: string; email: string | null }[] = [];
   for (const id of ids) {
     const u = await lerPessoa(c.token, id).catch(() => null);
-    if (!u || u.type === "bot") continue;
+    if (!u || u.type === "bot") {
+      criadoresSemResposta.add(id);
+      continue;
+    }
     out.push({ id, nome: nomeLimpo(u.name) || "Pessoa do Notion", email: u.person?.email?.toLowerCase() ?? null });
   }
   return out;
@@ -702,18 +734,36 @@ async function puxar(c: Conexao, r: Rodada, pessoas: Map<string, PessoaNotion>):
   const completa = !c.cursor_editado || Date.now() - ultimaVarreduraCompleta > 10 * 60_000;
   const desde = completa ? null : new Date(Date.parse(c.cursor_editado!) - 3 * 60_000).toISOString();
   const paginas = (await paginasEditadas(c.token, c.data_source_id, desde)).map(lerPagina);
+  // Quem faz (Person/Assign) e é do TTARS entra nos projetos do marketing; quem só CRIOU a
+  // tarefa lá (outra área pedindo algo) entra só com o nome, pra "quem pediu" (29/09: sem sujeira).
   const novasPessoas = paginas.flatMap((p) => p.pessoas).filter((x) => !pessoas.has(x.id));
-  if (bancoNovo) novasPessoas.push(...(await pessoasQueCriaram(c, paginas, pessoas)));
   if (novasPessoas.length) {
     await registrarPessoas(c, novasPessoas, quadrosDaRodada(c, r.projetos));
     pessoas = await pessoasDaConexao(c);
   }
-  let maior = c.cursor_editado;
-  for (const p of paginas) {
-    await tratarPagina(c, r, p, pessoas);
-    if (!maior || p.editadoEm > maior) maior = p.editadoEm;
+  if (bancoNovo) {
+    const criadores = await pessoasQueCriaram(c, paginas, pessoas);
+    if (criadores.length) {
+      await registrarPessoas(c, criadores, []);
+      pessoas = await pessoasDaConexao(c);
+    }
   }
-  if (maior && maior !== c.cursor_editado) await query(`UPDATE notion_conexoes SET cursor_editado = $2 WHERE id = $1`, [c.id, maior]);
+  // O banco devolve o cursor como data: compara sempre em texto ISO (antes ele nunca andava).
+  const antes = c.cursor_editado ? iso(c.cursor_editado) : null;
+  let maior = antes;
+  const falhas: string[] = [];
+  for (const p of paginas) {
+    try {
+      await tratarPagina(c, r, p, pessoas);
+    } catch (e) {
+      // Uma página com problema não trava as outras; o cursor não passa dela (tenta de novo).
+      falhas.push(`${p.titulo}: ${e instanceof Error ? e.message : String(e)}`);
+      continue;
+    }
+    if (!falhas.length && (!maior || p.editadoEm > maior)) maior = p.editadoEm;
+  }
+  if (falhas.length) r.avisos.push(`${falhas.length} ${falhas.length === 1 ? "tarefa do Notion não entrou" : "tarefas do Notion não entraram"} (${falhas[0].slice(0, 200)})`);
+  if (maior && maior !== antes) await query(`UPDATE notion_conexoes SET cursor_editado = $2 WHERE id = $1`, [c.id, maior]);
   if (completa && paginas.length > 0) {
     await conferirLixeira(c, r, new Set(paginas.map((p) => p.pageId)), pessoas);
     ultimaVarreduraCompleta = Date.now();
@@ -799,6 +849,9 @@ async function pedirEnviosDosProjetos(c: Conexao, r: Rodada) {
     ),
   );
   for (const s of soltas.rows) {
+    // Cancelada não vai: lá ela nasceria viva ("Not started") e voltaria aberta pra cá.
+    const t = await lerAcao(s.dono_id, s.tarefa_id);
+    if (!t || t.status === "cancelada") continue;
     await pedirEnvio({ tarefaId: s.tarefa_id, donoId: s.dono_id, pedidoPor: s.dono_id });
   }
 }
@@ -822,7 +875,7 @@ async function enviar(c: Conexao, r: Rodada, pessoas: Map<string, PessoaNotion>)
   for (const e of pendentes) {
     try {
       const t = await lerAcao(e.tarefa_dono_id, e.tarefa_id);
-      if (!t) {
+      if (!t || t.status === "cancelada") {
         await query(`DELETE FROM notion_envios WHERE tarefa_id = $1`, [e.tarefa_id]);
         continue;
       }
@@ -876,16 +929,21 @@ export async function pedirEnvio(opts: {
 
 // ── cada ação no seu projeto ──────────────────────────────────────────────────────────
 
-/** Toda ação ligada fica em um projeto só do marketing: o do Notion ou o principal. */
+/** Toda ação ligada fica em um projeto só do marketing: o do Notion ou o principal. Projeto
+ *  arquivado lá = sem projeto: a "última vez" passa a dizer isso também, senão a arrumação daqui
+ *  pareceria uma mudança feita no Ações e iria pro Notion quando o projeto voltasse. */
 async function arrumarLugares(c: Conexao, r: Rodada) {
-  const links = await query<{ tarefa_id: string; projeto: string | null; tem: boolean }>(
-    `SELECT tarefa_id::text AS tarefa_id, ultimos ->> 'projeto' AS projeto, ultimos ? 'projeto' AS tem
+  const links = await query<{ page_id: string; tarefa_id: string; projeto: string | null; tem: boolean }>(
+    `SELECT page_id, tarefa_id::text AS tarefa_id, ultimos ->> 'projeto' AS projeto, ultimos ? 'projeto' AS tem
        FROM notion_paginas WHERE conexao_id = $1`,
     [c.id],
   );
   for (const l of links) {
     if (!l.tem) continue;
     const certo = projetoVivo(r, l.projeto ?? "");
+    if (certo !== (l.projeto ?? "")) {
+      await query(`UPDATE notion_paginas SET ultimos = jsonb_set(ultimos, '{projeto}', to_jsonb($2::text)) WHERE page_id = $1`, [l.page_id, certo]);
+    }
     const lugar = r.lugares.get(l.tarefa_id);
     const destino = certo ? r.projetos.get(certo)?.quadro_id : c.quadro_id;
     if (lugar && lugar.quadros.length === 1 && destino && lugar.quadros[0] === destino) continue;
@@ -895,60 +953,108 @@ async function arrumarLugares(c: Conexao, r: Rodada) {
 
 // ── arquivos ──────────────────────────────────────────────────────────────────────────
 
-type AnexoDoAcoes = { id: string; tipo: "link" | "arquivo"; url: string | null; titulo: string | null; filename: string | null; content_type: string | null; size_bytes: number | null };
+type AnexoDoAcoes = {
+  id: string;
+  tarefa_id: string;
+  tipo: "link" | "arquivo";
+  url: string | null;
+  titulo: string | null;
+  filename: string | null;
+  content_type: string | null;
+  size_bytes: number | null;
+};
 
-/** Arquivo do Notion vira anexo da ação: link fica link; arquivo guardado lá é baixado (o link de lá vence em 1 hora). */
-async function anexoDoNotion(l: Link, f: ArquivoDoNotion): Promise<string | null> {
-  if (f.tipo === "file") {
-    const nome = sanitizeFilename(f.nome.split("?")[0].split("/").pop() || f.nome) || "arquivo";
-    const baixado = await fetch(f.url, { signal: AbortSignal.timeout(60_000) }).catch(() => null);
-    const bytes = baixado?.ok ? new Uint8Array(await baixado.arrayBuffer()) : null;
-    if (bytes && bytes.length <= MAX_FILE_BYTES && isAllowedFile(nome)) {
-      const tipo = resolveContentType(nome, baixado?.headers.get("content-type"));
-      const r = await withTenant(l.tarefa_dono_id, (db) =>
-        db.query<{ id: string }>(
-          `INSERT INTO tarefa_anexos (tarefa_id, tipo, filename, content_type, size_bytes, conteudo, titulo, ordem)
-           VALUES ($1, 'arquivo', $2, $3, $4, $5, NULL, COALESCE((SELECT max(ordem) + 1 FROM tarefa_anexos WHERE tarefa_id = $1), 0))
-           RETURNING id::text AS id`,
-          [l.tarefa_id, nome, tipo, bytes.length, Buffer.from(bytes)],
-        ),
-      );
-      return r.rows[0]?.id ?? null;
-    }
-    // Grande demais ou de um tipo que o Ações não guarda: fica o caminho pra abrir no Notion.
-    if (!l.url) return null;
-    const r = await withTenant(l.tarefa_dono_id, (db) =>
-      db.query<{ id: string }>(
-        `INSERT INTO tarefa_anexos (tarefa_id, tipo, url, titulo, ordem)
-         VALUES ($1, 'link', $2, $3, COALESCE((SELECT max(ordem) + 1 FROM tarefa_anexos WHERE tarefa_id = $1), 0))
-         RETURNING id::text AS id`,
-        [l.tarefa_id, l.url, `${nome} (abrir no Notion)`.slice(0, 200)],
-      ),
-    );
-    return r.rows[0]?.id ?? null;
+/** O Notion do marketing é do plano grátis: arquivo até 5 MB por envio. Maior fica só no Ações. */
+const MAX_PRO_NOTION = 5 * 1024 * 1024;
+
+/** Mesmo endereço, escrito de jeitos diferentes (barra no fim, maiúscula no domínio). */
+const mesmoLink = (a: string | null | undefined, b: string | null | undefined) => {
+  const x = normalizeUrl(a ?? "");
+  return !!x && x === normalizeUrl(b ?? "");
+};
+
+/** Baixa o arquivo guardado no Notion sem passar do limite (nunca lê um vídeo enorme inteiro na memória). */
+async function baixarComLimite(url: string, max: number): Promise<{ bytes: Uint8Array; tipo: string | null } | null> {
+  const r = await fetch(url, { signal: AbortSignal.timeout(60_000) }).catch(() => null);
+  if (!r?.ok || !r.body) return null;
+  const tamanho = Number(r.headers.get("content-length") || "0");
+  if (tamanho > max) {
+    await r.body.cancel().catch(() => undefined);
+    return null;
   }
+  const leitor = r.body.getReader();
+  const pedacos: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await leitor.read();
+    if (done) break;
+    total += value.length;
+    if (total > max) {
+      await leitor.cancel().catch(() => undefined);
+      return null;
+    }
+    pedacos.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let pos = 0;
+  for (const p of pedacos) {
+    bytes.set(p, pos);
+    pos += p.length;
+  }
+  return { bytes, tipo: r.headers.get("content-type") };
+}
+
+async function novoAnexoLink(l: Link, url: string, titulo: string | null): Promise<string | null> {
   const r = await withTenant(l.tarefa_dono_id, (db) =>
     db.query<{ id: string }>(
       `INSERT INTO tarefa_anexos (tarefa_id, tipo, url, titulo, ordem)
        VALUES ($1, 'link', $2, $3, COALESCE((SELECT max(ordem) + 1 FROM tarefa_anexos WHERE tarefa_id = $1), 0))
        RETURNING id::text AS id`,
-      [l.tarefa_id, f.url, f.nome && f.nome !== f.url ? f.nome.slice(0, 200) : null],
+      [l.tarefa_id, url, titulo ? titulo.slice(0, 200) : null],
     ),
   );
   return r.rows[0]?.id ?? null;
 }
 
-/** Como um arquivo que já está no Notion volta na lista ao gravar (a lista vai inteira). */
+/** Arquivo do Notion vira anexo da ação: link fica link; arquivo guardado lá é baixado (o link de
+ *  lá vence em 1 hora). Grande demais, de tipo que o Ações não guarda ou que não baixou: fica o
+ *  caminho pra abrir no Notion. Devolve "" quando não há o que guardar (link inválido). */
+async function anexoDoNotion(l: Link, f: ArquivoDoNotion): Promise<string | null> {
+  if (f.tipo === "external") {
+    const url = normalizeUrl(f.url);
+    if (!url) return "";
+    return novoAnexoLink(l, url, f.nome && f.nome !== f.url ? f.nome : null);
+  }
+  const nome = sanitizeFilename(f.nome.split("?")[0].split("/").pop() || f.nome) || "arquivo";
+  const baixado = isAllowedFile(nome) ? await baixarComLimite(f.url, MAX_FILE_BYTES) : null;
+  if (baixado) {
+    const tipo = resolveContentType(nome, baixado.tipo);
+    const r = await withTenant(l.tarefa_dono_id, (db) =>
+      db.query<{ id: string }>(
+        `INSERT INTO tarefa_anexos (tarefa_id, tipo, filename, content_type, size_bytes, conteudo, titulo, ordem)
+         VALUES ($1, 'arquivo', $2, $3, $4, $5, NULL, COALESCE((SELECT max(ordem) + 1 FROM tarefa_anexos WHERE tarefa_id = $1), 0))
+         RETURNING id::text AS id`,
+        [l.tarefa_id, nome, tipo, baixado.bytes.length, Buffer.from(baixado.bytes)],
+      ),
+    );
+    return r.rows[0]?.id ?? null;
+  }
+  return l.url ? novoAnexoLink(l, l.url, `${nome} (abrir no Notion)`) : "";
+}
+
+/** Como um arquivo que já está no Notion volta na lista ao gravar (a lista vai inteira; conferido
+ *  no Notion de verdade: o arquivo guardado lá volta pelo link dele e mantém o caminho). */
 function arquivoQueFica(f: ArquivoDoNotion): Record<string, unknown> {
   return f.tipo === "file"
     ? { name: f.nome.slice(0, 100), type: "file", file: { url: f.url } }
     : { name: f.nome.slice(0, 100), type: "external", external: { url: f.url } };
 }
 
-/** Anexo do Ações que vai pro Notion: link vira link; arquivo sobe pro Notion. null = não dá. */
+/** Anexo do Ações que vai pro Notion: link vira link; arquivo sobe pro Notion. null = não vai. */
 async function arquivoParaNotion(c: Conexao, l: Link, a: AnexoDoAcoes): Promise<Record<string, unknown> | null> {
-  if (a.tipo === "link" && a.url) {
-    return { name: (a.titulo || a.url).slice(0, 100), type: "external", external: { url: a.url } };
+  if (a.tipo === "link") {
+    const url = normalizeUrl(a.url ?? "");
+    return url ? { name: (a.titulo || url).slice(0, 100), type: "external", external: { url } } : null;
   }
   if (a.tipo !== "arquivo" || !a.filename || (a.size_bytes ?? 0) > MAX_PRO_NOTION) return null;
   const r = await withTenant(l.tarefa_dono_id, (db) =>
@@ -960,11 +1066,17 @@ async function arquivoParaNotion(c: Conexao, l: Link, a: AnexoDoAcoes): Promise<
   return { name: a.filename.slice(0, 100), type: "file_upload", file_upload: { id } };
 }
 
+/**
+ * Arquivos nos dois sentidos. `notion_paginas.arquivos` guarda, por arquivo, a chave dele no
+ * Notion e o anexo do Ações: é o que diz de que lado ele entrou ou saiu. Tudo casa pela chave
+ * (nunca pela ordem). O que não pode ir pro Notion (grande, tipo, erro) fica marcado "só aqui"
+ * e não tenta de novo a cada rodada.
+ */
 async function sincronizarArquivos(c: Conexao, r: Rodada) {
   const links = await linksDaConexao(c);
   for (const [dono, lista] of porDono(links)) {
     const res = await withTenant(dono, (db) =>
-      db.query<AnexoDoAcoes & { tarefa_id: string }>(
+      db.query<AnexoDoAcoes>(
         `SELECT id::text AS id, tarefa_id::text AS tarefa_id, tipo, url, titulo, filename, content_type, size_bytes
            FROM tarefa_anexos WHERE tarefa_id = ANY($1::uuid[]) ORDER BY ordem, created_at`,
         [lista.map((l) => l.tarefa_id)],
@@ -972,7 +1084,7 @@ async function sincronizarArquivos(c: Conexao, r: Rodada) {
     );
     for (const l of lista) {
       try {
-        let guardados: ArquivoGuardado[] = Array.isArray(l.arquivos) ? l.arquivos : [];
+        let guardados: ArquivoGuardado[] = Array.isArray(l.arquivos) ? [...l.arquivos] : [];
         const aqui = new Map(res.rows.filter((a) => a.tarefa_id === l.tarefa_id).map((a) => [a.id, a]));
         const lida = r.lidas.get(l.page_id);
         let mudou = false;
@@ -981,41 +1093,74 @@ async function sincronizarArquivos(c: Conexao, r: Rodada) {
           for (const f of lida.arquivos) {
             if (guardados.some((g) => g.chave === f.chave)) continue;
             const anexo = await anexoDoNotion(l, f);
-            if (!anexo) continue;
+            if (anexo === null) continue;
             guardados.push({ chave: f.chave, anexo_id: anexo, nome: f.nome });
-            aqui.set(anexo, { id: anexo, tarefa_id: l.tarefa_id, tipo: "link", url: null, titulo: null, filename: null, content_type: null, size_bytes: null });
+            if (anexo) aqui.set(anexo, { id: anexo, tarefa_id: l.tarefa_id, tipo: "link", url: null, titulo: null, filename: null, content_type: null, size_bytes: null });
             mudou = true;
           }
+          // Saiu do Notion: sai do Ações (o que é "só aqui" nunca esteve lá e fica).
           const chaves = new Set(lida.arquivos.map((f) => f.chave));
-          for (const g of guardados.filter((x) => !chaves.has(x.chave))) {
-            await withTenant(l.tarefa_dono_id, (db) => db.query(`DELETE FROM tarefa_anexos WHERE id = $1 AND tarefa_id = $2`, [g.anexo_id, l.tarefa_id]));
-            aqui.delete(g.anexo_id);
+          for (const g of guardados.filter((x) => !x.so_aqui && !chaves.has(x.chave))) {
+            const outro = guardados.some((x) => x !== g && x.anexo_id === g.anexo_id);
+            if (g.anexo_id && !outro) {
+              await withTenant(l.tarefa_dono_id, (db) => db.query(`DELETE FROM tarefa_anexos WHERE id = $1 AND tarefa_id = $2`, [g.anexo_id, l.tarefa_id]));
+              aqui.delete(g.anexo_id);
+            }
             guardados = guardados.filter((x) => x !== g);
             mudou = true;
           }
         }
-        // Ações → Notion: anexo novo sobe; anexo apagado sai de lá.
+        // Ações → Notion.
         const novos = [...aqui.values()].filter((a) => !guardados.some((g) => g.anexo_id === a.id));
-        const sumidos = guardados.filter((g) => !aqui.has(g.anexo_id));
+        const sumidos = guardados.filter((g) => g.anexo_id && !aqui.has(g.anexo_id));
         if (novos.length || sumidos.length) {
           const agora = lerPagina(await lerPaginaDoNotion(c.token, l.page_id));
-          const ficam = agora.arquivos.filter((f) => !sumidos.some((s) => s.chave === f.chave));
+          // O mesmo link que já está lá (ou que já foi): casa com ele em vez de mandar outra cópia.
           const vao: { anexo: AnexoDoAcoes; valor: Record<string, unknown> }[] = [];
           for (const a of novos) {
-            const valor = await arquivoParaNotion(c, l, a);
+            const jaLa = a.tipo === "link" ? agora.arquivos.find((f) => f.tipo === "external" && mesmoLink(f.url, a.url)) : undefined;
+            if (jaLa) {
+              const dono = guardados.find((g) => g.chave === jaLa.chave && g.anexo_id && aqui.has(g.anexo_id));
+              guardados.push(dono ? { chave: `aqui:${a.id}`, anexo_id: a.id, nome: a.titulo || a.url || "link", so_aqui: true } : { chave: jaLa.chave, anexo_id: a.id, nome: jaLa.nome });
+              mudou = true;
+              continue;
+            }
+            const valor = await arquivoParaNotion(c, l, a).catch((e) => {
+              console.error("[notion] subir arquivo", l.page_id, e instanceof Error ? e.message : e);
+              return null;
+            });
             if (valor) vao.push({ anexo: a, valor });
+            else {
+              guardados.push({ chave: `aqui:${a.id}`, anexo_id: a.id, nome: a.filename || a.titulo || "anexo", so_aqui: true });
+              mudou = true;
+            }
           }
-          const gravada = lerPagina(
-            await mudarPagina(c.token, l.page_id, {
-              properties: { [PROPS.arquivos]: { files: [...ficam.map(arquivoQueFica), ...vao.map((v) => v.valor)] } },
-            }),
+          // Apagado no Ações sai de lá, a não ser que outro anexo daqui ainda seja aquele arquivo.
+          const tirar = new Set(
+            sumidos.filter((s) => !s.so_aqui && !guardados.some((g) => g !== s && g.chave === s.chave && g.anexo_id && aqui.has(g.anexo_id))).map((s) => s.chave),
           );
-          const chegaram = gravada.arquivos.filter((f) => !ficam.some((x) => x.chave === f.chave));
-          vao.forEach((v, i) => {
-            const f = chegaram[i];
-            if (f) guardados.push({ chave: f.chave, anexo_id: v.anexo.id, nome: f.nome });
-          });
           guardados = guardados.filter((g) => !sumidos.includes(g));
+          if (vao.length || agora.arquivos.some((f) => tirar.has(f.chave))) {
+            const ficam = agora.arquivos.filter((f) => !tirar.has(f.chave));
+            const gravada = lerPagina(
+              await mudarPagina(c.token, l.page_id, {
+                properties: { [PROPS.arquivos]: { files: [...ficam.map(arquivoQueFica), ...vao.map((v) => v.valor)] } },
+              }),
+            );
+            const chegaram = gravada.arquivos.filter((f) => !ficam.some((x) => x.chave === f.chave));
+            for (const v of vao) {
+              const url = (v.valor.external as { url?: string } | undefined)?.url;
+              const f = url
+                ? chegaram.find((x) => x.tipo === "external" && mesmoLink(x.url, url))
+                : chegaram.find((x) => x.tipo === "file" && x.nome === String(v.valor.name));
+              if (!f) {
+                guardados.push({ chave: `aqui:${v.anexo.id}`, anexo_id: v.anexo.id, nome: String(v.valor.name), so_aqui: true });
+                continue;
+              }
+              chegaram.splice(chegaram.indexOf(f), 1);
+              guardados.push({ chave: f.chave, anexo_id: v.anexo.id, nome: f.nome });
+            }
+          }
           mudou = true;
         }
         if (mudou) await query(`UPDATE notion_paginas SET arquivos = $2 WHERE page_id = $1`, [l.page_id, JSON.stringify(guardados)]);
@@ -1034,6 +1179,7 @@ const textoDoComentario = (cm: ComentarioDoNotion) =>
 async function sincronizarComentarios(c: Conexao, r: Rodada, pessoas: Map<string, PessoaNotion>) {
   const links = await linksDaConexao(c);
   const todas = !c.comentarios_em || Date.now() - Date.parse(iso(c.comentarios_em)) > A_CADA_COMENTARIOS;
+  const inclusiveFechadas = todas && Date.now() - ultimaLeituraDeTodosOsComentarios > A_CADA_COMENTARIOS_TODAS;
   const recente = (l: Link) => !!l.editado_notion && Date.now() - Date.parse(iso(l.editado_notion)) < 3 * 86_400_000;
   const fechada = (l: Link) => l.ultimos.status === "concluida" || l.ultimos.status === "cancelada";
   // Página mexida desde a última leitura de comentários: lê já (a varredura completa lê todas, não
@@ -1045,7 +1191,7 @@ async function sincronizarComentarios(c: Conexao, r: Rodada, pessoas: Map<string
   };
   // Notion → Ações
   for (const l of links) {
-    if (!mexida(l) && !(todas && (!fechada(l) || recente(l)))) continue;
+    if (!mexida(l) && !(todas && (inclusiveFechadas || !fechada(l) || recente(l)))) continue;
     try {
       const lista = await comentariosDaPagina(c.token, l.page_id);
       const ja = await query<{ comment_id: string; comentario_id: string | null; origem: string }>(
@@ -1053,9 +1199,7 @@ async function sincronizarComentarios(c: Conexao, r: Rodada, pessoas: Map<string
         [l.page_id],
       );
       const conhecidos = new Map(ja.map((x) => [x.comment_id, x]));
-      const vistos = new Set<string>();
       for (const cm of lista) {
-        vistos.add(cm.id);
         if (conhecidos.has(cm.id)) continue;
         if (cm.created_by?.id && cm.created_by.id === c.bot_id) {
           // Escrito pelo Ações (a conexão é o autor lá): nunca volta como comentário novo.
@@ -1080,19 +1224,14 @@ async function sincronizarComentarios(c: Conexao, r: Rodada, pessoas: Map<string
           [cm.id, c.id, l.page_id, novo.rows[0]?.id ?? null],
         );
       }
-      // Apagado no Notion: sai do Ações também.
-      for (const x of ja) {
-        if (x.origem !== "notion" || vistos.has(x.comment_id)) continue;
-        if (x.comentario_id) {
-          await withTenant(l.tarefa_dono_id, (db) => db.query(`DELETE FROM tarefa_comentarios WHERE id = $1`, [x.comentario_id]));
-        }
-        await query(`DELETE FROM notion_comentarios WHERE comment_id = $1`, [x.comment_id]);
-      }
+      // Não apaga aqui o que sumiu da leitura: o Notion só devolve discussão NÃO resolvida, e
+      // resolver uma discussão lá não é apagar a conversa.
     } catch (e) {
       console.error("[notion] comentários", l.page_id, e instanceof Error ? e.message : e);
     }
   }
   if (todas) await query(`UPDATE notion_conexoes SET comentarios_em = now() WHERE id = $1`, [c.id]);
+  if (inclusiveFechadas) ultimaLeituraDeTodosOsComentarios = Date.now();
   // Ações → Notion: comentário novo numa ação ligada vai pra página (com o nome de quem escreveu).
   for (const [dono, lista] of porDono(links)) {
     const pagina = new Map(lista.map((l) => [l.tarefa_id, l.page_id]));
@@ -1164,7 +1303,7 @@ export async function sincronizar(): Promise<{ ok: boolean; motivo?: string }> {
   rodando = true;
   try {
     let pessoas = await pessoasDaConexao(c);
-    const r: Rodada = { projetos: new Map(), projetosOk: false, lugares: new Map(), lidas: new Map() };
+    const r: Rodada = { projetos: new Map(), projetosOk: false, lugares: new Map(), lidas: new Map(), avisos: [] };
     const novo = await temBancoNovo();
     if (novo) {
       await renomearPrincipal(c);
@@ -1187,7 +1326,8 @@ export async function sincronizar(): Promise<{ ok: boolean; motivo?: string }> {
       await sincronizarArquivos(c, r);
       await sincronizarComentarios(c, r, pessoas);
     }
-    await query(`UPDATE notion_conexoes SET ultima_rodada = now(), ultimo_erro = NULL WHERE id = $1`, [c.id]);
+    const aviso = r.avisos.length ? r.avisos.join(" · ").slice(0, 500) : null;
+    await query(`UPDATE notion_conexoes SET ultima_rodada = now(), ultimo_erro = $2 WHERE id = $1`, [c.id, aviso]);
     return { ok: true };
   } catch (e) {
     const msg =
