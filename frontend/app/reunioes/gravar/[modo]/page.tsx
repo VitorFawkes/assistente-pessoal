@@ -2,6 +2,7 @@ import { requireUserOrRedirect } from "@/lib/auth";
 import { isTeamMode } from "@/lib/team-mode";
 import { RecordingScreen } from "@/components/recording-screen";
 import { redirect } from "next/navigation";
+import { origensQuePodemEmbutir } from "@/lib/cookie-sessao";
 
 export const dynamic = "force-dynamic";
 
@@ -29,5 +30,5 @@ export default async function GravarNoModoPage({
   const escolhido = MODOS[modo as keyof typeof MODOS];
   if (!escolhido) redirect("/reunioes/gravar");
 
-  return <RecordingScreen userId={user.id} modoInicial={escolhido} />;
+  return <RecordingScreen userId={user.id} modoInicial={escolhido} origensTtars={origensQuePodemEmbutir()} />;
 }

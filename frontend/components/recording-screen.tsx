@@ -12,10 +12,13 @@ type RecordingState = "init" | "recording" | "stopping" | "stopped" | "erro-envi
 export function RecordingScreen({
   userId,
   modoInicial,
+  origensTtars = [],
 }: {
   userId: string;
   /** Abre direto num jeito, como se a pessoa tivesse clicado no cartão (página /reunioes/gravar/[modo]). */
   modoInicial?: "na-sala" | "online" | "arquivo";
+  /** Endereços do TTARS que podem receber o aviso de gravação (os mesmos que podem embutir o Ações). */
+  origensTtars?: string[];
 }) {
   // Com modoInicial, espera saber se há gravação interrompida: a retomada vem primeiro.
   const [esperandoModo, setEsperandoModo] = useState(!!modoInicial);
@@ -65,12 +68,23 @@ export function RecordingScreen({
 
   // Dentro do TTARS: avisa quando está gravando (ou enviando o fim), para o TTARS perguntar
   // antes de sair da tela; ao parar, terminar, dar erro ou fechar o gravador, avisa que parou.
-  const gravandoAgora = recordingState === "recording" || recordingState === "stopping";
+  // No "erro-envio" os pedaços que não subiram estão só na memória: sair perderia o áudio.
+  const gravandoAgora = recordingState === "recording" || recordingState === "stopping" || recordingState === "erro-envio";
+  const origensChave = origensTtars.join(",");
   useEffect(() => {
     if (window.parent === window || !gravandoAgora) return;
-    window.parent.postMessage({ tipo: "acoes:gravando", ativo: true }, "*");
-    return () => window.parent.postMessage({ tipo: "acoes:gravando", ativo: false }, "*");
-  }, [gravandoAgora]);
+    const avisar = (ativo: boolean) => {
+      for (const o of origensChave.split(",").filter(Boolean)) {
+        try {
+          window.parent.postMessage({ tipo: "acoes:gravando", ativo }, o);
+        } catch {
+          // origem que não é a do pai: o navegador descarta
+        }
+      }
+    };
+    avisar(true);
+    return () => avisar(false);
+  }, [gravandoAgora, origensChave]);
 
   async function checkActiveSession(): Promise<boolean> {
     try {
