@@ -8,7 +8,7 @@ import { acessoTarefa, carregarTarefas, comProjetos, nomesDeUsuarios, type Papel
 import { nomesDosObjetivos, nomesDosTimes, origemDaReuniao, UUID_RE } from "./hub";
 
 /** Nome e e-mail de quem também faz cada ação (subresponsáveis). */
-async function genteQueTambemFaz(tarefas: Tarefa[]): Promise<Map<string, { nome: string; email: string | null }>> {
+export async function genteQueTambemFaz(tarefas: Tarefa[]): Promise<Map<string, { nome: string; email: string | null }>> {
   const ids = [...new Set(tarefas.flatMap((t) => t.tambem_fazem_ids ?? []))];
   if (!ids.length) return new Map();
   const r = await query<{ id: string; nome: string; email: string | null }>(
@@ -16,6 +16,15 @@ async function genteQueTambemFaz(tarefas: Tarefa[]): Promise<Map<string, { nome:
     [ids],
   );
   return new Map(r.map((x) => [x.id, { nome: x.nome, email: x.email }]));
+}
+
+/** Quem também faz uma ação, como a tela mostra ("Você" para quem vê); quem criou ou quem faz não repete. */
+export function quemTambemFaz(t: Tarefa, userId: string, gente: Map<string, { nome: string; email: string | null }>) {
+  const ids = (t.tambem_fazem_ids ?? []).filter((id) => id !== t.responsavel_user_id && id !== t.user_id);
+  return {
+    tambem_fazem: ids.map((id) => ({ nome: id === userId ? "Você" : (gente.get(id)?.nome ?? "Colega"), email: gente.get(id)?.email ?? null })),
+    faco_tambem: ids.includes(userId),
+  };
 }
 
 export async function paraTela(userId: string, tarefas: Tarefa[]) {
@@ -29,13 +38,10 @@ export async function paraTela(userId: string, tarefas: Tarefa[]) {
   ]);
   return comP.map((t) => {
     const objetivoNome = t.objetivo_id ? objetivos.get(t.objetivo_id) : undefined;
-    // Quem criou ou quem faz não aparece de novo como "também faz" (ex.: virou quem faz depois).
-    const ids = (t.tambem_fazem_ids ?? []).filter((id) => id !== t.responsavel_user_id && id !== t.user_id);
     return {
       ...t,
       // Quem também faz (subresponsáveis): quem vê a ação sabe quem são; "faco_tambem" é o próprio.
-      tambem_fazem: ids.map((id) => ({ nome: id === userId ? "Você" : (tambem.get(id)?.nome ?? "Colega"), email: tambem.get(id)?.email ?? null })),
-      faco_tambem: ids.includes(userId),
+      ...quemTambemFaz(t, userId, tambem),
       reuniao_rotulo: t.meeting_id ? meetingSubject(t.meeting_summary, t.meeting_nome) || "Reunião" : null,
       meeting_origem: t.meeting_id ? origemDaReuniao(t.meeting_source) : null,
       time_nome: t.time_id ? (times.get(t.time_id) ?? null) : null,
