@@ -1,5 +1,6 @@
 import { requireAdmin } from "@/lib/auth";
 import { query } from "@/lib/db";
+import { MARCA_DO_TEAMS } from "@/lib/ttars-auth";
 import { LiberarList } from "./liberar-list";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +14,11 @@ type Pessoa = {
 
 async function getTtarsRoster(): Promise<Pessoa[]> {
   // Atualizada a cada entrada do admin pela aba do TTARS (lib/ttars-auth.ts).
-  return query<Pessoa>(`SELECT nome, email, organizacao, times FROM ttars_pessoas ORDER BY nome`);
+  // Quem só está no Teams não entra no Ações (o login é pelo TTARS): não aparece para liberar.
+  return query<Pessoa>(`SELECT nome, email, organizacao, times FROM ttars_pessoas WHERE LEFT(organizacao, $1) <> $2 ORDER BY nome`, [
+    MARCA_DO_TEAMS.length,
+    MARCA_DO_TEAMS,
+  ]);
 }
 
 async function getAccessControls(): Promise<Map<string, { liberado: boolean }>> {

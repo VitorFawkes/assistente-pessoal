@@ -5,8 +5,9 @@ import { pessoasDoNotion } from "@/lib/notion-sync";
 
 export const dynamic = "force-dynamic";
 
-// Quem pode receber uma ação: todas as pessoas da Welcome no TTARS (fora "Parceiros"), mais
-// quem só existe no Notion do marketing. Time serve pra agrupar/filtrar, nunca como a lista.
+// Quem pode receber uma ação: todas as pessoas da Welcome no TTARS (fora "Parceiros"), as do
+// Teams que ainda não têm TTARS (so_no_teams) e quem só existe no Notion do marketing. Time serve
+// pra agrupar/filtrar, nunca como a lista.
 export const GET = withAuth(async (user) => {
   const [pessoas, doNotion] = await Promise.all([pessoasDaEquipe(), pessoasDoNotion()]);
   const noNotion = new Set(doNotion.filter((p) => p.user_id).map((p) => p.user_id));
@@ -25,6 +26,7 @@ export const GET = withAuth(async (user) => {
       organizacao: "Notion do marketing",
       times: [marketing],
       usa_acoes: false,
+      so_no_teams: false,
       notion: true,
     }));
   const eu = user.email ? lista.find((p) => p.email === user.email!.toLowerCase()) : undefined;
@@ -33,6 +35,6 @@ export const GET = withAuth(async (user) => {
     eu: { id: user.id, nome: user.nome, email: user.email },
     pessoas: eu
       ? todas
-      : [{ id: user.id, email: (user.email || "").toLowerCase(), nome: user.nome, organizacao: "", times: [], usa_acoes: true, notion: false }, ...todas],
+      : [{ id: user.id, email: (user.email || "").toLowerCase(), nome: user.nome, organizacao: "", times: [], usa_acoes: true, so_no_teams: false, notion: false }, ...todas],
   });
 });

@@ -231,7 +231,7 @@ export type ListaSalva = {
 };
 
 export const ONDE_RE = /^(minhas|(time|projeto|objetivo):[A-Za-z0-9_-]{1,80})$/;
-export const ORDENS = ["prazo", "criada", "pessoa", "projeto", "situacao"];
+export const ORDENS = ["prazo", "criada", "pessoa", "pediu", "prioridade", "projeto", "objetivo", "time", "reuniao", "situacao", "titulo"];
 export const VISTAS = ["lista", "quadro"];
 
 export async function listasDe(userId: string): Promise<ListaSalva[]> {

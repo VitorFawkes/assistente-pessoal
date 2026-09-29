@@ -10,6 +10,7 @@
 
 import type { PoolClient } from "pg";
 import { query, withTenant } from "./db";
+import { MARCA_DO_TEAMS } from "./ttars-auth";
 import { isTeamMode } from "./team-mode";
 import { getOwnerSlug, isOwner } from "./owner-slug";
 import { TAREFA_SELECT, TAREFA_SELECT_CONVIDADO, type Tarefa } from "./queries";
@@ -93,18 +94,24 @@ export type PessoaDaEquipe = {
   times: { id: string; nome: string; organizacao?: string | null }[];
   /** Liberada no Ações: vê o que recebe. Sem isso, a tarefa espera até ela ser liberada. */
   usa_acoes: boolean;
+  /** Da Welcome, está no Teams e ainda não tem TTARS (recebe ação, não entra no Ações). */
+  so_no_teams: boolean;
 };
 
 /** As pessoas do TTARS (fora "Parceiros"), da lista que o admin atualiza ao entrar. */
 export async function pessoasDaEquipe(): Promise<PessoaDaEquipe[]> {
   return query<PessoaDaEquipe>(
-    `SELECT u.id::text AS id, p.email, p.nome, p.organizacao, COALESCE(p.times, '[]'::jsonb) AS times,
+    `SELECT u.id::text AS id, p.email, p.nome,
+            CASE WHEN LEFT(p.organizacao, $1) = $2 THEN SUBSTRING(p.organizacao FROM $1 + 1) ELSE p.organizacao END AS organizacao,
+            COALESCE(p.times, '[]'::jsonb) AS times,
             (EXISTS (SELECT 1 FROM acessos_equipe a WHERE a.email = p.email AND a.liberado)
-             OR COALESCE(u.is_admin, false)) AS usa_acoes
+             OR COALESCE(u.is_admin, false)) AS usa_acoes,
+            LEFT(p.organizacao, $1) = $2 AS so_no_teams
        FROM ttars_pessoas p
        LEFT JOIN users u ON LOWER(u.email) = p.email AND u.deleted_at IS NULL
       WHERE p.organizacao <> ''
       ORDER BY p.nome`,
+    [MARCA_DO_TEAMS.length, MARCA_DO_TEAMS],
   );
 }
 

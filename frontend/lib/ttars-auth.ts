@@ -85,6 +85,11 @@ export function empresaDoLogin(token: string): string | null {
   }
 }
 
+/** Pessoa da Welcome que existe no Teams e ainda não tem TTARS (entrou pela lista do Teams em
+ *  29/09/2026): a organização dela começa com esta marca. Recebe ação e aparece na busca, mas não
+ *  entra no Ações (o login é pelo TTARS). Quando ganhar TTARS, a lista do TTARS troca a organização. */
+export const MARCA_DO_TEAMS = "Teams · ";
+
 /**
  * Atualiza a lista de pessoas do TTARS (para a tela Liberar) com o login do
  * admin que acabou de entrar. Só pessoas ativas e com e-mail.
@@ -149,7 +154,12 @@ export async function atualizarListaDoTtars(token: string): Promise<number> {
          AND user_id IN (SELECT id FROM users WHERE LOWER(email) = ANY($1::text[]) AND NOT is_admin)`,
       [emailsInativos],
     );
-    await query(`DELETE FROM ttars_pessoas WHERE email = ANY($1::text[])`, [emailsInativos]);
+    // Quem veio do Teams fica (conta desligada no TTARS não diz que a pessoa saiu da Welcome).
+    await query(`DELETE FROM ttars_pessoas WHERE email = ANY($1::text[]) AND LEFT(organizacao, $2) <> $3`, [
+      emailsInativos,
+      MARCA_DO_TEAMS.length,
+      MARCA_DO_TEAMS,
+    ]);
   }
   return linhas.length;
 }

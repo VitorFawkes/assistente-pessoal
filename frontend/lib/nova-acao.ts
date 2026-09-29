@@ -210,6 +210,10 @@ export function quemDaFrase(
   const achado = acharPessoaPorNome(quem, pessoas);
   if (achado && "pessoa" in achado) return { quem_email: achado.pessoa.email };
   if (achado && "ambiguas" in achado) {
+    // Com as pessoas do Teams (29/09/2026), "Camila" passou a ter duas: se só uma tem TTARS, é ela
+    // (como era antes de as do Teams entrarem na lista).
+    const comTtars = achado.ambiguas.filter((x) => !x.so_no_teams);
+    if (comTtars.length === 1 && comTtars.length < achado.ambiguas.length) return { quem_email: comTtars[0].email };
     const nomes = achado.ambiguas.slice(0, 3).map((x) => x.nome).join(", ");
     return { quem_nome_fora: quem, aviso: `Tem mais de uma pessoa com esse nome (${nomes}). Escolha em "Quem faz".` };
   }
