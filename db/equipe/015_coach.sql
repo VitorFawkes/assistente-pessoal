@@ -99,4 +99,8 @@ REVOKE ALL ON ai_usage, ai_usage_sync FROM anon, authenticated;
 GRANT SELECT, INSERT ON ai_usage TO app_tenant, app_writer;
 GRANT SELECT, INSERT, UPDATE ON ai_usage_sync TO app_tenant, app_writer;
 
+-- Semente da 0036 que faltava no banco da equipe: a linha única do estado do número do Coach. Sem ela o estado
+-- nunca é gravado (o código só faz UPDATE ... WHERE id=1). Aplicada à parte em 29/09/2026 às 14h37.
+INSERT INTO whatsapp_channel(id) VALUES (1) ON CONFLICT DO NOTHING;
+
 COMMIT;
