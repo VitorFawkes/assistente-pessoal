@@ -163,3 +163,25 @@ export async function subirArquivo(token: string, nome: string, tipo: string, by
   await pedir<{ id: string; status?: string }>(token, `/file_uploads/${criado.id}/send`, { method: "POST", form });
   return criado.id;
 }
+
+export type BlocoDoNotion = {
+  id: string;
+  type: string;
+  has_children?: boolean;
+  [tipo: string]: unknown;
+};
+
+/** Os blocos de dentro de uma página (ou de um bloco), na ordem de lá. */
+export async function blocosDaPagina(token: string, blockId: string, maximo = 200): Promise<BlocoDoNotion[]> {
+  const out: BlocoDoNotion[] = [];
+  let cursor: string | undefined;
+  do {
+    const r = await pedir<{ results: BlocoDoNotion[]; has_more: boolean; next_cursor: string | null }>(
+      token,
+      `/blocks/${blockId}/children?page_size=100${cursor ? `&start_cursor=${cursor}` : ""}`,
+    );
+    out.push(...r.results);
+    cursor = r.has_more && r.next_cursor ? r.next_cursor : undefined;
+  } while (cursor && out.length < maximo);
+  return out.slice(0, maximo);
+}
