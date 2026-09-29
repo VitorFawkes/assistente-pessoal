@@ -164,6 +164,44 @@ export async function atualizarListaDoTtars(token: string): Promise<number> {
   return linhas.length;
 }
 
+/** Time como o TTARS devolve para a página do time no Ações (RPC acoes_time, com o login de quem pede). */
+export type TimeDoTtars = { id: string; nome: string; organizacao: string | null; membros: { email: string | null }[] };
+
+/**
+ * Refaz, na lista de pessoas do Ações, quem está num time do TTARS (29/09/2026: dono do time edita o time pelo
+ * Ações). Lê o time no próprio TTARS com o login de quem pede (a RPC confere se ela é da empresa do time), então
+ * ninguém consegue mandar uma lista inventada. null = o TTARS não devolveu o time.
+ */
+export async function atualizarTimeDoTtars(token: string, timeId: string): Promise<TimeDoTtars | null> {
+  if (!URL_TTARS || !CHAVE_PUBLICA || !token) return null;
+  const r = await fetch(`${URL_TTARS}/rest/v1/rpc/acoes_time`, {
+    method: "POST",
+    headers: { apikey: CHAVE_PUBLICA, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ p_team_id: timeId }),
+    cache: "no-store",
+  });
+  if (!r.ok) return null;
+  const t = (await r.json()) as TimeDoTtars | null;
+  if (!t?.id || t.id !== timeId) return null;
+  const emails = (t.membros ?? []).map((m) => String(m.email ?? "").toLowerCase()).filter(Boolean);
+  const semOTime = `COALESCE((SELECT jsonb_agg(x) FROM jsonb_array_elements(CASE WHEN jsonb_typeof(times) = 'array' THEN times ELSE '[]'::jsonb END) x
+                               WHERE x ->> 'id' <> $1), '[]'::jsonb)`;
+  await query(
+    `UPDATE ttars_pessoas SET times = ${semOTime}, atualizado_em = now()
+      WHERE jsonb_typeof(times) = 'array' AND times @> jsonb_build_array(jsonb_build_object('id', $1::text))
+        AND NOT (email = ANY($2::text[]))`,
+    [timeId, emails],
+  );
+  await query(
+    `UPDATE ttars_pessoas
+        SET times = ${semOTime} || jsonb_build_array(jsonb_build_object('id', $1::text, 'nome', $3::text, 'organizacao', $4::text)),
+            atualizado_em = now()
+      WHERE email = ANY($2::text[])`,
+    [timeId, emails, t.nome, t.organizacao],
+  );
+  return t;
+}
+
 /** Código de entrada de uso único, vale 2 minutos. */
 export async function criarCodigoDeEntrada(p: PessoaTtars): Promise<string> {
   const codigo = randomBytes(24).toString("base64url");

@@ -12,6 +12,7 @@ import { notionDasAcoes } from "@/lib/notion-sync";
 import { trocarFalantes } from "@/lib/falantes";
 import { nomesDosObjetivos } from "@/lib/hub";
 import { quemVeDaReuniao } from "@/lib/quem-ve";
+import { genteQueTambemFaz, quemTambemFaz } from "@/lib/ttars-tela";
 
 export const dynamic = "force-dynamic";
 
@@ -81,7 +82,7 @@ export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
     const nome = t.objetivo_id ? objetivos.get(t.objetivo_id) : undefined;
     return { ...t, objetivo_id: nome ? t.objetivo_id : null, objetivo: nome ? { id: t.objetivo_id!, nome } : null, objetivo_escondido: !!t.objetivo_id && !nome };
   });
-  const notion = await notionDasAcoes(tarefas.map((t) => t.id));
+  const [notion, tambem] = await Promise.all([notionDasAcoes(tarefas.map((t) => t.id)), genteQueTambemFaz(tarefas as Tarefa[])]);
 
   const falantes =
     souDono && m.segments?.length
@@ -125,6 +126,7 @@ export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
     quem_ve: quemVe,
     tarefas: tarefas.map((t) => ({
       ...t,
+      ...quemTambemFaz(t as Tarefa, user.id, tambem),
       reuniao_rotulo: rotulo,
       notion: notion.get(t.id) ?? null,
     })),
