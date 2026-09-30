@@ -74,6 +74,10 @@ export function decidir(c: Candidato, ctx: ContextoDaDecisao): { quero: boolean;
 /** A situação da reunião que ainda está chegando do Teams (sem conversa escrita). */
 export const CHEGANDO = "transcribing";
 
+/** Como a reunião está no Teams (30/09/2026, opção 1 do Vitor: "Gravando" enquanto grava e, quando
+ *  terminar, "lendo e fazendo as ações"): gravando agora fica sem duração; parou, com a duração. */
+export type NoTeams = { gravando: boolean; duracao: number | null };
+
 /** Sem a transcrição até aqui, não vem mais (o TTARS só pergunta até 3 h depois do fim). */
 export const CHEGANDO_EXPIRA_MS = 3 * 3600_000;
 
