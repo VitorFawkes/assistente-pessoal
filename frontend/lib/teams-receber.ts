@@ -192,12 +192,16 @@ export function analisarDepois(meetingId: string, userId: string) {
     const url = process.env.N8N_REPROCESS_URL;
     try {
       if (!url) throw new Error("N8N_REPROCESS_URL não configurada");
+      // O servidor roda no Bun, cujo fetch desiste sozinho em 5 min, antes do limite de 25 min: a
+      // leitura do Teams (mais longa desde a Luna) ficava "analisando" até a retomada de 50 min
+      // (30/09/2026). `timeout: false` desliga só o limite do Bun.
       const r = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ meeting_id: meetingId, user_id: userId }),
         signal: AbortSignal.timeout(25 * 60_000),
-      });
+        timeout: false,
+      } as RequestInit);
       // Resposta de erro, mas as ações já foram gravadas = o fluxo terminou (quem cortou foi o
       // caminho). O resumo sozinho não prova: o fluxo grava o resumo antes das ações.
       await withTenant(userId, (c) =>
