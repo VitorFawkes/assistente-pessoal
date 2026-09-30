@@ -241,7 +241,8 @@ export async function chegando(p: Candidato, noTeams: NoTeams): Promise<{ meetin
   const { dono, convidados, chamados } = gente;
   const assunto = assuntoDe(p);
   // O TTARS antigo não diz se grava: é o aviso de que o Teams já tem a transcrição (a gravação parou).
-  const duracao = noTeams.gravando ? null : noTeams.duracao ?? Math.max(60, Math.round((Date.parse(p.fim) - Date.parse(p.inicio)) / 1000));
+  // Parou sem dizer quanto: fica a duração que já veio; sem nenhuma, a do horário marcado.
+  const marcada = Math.max(60, Math.round((Date.parse(p.fim) - Date.parse(p.inicio)) / 1000));
   const id = await withTenant(dono.id, async (c) => {
     await travar(c, p);
     const ja = await c.query<{ id: string | null; chegando: boolean }>(
@@ -253,12 +254,13 @@ export async function chegando(p: Candidato, noTeams: NoTeams): Promise<{ meetin
       const { id: jaId, chegando: aindaChega } = ja.rows[0];
       // Cada aviso renova a chegando: a limpeza de 3 h conta desde o último (reunião longa gravando).
       if (jaId && aindaChega) {
-        await c.query(`UPDATE meetings SET duration_seconds = $3, created_at = now() WHERE id = $1 AND user_id = $2 AND status = $4`, [
-          jaId,
-          dono.id,
-          duracao,
-          CHEGANDO,
-        ]);
+        await c.query(
+          `UPDATE meetings
+              SET duration_seconds = CASE WHEN $3::boolean THEN NULL ELSE COALESCE($4::int, duration_seconds, $5::int) END,
+                  created_at = now()
+            WHERE id = $1 AND user_id = $2 AND status = $6`,
+          [jaId, dono.id, noTeams.gravando, noTeams.duracao, marcada, CHEGANDO],
+        );
       }
       return jaId;
     }
@@ -267,7 +269,7 @@ export async function chegando(p: Candidato, noTeams: NoTeams): Promise<{ meetin
                              visibilidade, teams_evento, teams_convidados)
        VALUES ($1, 'teams', 'online', $2, $3, $4, $5, $6, 'escolhidos', $7, $8)
        RETURNING id::text AS id`,
-      [dono.id, `Teams · ${assunto ?? "reunião"}`, assunto, p.inicio, duracao, CHEGANDO, p.chave, convidados],
+      [dono.id, `Teams · ${assunto ?? "reunião"}`, assunto, p.inicio, noTeams.gravando ? null : noTeams.duracao ?? marcada, CHEGANDO, p.chave, convidados],
     );
     await abrirParaChamados(c, r.rows[0].id, chamados);
     return r.rows[0].id;
@@ -278,33 +280,33 @@ export async function chegando(p: Candidato, noTeams: NoTeams): Promise<{ meetin
 /** Tira a reunião que estava chegando. A ação que quem marcou já criou nela fica, solta da reunião
  *  (a reunião apagada levaria junto; revisão de 30/09). FOR UPDATE: se a transcrição a completou no
  *  meio do caminho, ela deixa de ser "chegando" e fica (2ª revisão de 30/09). */
-async function apagarChegando(c: PoolClient, userId: string, onde: string, valores: unknown[]) {
+async function apagarChegando(c: PoolClient, userId: string, onde: string, valores: unknown[]): Promise<number> {
   const alvo = await c.query<{ id: string }>(
     `SELECT id::text AS id FROM meetings WHERE user_id = $1 AND source = 'teams' AND status = $2 AND ${onde} FOR UPDATE`,
     [userId, CHEGANDO, ...valores],
   );
   const ids = alvo.rows.map((x) => x.id);
-  if (!ids.length) return;
+  if (!ids.length) return 0;
   await c.query(`UPDATE tarefas SET meeting_id = NULL WHERE meeting_id = ANY($1::uuid[])`, [ids]);
   await c.query(`DELETE FROM meetings WHERE id = ANY($1::uuid[]) AND status = $2`, [ids, CHEGANDO]);
+  return ids.length;
 }
 
 /** O TTARS desistiu: a gravação parou há tempo e o Teams não fez a transcrição (gravou sem transcrever). */
-export async function largar(p: Candidato): Promise<{ largada: true }> {
-  await largarChegando(p);
-  return { largada: true };
+export async function largar(p: Candidato): Promise<{ largada: boolean }> {
+  return { largada: (await largarChegando(p)) > 0 };
 }
 
 /** A que estava chegando e não vai virar reunião (conversa curta, deixou de ser querida) sai. */
-async function largarChegando(p: Candidato) {
+async function largarChegando(p: Candidato): Promise<number> {
   const [dono] = await query<{ id: string }>(
     `SELECT id::text AS id FROM users WHERE LOWER(email) = $1 AND deleted_at IS NULL`,
     [normalizarEmail(p.organizador)],
   );
-  if (!dono) return;
-  await withTenant(dono.id, async (c) => {
+  if (!dono) return 0;
+  return await withTenant(dono.id, async (c) => {
     await travar(c, p);
-    await apagarChegando(c, dono.id, "teams_evento = $3", [p.chave]);
+    return await apagarChegando(c, dono.id, "teams_evento = $3", [p.chave]);
   });
 }
 
