@@ -20,6 +20,7 @@ const ctx = (x: Partial<ContextoDaDecisao> = {}): ContextoDaDecisao => ({
   liberados: new Set([VITOR]),
   welcome: new Set([VITOR, TIAGO, PAULA]),
   jaTem: new Set(),
+  chegando: new Set(),
   gravadasAqui: new Map(),
   ...x,
 });
@@ -59,6 +60,14 @@ describe("decidir", () => {
     const comPaula = ctx({ liberados: new Set([VITOR, PAULA]), gravadasAqui: new Map([[VITOR, [naHora]]]) });
     expect(decidir(reuniao(), comPaula).quero).toBe(true);
     expect(chamadosDaReuniao(reuniao(), comPaula)).toEqual([PAULA]);
+  });
+
+  it("a que está chegando do Teams continua querida (a transcrição entra nela)", () => {
+    expect(decidir(reuniao(), ctx({ chegando: new Set([`${TIAGO}|AAMk-1`]) }))).toEqual({ quero: true, motivo: "chegando" });
+    // chegando, mas quem marcou gravou pelo Ações na mesma hora: deixa de ser querida (e sai)
+    const antes = Date.parse("2026-09-28T12:50:00Z");
+    const gravou = ctx({ chegando: new Set([`${TIAGO}|AAMk-1`]), gravadasAqui: new Map([[TIAGO, [antes]]]) });
+    expect(decidir(reuniao(), gravou).quero).toBe(false);
   });
 
   it("e-mail em maiúscula conta igual", () => {

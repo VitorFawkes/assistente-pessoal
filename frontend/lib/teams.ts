@@ -22,6 +22,8 @@ export type ContextoDaDecisao = {
   welcome: Set<string>;
   /** `organizador|chave` das reuniões do Teams que já estão aqui. */
   jaTem: Set<string>;
+  /** `organizador|chave` das que estão "chegando do Teams" (a transcrição ainda fecha lá). */
+  chegando: Set<string>;
   /** Começo (ms) das gravações feitas pelo próprio Ações (aba, celular), por e-mail de quem gravou. */
   gravadasAqui: Map<string, number[]>;
 };
@@ -60,8 +62,20 @@ export function decidir(c: Candidato, ctx: ContextoDaDecisao): { quero: boolean;
   // Só vale criar se alguém que usa o Ações vai recebê-la sem ter a própria gravação.
   const recebem = [org, ...chamadosDaReuniao(c, ctx)].filter((e) => ctx.liberados.has(e));
   if (!recebem.length) return { quero: false, motivo: "quem usa o Ações já gravou pelo Ações" };
-  return { quero: true, motivo: "nova" };
+  return { quero: true, motivo: ctx.chegando.has(`${org}|${c.chave}`) ? "chegando" : "nova" };
 }
+
+// ── "Chegando do Teams" (30/09/2026) ────────────────────────────────────────────────────────
+// Vitor, depois de uma reunião no Teams: "Pq não tá aparecendo pra mim que ela tá lendo e tals?".
+// A transcrição só vem uns 13 min depois do fim (o Teams fecha e o TTARS espera 10 min caso alguém
+// volte a gravar). Assim que o Teams tem a transcrição, a reunião nasce aqui já com quem vê,
+// como "chegando"; quando a transcrição vem, é a mesma reunião que passa a ser lida.
+
+/** A situação da reunião que ainda está chegando do Teams (sem conversa escrita). */
+export const CHEGANDO = "transcribing";
+
+/** Sem a transcrição até aqui, não vem mais (o TTARS só pergunta até 3 h depois do fim). */
+export const CHEGANDO_EXPIRA_MS = 3 * 3600_000;
 
 // ── a transcrição do Teams (.vtt com o nome de quem fala) ──────────────────────────────────
 

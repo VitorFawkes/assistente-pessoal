@@ -9,7 +9,7 @@
 // recebido e mexe só na tarefa/projeto conferido.
 
 import type { PoolClient } from "pg";
-import { query, withTenant } from "./db";
+import { query, withTenant, withTenantLeituraEquipe } from "./db";
 import { MARCA_DO_TEAMS } from "./ttars-auth";
 import { isTeamMode } from "./team-mode";
 import { getOwnerSlug, isOwner } from "./owner-slug";
@@ -173,13 +173,23 @@ export async function carregarTarefas(
     ),
   );
   const tarefas = grupos.flat();
-  const nomes = await nomesDeUsuarios([
-    viewerId,
-    ...tarefas.map((t) => t.user_id),
-    ...tarefas.map((t) => t.responsavel_user_id),
+  const [nomes, veReuniao] = await Promise.all([
+    nomesDeUsuarios([viewerId, ...tarefas.map((t) => t.user_id), ...tarefas.map((t) => t.responsavel_user_id)]),
+    reunioesQueAbre(viewerId, tarefas.filter((t) => t.user_id !== viewerId && t.meeting_id).map((t) => t.meeting_id!)),
   ]);
   const slug = getOwnerSlug();
-  return tarefas.map((t) => paraQuemVe(t, { viewerId, slug, nomes, donoNome: opts.donoNome }));
+  return tarefas.map((t) =>
+    paraQuemVe(t, { viewerId, slug, nomes, donoNome: opts.donoNome, veReuniao: !!t.meeting_id && veReuniao.has(t.meeting_id) }),
+  );
+}
+
+/** As reuniões (dentre `ids`) que quem vê consegue abrir, pela mesma regra de quem vê do banco. */
+async function reunioesQueAbre(viewerId: string, ids: string[]): Promise<Set<string>> {
+  if (!ids.length) return new Set();
+  const r = await withTenantLeituraEquipe(viewerId, (c) =>
+    c.query<{ id: string }>(`SELECT id::text AS id FROM meetings WHERE id = ANY($1::uuid[])`, [[...new Set(ids)]]),
+  );
+  return new Set(r.rows.map((x) => x.id));
 }
 
 /** Tarefas que colegas passaram para `userId` (as dele não entram). */

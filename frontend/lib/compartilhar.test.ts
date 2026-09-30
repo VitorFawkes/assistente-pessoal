@@ -145,3 +145,22 @@ describe("ordem da lista", () => {
     expect([d, c, a, b].sort(ordenarPendencias).map((t) => t.id)).toEqual(["b", "a", "c", "d"]);
   });
 });
+
+describe("quem também abre a reunião (filtro por reunião, 30/09/2026)", () => {
+  const nomes = new Map([[VITOR.id, VITOR.nome], [MARINA.id, MARINA.nome]]);
+  it("vê de qual reunião a ação saiu, sem o trecho dito nem o resumo", () => {
+    const v = paraQuemVe(tarefa({ responsavel_user_id: MARINA.id, meeting_recorded_at: "2026-09-29T19:22:00Z", meeting_source: "teams" }), { viewerId: MARINA.id, slug: "eu", nomes, veReuniao: true });
+    expect([v.meeting_id, v.meeting_nome, v.meeting_recorded_at, v.meeting_source, v.ve_reuniao]).toEqual(["m1", "Fornecedor", "2026-09-29T19:22:00Z", "teams", true]);
+    expect([v.evidencia, v.meeting_summary]).toEqual([null, null]);
+  });
+  it("sem nome dado, o título vem do resumo (o resumo não vai)", () => {
+    const v = paraQuemVe(tarefa({ responsavel_user_id: MARINA.id, meeting_nome: null, meeting_summary: "Alinhamento do evento da Paula\n\nDetalhes..." }), { viewerId: MARINA.id, slug: "eu", nomes, veReuniao: true });
+    expect(v.meeting_nome).toBeTruthy();
+    expect(v.meeting_nome).not.toBe("Reunião");
+    expect(v.meeting_summary).toBeNull();
+  });
+  it("quem não abre a reunião continua sem saber qual é", () => {
+    const v = paraQuemVe(tarefa({ responsavel_user_id: MARINA.id }), { viewerId: MARINA.id, slug: "eu", nomes });
+    expect([v.meeting_id, v.meeting_nome, v.ve_reuniao, v.de_reuniao]).toEqual([null, null, undefined, true]);
+  });
+});

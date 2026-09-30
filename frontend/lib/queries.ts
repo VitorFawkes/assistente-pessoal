@@ -149,6 +149,8 @@ export type Tarefa = {
   meeting_source?: string | null;
   /** Saiu de uma reunião (também para quem recebe, que não vê a reunião). */
   de_reuniao?: boolean;
+  /** Quem vê também abre a reunião de onde a ação saiu (estava nela ou ela foi aberta para ele). */
+  ve_reuniao?: boolean;
   /** Um colega marcou quem vê esta ação para ver (não é quem faz). */
   marcada_para_mim?: boolean;
 };

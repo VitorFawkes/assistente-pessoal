@@ -6,6 +6,7 @@
 // querer dizer ELE, e o que era do criador aparece com o nome do criador.
 
 import type { Acao, Tarefa } from "./queries";
+import { meetingSubject } from "./meeting-label";
 
 export type Colega = { id: string; nome: string; /** Só no Teams (sem TTARS): recebe ação, mas o nome digitado prefere quem tem TTARS. */ so_no_teams?: boolean };
 
@@ -144,7 +145,7 @@ const CRUS_DA_REUNIAO = ["pessoas_raw", "area_raw"] as const;
  */
 export function paraQuemVe(
   t: Tarefa,
-  ctx: { viewerId: string; slug: string; nomes: Map<string, string>; donoNome?: boolean },
+  ctx: { viewerId: string; slug: string; nomes: Map<string, string>; donoNome?: boolean; veReuniao?: boolean },
 ): Tarefa {
   const criador = ctx.nomes.get(t.user_id) ?? "Colega";
   const principal = t.pessoas?.find((p) => p.principal)?.nome ?? null;
@@ -176,6 +177,19 @@ export function paraQuemVe(
   return {
     ...(limpa as Tarefa),
     ...SEM_REUNIAO,
+    // Quem também abre a reunião (estava nela ou ela foi aberta para ele) sabe de qual reunião a ação
+    // saiu, sem o trecho dito: dá para ver as ações de uma reunião em Minhas ações (Vitor, 30/09/2026).
+    ...(ctx.veReuniao && t.meeting_id
+      ? {
+          meeting_id: t.meeting_id,
+          // O título pronto (o da reunião gravada sai do resumo, que não vai): sem ele, duas reuniões
+          // do mesmo dia viravam "Reunião" e "Reunião" no filtro (2ª revisão de 30/09).
+          meeting_nome: meetingSubject(t.meeting_summary, t.meeting_nome) || null,
+          meeting_recorded_at: t.meeting_recorded_at ?? null,
+          meeting_source: t.meeting_source ?? null,
+          ve_reuniao: true,
+        }
+      : {}),
     de_reuniao: !!t.meeting_id,
     owner,
     acao,
