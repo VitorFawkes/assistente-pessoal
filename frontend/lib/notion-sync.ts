@@ -55,7 +55,7 @@ import {
 } from "./notion-mapa";
 import { slugNome } from "./compartilhar";
 import { MARCA_DO_TEAMS } from "./ttars-auth";
-import { diaBR, ehDataValida, fimDoDiaBR } from "./data-br";
+import { diaBR, diaMesBR, ehDataValida, fimDoDiaBR } from "./data-br";
 import { MAX_FILE_BYTES, isAllowedFile, normalizeUrl, resolveContentType, sanitizeFilename } from "./anexos";
 
 /** A base "Tasks" do Notion do marketing (link visto no Notion do Vitor, 25/09/2026). */
@@ -146,7 +146,25 @@ type Rodada = {
   lidas: Map<string, PaginaLida>;
   /** O que deu errado sem parar a rodada (vai pro aviso da tela). */
   avisos: string[];
+  /** Ações que nasceram de um pedido ao marketing (Pedidos ao Marketing, 30/09/2026). */
+  pedidos: Map<string, PedidoNaRodada>;
 };
+
+/** Pedido ao marketing: a página nasce no projeto do formulário, com Person e Assign juntos (a equipe usa o
+ *  Assign; lido antes do Person) e "Pedido por X pelo TTARS, dd/mm" no corpo. */
+type PedidoNaRodada = { projeto: string; quem: string | null; criado_em: string | Date };
+
+async function pedidosDaRodada(): Promise<Map<string, PedidoNaRodada>> {
+  const r = await query<PedidoNaRodada & { tarefa_id: string }>(
+    `SELECT tp.tarefa_id::text AS tarefa_id, COALESCE(tp.projeto_notion_page_id, '') AS projeto, u.nome AS quem, tp.criado_em
+       FROM tarefa_pedidos tp LEFT JOIN users u ON u.id = tp.pedido_por`,
+  ).catch((e: unknown) => {
+    // Banco antes da 020: nenhuma ação é pedido.
+    if (semTabela(e)) return [] as (PedidoNaRodada & { tarefa_id: string })[];
+    throw e;
+  });
+  return new Map(r.map(({ tarefa_id, ...x }) => [tarefa_id, x]));
+}
 
 /** Enquanto as tabelas do Notion não existem no banco, tudo aqui age como "Notion desligado". */
 const semTabela = (e: unknown) => (e as { code?: string })?.code === "42P01";
@@ -658,6 +676,8 @@ async function tratarPagina(c: Conexao, r: Rodada, p: PaginaLida, pessoas: Map<s
     if (!p.noLixo) await criarAcaoDaPagina(c, r, p, pessoas);
     return;
   }
+  const pedido = r.pedidos.has(link.tarefa_id);
+  if (pedido) p = { ...p, pessoa: p.assign || p.pessoa };
   const t = await lerAcao(link.tarefa_dono_id, link.tarefa_id);
   if (!t) {
     // A ação foi apagada no Ações: a página vai pra lixeira do Notion (dá pra recuperar lá).
@@ -676,7 +696,7 @@ async function tratarPagina(c: Conexao, r: Rodada, p: PaginaLida, pessoas: Map<s
   let statusNotion = p.statusNotion;
   let editadoEm = p.editadoEm;
   if (Object.keys(d.paraNotion).length) {
-    const res = await empurrarCampos(c, p.pageId, d.paraNotion, p.statusNotion, p.campoDescricao);
+    const res = await empurrarCampos(c, p.pageId, d.paraNotion, p.statusNotion, p.campoDescricao, pedido);
     statusNotion = res.statusNotion;
     editadoEm = res.editadoEm ?? editadoEm;
   }
@@ -692,12 +712,14 @@ async function empurrarCampos(
   mudanca: Partial<Campos>,
   statusAnterior: string | null,
   campoDescricao?: CampoDaDescricao | string | null,
+  assign = false,
 ) {
   const { status, ...resto } = mudanca;
   const vaiProLixo = status === "cancelada";
   const props = propriedadesPara(status && !vaiProLixo ? { ...resto, status } : resto, {
     statusAnterior,
     campoDescricao: campoDescricao === "Text" || campoDescricao === "Ambos" ? campoDescricao : "Description",
+    assign,
   });
   const pg = await mudarPagina(c.token, pageId, {
     ...(Object.keys(props).length ? { properties: props } : {}),
@@ -845,7 +867,7 @@ async function empurrar(c: Conexao, r: Rodada, pessoas: Map<string, PessoaNotion
         await query(`UPDATE notion_paginas SET sincronizado_em = now() WHERE page_id = $1`, [l.page_id]);
         continue;
       }
-      const feito = await empurrarCampos(c, l.page_id, mudou, l.status_notion, l.campo_descricao);
+      const feito = await empurrarCampos(c, l.page_id, mudou, l.status_notion, l.campo_descricao, r.pedidos.has(l.tarefa_id));
       await query(
         `UPDATE notion_paginas SET ultimos = $2, status_notion = $3, editado_notion = COALESCE($4, editado_notion), sincronizado_em = now()
           WHERE page_id = $1`,
@@ -902,7 +924,10 @@ async function enviar(c: Conexao, r: Rodada, pessoas: Map<string, PessoaNotion>)
         await query(`DELETE FROM notion_envios WHERE tarefa_id = $1`, [e.tarefa_id]);
         continue;
       }
-      const projeto = r.projetosOk ? (r.lugares.get(t.id)?.projeto ?? "") : "";
+      const pedido = r.pedidos.get(t.id);
+      // Pedido ao marketing: nasce no projeto do formulário (se ele existe e não foi arquivado lá).
+      const projeto =
+        pedido && projetoVivo(r, pedido.projeto) ? pedido.projeto : r.projetosOk ? (r.lugares.get(t.id)?.projeto ?? "") : "";
       const campos = camposDaAcao(t, pessoas, { pessoa: e.notion_user_id ?? undefined }, projeto);
       if (e.notion_user_id) campos.pessoa = e.notion_user_id;
       const quem = e.pedido_por
@@ -911,8 +936,8 @@ async function enviar(c: Conexao, r: Rodada, pessoas: Map<string, PessoaNotion>)
       const pg = await criarPagina(
         c.token,
         c.data_source_id,
-        propriedadesPara(campos, { bu: e.bu ?? "Institucional" }),
-        `Pedido por ${quem ?? "alguém"} no Ações.`,
+        propriedadesPara(campos, { bu: e.bu ?? "Institucional", assign: !!pedido }),
+        pedido ? `Pedido por ${pedido.quem ?? quem ?? "alguém"} pelo TTARS, ${diaMesBR(pedido.criado_em)}` : `Pedido por ${quem ?? "alguém"} no Ações.`,
       );
       const lida = lerPagina(pg);
       // Vínculo gravado logo depois de criar: a página nova nunca vira uma segunda ação.
@@ -1393,7 +1418,7 @@ export async function sincronizar(): Promise<{ ok: boolean; motivo?: string }> {
   rodando = true;
   try {
     let pessoas = await pessoasDaConexao(c);
-    const r: Rodada = { projetos: new Map(), projetosOk: false, lugares: new Map(), lidas: new Map(), avisos: [] };
+    const r: Rodada = { projetos: new Map(), projetosOk: false, lugares: new Map(), lidas: new Map(), avisos: [], pedidos: await pedidosDaRodada() };
     const novo = await temBancoNovo();
     if (novo) {
       await renomearPrincipal(c);

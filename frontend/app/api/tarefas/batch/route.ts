@@ -5,6 +5,7 @@ import { getOwnerSlug, isOwner } from "@/lib/owner-slug";
 import { isTeamMode } from "@/lib/team-mode";
 import { resolverDono } from "@/lib/compartilhar";
 import { colegasDe } from "@/lib/equipe-compartilhado";
+import { mexidaDoCorpo, travaDoPedido } from "@/lib/pedidos-trava";
 
 export const dynamic = "force-dynamic";
 
@@ -93,6 +94,9 @@ export const PATCH = withAuth(async (user, req) => {
   if (!sets.length && patch.acao === undefined) {
     return NextResponse.json({ error: "nada para atualizar" }, { status: 400 });
   }
+  // Pedido ao marketing: a mesma trava da ação sozinha (uma travada recusa o lote).
+  const trava = await travaDoPedido(user.id, ids, mexidaDoCorpo(patch as Record<string, unknown>));
+  if (trava) return NextResponse.json({ error: trava.erro }, { status: trava.status });
 
   // Equipe: dono que é colega (digitado na barra) → as tarefas vão pra lista dele, igual
   // à troca de dono de uma tarefa só.
@@ -200,6 +204,8 @@ export const DELETE = withAuth(async (user, req) => {
   if (ids.length === 0) {
     return NextResponse.json({ error: "ids vazio" }, { status: 400 });
   }
+  const trava = await travaDoPedido(user.id, ids, { apagar: true });
+  if (trava) return NextResponse.json({ error: trava.erro }, { status: trava.status });
 
   try {
     const deleted = await withTenant(user.id, async (c) => {

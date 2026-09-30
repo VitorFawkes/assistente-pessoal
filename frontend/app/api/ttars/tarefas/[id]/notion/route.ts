@@ -8,6 +8,7 @@ import { statusDoNotion } from "@/lib/notion-mapa";
 import { mudarSituacaoNoNotion, paginaDaAcao, situacoesDoNotion, textoDaPaginaNoNotion } from "@/lib/notion-tela";
 import { withTenant } from "@/lib/db";
 import { mudarTarefa } from "@/lib/tarefa-mudar";
+import { travaDoPedido } from "@/lib/pedidos-trava";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,9 @@ export const PATCH = withAuth<Ctx>(async (user, req, ctx) => {
   const b = (await req.json().catch(() => null)) as { bu?: unknown; status_notion?: unknown } | null;
   const acesso = UUID_RE.test(id) ? await acessoTarefa(user.id, id) : null;
   if (!acesso) return SEM_ACESSO();
+  // Pedido ao marketing: situação e área são do marketing (conferido antes de gravar no Notion).
+  const trava = await travaDoPedido(user.id, [id], { campos: b?.status_notion !== undefined ? ["status"] : ["area"] });
+  if (trava) return NextResponse.json({ error: trava.erro }, { status: trava.status });
 
   if (b?.status_notion !== undefined) {
     const pedido = typeof b.status_notion === "string" ? b.status_notion.trim().toLowerCase() : "";

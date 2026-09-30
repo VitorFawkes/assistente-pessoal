@@ -5,6 +5,7 @@ import { isTeamMode } from "@/lib/team-mode";
 import { acessoTarefa, carregarTarefas } from "@/lib/equipe-compartilhado";
 import { semObjetivoEscondido } from "@/lib/hub";
 import { mudarTarefa, type MudancaDeTarefa } from "@/lib/tarefa-mudar";
+import { travaDoPedido } from "@/lib/pedidos-trava";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -53,6 +54,9 @@ export const DELETE = withAuth<Ctx>(async (user, req, ctx) => {
       );
     }
   }
+  // Pedido ao marketing: quem pediu apaga só enquanto o marketing não começou.
+  const trava = await travaDoPedido(user.id, [id], { apagar: true });
+  if (trava) return NextResponse.json({ error: trava.erro }, { status: trava.status });
   // "não é tarefa": rejeição explícita → guarda exemplo negativo p/ o loop de feedback.
   const motivo = new URL((req as NextRequest).url).searchParams.get("motivo");
   try {

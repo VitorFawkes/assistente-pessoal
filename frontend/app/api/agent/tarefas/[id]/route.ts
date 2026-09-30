@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { withAgentAuth } from "@/lib/auth";
 import { tarefasFor, frentesFor } from "@/lib/queries";
+import { mexidaDoCorpo, travaDoPedido } from "@/lib/pedidos-trava";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,8 @@ export const PATCH = withAgentAuth<Ctx>(async ({ user, origem }, req, ctx) => {
   if (body.status !== undefined && !VALID_STATUS.includes(body.status)) {
     return NextResponse.json({ error: "status inválido" }, { status: 400 });
   }
+  const trava = await travaDoPedido(user.id, [id], mexidaDoCorpo(body as Record<string, unknown>));
+  if (trava) return NextResponse.json({ error: trava.erro }, { status: trava.status });
 
   try {
     // frente por nome (get-or-create) → frente_id
@@ -73,6 +76,8 @@ export const PUT = PATCH;
 
 export const DELETE = withAgentAuth<Ctx>(async ({ user }, _req, ctx) => {
   const { id } = await ctx.params;
+  const trava = await travaDoPedido(user.id, [id], { apagar: true });
+  if (trava) return NextResponse.json({ error: trava.erro }, { status: trava.status });
   try {
     const deleted = await tarefasFor(user.id).remover(id);
     if (deleted === 0) {

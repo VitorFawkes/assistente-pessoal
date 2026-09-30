@@ -46,6 +46,8 @@ export type PaginaLida = Campos & {
   projetos: string[];
   arquivos: ArquivoDoNotion[];
   pessoas: { id: string; nome: string; email: string | null }[];
+  /** A 1ª pessoa da coluna Assign ("" = ninguém). Nas páginas de pedido ao marketing, ela vale antes do Person. */
+  assign: string;
 };
 
 /** Uma página da base Projects do Notion. */
@@ -209,6 +211,7 @@ export function lerPagina(pg: PaginaNotion): PaginaLida {
     statusNotion: statusNotion || "Not started",
     prioridade: prioridadeDoNotion((pr[PROPS.prioridade]?.select as { name?: string } | null)?.name),
     pessoa: todas[0]?.id ?? "",
+    assign: reserva[0]?.id ?? "",
     pessoas: [...pessoas, ...reserva.filter((r) => !pessoas.some((p) => p.id === r.id))],
     bu: ((pr[PROPS.bu]?.select as { name?: string } | null)?.name ?? null) || null,
     noLixo: !!(pg.in_trash || pg.archived),
@@ -227,7 +230,7 @@ function emPedacos(texto: string): { text: { content: string } }[] {
 /** Propriedades do Notion para gravar estes campos (só os pedidos). */
 export function propriedadesPara(
   campos: Partial<Campos>,
-  ctx: { statusAnterior?: string | null; bu?: string | null; campoDescricao?: CampoDaDescricao | null } = {},
+  ctx: { statusAnterior?: string | null; bu?: string | null; campoDescricao?: CampoDaDescricao | null; assign?: boolean } = {},
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   if (campos.titulo !== undefined) out[PROPS.titulo] = { title: [{ text: { content: campos.titulo.slice(0, 2000) } }] };
@@ -246,7 +249,11 @@ export function propriedadesPara(
     const nome = prioridadeParaNotion(campos.prioridade);
     out[PROPS.prioridade] = { select: nome ? { name: nome } : null };
   }
-  if (campos.pessoa !== undefined) out[PROPS.pessoa] = { people: campos.pessoa ? [{ id: campos.pessoa }] : [] };
+  if (campos.pessoa !== undefined) {
+    out[PROPS.pessoa] = { people: campos.pessoa ? [{ id: campos.pessoa }] : [] };
+    // Pedido ao marketing: a equipe usa o Assign; os dois andam juntos.
+    if (ctx.assign) out[PROPS.pessoaReserva] = { people: campos.pessoa ? [{ id: campos.pessoa }] : [] };
+  }
   if (ctx.bu) out[PROPS.bu] = { select: { name: ctx.bu } };
   return out;
 }

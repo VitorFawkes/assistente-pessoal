@@ -20,6 +20,8 @@ import { resolverEscolha } from "@/lib/escolha-de-dono";
 import { pedirEnvio } from "@/lib/notion-sync";
 import { buDoWorkspace } from "@/lib/notion-mapa";
 import { podeObjetivo, podeTime, semObjetivoEscondido, timeIdValido } from "@/lib/hub";
+import { mexidaDoCorpo, travaDoPedido } from "@/lib/pedidos-trava";
+import { timeValeNoPedido } from "@/lib/pedidos-publico";
 
 const VALID_STATUS = ["aberta", "em_andamento", "aguardando_aprovacao", "concluida", "cancelada"] as const;
 const VALID_PRIORIDADE = ["baixa", "media", "alta", "urgente"] as const;
@@ -86,6 +88,9 @@ export async function prepararMudanca(
   const body: MudancaDeTarefa = { ...entrada };
   const acesso = await acessoTarefa(user.id, id);
   if (!acesso) return erro(404, "tarefa não encontrada");
+  // Pedido ao marketing: só o marketing muda (quem pediu cancela enquanto não começou).
+  const trava = await travaDoPedido(user.id, [id], mexidaDoCorpo(entrada as Record<string, unknown>));
+  if (trava) return erro(trava.status, trava.erro);
   const donoId = acesso.donoId;
   if (acesso.papel !== "dono") {
     for (const k of SO_DO_CRIADOR) delete body[k];
@@ -189,7 +194,11 @@ export async function prepararMudanca(
   // (um que quem pede enxerga).
   if (body.time_id !== undefined) {
     if (acesso.papel !== "dono") return erro(403, "Só quem criou a ação muda o time dela.");
-    if (body.time_id !== null && !(timeIdValido(body.time_id) && (await podeTime(user.id, body.time_id)))) {
+    // Pedido ao marketing: qualquer time das empresas do público do formulário (como no Quem vê).
+    if (
+      body.time_id !== null &&
+      !(timeIdValido(body.time_id) && ((await podeTime(user.id, body.time_id)) || (await timeValeNoPedido(id, body.time_id))))
+    ) {
       return erro(400, "Você não está nesse time.");
     }
     push("time_id", body.time_id);

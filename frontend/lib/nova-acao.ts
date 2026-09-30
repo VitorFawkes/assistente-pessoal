@@ -40,11 +40,15 @@ export type PedidoDeAcao = {
   time_id?: string | null;
   /** Objetivo (que quem pede enxerga). */
   objetivo_id?: string | null;
-  origem: "manual" | "captura_texto" | "agente" | "coach";
+  origem: "manual" | "captura_texto" | "agente" | "coach" | "pedido";
   raw?: string;
+  /** Não entra na fila do Notion aqui: quem chama grava o que falta (pedido ao marketing) e pede o envio depois. */
+  semFila?: boolean;
 };
 
-export type Criada = { ok: true; tarefa: TarefaNaTela; aviso: string | null } | { ok: false; erro: string; status: number };
+export type Criada =
+  | { ok: true; tarefa: TarefaNaTela; aviso: string | null; notionUserId: string | null }
+  | { ok: false; erro: string; status: number };
 
 const DIA = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -123,7 +127,7 @@ export async function criarAcao(user: User, p: PedidoDeAcao): Promise<Criada> {
       ),
     );
   }
-  if (notionUserId) {
+  if (notionUserId && !p.semFila) {
     await pedirEnvio({
       tarefaId: criada.id,
       donoId: user.id,
@@ -137,13 +141,13 @@ export async function criarAcao(user: User, p: PedidoDeAcao): Promise<Criada> {
     const r = await adicionarAoProjeto(user.id, p.projeto_id, [criada.id]);
     if (!r || r.adicionadas + r.duplicadas === 0) aviso = "A ação foi criada, mas não entrou no projeto.";
     // Criada num projeto do Notion do marketing: vai pra lá, com a área da empresa de quem criou.
-    else if (!notionUserId && (await projetosDoNotion()).has(p.projeto_id)) {
+    else if (!notionUserId && !p.semFila && (await projetosDoNotion()).has(p.projeto_id)) {
       await pedirEnvio({ tarefaId: criada.id, donoId: user.id, pedidoPor: user.id, bu: buDoWorkspace(p.workspace) });
     }
   }
   const naTela = await tarefaNaTela(user.id, criada.id);
   if (!naTela) return { ok: false, erro: "A ação foi criada, mas não consegui abrir. Recarregue a tela.", status: 500 };
-  return { ok: true, tarefa: naTela.tarefa, aviso };
+  return { ok: true, tarefa: naTela.tarefa, aviso, notionUserId };
 }
 
 // ── Frase livre → pedido ──────────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ import { notionDasAcoes } from "./notion-sync";
 import type { Tarefa } from "./queries";
 import { acessoTarefa, carregarTarefas, comProjetos, nomesDeUsuarios, type Papel } from "./equipe-compartilhado";
 import { nomesDosObjetivos, nomesDosTimes, origemDaReuniao, UUID_RE } from "./hub";
+import { pedidosParaTela } from "./pedidos-tela";
 
 /** Nome e e-mail de quem também faz cada ação (subresponsáveis). */
 export async function genteQueTambemFaz(tarefas: Tarefa[]): Promise<Map<string, { nome: string; email: string | null }>> {
@@ -29,12 +30,13 @@ export function quemTambemFaz(t: Tarefa, userId: string, gente: Map<string, { no
 
 export async function paraTela(userId: string, tarefas: Tarefa[]) {
   const comTime = tarefas.some((t) => t.time_id);
-  const [comP, notion, objetivos, times, tambem] = await Promise.all([
+  const [comP, notion, objetivos, times, tambem, pedidos] = await Promise.all([
     comProjetos(userId, tarefas),
     notionDasAcoes(tarefas.map((t) => t.id)),
     nomesDosObjetivos(userId, tarefas.map((t) => t.objetivo_id ?? "").filter(Boolean)),
     comTime ? nomesDosTimes() : Promise.resolve(new Map<string, string>()),
     genteQueTambemFaz(tarefas),
+    pedidosParaTela(userId, tarefas),
   ]);
   return comP.map((t) => {
     const objetivoNome = t.objetivo_id ? objetivos.get(t.objetivo_id) : undefined;
@@ -55,6 +57,8 @@ export async function paraTela(userId: string, tarefas: Tarefa[]) {
       // Quem recebe não vê a reunião, mas sabe que a ação saiu de uma (e não que foi criada à mão).
       de_reuniao: t.de_reuniao ?? !!t.meeting_id,
       notion: doNotion,
+      // Pedido ao Marketing: de que formulário veio, as respostas e o que quem vê pode fazer.
+      ...(pedidos.has(t.id) ? { pedido: pedidos.get(t.id)! } : {}),
     };
   });
 }
@@ -95,7 +99,13 @@ function juntar(xs: string[]): string {
 export function textoDoEvento(evento: string, payload: Record<string, unknown> | null): string | null {
   switch (evento) {
     case "criada":
-      return payload?.origem === "agente" ? "criou pelo Assistente" : payload?.origem === "coach" ? "criou pelo Coach" : "criou";
+      return payload?.origem === "agente"
+        ? "criou pelo Assistente"
+        : payload?.origem === "coach"
+          ? "criou pelo Coach"
+          : payload?.origem === "pedido"
+            ? "pediu ao marketing pelo TTARS"
+            : "criou";
     case "concluida":
       return "concluiu";
     case "cancelada":

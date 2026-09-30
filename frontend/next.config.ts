@@ -3,7 +3,9 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "standalone",
   experimental: {
-    // Server actions defaults are fine; this is just a marker for future tweaks.
+    // O proxy guarda o corpo de cada pedido para a rota; acima disso ele chega cortado. 16 MB = a foto de até
+    // 10 MB do "Subir arquivo com perguntas" (Pedidos ao Marketing) em base64.
+    proxyClientMaxBodySize: "16mb",
   },
   serverExternalPackages: ["pg"],
   async headers() {

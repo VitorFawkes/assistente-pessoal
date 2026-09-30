@@ -49,6 +49,9 @@ export type Resposta = {
   texto: string;
   chamadas: Chamada[];
   custoUsd: number;
+  /** Modelo que respondeu e os tokens (pro registro de gasto de quem chama). */
+  modelo: string;
+  uso: { entrada: number; cache: number; saida: number };
 };
 
 /**
@@ -146,5 +149,5 @@ export async function chamarModelo(opts: {
     .filter((c) => c.type === "output_text" && typeof c.text === "string")
     .map((c) => c.text as string)
     .join("");
-  return { itens, texto, chamadas, custoUsd: custo };
+  return { itens, texto, chamadas, custoUsd: custo, modelo: r.model || MODELO_TAREFAS, uso };
 }

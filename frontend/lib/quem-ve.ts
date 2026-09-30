@@ -3,6 +3,7 @@
 import { query, withTenant } from "./db";
 import { garantirColegaDoTtars, nomesDeUsuarios, registrarEvento } from "./equipe-compartilhado";
 import { nomesDosTimes, podeTime, timeIdValido } from "./hub";
+import { timeValeNoPedido } from "./pedidos-publico";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -144,7 +145,13 @@ export async function mudarQuemVeDaTarefa(
   const acesso = dono.rows[0];
   if (!acesso) return "nao_achou";
   if (acesso.papel !== "dono") return "so_quem_criou";
-  if (m.time_id !== undefined && m.time_id !== null && !(timeIdValido(m.time_id) && (await podeTime(userId, m.time_id)))) return "time";
+  // Pedido ao marketing: qualquer time das empresas do público do formulário (mesmo que quem pediu não seja dele).
+  if (
+    m.time_id !== undefined &&
+    m.time_id !== null &&
+    !(timeIdValido(m.time_id) && ((await podeTime(userId, m.time_id)) || (await timeValeNoPedido(tarefaId, m.time_id))))
+  )
+    return "time";
 
   const ids = async (emails: string[] | undefined) => {
     const out: string[] = [];

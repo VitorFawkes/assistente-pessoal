@@ -3,6 +3,7 @@ import { withGuest, GuestError, membershipDoQuadro, guestErrorResponse } from "@
 import { clientIp } from "@/lib/rate-limit";
 import { TAREFA_SELECT_CONVIDADO as TAREFA_SELECT } from "@/lib/queries";
 import { isOwner } from "@/lib/owner-slug";
+import { mexidaDoCorpo, travaDoPedido } from "@/lib/pedidos-trava";
 
 type Ctx = { params: Promise<{ token: string; id: string }> };
 
@@ -40,6 +41,9 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
   } catch {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
+  // Pedido ao marketing: quem entra pelo link não é do marketing (só o marketing muda o pedido).
+  const trava = await travaDoPedido(null, [id], mexidaDoCorpo(body as Record<string, unknown>));
+  if (trava) return NextResponse.json({ error: trava.erro }, { status: trava.status });
 
   try {
     const result = await withGuest(token, ip, async ({ acesso, c }) => {
@@ -265,6 +269,8 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
 export async function DELETE(req: NextRequest, ctx: Ctx) {
   const { token, id } = await ctx.params;
   const ip = clientIp(req.headers);
+  const trava = await travaDoPedido(null, [id], { apagar: true });
+  if (trava) return NextResponse.json({ error: trava.erro }, { status: trava.status });
 
   try {
     await withGuest(token, ip, async ({ acesso, c }) => {
