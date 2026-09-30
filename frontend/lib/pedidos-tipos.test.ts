@@ -132,6 +132,8 @@ describe("respostas", () => {
     expect(pessoasDoCasal("Lucas e William")).toEqual(["Lucas", "William"]);
     expect(pessoasDoCasal("Ana & Bia")).toEqual(["Ana", "Bia"]);
     expect(pessoasDoCasal("Casamento da Ana")).toBeNull();
+    // O que vem entre parênteses não é nome ("(exemplo)" virava "Instagram de Bruno (exemplo)").
+    expect(pessoasDoCasal("Ana e Bruno (exemplo)")).toEqual(["Ana", "Bruno"]);
     const ig = P({ id: "i2", tipo: "instagram", rotulo: "Instagram do noivo", pessoa: 2 });
     expect(rotuloDaPergunta(ig, ["Lucas", "William"])).toBe("Instagram de William");
     expect(rotuloDaPergunta(ig, null)).toBe("Instagram do noivo");

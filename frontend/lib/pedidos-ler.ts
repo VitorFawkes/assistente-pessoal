@@ -60,18 +60,35 @@ const INSTRUCOES = [
   "Não invente pergunta que não está no documento.",
 ].join("\n");
 
-/** Sem IA: cada linha não vazia vira uma pergunta de texto (a pessoa ajusta na revisão). */
-export function perguntasPorLinha(texto: string): Lida {
+const comparavel = (t: string) =>
+  t
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+/**
+ * Sem IA: cada linha não vazia vira uma pergunta de texto (a pessoa ajusta na revisão). A linha que é o
+ * próprio nome do arquivo (o título do documento) fica de fora, em "ignoradas" (dá para virar pergunta).
+ */
+export function perguntasPorLinha(texto: string, nomeArquivo?: string): Lida {
   const perguntas: Pergunta[] = [];
+  const ignoradas: string[] = [];
+  const titulo = comparavel((nomeArquivo ?? "").replace(/\.[a-z0-9]{1,5}$/i, ""));
   for (const bruta of texto.split(/\r?\n/)) {
     const linha = bruta.trim();
     if (!linha) continue;
+    if (titulo && comparavel(linha) === titulo) {
+      ignoradas.push(linha.slice(0, 1000));
+      continue;
+    }
     const rotulo = linha.replace(/^([-*•·–]|\d+[.)-]|[a-z][.)])\s*/i, "").trim().slice(0, 300);
     if (!rotulo) continue;
     perguntas.push({ id: `p${perguntas.length + 1}`, tipo: "texto", rotulo, obrigatoria: false, aceita_nao_temos: false, linha_original: linha.slice(0, 1000) });
     if (perguntas.length >= 80) break;
   }
-  return { perguntas, ignoradas: [] };
+  return { perguntas, ignoradas };
 }
 
 /** O que a IA devolveu, conferido (tipo, "preenche" e opções fechados; id novo para cada uma). */
@@ -157,7 +174,7 @@ export async function lerArquivoDePerguntas(user: User, corpo: unknown): Promise
     if (!(e instanceof IaIndisponivel) && !(e instanceof SyntaxError)) console.error("[pedidos] ler arquivo:", e);
     // Plano B: texto vira uma pergunta por linha; foto (ou PDF escaneado) não tem como.
     if (!texto.trim()) return falha(422, "Sem a IA não dá para ler foto nem PDF escaneado: cole o texto");
-    lida = perguntasPorLinha(texto);
+    lida = perguntasPorLinha(texto, nome);
   }
   const textoLido = texto.trim() ? texto : [...lida.perguntas.map((p) => p.linha_original ?? p.rotulo), ...lida.ignoradas].join("\n");
   await guardarLeitura(user, nome, textoLido, usouIa);

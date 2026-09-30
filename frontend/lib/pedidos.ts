@@ -8,7 +8,7 @@
 import type { User } from "./auth";
 import { query, withTenant } from "./db";
 import { diaMesBR, maisDiasBR } from "./data-br";
-import { acessoTarefa } from "./equipe-compartilhado";
+import { acessoTarefa, garantirColegaDoTtars } from "./equipe-compartilhado";
 import { criarAcao } from "./nova-acao";
 import { pedirEnvio } from "./notion-sync";
 import { mudarQuemVeDaTarefa } from "./quem-ve";
@@ -122,7 +122,8 @@ export async function formulariosParaPedir(user: User): Promise<Saida> {
 
 // ── pedir ───────────────────────────────────────────────────────────────────────────────────
 
-type Repetido = { tarefa_id: string; pedido_por: string; criado_em: string; situacao: string };
+/** eu_pedi / eu_vejo: quem tenta de novo já é dono ou já está no Quem vê (a tela não oferece acompanhar). */
+type Repetido = { tarefa_id: string; pedido_por: string; criado_em: string; situacao: string; eu_pedi: boolean; eu_vejo: boolean };
 
 /** A situação crua de ações de pedido (lidas no tenant de quem pediu); a tela do TTARS traduz. */
 async function situacoes(pares: { tarefa_id: string; pedido_por_id: string }[]): Promise<Map<string, string>> {
@@ -143,7 +144,7 @@ async function situacoes(pares: { tarefa_id: string; pedido_por_id: string }[]):
   return out;
 }
 
-async function pedidoVivoDoCard(formularioId: string, cardId: string): Promise<Repetido | null> {
+async function pedidoVivoDoCard(formularioId: string, cardId: string, quemTenta: string): Promise<Repetido | null> {
   const r = await query<{ tarefa_id: string; pedido_por_id: string; pedido_por: string | null; criado_em: string }>(
     `SELECT tp.tarefa_id::text AS tarefa_id, tp.pedido_por::text AS pedido_por_id, u.nome AS pedido_por,
             to_char(tp.criado_em AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS criado_em
@@ -155,11 +156,21 @@ async function pedidoVivoDoCard(formularioId: string, cardId: string): Promise<R
   const x = r[0];
   if (!x) return null;
   const sit = await situacoes([x]);
-  return { tarefa_id: x.tarefa_id, pedido_por: x.pedido_por ?? "Alguém", criado_em: x.criado_em, situacao: sit.get(x.tarefa_id) ?? "Not started" };
+  const euPedi = x.pedido_por_id === quemTenta;
+  return {
+    tarefa_id: x.tarefa_id,
+    pedido_por: x.pedido_por ?? "Alguém",
+    criado_em: x.criado_em,
+    situacao: sit.get(x.tarefa_id) ?? "Not started",
+    eu_pedi: euPedi,
+    eu_vejo: euPedi || !!(await acessoTarefa(quemTenta, x.tarefa_id)),
+  };
 }
 
 const repetido = (r: Repetido) =>
-  falha(409, `Já pedido por ${r.pedido_por} em ${diaMesBR(r.criado_em)} · ${situacaoEmPortugues(r.situacao)}`, { repetido: r });
+  falha(409, `${r.eu_pedi ? "Você já pediu" : `Já pedido por ${r.pedido_por}`} em ${diaMesBR(r.criado_em)} · ${situacaoEmPortugues(r.situacao)}`, {
+    repetido: r,
+  });
 
 /**
  * POST /api/ttars/pedidos. Corpo: { formulario_id, versao, card: {id, titulo} | null, respostas: {id: {valor, nao_temos?}},
@@ -189,7 +200,7 @@ export async function criarPedido(user: User, corpo: unknown): Promise<Saida> {
   if (!f.destino.quem_email) return falha(409, "Este pedido está sem a pessoa do marketing que recebe. Avise quem monta os pedidos.");
 
   if (card) {
-    const ja = await pedidoVivoDoCard(f.id, card.id);
+    const ja = await pedidoVivoDoCard(f.id, card.id, user.id);
     if (ja) return repetido(ja);
   }
 
@@ -243,18 +254,30 @@ export async function criarPedido(user: User, corpo: unknown): Promise<Saida> {
   } catch (e) {
     await withTenant(user.id, (c) => c.query(`DELETE FROM tarefas WHERE id = $1`, [tarefaId]));
     if ((e as { code?: string })?.code === "23505" && card) {
-      const ja = await pedidoVivoDoCard(f.id, card.id);
+      const ja = await pedidoVivoDoCard(f.id, card.id, user.id);
       if (ja) return repetido(ja);
     }
     throw e;
   }
 
-  // 3. Quem acompanha (pessoas e um time das empresas do público).
-  let aviso: string | null = criada.aviso;
-  if (pessoas.length || timeId) {
-    const r = await mudarQuemVeDaTarefa(user.id, tarefaId, { juntar: pessoas, ...(timeId ? { time_id: timeId } : {}) });
-    if (r !== "ok") aviso = [aviso, "O pedido foi enviado, mas não consegui marcar quem acompanha: abra a ação e marque de novo."].filter(Boolean).join(" ");
+  // 3. Quem acompanha (pessoas e um time das empresas do público). Quem não está na lista de pessoas do
+  //    TTARS fica de fora sozinho, com aviso (antes, uma pessoa assim deixava TODAS de fora); o time vai à parte.
+  const avisos: string[] = criada.aviso ? [criada.aviso] : [];
+  const achadas: string[] = [];
+  const faltaram: string[] = [];
+  for (const e of pessoas) ((await garantirColegaDoTtars(e)) ? achadas : faltaram).push(e.trim().toLowerCase());
+  if (achadas.length && (await mudarQuemVeDaTarefa(user.id, tarefaId, { juntar: achadas })) !== "ok") {
+    avisos.push("O pedido foi enviado, mas não consegui marcar quem acompanha: abra a ação e marque de novo.");
   }
+  if (faltaram.length) {
+    avisos.push(
+      `O pedido foi enviado, mas ${faltaram.join(", ")} ${faltaram.length === 1 ? "não está no Ações e ficou" : "não estão no Ações e ficaram"} de fora de quem acompanha.`,
+    );
+  }
+  if (timeId && (await mudarQuemVeDaTarefa(user.id, tarefaId, { time_id: timeId })) !== "ok") {
+    avisos.push("O pedido foi enviado, mas não consegui marcar o time: abra a ação e marque de novo.");
+  }
+  const aviso = avisos.length ? avisos.join(" ") : null;
 
   // 4. O Notion do marketing: pessoa, projeto e área do formulário (área fixa, nunca a da aba).
   if (criada.notionUserId || f.destino.projeto_notion_page_id) {

@@ -370,7 +370,12 @@ export function tituloDoPedido(modelo: string, dados: { casal: string | null; qu
 
 /** "Lucas e William" → ["Lucas", "William"]; sem as duas pessoas claras, null (igual à janela do TTARS). */
 export function pessoasDoCasal(casal: string | null | undefined): [string, string] | null {
-  const partes = (casal ?? "").split(/\s+(?:e|&)\s+/i).map((p) => p.trim());
+  // O que vem entre parênteses ("(exemplo)", "(Cancún)") não é nome de ninguém (igual ao TTARS).
+  const partes = (casal ?? "")
+    .replace(/\s*\([^)]*\)\s*/g, " ")
+    .trim()
+    .split(/\s+(?:e|&)\s+/i)
+    .map((p) => p.trim());
   if (partes.length !== 2 || !partes[0] || !partes[1]) return null;
   return [partes[0], partes[1]];
 }
