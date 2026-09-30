@@ -163,6 +163,10 @@ describe("respostas", () => {
     expect(situacaoEmPortugues("This Week")).toBe("Esta semana");
     expect(situacaoEmPortugues("Done")).toBe("Feito");
     expect(situacaoEmPortugues("cancelada")).toBe("Cancelado");
+    // As outras situações da base do marketing (29/09), iguais à tela do TTARS.
+    expect(situacaoEmPortugues("To Day")).toBe("Hoje");
+    expect(situacaoEmPortugues("Daily")).toBe("Todo dia");
+    expect(situacaoEmPortugues("Locked")).toBe("Travada");
     expect(slugDe("Cobertura de Casamento!")).toBe("cobertura-de-casamento");
   });
 });
