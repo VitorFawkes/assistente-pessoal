@@ -3,6 +3,7 @@ import {
   casalDoTitulo,
   conferirRespostas,
   descricaoDoPedido,
+  ehDeFora,
   ehErro,
   ehRoboOuTeste,
   estaNoPublico,
@@ -10,7 +11,10 @@ import {
   limparDestino,
   limparPerguntas,
   limparRascunho,
+  pessoasDoCasal,
+  rotuloDaPergunta,
   situacaoDoPedido,
+  situacaoEmPortugues,
   slugDe,
   textoDaResposta,
   timeNoPublico,
@@ -43,6 +47,11 @@ describe("quem pode pedir", () => {
     expect(ehRoboOuTeste("sarah.ia@welcomeweddings.com.br")).toBe(true);
     expect(ehRoboOuTeste("test@welcomecrm.test")).toBe(true);
     expect(ehRoboOuTeste("diana@welcomeweddings.com.br")).toBe(false);
+  });
+  test("de fora da Welcome (o Robson) não conta", () => {
+    expect(ehDeFora("robson@growthway.online")).toBe(true);
+    expect(ehDeFora("diana@welcomeweddings.com.br")).toBe(false);
+    expect(ehDeFora("Paula@WelcomeTrips.com.br")).toBe(false);
   });
 });
 
@@ -94,14 +103,15 @@ describe("respostas", () => {
     expect(textoDaResposta(perguntas[2], r.data)).toBe("22/11/2026");
     expect(textoDaResposta(perguntas[3], r.ig)).toBe("ainda não temos");
     expect(textoDaResposta(perguntas[5], r.story)).toBe("Não");
-    expect(descricaoDoPedido(perguntas, r, "Diana", "30/09").split("\n")).toEqual([
+    expect(textoDaResposta(perguntas[1], r.casamento)).toBe("Lucas e William");
+    // Sem pergunta de nome do casal: o casamento fica (sem o prefixo do quadro); quem preenche não repete.
+    expect(descricaoDoPedido(perguntas, r, "Diana", "30/09", "DW | Lucas e William").split("\n")).toEqual([
       "Pedido por Diana pelo TTARS, 30/09",
-      "Quem: Diana",
-      "Casamento: DW | Lucas e William",
+      "Casamento: Lucas e William",
       "Data: 22/11/2026",
       "Instagram: ainda não temos",
       "Relacionamento: Ótimo",
-      "Storymaker?: Não",
+      "Storymaker: Não",
     ]);
     const varias = descricaoDoPedido([P({ id: "f", tipo: "paragrafo", rotulo: "Fornecedores" })], { f: { valor: "@foto\n\n  @dj  " } }, "Diana", "30/09");
     expect(varias.split("\n")[1]).toBe("Fornecedores: @foto · @dj");
@@ -111,15 +121,48 @@ describe("respostas", () => {
     expect(casalDoTitulo("DW l Ana e Bia")).toBe("Ana e Bia");
     expect(casalDoTitulo("W - Rê e Mar")).toBe("Rê e Mar");
     expect(casalDoTitulo("Elopement | Ju e Lu")).toBe("Ju e Lu");
+    expect(casalDoTitulo("EW | Bia  e  Caio")).toBe("Bia e Caio");
+    expect(casalDoTitulo("Weslley e Ana")).toBe("Weslley e Ana");
     expect(tituloDoPedido("Cobertura I {casal} I Pedido", { casal: "Lucas e William", quem: "Diana", nomeDoFormulario: "Cobertura" })).toBe(
       "Cobertura I Lucas e William I Pedido",
     );
     expect(tituloDoPedido("", { casal: null, quem: "Diana", nomeDoFormulario: "Cobertura" })).toBe("Cobertura");
   });
-  test("situação em português", () => {
-    expect(situacaoDoPedido("aberta", "Not started")).toBe("Ainda não começou");
-    expect(situacaoDoPedido("em_andamento", null)).toBe("Em andamento");
-    expect(situacaoDoPedido("cancelada", "Not started")).toBe("Cancelada");
+  test("Instagram de cada pessoa do casal e a descrição da cobertura (Tela 4)", () => {
+    expect(pessoasDoCasal("Lucas e William")).toEqual(["Lucas", "William"]);
+    expect(pessoasDoCasal("Ana & Bia")).toEqual(["Ana", "Bia"]);
+    expect(pessoasDoCasal("Casamento da Ana")).toBeNull();
+    const ig = P({ id: "i2", tipo: "instagram", rotulo: "Instagram do noivo", pessoa: 2 });
+    expect(rotuloDaPergunta(ig, ["Lucas", "William"])).toBe("Instagram de William");
+    expect(rotuloDaPergunta(ig, null)).toBe("Instagram do noivo");
+    const cobertura = [
+      P({ id: "quem", tipo: "automatico_quem_pede", rotulo: "Nome de quem está preenchendo" }),
+      P({ id: "casamento", tipo: "casamento", rotulo: "Casamento", obrigatoria: true }),
+      P({ id: "casal", tipo: "texto", rotulo: "Nome do casal", preenche: "casal" }),
+      P({ id: "i1", tipo: "instagram", rotulo: "Instagram da noiva", aceita_nao_temos: true, preenche: "instagram", pessoa: 1 }),
+      P({ id: "i2", tipo: "instagram", rotulo: "Instagram do noivo", aceita_nao_temos: true, preenche: "instagram", pessoa: 2 }),
+      P({ id: "nm", tipo: "paragrafo", rotulo: "O que não devemos mostrar?" }),
+      P({ id: "st", tipo: "sim_nao", rotulo: "Será necessário storymaker?" }),
+    ];
+    const r = { quem: { valor: "Diana" }, casamento: { valor: "DW | Lucas e William" }, casal: { valor: "Lucas e William" }, i1: { valor: null, nao_temos: true }, i2: { valor: null, nao_temos: true }, nm: { valor: "nada" }, st: { valor: true } };
+    expect(descricaoDoPedido(cobertura, r, "Diana Parigot", "30/09", "DW | Lucas e William").split("\n")).toEqual([
+      "Pedido por Diana Parigot pelo TTARS, 30/09",
+      "Nome do casal: Lucas e William",
+      "Instagram de Lucas: ainda não temos",
+      "Instagram de William: ainda não temos",
+      "O que não devemos mostrar: nada",
+      "Será necessário storymaker: Sim",
+    ]);
+  });
+  test("situação crua (a tela traduz) e o texto do repetido", () => {
+    expect(situacaoDoPedido("aberta", "Not started")).toBe("Not started");
+    expect(situacaoDoPedido("em_andamento", "This Week")).toBe("This Week");
+    expect(situacaoDoPedido("aberta", null)).toBe("Not started");
+    expect(situacaoDoPedido("em_andamento", null)).toBe("In progress");
+    expect(situacaoDoPedido("cancelada", "Not started")).toBe("cancelada");
+    expect(situacaoEmPortugues("This Week")).toBe("Esta semana");
+    expect(situacaoEmPortugues("Done")).toBe("Feito");
+    expect(situacaoEmPortugues("cancelada")).toBe("Cancelado");
     expect(slugDe("Cobertura de Casamento!")).toBe("cobertura-de-casamento");
   });
 });

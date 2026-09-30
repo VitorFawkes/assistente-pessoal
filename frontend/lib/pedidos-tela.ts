@@ -2,7 +2,7 @@
 // formulário veio, as respostas (com as perguntas da versão em que foi pedido) e o que quem vê pode fazer.
 import { query } from "./db";
 import { marketingNaoComecou, mexeNoPedido } from "./pedidos-trava";
-import { textoDaResposta, type PedidoDaAcao, type Pergunta, type Resposta } from "./pedidos-tipos";
+import { casalDoPedido, rotuloDaPergunta, textoDaResposta, type PedidoDaAcao, type Pergunta, type Resposta } from "./pedidos-tipos";
 
 type Linha = {
   tarefa_id: string;
@@ -44,13 +44,15 @@ export async function pedidosParaTela(
   for (const l of linhas) {
     const perguntas = Array.isArray(l.perguntas_snapshot) ? l.perguntas_snapshot : [];
     const aberta = status.get(l.tarefa_id) !== "cancelada";
+    const respostas = l.respostas ?? {};
+    const casal = casalDoPedido(perguntas, respostas, l.card_titulo);
     out.set(l.tarefa_id, {
       formulario_id: l.formulario_id,
       formulario_nome: l.formulario_nome,
       versao: l.versao,
       card_id: l.card_id,
       card_titulo: l.card_titulo,
-      respostas: perguntas.map((p) => ({ rotulo: p.rotulo, texto: textoDaResposta(p, l.respostas?.[p.id]) })),
+      respostas: perguntas.map((p) => ({ rotulo: rotuloDaPergunta(p, casal), texto: textoDaResposta(p, respostas[p.id]) })),
       somente_leitura: !doMarketing,
       pode_cancelar: aberta && (doMarketing || (l.pedido_por === viewerId && marketingNaoComecou(l))),
     });

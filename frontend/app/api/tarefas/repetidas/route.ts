@@ -3,6 +3,7 @@ import { withAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/db";
 import { aposentarCopia, registrarMencao } from "@/lib/tarefas-repetidas-db";
 import { getOwnerSlug, isOwner } from "@/lib/owner-slug";
+import { travaDoPedido, type Recusa } from "@/lib/pedidos-trava";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -47,6 +48,26 @@ export const POST = withAuth(async (user, req) => {
   if (!body || !("acao" in body)) return NextResponse.json({ error: "corpo inválido" }, { status: 400 });
 
   try {
+    // Pedido ao marketing: juntar cancela a cópia e pode mudar o prazo da que fica; separar reabre a
+    // cópia e devolve o prazo. Tudo isso passa pela trava (antes da transação).
+    let trava: Recusa | null = null;
+    if (body.acao === "juntar" && UUID_RE.test(body.tarefa_id) && UUID_RE.test(body.alvo_id)) {
+      trava =
+        (await travaDoPedido(user.id, [body.tarefa_id], { cancelar: true })) ??
+        (await travaDoPedido(user.id, [body.alvo_id], { campos: ["prazo"] }));
+    } else if (body.acao === "separar" && UUID_RE.test(body.mencao_id)) {
+      const m = (
+        await withTenant(user.id, (c) =>
+          c.query<{ tarefa_id: string; tarefa_origem_id: string | null }>(
+            `SELECT tarefa_id::text AS tarefa_id, tarefa_origem_id::text AS tarefa_origem_id FROM tarefa_mencoes WHERE id = $1`,
+            [body.mencao_id],
+          ),
+        )
+      ).rows[0];
+      if (m) trava = await travaDoPedido(user.id, [m.tarefa_id, m.tarefa_origem_id ?? ""], { campos: ["status", "prazo"] });
+    }
+    if (trava) return NextResponse.json({ error: trava.erro }, { status: trava.status });
+
     const r = await withTenant(user.id, async (c) => {
       const pegar = async (id: string) =>
         (await c.query<Linha>(`SELECT * FROM tarefas WHERE id = $1 FOR UPDATE`, [id])).rows[0] ?? null;

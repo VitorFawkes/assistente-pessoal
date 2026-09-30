@@ -3,6 +3,7 @@ import { withAuth } from "@/lib/auth";
 import { acessoTarefa } from "@/lib/equipe-compartilhado";
 import { pedirEnvio } from "@/lib/notion-sync";
 import { buDoWorkspace } from "@/lib/notion-mapa";
+import { travaDoPedido } from "@/lib/pedidos-trava";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,9 @@ export const POST = withAuth(async (user, req) => {
   if (!body.tarefa_id) return NextResponse.json({ error: "qual ação?" }, { status: 400 });
   const acesso = await acessoTarefa(user.id, body.tarefa_id);
   if (!acesso) return NextResponse.json({ error: "ação não encontrada" }, { status: 404 });
+  // Pedido ao marketing: a pessoa e a área do Notion são do marketing (a área é a do formulário).
+  const trava = await travaDoPedido(user.id, [body.tarefa_id], { campos: ["quem_faz", "area"] });
+  if (trava) return NextResponse.json({ error: trava.erro }, { status: trava.status });
   const ok = await pedirEnvio({
     tarefaId: body.tarefa_id,
     donoId: acesso.donoId,

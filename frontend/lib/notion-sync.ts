@@ -152,11 +152,11 @@ type Rodada = {
 
 /** Pedido ao marketing: a página nasce no projeto do formulário, com Person e Assign juntos (a equipe usa o
  *  Assign; lido antes do Person) e "Pedido por X pelo TTARS, dd/mm" no corpo. */
-type PedidoNaRodada = { projeto: string; quem: string | null; criado_em: string | Date };
+type PedidoNaRodada = { projeto: string; bu: string | null; quem: string | null; criado_em: string | Date };
 
 async function pedidosDaRodada(): Promise<Map<string, PedidoNaRodada>> {
   const r = await query<PedidoNaRodada & { tarefa_id: string }>(
-    `SELECT tp.tarefa_id::text AS tarefa_id, COALESCE(tp.projeto_notion_page_id, '') AS projeto, u.nome AS quem, tp.criado_em
+    `SELECT tp.tarefa_id::text AS tarefa_id, COALESCE(tp.projeto_notion_page_id, '') AS projeto, tp.bu, u.nome AS quem, tp.criado_em
        FROM tarefa_pedidos tp LEFT JOIN users u ON u.id = tp.pedido_por`,
   ).catch((e: unknown) => {
     // Banco antes da 020: nenhuma ação é pedido.
@@ -917,6 +917,9 @@ async function enviar(c: Conexao, r: Rodada, pessoas: Map<string, PessoaNotion>)
         AND NOT EXISTS (SELECT 1 FROM notion_paginas p WHERE p.tarefa_id = e.tarefa_id)`,
     [c.id],
   );
+  // Pedido feito no meio desta rodada (depois da leitura do começo): lido de novo agora, depois da fila,
+  // para a página nunca nascer como página comum (sem o projeto, o Assign e a área do formulário).
+  if (pendentes.length) r.pedidos = await pedidosDaRodada();
   for (const e of pendentes) {
     try {
       const t = await lerAcao(e.tarefa_dono_id, e.tarefa_id);
@@ -936,7 +939,8 @@ async function enviar(c: Conexao, r: Rodada, pessoas: Map<string, PessoaNotion>)
       const pg = await criarPagina(
         c.token,
         c.data_source_id,
-        propriedadesPara(campos, { bu: e.bu ?? "Institucional", assign: !!pedido }),
+        // Pedido: a área é sempre a do formulário (nunca a da aba de quem mexeu antes de a página nascer).
+        propriedadesPara(campos, { bu: pedido?.bu ?? e.bu ?? "Institucional", assign: !!pedido }),
         pedido ? `Pedido por ${pedido.quem ?? quem ?? "alguém"} pelo TTARS, ${diaMesBR(pedido.criado_em)}` : `Pedido por ${quem ?? "alguém"} no Ações.`,
       );
       const lida = lerPagina(pg);

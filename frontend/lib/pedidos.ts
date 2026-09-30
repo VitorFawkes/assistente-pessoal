@@ -18,6 +18,7 @@ import {
   casalDoTitulo,
   conferirRespostas,
   descricaoDoPedido,
+  ehDeFora,
   ehErro,
   ehRoboOuTeste,
   estaNoPublico,
@@ -27,6 +28,7 @@ import {
   limparRascunho,
   respostaQuePreenche,
   situacaoDoPedido,
+  situacaoEmPortugues,
   slugDe,
   tituloDoPedido,
   type Destino,
@@ -122,7 +124,7 @@ export async function formulariosParaPedir(user: User): Promise<Saida> {
 
 type Repetido = { tarefa_id: string; pedido_por: string; criado_em: string; situacao: string };
 
-/** A situação de ações de pedido (lidas no tenant de quem pediu). */
+/** A situação crua de ações de pedido (lidas no tenant de quem pediu); a tela do TTARS traduz. */
 async function situacoes(pares: { tarefa_id: string; pedido_por_id: string }[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   const porDono = new Map<string, string[]>();
@@ -153,11 +155,11 @@ async function pedidoVivoDoCard(formularioId: string, cardId: string): Promise<R
   const x = r[0];
   if (!x) return null;
   const sit = await situacoes([x]);
-  return { tarefa_id: x.tarefa_id, pedido_por: x.pedido_por ?? "Alguém", criado_em: x.criado_em, situacao: sit.get(x.tarefa_id) ?? "Aberta" };
+  return { tarefa_id: x.tarefa_id, pedido_por: x.pedido_por ?? "Alguém", criado_em: x.criado_em, situacao: sit.get(x.tarefa_id) ?? "Not started" };
 }
 
 const repetido = (r: Repetido) =>
-  falha(409, `Já pedido por ${r.pedido_por} em ${diaMesBR(r.criado_em)} · ${r.situacao}`, { repetido: r });
+  falha(409, `Já pedido por ${r.pedido_por} em ${diaMesBR(r.criado_em)} · ${situacaoEmPortugues(r.situacao)}`, { repetido: r });
 
 /**
  * POST /api/ttars/pedidos. Corpo: { formulario_id, versao, card: {id, titulo} | null, respostas: {id: {valor, nao_temos?}},
@@ -194,7 +196,7 @@ export async function criarPedido(user: User, corpo: unknown): Promise<Saida> {
   const agora = new Date();
   const casal = respostaQuePreenche(f.perguntas, respostas, "casal") ?? (card ? casalDoTitulo(card.titulo) : null);
   const titulo = tituloDoPedido(f.destino.titulo_modelo, { casal, quem: user.nome, nomeDoFormulario: f.nome });
-  const descricao = descricaoDoPedido(f.perguntas, respostas, user.nome, diaMesBR(agora));
+  const descricao = descricaoDoPedido(f.perguntas, respostas, user.nome, diaMesBR(agora), card?.titulo);
   const dataCasamento = respostaQuePreenche(f.perguntas, respostas, "data_casamento");
   const prazo =
     f.destino.prazo.tipo === "data_casamento"
@@ -307,7 +309,7 @@ export async function pedidosDoCard(user: User, cardId: string): Promise<Saida> 
   const pedidos = [];
   for (const p of achados) {
     const situacao = sit.get(p.tarefa_id);
-    if (!situacao || situacao === "Cancelada") continue;
+    if (!situacao || situacao === "cancelada") continue;
     pedidos.push({
       formulario_nome: p.formulario_nome,
       tarefa_id: p.tarefa_id,
@@ -462,7 +464,12 @@ export async function apagarFormulario(user: User, id: string): Promise<Saida> {
 
 type PessoaContada = { email: string; nome: string; organizacao: string; times: { id: string }[] | null; entra: boolean };
 
-/** POST …/montar/contar — quantas pessoas veem o formulário com este público e quantas já entram no Ações. */
+/**
+ * POST …/montar/contar — quantas pessoas veem o formulário com este público e quantas já entram no Ações.
+ * Robôs, contas de teste e gente de fora da Welcome não contam. Quem só está no Teams (sem TTARS) conta em
+ * "Toda a Welcome", mas fica à parte (`so_teams`): não abre o formulário sem TTARS e não se libera por aqui,
+ * então não entra em `nao_entram` (o "Liberar essas Y" libera exatamente as Y).
+ */
 export async function contarPublico(user: User, corpo: unknown): Promise<Saida> {
   if (!(await podeMontar(user.id))) return SO_QUEM_MONTA();
   const publico = limparPublico(obj(corpo).publico);
@@ -477,10 +484,11 @@ export async function contarPublico(user: User, corpo: unknown): Promise<Saida> 
   );
   const pessoas = gente
     // Quem só está no Teams entra só em "Toda a Welcome" (estaNoPublico).
-    .filter((p) => !ehRoboOuTeste(p.email) && estaNoPublico(p, publico))
-    .map((p) => ({ nome: p.nome, email: p.email, entra: p.entra }));
+    .filter((p) => !ehRoboOuTeste(p.email) && !ehDeFora(p.email) && estaNoPublico(p, publico))
+    .map((p) => ({ nome: p.nome, email: p.email, entra: p.entra, so_teams: p.organizacao.startsWith(MARCA_DO_TEAMS) }));
   const jaEntram = pessoas.filter((p) => p.entra).length;
-  return certo({ total: pessoas.length, ja_entram: jaEntram, nao_entram: pessoas.length - jaEntram, pessoas });
+  const soTeams = pessoas.filter((p) => !p.entra && p.so_teams).length;
+  return certo({ total: pessoas.length, ja_entram: jaEntram, nao_entram: pessoas.length - jaEntram - soTeams, so_teams: soTeams, pessoas });
 }
 
 /** POST …/montar/liberar — só o administrador: libera o Ações para estas pessoas (da lista do TTARS). */
@@ -493,7 +501,7 @@ export async function liberarPessoas(user: User, corpo: unknown): Promise<Saida>
     `SELECT email FROM ttars_pessoas WHERE email = ANY($1::text[]) AND COALESCE(organizacao, '') <> '' AND LEFT(organizacao, $2) <> $3`,
     [emails, MARCA_DO_TEAMS.length, MARCA_DO_TEAMS],
   );
-  const liberar = daLista.map((x) => x.email).filter((e) => !ehRoboOuTeste(e));
+  const liberar = daLista.map((x) => x.email).filter((e) => !ehRoboOuTeste(e) && !ehDeFora(e));
   if (liberar.length) {
     await query(
       `INSERT INTO acessos_equipe (email, liberado, alterado_por, alterado_em, criado_em)

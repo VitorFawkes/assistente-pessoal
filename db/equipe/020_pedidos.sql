@@ -109,17 +109,16 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
                 WHERE u.id = equipe_eu() AND u.deleted_at IS NULL))
 $$;
 
--- Quem mexe num pedido além de comentar, ver e anexar: o marketing (quem monta e quem está nos
--- projetos do Notion do marketing no Ações) ou o administrador.
+-- Quem mexe num pedido além de comentar, ver e anexar: o marketing ou o administrador. Marketing =
+-- quem monta, ou a gente do Notion do marketing (a mesma que a rodada do Notion põe nos projetos de lá:
+-- notion_pessoas com conta no Ações). Quem foi chamado para um projeto por um colega (quadro_membros)
+-- NÃO vira marketing: senão a trava se abriria por convite.
 CREATE OR REPLACE FUNCTION pedido_posso_mexer() RETURNS BOOLEAN
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT equipe_eu() IS NOT NULL AND (
     pedido_posso_montar()
-    OR EXISTS (SELECT 1 FROM quadro_membros qm
-                WHERE qm.user_id = equipe_eu()
-                  AND qm.quadro_id IN (SELECT np.quadro_id FROM notion_projetos np WHERE np.quadro_id IS NOT NULL
-                                       UNION
-                                       SELECT nc.quadro_id FROM notion_conexoes nc WHERE nc.ativo AND nc.quadro_id IS NOT NULL)))
+    OR EXISTS (SELECT 1 FROM notion_pessoas np JOIN notion_conexoes nc ON nc.id = np.conexao_id AND nc.ativo
+                WHERE np.user_id = equipe_eu()))
 $$;
 
 ALTER TABLE pedido_formularios DISABLE ROW LEVEL SECURITY;
@@ -128,9 +127,9 @@ ALTER TABLE pedido_montadores DISABLE ROW LEVEL SECURITY;
 ALTER TABLE pedido_leituras DISABLE ROW LEVEL SECURITY;
 REVOKE ALL ON pedido_formularios, tarefa_pedidos, pedido_montadores, pedido_leituras FROM PUBLIC, anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON pedido_formularios, tarefa_pedidos, pedido_montadores, pedido_leituras TO app_tenant, app_writer;
-REVOKE ALL ON FUNCTION pedido_acompanha_situacao() FROM PUBLIC;
-REVOKE ALL ON FUNCTION pedido_posso_montar() FROM PUBLIC;
-REVOKE ALL ON FUNCTION pedido_posso_mexer() FROM PUBLIC;
+REVOKE ALL ON FUNCTION pedido_acompanha_situacao() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pedido_posso_montar() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pedido_posso_mexer() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION pedido_acompanha_situacao() TO app_tenant, app_writer;
 GRANT EXECUTE ON FUNCTION pedido_posso_montar() TO app_tenant, app_writer;
 GRANT EXECUTE ON FUNCTION pedido_posso_mexer() TO app_tenant, app_writer;
@@ -182,5 +181,14 @@ VALUES (
   )
 )
 ON CONFLICT (slug) DO NOTHING;
+
+-- Rotinas ainda não sincronizado quando a 020 rodou: rodar de novo preenche o projeto (só na semente
+-- nunca mexida por quem monta; quem escolheu "sem projeto" na tela não é desfeito).
+UPDATE pedido_formularios f
+   SET destino = jsonb_set(f.destino, '{projeto_notion_page_id}', to_jsonb(r.page_id))
+  FROM (SELECT np.page_id FROM notion_projetos np WHERE np.nome = 'Rotinas' AND NOT np.no_lixo
+         ORDER BY np.sincronizado_em DESC LIMIT 1) r
+ WHERE f.slug = 'cobertura-casamento' AND f.versao = 1 AND f.atualizado_por IS NULL AND f.rascunho IS NULL
+   AND f.destino->>'projeto_notion_page_id' IS NULL;
 
 COMMIT;

@@ -484,6 +484,10 @@ export async function incorporarTarefas(p: {
       [p.userId, p.meetingId, ABERTAS],
     );
     const recentePorTitulo = new Map(recentes.rows.map((r) => [normalizarTitulo(r.titulo), r.id]));
+    // Pedido ao marketing: o prazo e a situação são do marketing; a reunião nunca junta nele (vira "parece com").
+    const temPedidos = (await c.query<{ ok: boolean }>(`SELECT to_regclass('tarefa_pedidos') IS NOT NULL AS ok`)).rows[0]?.ok;
+    const ehPedido = async (id: string) =>
+      !!temPedidos && ((await c.query(`SELECT 1 FROM tarefa_pedidos WHERE tarefa_id = $1`, [id])).rowCount ?? 0) > 0;
 
     const guardar: { id: string; hash: string; v: number[] }[] = [...vetoresNovos];
     for (let i = 0; i < novas.length; i++) {
@@ -503,7 +507,7 @@ export async function incorporarTarefas(p: {
             [d.tarefaId],
           )
         ).rows[0];
-        if (!agora || !ABERTAS.includes(agora.status)) {
+        if (!agora || !ABERTAS.includes(agora.status) || (await ehPedido(d.tarefaId))) {
           d = agora ? { tipo: "duvida", tarefaId: d.tarefaId, votos: d.votos } : { tipo: "nova", votos: 0 };
         } else if (agora.meeting_id === p.meetingId) {
           // reprocessando: já existe nesta mesma reunião (feita à mão ou mantida)

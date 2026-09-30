@@ -273,16 +273,27 @@ export function ehRoboOuTeste(email: string): boolean {
   );
 }
 
+/** Os e-mails da gente da Welcome no TTARS (30/09/2026: todos os ativos das empresas Welcome, tirando as contas
+ *  de teste e o Robson, de growthway.online). */
+const DOMINIOS_DA_WELCOME = ["welcometrips.com.br", "welcomeweddings.com.br"];
+
+/** De fora da Welcome (ex.: o Robson): não conta nem é liberado pelo formulário (página aprovada, bloco 1). */
+export function ehDeFora(email: string): boolean {
+  const dominio = email.trim().toLowerCase().split("@")[1] ?? "";
+  return !DOMINIOS_DA_WELCOME.includes(dominio);
+}
+
 // ── respostas ───────────────────────────────────────────────────────────────────────────────
 
 const vazio = (v: Resposta["valor"] | undefined) =>
   v === null || v === undefined || (typeof v === "string" && !v.trim()) || (Array.isArray(v) && !v.length);
 
-/** A resposta de uma pergunta como aparece na ação e no Notion. */
+/** A resposta de uma pergunta como aparece na ação e no Notion (o casamento sem o prefixo do quadro). */
 export function textoDaResposta(p: Pergunta, r: Resposta | undefined): string {
   if (r?.nao_temos && p.aceita_nao_temos) return "ainda não temos";
   const v = r?.valor;
   if (vazio(v)) return "—";
+  if (p.tipo === "casamento" && typeof v === "string") return casalDoTitulo(v) || v.trim();
   if (p.tipo === "sim_nao") return v === true ? "Sim" : v === false ? "Não" : String(v);
   if (p.tipo === "data" && typeof v === "string" && DIA.test(v)) return `${v.slice(8, 10)}/${v.slice(5, 7)}/${v.slice(0, 4)}`;
   if (Array.isArray(v)) return v.join(", ");
@@ -357,47 +368,86 @@ export function tituloDoPedido(modelo: string, dados: { casal: string | null; qu
   return (t || dados.nomeDoFormulario).slice(0, 300);
 }
 
+/** "Lucas e William" → ["Lucas", "William"]; sem as duas pessoas claras, null (igual à janela do TTARS). */
+export function pessoasDoCasal(casal: string | null | undefined): [string, string] | null {
+  const partes = (casal ?? "").split(/\s+(?:e|&)\s+/i).map((p) => p.trim());
+  if (partes.length !== 2 || !partes[0] || !partes[1]) return null;
+  return [partes[0], partes[1]];
+}
+
+/** As duas pessoas do casal de um pedido: pelo casamento escolhido (como a janela do TTARS), senão pela
+ *  resposta que preenche o casal. */
+export function casalDoPedido(perguntas: Pergunta[], respostas: Record<string, Resposta>, cardTitulo: string | null | undefined): [string, string] | null {
+  return pessoasDoCasal(casalDoTitulo(cardTitulo)) ?? pessoasDoCasal(respostaQuePreenche(perguntas, respostas, "casal"));
+}
+
+/** O rótulo como quem lê vê: o Instagram de cada pessoa do casal vira "Instagram de <nome>". */
+export function rotuloDaPergunta(p: Pergunta, casal: [string, string] | null): string {
+  if (p.tipo === "instagram" && p.pessoa && casal) return `Instagram de ${casal[p.pessoa - 1]}`;
+  return p.rotulo;
+}
+
 /** A descrição: quem pediu e quando (dd/mm de Brasília) e uma linha por pergunta (resposta de várias linhas
- *  fica numa só, separada por " · "). */
-export function descricaoDoPedido(perguntas: Pergunta[], respostas: Record<string, Resposta>, quem: string, diaMes: string): string {
+ *  fica numa só, separada por " · "). Fica de fora o que já está escrito: quem preenche (1ª linha) e o
+ *  casamento quando o nome do casal já vem numa pergunta. Rótulo que é pergunta perde o "?" antes do ":". */
+export function descricaoDoPedido(
+  perguntas: Pergunta[],
+  respostas: Record<string, Resposta>,
+  quem: string,
+  diaMes: string,
+  cardTitulo?: string | null,
+): string {
   const numaLinha = (t: string) => t.split(/\r?\n/).map((x) => x.trim()).filter(Boolean).join(" · ");
-  return [linhaDePedido(quem, diaMes), ...perguntas.map((p) => `${p.rotulo}: ${numaLinha(textoDaResposta(p, respostas[p.id]))}`)].join("\n");
+  const casal = casalDoPedido(perguntas, respostas, cardTitulo);
+  const temNomeDoCasal = !!respostaQuePreenche(perguntas, respostas, "casal");
+  const linhas = perguntas
+    .filter((p) => p.tipo !== "automatico_quem_pede" && !(p.tipo === "casamento" && temNomeDoCasal))
+    .map((p) => `${rotuloDaPergunta(p, casal).replace(/\s*\?+\s*$/, "")}: ${numaLinha(textoDaResposta(p, respostas[p.id]))}`);
+  return [linhaDePedido(quem, diaMes), ...linhas].join("\n");
 }
 
 export const linhaDePedido = (quem: string, diaMes: string) => `Pedido por ${quem} pelo TTARS, ${diaMes}`;
 
-/** Título do card sem os prefixos do quadro ("DW |", "DW l", "W -", "Elopement |"). */
+/** Título do card sem os prefixos do quadro ("DW |", "DW l", "EW |", "W -", "Elopement |"; igual ao TTARS). */
 export function casalDoTitulo(titulo: string | null | undefined): string {
-  return (titulo ?? "").replace(/^\s*(DW\s*[|l]|W\s*-|Elopement\s*\|)\s*/i, "").trim();
+  return (titulo ?? "")
+    .replace(/^\s*(?:DW|EW|W|Elopement)\s*(?:\||-|–|l(?=\s))\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 // ── situação ────────────────────────────────────────────────────────────────────────────────
 
-const DO_NOTION: Record<string, string> = {
-  "not started": "Ainda não começou",
-  "up next": "Na fila",
-  "this week": "Nesta semana",
-  "to day": "Hoje",
-  today: "Hoje",
-  daily: "Todo dia",
-  "in progress": "Em andamento",
-  "in approval": "Esperando aprovação",
-  locked: "Travada",
-  done: "Feita",
-};
-const DO_ACOES: Record<string, string> = {
-  aberta: "Aberta",
-  em_andamento: "Em andamento",
-  aguardando_aprovacao: "Esperando aprovação",
-  concluida: "Concluída",
-  cancelada: "Cancelada",
+/** Ação sem página no Notion ainda: o nome de lá que quer dizer a mesma coisa. */
+const DO_ACOES_PARA_NOTION: Record<string, string> = {
+  aberta: "Not started",
+  em_andamento: "In progress",
+  aguardando_aprovacao: "In approval",
+  concluida: "Done",
 };
 
-/** A situação do pedido em português: a do Notion quando a página existe, senão a da ação. */
+/** A situação do pedido CRUA (quem traduz é a tela do TTARS, num lugar só): "cancelada", o nome do Notion
+ *  quando a página existe ("Not started", "This Week"…), senão o nome de lá que equivale à situação da ação. */
 export function situacaoDoPedido(status: string, statusNotion: string | null): string {
-  if (status === "cancelada") return DO_ACOES.cancelada;
-  if (statusNotion) return DO_NOTION[statusNotion.trim().toLowerCase()] ?? statusNotion;
-  return DO_ACOES[status] ?? status;
+  if (status === "cancelada") return "cancelada";
+  if (statusNotion?.trim()) return statusNotion.trim();
+  return DO_ACOES_PARA_NOTION[status] ?? "Not started";
+}
+
+/** Só para o texto do erro de repetido (a tela usa o mesmo mapa, com as palavras da página aprovada). */
+export function situacaoEmPortugues(s: string | null | undefined): string {
+  const t = (s ?? "").trim();
+  const m: Record<string, string> = {
+    "not started": "Ainda não começou",
+    "up next": "Próxima",
+    "this week": "Esta semana",
+    "in progress": "Fazendo",
+    "in approval": "Esperando aprovação",
+    done: "Feito",
+    cancelada: "Cancelado",
+    canceled: "Cancelado",
+  };
+  return m[t.toLowerCase()] ?? (t || "Ainda não começou");
 }
 
 /** Nome curto para o endereço do formulário. */

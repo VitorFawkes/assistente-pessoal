@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { withAgentAuth } from "@/lib/auth";
 import { tarefasFor } from "@/lib/queries";
+import { travaDoPedido } from "@/lib/pedidos-trava";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,9 @@ export const POST = withAgentAuth<Ctx>(async ({ user }, req, ctx) => {
   if (!nome) return NextResponse.json({ error: "nome obrigatório" }, { status: 400 });
 
   try {
+    // Pedido ao marketing: quem faz é do marketing.
+    const trava = await travaDoPedido(user.id, [id], { campos: ["pessoas"] });
+    if (trava) return NextResponse.json({ error: trava.erro }, { status: trava.status });
     const updated = await tarefasFor(user.id).atrelarPessoa(id, nome, !!body.principal);
     if (!updated) {
       return NextResponse.json({ error: "tarefa não encontrada" }, { status: 404 });

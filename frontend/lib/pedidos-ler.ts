@@ -30,16 +30,17 @@ const ESQUEMA = {
         type: "object",
         additionalProperties: false,
         properties: {
-          tipo: { type: "string", enum: TIPOS.filter((t) => t !== "automatico_quem_pede") },
+          tipo: { type: "string", enum: TIPOS },
           rotulo: { type: "string", description: "A pergunta como a pessoa vai ler (curta, sem numeração)." },
           ajuda: { type: ["string", "null"], description: "Explicação que estava junto da pergunta, ou null." },
           obrigatoria: { type: "boolean" },
           aceita_nao_temos: { type: "boolean", description: "true quando o dado pode ainda não existir (ex.: Instagram, contato)." },
           opcoes: { type: "array", items: { type: "string" }, description: "Só em escolha_unica e multipla; senão []." },
           preenche: { type: ["string", "null"], enum: [...PREENCHE, null] },
+          pessoa: { type: ["integer", "null"], enum: [1, 2, null], description: "Só no Instagram de uma pessoa do casal: 1 (a primeira) ou 2 (a segunda); senão null." },
           linha_original: { type: "string", description: "A linha do arquivo de onde a pergunta saiu, sem mudar nada." },
         },
-        required: ["tipo", "rotulo", "ajuda", "obrigatoria", "aceita_nao_temos", "opcoes", "preenche", "linha_original"],
+        required: ["tipo", "rotulo", "ajuda", "obrigatoria", "aceita_nao_temos", "opcoes", "preenche", "pessoa", "linha_original"],
       },
     },
     ignoradas: { type: "array", items: { type: "string" }, description: "Linhas que não são pergunta (títulos, avisos), como estão no arquivo." },
@@ -50,7 +51,8 @@ const ESQUEMA = {
 const INSTRUCOES = [
   "Você lê um documento com as perguntas de um formulário de pedido interno da Welcome (agência de viagens e casamentos) e devolve as perguntas.",
   "Cada pergunta do documento vira UMA pergunta, na mesma ordem, com as palavras do documento (tire só numeração e marcadores).",
-  "tipo: texto (resposta curta), paragrafo (resposta longa ou lista), data, sim_nao (sim/não), escolha_unica e multipla (quando o documento lista as opções; ponha em opcoes), telefone_email, instagram (@ de alguém), link, numero, casamento (quando pede para escolher o casamento).",
+  "tipo: texto (resposta curta), paragrafo (resposta longa ou lista), data, sim_nao (sim/não), escolha_unica e multipla (quando o documento lista as opções; ponha em opcoes), telefone_email, instagram (@ de alguém), link, numero, casamento (quando pede para escolher o casamento), automatico_quem_pede (quando pede o nome de quem está preenchendo: o sistema preenche sozinho).",
+  "pessoa: no Instagram de uma das duas pessoas do casal (noiva, noivo, noiva 1, noivo 2…), 1 para a primeira que aparece e 2 para a segunda; senão null.",
   "preenche: data_casamento, casal, local, programacao, produtora ou instagram quando a pergunta é exatamente esse dado do casamento; senão null.",
   "obrigatoria: true quando o documento diz que é obrigatória (asterisco, 'obrigatório'); na dúvida, false.",
   "linha_original: copie a linha do documento de onde saiu a pergunta.",
@@ -153,8 +155,8 @@ export async function lerArquivoDePerguntas(user: User, corpo: unknown): Promise
     usouIa = true;
   } catch (e) {
     if (!(e instanceof IaIndisponivel) && !(e instanceof SyntaxError)) console.error("[pedidos] ler arquivo:", e);
-    // Plano B: texto vira uma pergunta por linha; foto não tem como.
-    if (!texto.trim()) return falha(422, "Sem a IA não dá para ler foto: cole o texto");
+    // Plano B: texto vira uma pergunta por linha; foto (ou PDF escaneado) não tem como.
+    if (!texto.trim()) return falha(422, "Sem a IA não dá para ler foto nem PDF escaneado: cole o texto");
     lida = perguntasPorLinha(texto);
   }
   const textoLido = texto.trim() ? texto : [...lida.perguntas.map((p) => p.linha_original ?? p.rotulo), ...lida.ignoradas].join("\n");
