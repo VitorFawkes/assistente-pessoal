@@ -1,6 +1,9 @@
 // Pedidos ao Marketing (30/09/2026): os tipos que o servidor e o TTARS usam com os MESMOS nomes, e as
 // regras puras (conferir o que vem da tela, quem é do público, como cada resposta vira texto). Sem I/O —
 // testadas em pedidos-tipos.test.ts.
+// 01/10/2026 ("Pq só uma pessoa pode receber o formulário?"): várias pessoas recebem (a 1ª faz, as outras
+// também fazem), prazo pela data que quem pede escolhe, área pela marca de quem pede e repetido por formulário.
+import { maisDiasBR } from "./data-br";
 import { MARCA_DO_TEAMS } from "./ttars-auth";
 
 export type TipoPergunta =
@@ -39,13 +42,20 @@ export interface Publico {
 export type Area = "Weddings" | "Trips" | "Corp" | "Institucional";
 export type PrioridadePedido = "baixa" | "media" | "alta" | "urgente";
 export interface Destino {
+  /** = quem_emails[0] (formulário antigo só tinha este). */
   quem_email: string;
+  /** Quem recebe, na ordem: a 1ª faz, as outras também fazem (1 a 10). */
+  quem_emails: string[];
   projeto_notion_page_id: string | null;
-  bu: Area;
+  /** "quem_pede" = a marca de quem pede (com mais de uma, ela escolhe). */
+  bu: Area | "quem_pede";
   prioridade: PrioridadePedido;
-  prazo: { tipo: "data_casamento" | "dias" | "sem"; dias?: number };
+  /** "pergunta" = a data que quem pede responde na pergunta `pergunta_id` (de data e obrigatória). */
+  prazo: { tipo: "data_casamento" | "dias" | "sem" | "pergunta"; dias?: number; pergunta_id?: string };
   /** Ex.: "Cobertura I {casal} I Pedido"; {casal} e {quem}. */
   titulo_modelo: string;
+  /** Um pedido vivo por casamento (false = o mesmo casamento pode ter vários). */
+  um_por_casamento: boolean;
 }
 export interface Rascunho {
   nome: string;
@@ -84,6 +94,11 @@ export interface PedidoDaAcao {
   respostas: { rotulo: string; texto: string }[];
   somente_leitura: boolean;
   pode_cancelar: boolean;
+  /** Quem pediu (ou o marketing) completa as respostas enquanto o pedido não foi encerrado. */
+  pode_completar: boolean;
+  /** As perguntas da versão em que foi pedido. */
+  perguntas: Pergunta[];
+  respostas_brutas: Record<string, Resposta>;
 }
 
 export const TIPOS: TipoPergunta[] = [
@@ -105,6 +120,7 @@ export const EMPRESAS = ["Welcome Weddings", "Welcome Trips", "Welcome Corporati
 export const AREAS: Area[] = ["Weddings", "Trips", "Corp", "Institucional"];
 export const PRIORIDADES: PrioridadePedido[] = ["baixa", "media", "alta", "urgente"];
 export const MAX_PERGUNTAS = 80;
+export const MAX_QUEM_RECEBE = 10;
 
 const DIA = /^\d{4}-\d{2}-\d{2}$/;
 const ID_PERGUNTA = /^[a-z0-9_-]{1,40}$/i;
@@ -182,13 +198,21 @@ export function limparPublico(x: unknown): Publico | Erro {
   return { tipo, empresas, times };
 }
 
-/** `estrito` = para publicar (precisa de quem recebe). O rascunho aceita incompleto. */
+/**
+ * `estrito` = para publicar (precisa de quem recebe). O rascunho aceita incompleto. Quem recebe vem em
+ * `quem_emails` (a ordem vale); formulário antigo, só com `quem_email`, vira uma lista de uma pessoa.
+ */
 export function limparDestino(x: unknown, estrito: boolean): Destino | Erro {
   const o = (x && typeof x === "object" ? x : {}) as Record<string, unknown>;
-  const quem = texto(o.quem_email, 200).toLowerCase();
-  if (quem && !EMAIL_RE.test(quem)) return { erro: "O e-mail de quem recebe não está certo." };
-  if (estrito && !quem) return { erro: "Escolha a pessoa do marketing que recebe o pedido." };
-  const bu = (AREAS.includes(o.bu as Area) ? o.bu : "Institucional") as Area;
+  const lista = Array.isArray(o.quem_emails) ? o.quem_emails : typeof o.quem_emails === "string" ? [o.quem_emails] : [o.quem_email];
+  const quem: string[] = [];
+  for (const e of lista.map((v) => texto(v, 200).toLowerCase()).filter(Boolean)) {
+    if (!EMAIL_RE.test(e)) return { erro: `O e-mail de quem recebe não está certo (${e}).` };
+    if (!quem.includes(e)) quem.push(e);
+  }
+  if (quem.length > MAX_QUEM_RECEBE) return { erro: `No máximo ${MAX_QUEM_RECEBE} pessoas recebem o pedido.` };
+  if (estrito && !quem.length) return { erro: "Escolha a pessoa do marketing que recebe o pedido." };
+  const bu = (AREAS.includes(o.bu as Area) || o.bu === "quem_pede" ? o.bu : "Institucional") as Destino["bu"];
   const prioridade = (PRIORIDADES.includes(o.prioridade as PrioridadePedido) ? o.prioridade : "media") as PrioridadePedido;
   const pr = (o.prazo && typeof o.prazo === "object" ? o.prazo : {}) as Record<string, unknown>;
   let prazo: Destino["prazo"] = { tipo: "sem" };
@@ -197,17 +221,34 @@ export function limparDestino(x: unknown, estrito: boolean): Destino | Erro {
     const dias = Number(pr.dias);
     if (!Number.isInteger(dias) || dias < 0 || dias > 365) return { erro: "O prazo em dias vai de 0 a 365." };
     prazo = { tipo: "dias", dias };
+  } else if (pr.tipo === "pergunta") {
+    // A pergunta ainda pode não ter sido escolhida no rascunho: publicar confere.
+    prazo = { tipo: "pergunta", pergunta_id: typeof pr.pergunta_id === "string" && ID_PERGUNTA.test(pr.pergunta_id) ? pr.pergunta_id : "" };
   }
   const projeto = typeof o.projeto_notion_page_id === "string" && o.projeto_notion_page_id.trim() ? o.projeto_notion_page_id.trim().slice(0, 100) : null;
   return {
-    quem_email: quem,
+    quem_email: quem[0] ?? "",
+    quem_emails: quem,
     projeto_notion_page_id: projeto,
     bu,
     prioridade,
     prazo,
     titulo_modelo: texto(o.titulo_modelo, 200),
+    um_por_casamento: o.um_por_casamento !== false,
   };
 }
+
+/** Destino de formulário novo (ou ilegível). */
+export const destinoVazio = (): Destino => ({
+  quem_email: "",
+  quem_emails: [],
+  projeto_notion_page_id: null,
+  bu: "Institucional",
+  prioridade: "media",
+  prazo: { tipo: "sem" },
+  titulo_modelo: "",
+  um_por_casamento: true,
+});
 
 /** O rascunho inteiro (Salvar rascunho). */
 export function limparRascunho(x: unknown): Rascunho | Erro {
@@ -226,11 +267,17 @@ export function limparRascunho(x: unknown): Rascunho | Erro {
 /** O que falta para publicar (null = pode). */
 export function faltaParaPublicar(r: Rascunho): string | null {
   if (!r.perguntas.length) return "Ponha pelo menos uma pergunta.";
-  if (!r.destino.quem_email) return "Escolha a pessoa do marketing que recebe o pedido.";
+  if (!r.destino.quem_emails.length) return "Escolha a pessoa do marketing que recebe o pedido.";
   if (r.publico.tipo === "empresas" && !r.publico.empresas.length) return "Escolha pelo menos uma empresa que pode pedir.";
   if (r.publico.tipo === "times" && !r.publico.times.length) return "Escolha pelo menos um time que pode pedir.";
   const semOpcao = r.perguntas.find((p) => COM_OPCOES.includes(p.tipo) && (p.opcoes?.length ?? 0) < 2);
   if (semOpcao) return `"${semOpcao.rotulo}" precisa de pelo menos 2 opções.`;
+  if (r.destino.prazo.tipo === "pergunta") {
+    const p = r.perguntas.find((x) => x.id === r.destino.prazo.pergunta_id);
+    if (!p) return "Escolha a pergunta de data que vira o prazo.";
+    if (p.tipo !== "data") return `"${p.rotulo}" não é uma pergunta de data: o prazo precisa de uma pergunta de data.`;
+    if (!p.obrigatoria) return `"${p.rotulo}" precisa ser obrigatória para virar o prazo.`;
+  }
   return null;
 }
 
@@ -252,6 +299,27 @@ export function estaNoPublico(p: PessoaDoPublico | null, publico: Publico): bool
   }
   const meus = new Set((Array.isArray(p.times) ? p.times : []).map((t) => t?.id).filter(Boolean));
   return publico.times.some((t) => meus.has(t.id));
+}
+
+const MARCA_DA_EMPRESA: Record<string, Area> = { "Welcome Trips": "Trips", "Welcome Weddings": "Weddings", "Welcome Corporativo": "Corp" };
+
+/** As marcas (áreas) de uma pessoa pela empresa dela no TTARS, na ordem de lá ("Welcome Group" não é marca). */
+export function marcasDaOrganizacao(organizacao: string | null | undefined): Area[] {
+  let org = organizacao ?? "";
+  if (org.startsWith(MARCA_DO_TEAMS)) org = org.slice(MARCA_DO_TEAMS.length);
+  return [...new Set(empresasDe(org).map((e) => MARCA_DA_EMPRESA[e]).filter((a): a is Area => !!a))];
+}
+
+/**
+ * A área do pedido: a fixa do formulário ou, com "quem_pede", a marca de quem pede. Uma marca só: ela;
+ * nenhuma: Institucional; mais de uma: a que a pessoa escolheu (precisa ser uma das dela).
+ */
+export function areaDoPedido(bu: Destino["bu"], marcas: Area[], escolhida: unknown): Area | Erro {
+  if (bu !== "quem_pede") return bu;
+  if (!marcas.length) return "Institucional";
+  if (marcas.length === 1) return marcas[0];
+  if (typeof escolhida === "string" && marcas.includes(escolhida as Area)) return escolhida as Area;
+  return { erro: `Escolha a área do pedido: ${marcas.join(" ou ")}.` };
 }
 
 /** Um time do TTARS pode acompanhar pedidos deste público (empresas: o time é de uma delas). */
@@ -402,16 +470,87 @@ export function descricaoDoPedido(
   diaMes: string,
   cardTitulo?: string | null,
 ): string {
+  return [linhaDePedido(quem, diaMes), ...linhasDasRespostas(perguntas, respostas, cardTitulo).map((l) => l.linha)].join("\n");
+}
+
+/** Uma linha "Rótulo: resposta" por pergunta da descrição (o rótulo sem o "?" do fim). */
+function linhasDasRespostas(perguntas: Pergunta[], respostas: Record<string, Resposta>, cardTitulo?: string | null) {
   const numaLinha = (t: string) => t.split(/\r?\n/).map((x) => x.trim()).filter(Boolean).join(" · ");
   const casal = casalDoPedido(perguntas, respostas, cardTitulo);
   const temNomeDoCasal = !!respostaQuePreenche(perguntas, respostas, "casal");
-  const linhas = perguntas
+  return perguntas
     .filter((p) => p.tipo !== "automatico_quem_pede" && !(p.tipo === "casamento" && temNomeDoCasal))
-    .map((p) => `${rotuloDaPergunta(p, casal).replace(/\s*\?+\s*$/, "")}: ${numaLinha(textoDaResposta(p, respostas[p.id]))}`);
-  return [linhaDePedido(quem, diaMes), ...linhas].join("\n");
+    .map((p) => {
+      const rotulo = rotuloDaPergunta(p, casal).replace(/\s*\?+\s*$/, "");
+      return { id: p.id, rotulo, linha: `${rotulo}: ${numaLinha(textoDaResposta(p, respostas[p.id]))}` };
+    });
 }
 
 export const linhaDePedido = (quem: string, diaMes: string) => `Pedido por ${quem} pelo TTARS, ${diaMes}`;
+
+/**
+ * A descrição depois de completar as respostas (mesma montagem, com a 1ª linha do dia em que foi pedido).
+ * Nada que alguém escreveu se perde: o que veio depois do bloco do pedido (ex.: a nota do marketing na
+ * coluna Text do Notion) fica; se o bloco foi mexido, troca só a linha de cada resposta que mudou (achada
+ * pelo rótulo) e a que não achar vai no fim.
+ */
+export function descricaoAtualizada(
+  atual: string | null | undefined,
+  perguntas: Pergunta[],
+  antes: Record<string, Resposta>,
+  depois: Record<string, Resposta>,
+  quem: string,
+  diaMes: string,
+  cardTitulo?: string | null,
+): string {
+  const velha = descricaoDoPedido(perguntas, antes, quem, diaMes, cardTitulo);
+  const nova = descricaoDoPedido(perguntas, depois, quem, diaMes, cardTitulo);
+  const texto = (atual ?? "").replace(/\r\n/g, "\n");
+  if (!texto.trim() || texto === velha) return nova;
+  if (texto.startsWith(`${velha}\n`)) return nova + texto.slice(velha.length);
+  const linhas = texto.split("\n");
+  const eram = linhasDasRespostas(perguntas, antes, cardTitulo);
+  for (const n of linhasDasRespostas(perguntas, depois, cardTitulo)) {
+    const a = eram.find((x) => x.id === n.id);
+    if (a?.linha === n.linha) continue;
+    let i = a ? linhas.findIndex((l) => l.trim() === a.linha) : -1;
+    if (i < 0) i = linhas.findIndex((l) => l.startsWith(`${(a ?? n).rotulo}:`));
+    if (i >= 0) linhas[i] = n.linha;
+    else linhas.push(n.linha);
+  }
+  return linhas.join("\n");
+}
+
+/** Os rótulos (como quem lê vê) das respostas que mudaram, sem quem pede e o casamento (o servidor preenche). */
+export function respostasQueMudaram(
+  perguntas: Pergunta[],
+  antes: Record<string, Resposta>,
+  depois: Record<string, Resposta>,
+  cardTitulo?: string | null,
+): string[] {
+  const casal = casalDoPedido(perguntas, depois, cardTitulo);
+  return perguntas
+    .filter((p) => p.tipo !== "automatico_quem_pede" && p.tipo !== "casamento")
+    .filter((p) => textoDaResposta(p, antes[p.id]) !== textoDaResposta(p, depois[p.id]))
+    .map((p) => rotuloDaPergunta(p, casal));
+}
+
+/** O prazo da ação (AAAA-MM-DD de Brasília) pelo destino do formulário. */
+export function prazoDoPedido(destino: Destino, perguntas: Pergunta[], respostas: Record<string, Resposta>, agora: Date): string | null {
+  const prazo = destino.prazo;
+  if (prazo.tipo === "data_casamento") return respostaQuePreenche(perguntas, respostas, "data_casamento");
+  if (prazo.tipo === "dias") return maisDiasBR(prazo.dias ?? 0, agora);
+  if (prazo.tipo === "pergunta") {
+    const v = prazo.pergunta_id ? respostas[prazo.pergunta_id]?.valor : null;
+    return typeof v === "string" && DIA.test(v) ? v : null;
+  }
+  return null;
+}
+
+/** Encerrado (feito ou cancelado): quem pediu não completa mais as respostas, só comenta. */
+export function pedidoEncerrado(status: string | null | undefined, statusNotion: string | null | undefined): boolean {
+  return status === "concluida" || status === "cancelada" || (statusNotion ?? "").trim().toLowerCase() === "done";
+}
 
 /** Título do card sem os prefixos do quadro ("DW |", "DW l", "EW |", "W -", "Elopement |"; igual ao TTARS). */
 export function casalDoTitulo(titulo: string | null | undefined): string {
