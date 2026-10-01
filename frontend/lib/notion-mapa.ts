@@ -48,6 +48,9 @@ export type PaginaLida = Campos & {
   pessoas: { id: string; nome: string; email: string | null }[];
   /** A 1ª pessoa da coluna Assign ("" = ninguém). Nas páginas de pedido ao marketing, ela vale antes do Person. */
   assign: string;
+  /** As pessoas de cada coluna, na ordem de lá (pedido: a lista inteira fica quando só a 1ª muda). */
+  listaPerson: string[];
+  listaAssign: string[];
 };
 
 /** Uma página da base Projects do Notion. */
@@ -213,6 +216,8 @@ export function lerPagina(pg: PaginaNotion): PaginaLida {
     pessoa: todas[0]?.id ?? "",
     assign: reserva[0]?.id ?? "",
     pessoas: [...pessoas, ...reserva.filter((r) => !pessoas.some((p) => p.id === r.id))],
+    listaPerson: pessoas.map((p) => p.id),
+    listaAssign: reserva.map((p) => p.id),
     bu: ((pr[PROPS.bu]?.select as { name?: string } | null)?.name ?? null) || null,
     noLixo: !!(pg.in_trash || pg.archived),
     editadoEm: pg.last_edited_time,
@@ -227,10 +232,22 @@ function emPedacos(texto: string): { text: { content: string } }[] {
   return out;
 }
 
-/** Propriedades do Notion para gravar estes campos (só os pedidos). */
+/**
+ * Pedido ao marketing: a 1ª pessoa (a que a rodada compara) passa a ser `primeira` e as outras de lá ficam,
+ * na ordem. Ninguém (`primeira` vazia) esvazia a coluna, como numa página comum.
+ */
+export function trocarPrimeiraPessoa(atuais: string[], primeira: string): string[] {
+  return primeira ? [primeira, ...atuais.slice(1).filter((x) => !!x && x !== primeira)] : [];
+}
+
+/**
+ * Propriedades do Notion para gravar estes campos (só os pedidos). `pessoas` (pedido ao marketing) = a lista
+ * inteira de quem faz, com a 1ª igual a `campos.pessoa`, gravada em Person e Assign; só vai junto quando a
+ * pessoa é gravada.
+ */
 export function propriedadesPara(
   campos: Partial<Campos>,
-  ctx: { statusAnterior?: string | null; bu?: string | null; campoDescricao?: CampoDaDescricao | null; assign?: boolean } = {},
+  ctx: { statusAnterior?: string | null; bu?: string | null; campoDescricao?: CampoDaDescricao | null; assign?: boolean; pessoas?: string[] } = {},
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   if (campos.titulo !== undefined) out[PROPS.titulo] = { title: [{ text: { content: campos.titulo.slice(0, 2000) } }] };
@@ -250,9 +267,10 @@ export function propriedadesPara(
     out[PROPS.prioridade] = { select: nome ? { name: nome } : null };
   }
   if (campos.pessoa !== undefined) {
-    out[PROPS.pessoa] = { people: campos.pessoa ? [{ id: campos.pessoa }] : [] };
+    const lista = !campos.pessoa ? [] : ctx.pessoas?.length ? ctx.pessoas : [campos.pessoa];
+    out[PROPS.pessoa] = { people: lista.map((id) => ({ id })) };
     // Pedido ao marketing: a equipe usa o Assign; os dois andam juntos.
-    if (ctx.assign) out[PROPS.pessoaReserva] = { people: campos.pessoa ? [{ id: campos.pessoa }] : [] };
+    if (ctx.assign) out[PROPS.pessoaReserva] = { people: lista.map((id) => ({ id })) };
   }
   if (ctx.bu) out[PROPS.bu] = { select: { name: ctx.bu } };
   return out;

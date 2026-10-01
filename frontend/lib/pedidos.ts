@@ -4,20 +4,27 @@
 // Quem monta os formulários (pedido_montadores ou administrador) cria, publica, desliga e conta quem vê.
 //
 // Ordem de um pedido (a página do Notion nunca nasce pela metade): cria a ação SEM entrar na fila do Notion
-// → grava o pedido (tarefa_pedidos, com o projeto) → quem vê → só então pede o envio ao Notion.
+// → grava o pedido (tarefa_pedidos, com o projeto) → quem também faz e quem vê → só então pede o envio ao Notion.
+// 01/10/2026 (sem limites): várias pessoas recebem (a 1ª faz, as outras também fazem), vários times
+// acompanham, quem pediu completa as respostas depois, prazo pela data de uma pergunta, área pela marca de
+// quem pede, repetido só nos formulários de um pedido por casamento, e quem monta muda pela tela.
 import type { User } from "./auth";
 import { query, withTenant } from "./db";
-import { diaMesBR, maisDiasBR } from "./data-br";
-import { acessoTarefa, garantirColegaDoTtars } from "./equipe-compartilhado";
+import { diaMesBR, fimDoDiaBR } from "./data-br";
+import { acessoTarefa, garantirColegaDoTtars, pessoasDaEquipe, registrarEvento } from "./equipe-compartilhado";
 import { criarAcao } from "./nova-acao";
-import { pedirEnvio } from "./notion-sync";
-import { mudarQuemVeDaTarefa } from "./quem-ve";
-import { pessoaDoPublico, timeValeNoPublico, timesDoPublico } from "./pedidos-publico";
+import { pedirEnvio, pessoasNotionDosEmails } from "./notion-sync";
+import { mudarQuemVeDaTarefa, mudarTambemFazem } from "./quem-ve";
+import { pessoaDoPublico, timesDoPublico } from "./pedidos-publico";
+import { mexeNoPedido } from "./pedidos-trava";
 import {
   EMPRESAS,
+  areaDoPedido,
   casalDoTitulo,
   conferirRespostas,
+  descricaoAtualizada,
   descricaoDoPedido,
+  destinoVazio,
   ehDeFora,
   ehErro,
   ehRoboOuTeste,
@@ -26,15 +33,22 @@ import {
   limparDestino,
   limparPublico,
   limparRascunho,
+  marcasDaOrganizacao,
+  pedidoEncerrado,
+  prazoDoPedido,
+  prazoVemDasRespostas,
   respostaQuePreenche,
+  respostasQueMudaram,
   situacaoDoPedido,
   situacaoEmPortugues,
   slugDe,
   tituloDoPedido,
   type Destino,
   type Formulario,
+  type Pergunta,
   type Publico,
   type Rascunho,
+  type Resposta,
 } from "./pedidos-tipos";
 import { MARCA_DO_TEAMS } from "./ttars-auth";
 
@@ -64,13 +78,11 @@ const SELECT_FORMULARIO = `
 
 function publicoDe(x: unknown): Publico {
   const p = limparPublico(x);
-  return ehErro(p) ? { tipo: "empresas", empresas: [], times: [] } : p;
+  return ehErro(p) ? { tipo: "combinado", empresas: [], times: [], pessoas: [] } : p;
 }
 function destinoDe(x: unknown): Destino {
   const d = limparDestino(x, false);
-  return ehErro(d)
-    ? { quem_email: "", projeto_notion_page_id: null, bu: "Institucional", prioridade: "media", prazo: { tipo: "sem" }, titulo_modelo: "" }
-    : d;
+  return ehErro(d) ? destinoVazio() : d;
 }
 function rascunhoDe(x: unknown): Rascunho | null {
   if (!x) return null;
@@ -109,7 +121,8 @@ export async function podeMontar(userId: string): Promise<boolean> {
   return r.rows[0]?.ok === true;
 }
 
-/** Os formulários que a pessoa pode pedir agora (no ar e com ela no público). */
+/** Os formulários que a pessoa pode pedir agora (no ar e com ela no público) e as marcas dela (para a área
+ *  dos formulários "da marca de quem pede"). */
 export async function formulariosParaPedir(user: User): Promise<Saida> {
   const [linhas, eu, monta] = await Promise.all([
     query<Linha>(`${SELECT_FORMULARIO} WHERE f.estado = 'no_ar' ORDER BY f.nome`),
@@ -117,7 +130,7 @@ export async function formulariosParaPedir(user: User): Promise<Saida> {
     podeMontar(user.id),
   ]);
   const formularios = linhas.map((l) => paraFormulario(l, false)).filter((f) => estaNoPublico(eu, f.publico));
-  return certo({ formularios, pode_montar: monta });
+  return certo({ formularios, pode_montar: monta, minhas_marcas: marcasDaOrganizacao(eu?.organizacao) });
 }
 
 // ── pedir ───────────────────────────────────────────────────────────────────────────────────
@@ -172,16 +185,35 @@ const repetido = (r: Repetido) =>
     repetido: r,
   });
 
+/** Os times que acompanham, na ordem: `time_ids` (o 1º vira o time da ação) e ainda `time_id` (TTARS antigo). */
+function timesDoCorpo(b: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  for (const x of [...(Array.isArray(b.time_ids) ? b.time_ids : []), b.time_id]) {
+    const id = typeof x === "string" ? x.trim() : "";
+    if (id && !out.includes(id)) out.push(id);
+  }
+  return out.slice(0, 20);
+}
+
+/** A gente dos times (lista do TTARS), sem robôs nem contas de teste. */
+async function genteDosTimes(ids: string[]): Promise<string[]> {
+  if (!ids.length) return [];
+  return (await pessoasDaEquipe())
+    .filter((p) => !ehRoboOuTeste(p.email) && (Array.isArray(p.times) ? p.times : []).some((t) => ids.includes(t?.id)))
+    .map((p) => p.email.trim().toLowerCase());
+}
+
 /**
  * POST /api/ttars/pedidos. Corpo: { formulario_id, versao, card: {id, titulo} | null, respostas: {id: {valor, nao_temos?}},
- * pessoas: e-mails, time_id? }.
+ * pessoas: e-mails, time_ids?: string[] (e ainda time_id), bu?: a marca escolhida (formulário "da marca de quem pede") }.
  */
 export async function criarPedido(user: User, corpo: unknown): Promise<Saida> {
   const b = obj(corpo);
   const formularioId = typeof b.formulario_id === "string" ? b.formulario_id : "";
   const f = formularioId ? await umFormulario(formularioId) : null;
   if (!f || f.estado !== "no_ar") return falha(404, "Este pedido não está mais no ar.");
-  if (!estaNoPublico(await pessoaDoPublico(user.email), f.publico)) return falha(403, "Este pedido não é para você.");
+  const eu = await pessoaDoPublico(user.email);
+  if (!estaNoPublico(eu, f.publico)) return falha(403, "Este pedido não é para você.");
   if (Number(b.versao) !== f.versao) {
     return falha(409, "O formulário mudou: feche e abra de novo para ver as perguntas novas.", { versao_atual: f.versao });
   }
@@ -194,12 +226,18 @@ export async function criarPedido(user: User, corpo: unknown): Promise<Saida> {
   }
   const respostas = conferirRespostas(f.perguntas, b.respostas, { quem: user.nome, casamento: card?.titulo ?? null });
   if (ehErro(respostas)) return falha(400, respostas.erro);
+  const area = areaDoPedido(f.destino.bu, marcasDaOrganizacao(eu?.organizacao), b.bu);
+  if (ehErro(area)) return falha(400, area.erro);
   const pessoas = Array.isArray(b.pessoas) ? b.pessoas.filter((e): e is string => typeof e === "string" && !!e.trim()).slice(0, 50) : [];
-  const timeId = typeof b.time_id === "string" && b.time_id.trim() ? b.time_id.trim() : null;
-  if (timeId && !(await timeValeNoPublico(f.publico, timeId))) return falha(400, "Esse time não pode acompanhar este pedido.");
-  if (!f.destino.quem_email) return falha(409, "Este pedido está sem a pessoa do marketing que recebe. Avise quem monta os pedidos.");
+  const timeIds = timesDoCorpo(b);
+  if (timeIds.length) {
+    const doPublico = new Set((await timesDoPublico(f.publico)).map((t) => t.id));
+    if (timeIds.some((id) => !doPublico.has(id))) return falha(400, "Esse time não pode acompanhar este pedido.");
+  }
+  const [quemFaz, ...tambemFazem] = f.destino.quem_emails;
+  if (!quemFaz) return falha(409, "Este pedido está sem a pessoa do marketing que recebe. Avise quem monta os pedidos.");
 
-  if (card) {
+  if (card && f.destino.um_por_casamento) {
     const ja = await pedidoVivoDoCard(f.id, card.id, user.id);
     if (ja) return repetido(ja);
   }
@@ -208,20 +246,13 @@ export async function criarPedido(user: User, corpo: unknown): Promise<Saida> {
   const casal = respostaQuePreenche(f.perguntas, respostas, "casal") ?? (card ? casalDoTitulo(card.titulo) : null);
   const titulo = tituloDoPedido(f.destino.titulo_modelo, { casal, quem: user.nome, nomeDoFormulario: f.nome });
   const descricao = descricaoDoPedido(f.perguntas, respostas, user.nome, diaMesBR(agora), card?.titulo);
-  const dataCasamento = respostaQuePreenche(f.perguntas, respostas, "data_casamento");
-  const prazo =
-    f.destino.prazo.tipo === "data_casamento"
-      ? dataCasamento
-      : f.destino.prazo.tipo === "dias"
-        ? maisDiasBR(f.destino.prazo.dias ?? 0, agora)
-        : null;
 
-  // 1. A ação, sem entrar na fila do Notion (a página só nasce com o pedido gravado).
+  // 1. A ação, sem entrar na fila do Notion (a página só nasce com o pedido gravado). Quem faz = a 1ª que recebe.
   const criada = await criarAcao(user, {
     titulo,
     descricao,
-    quem_email: f.destino.quem_email,
-    prazo,
+    quem_email: quemFaz,
+    prazo: prazoDoPedido(f.destino, f.perguntas, respostas, agora),
     prioridade: f.destino.prioridade,
     origem: "pedido",
     raw: `pedido:${f.slug}`,
@@ -230,13 +261,14 @@ export async function criarPedido(user: User, corpo: unknown): Promise<Saida> {
   if (!criada.ok) return falha(criada.status, criada.erro);
   const tarefaId = criada.tarefa.id;
 
-  // 2. O pedido (com as perguntas desta versão e o projeto do Notion). Dois pedidos do mesmo casamento ao
-  //    mesmo tempo: o índice único segura o segundo, que desfaz a ação e mostra o primeiro.
+  // 2. O pedido (com as perguntas desta versão, quem recebe, o projeto e a área). Dois pedidos do mesmo
+  //    casamento ao mesmo tempo (formulário de um por casamento): o índice único segura o segundo, que desfaz a
+  //    ação e mostra o primeiro.
   try {
     await query(
       `INSERT INTO tarefa_pedidos (tarefa_id, formulario_id, versao, perguntas_snapshot, respostas, card_id, card_titulo, pedido_por,
-                                   projeto_notion_page_id, bu, criado_em)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+                                   projeto_notion_page_id, bu, criado_em, unico, quem_emails)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
       [
         tarefaId,
         f.id,
@@ -247,8 +279,10 @@ export async function criarPedido(user: User, corpo: unknown): Promise<Saida> {
         card?.titulo ?? null,
         user.id,
         f.destino.projeto_notion_page_id,
-        f.destino.bu,
+        area,
         agora.toISOString(),
+        f.destino.um_por_casamento,
+        f.destino.quem_emails,
       ],
     );
   } catch (e) {
@@ -260,12 +294,33 @@ export async function criarPedido(user: User, corpo: unknown): Promise<Saida> {
     throw e;
   }
 
-  // 3. Quem acompanha (pessoas e um time das empresas do público). Quem não está na lista de pessoas do
-  //    TTARS fica de fora sozinho, com aviso (antes, uma pessoa assim deixava TODAS de fora); o time vai à parte.
+  // 3. Quem também faz: as outras que recebem (como quem criou a ação, sem a trava do pedido). Quem não está
+  //    na lista do TTARS fica de fora sozinho, com aviso.
   const avisos: string[] = criada.aviso ? [criada.aviso] : [];
+  if (tambemFazem.length) {
+    const achados: string[] = [];
+    const fora: string[] = [];
+    for (const e of tambemFazem) ((await garantirColegaDoTtars(e)) ? achados : fora).push(e);
+    if (achados.length && (await mudarTambemFazem(user.id, tarefaId, achados)) !== "ok") {
+      avisos.push("O pedido foi enviado, mas não consegui marcar quem também faz: abra a ação e marque de novo.");
+    }
+    if (fora.length) {
+      avisos.push(
+        `O pedido foi enviado, mas ${fora.join(", ")} ${fora.length === 1 ? "não está na lista do TTARS e ficou" : "não estão na lista do TTARS e ficaram"} de fora de quem também faz.`,
+      );
+    }
+  }
+
+  // 4. Quem acompanha: as pessoas, o 1º time (vira o time da ação) e a gente dos outros times (no Quem vê).
+  //    Quem não está na lista de pessoas do TTARS fica de fora sozinho, com aviso (antes, uma pessoa assim
+  //    deixava TODAS de fora); o time vai à parte.
+  const [timeDaAcao, ...outrosTimes] = timeIds;
   const achadas: string[] = [];
   const faltaram: string[] = [];
   for (const e of pessoas) ((await garantirColegaDoTtars(e)) ? achadas : faltaram).push(e.trim().toLowerCase());
+  for (const e of await genteDosTimes(outrosTimes)) {
+    if (e !== (user.email ?? "").toLowerCase() && !achadas.includes(e) && (await garantirColegaDoTtars(e))) achadas.push(e);
+  }
   if (achadas.length && (await mudarQuemVeDaTarefa(user.id, tarefaId, { juntar: achadas })) !== "ok") {
     avisos.push("O pedido foi enviado, mas não consegui marcar quem acompanha: abra a ação e marque de novo.");
   }
@@ -274,23 +329,32 @@ export async function criarPedido(user: User, corpo: unknown): Promise<Saida> {
       `O pedido foi enviado, mas ${faltaram.join(", ")} ${faltaram.length === 1 ? "não está no Ações e ficou" : "não estão no Ações e ficaram"} de fora de quem acompanha.`,
     );
   }
-  if (timeId && (await mudarQuemVeDaTarefa(user.id, tarefaId, { time_id: timeId })) !== "ok") {
+  if (timeDaAcao && (await mudarQuemVeDaTarefa(user.id, tarefaId, { time_id: timeDaAcao })) !== "ok") {
     avisos.push("O pedido foi enviado, mas não consegui marcar o time: abra a ação e marque de novo.");
   }
   const aviso = avisos.length ? avisos.join(" ") : null;
 
-  // 4. O Notion do marketing: pessoa, projeto e área do formulário (área fixa, nunca a da aba).
-  if (criada.notionUserId || f.destino.projeto_notion_page_id) {
-    await pedirEnvio({ tarefaId, donoId: user.id, pedidoPor: user.id, notionUserId: criada.notionUserId, bu: f.destino.bu });
+  // 5. O Notion do marketing: quem recebe e está lá, o projeto e a área do pedido (nunca a da aba).
+  const noNotion = await pessoasNotionDosEmails(f.destino.quem_emails);
+  if (noNotion.length || f.destino.projeto_notion_page_id) {
+    await pedirEnvio({ tarefaId, donoId: user.id, pedidoPor: user.id, notionUserId: noNotion[0] ?? null, bu: area });
   }
   return certo({ tarefa_id: tarefaId, aviso }, 201);
 }
 
-type PedidoAchado = { tarefa_id: string; pedido_por_id: string; publico: Publico; formulario_nome: string; criado_em: string; pedido_por: string | null };
+type PedidoAchado = {
+  tarefa_id: string;
+  pedido_por_id: string;
+  publico: unknown;
+  formulario_id: string;
+  formulario_nome: string;
+  criado_em: string;
+  pedido_por: string | null;
+};
 
 async function pedidosAchados(onde: string, valor: string): Promise<PedidoAchado[]> {
   return query<PedidoAchado>(
-    `SELECT tp.tarefa_id::text AS tarefa_id, tp.pedido_por::text AS pedido_por_id, f.publico, f.nome AS formulario_nome,
+    `SELECT tp.tarefa_id::text AS tarefa_id, tp.pedido_por::text AS pedido_por_id, f.publico, f.id::text AS formulario_id, f.nome AS formulario_nome,
             to_char(tp.criado_em AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS criado_em, u.nome AS pedido_por
        FROM tarefa_pedidos tp
        JOIN pedido_formularios f ON f.id = tp.formulario_id
@@ -323,6 +387,89 @@ export async function acompanharPedido(user: User, tarefaId: string): Promise<Sa
   return certo({ ok: true, tarefa_id: tarefaId });
 }
 
+const TEXTO_MAX_DO_COMENTARIO = 4000;
+
+/**
+ * PATCH /api/ttars/pedidos/:tarefaId/respostas — quem pediu (ou o marketing) completa as respostas depois (ex.:
+ * "ainda não temos" o contato da assessora), enquanto o pedido não foi encerrado. Corpo: { respostas } (as que
+ * não vierem ficam como estavam). Mesmas regras da criação, contra as perguntas da versão do pedido. A descrição
+ * da ação é refeita (a 1ª linha com o dia em que foi pedido) e vai ao Notion pela rodada, e um comentário diz
+ * o que mudou.
+ */
+export async function completarRespostas(user: User, tarefaId: string, corpo: unknown): Promise<Saida> {
+  const NAO_EXISTE = () => falha(404, "Esse pedido não existe mais.");
+  if (!UUID_RE.test(tarefaId)) return NAO_EXISTE();
+  const [dono] = await query<{ pedido_por: string; nome: string | null }>(
+    `SELECT tp.pedido_por::text AS pedido_por, u.nome FROM tarefa_pedidos tp LEFT JOIN users u ON u.id = tp.pedido_por WHERE tp.tarefa_id = $1`,
+    [tarefaId],
+  );
+  if (!dono) return NAO_EXISTE();
+  if (dono.pedido_por !== user.id && !(await mexeNoPedido(user.id))) {
+    return falha(403, "Só quem pediu ou o marketing completa as respostas deste pedido.");
+  }
+  const respostasNovas = obj(corpo).respostas;
+  if (!respostasNovas || typeof respostasNovas !== "object" || Array.isArray(respostasNovas)) return falha(400, "As respostas vieram erradas.");
+
+  // Tudo numa transação, no tenant de quem pediu (a ação é dela), com a ação e o pedido presos: quem completa
+  // ao mesmo tempo (ou o marketing encerrando) nunca se atropela.
+  return withTenant(dono.pedido_por, async (c): Promise<Saida> => {
+    const t = (
+      await c.query<{ status: string; descricao: string | null; sem_prazo: boolean }>(
+        `SELECT status, descricao, prazo IS NULL AS sem_prazo FROM tarefas WHERE id = $1 FOR UPDATE`,
+        [tarefaId],
+      )
+    ).rows[0];
+    const p = (
+      await c.query<{
+        perguntas_snapshot: Pergunta[];
+        respostas: Record<string, Resposta> | null;
+        card_titulo: string | null;
+        criado_em: string;
+        status_notion: string | null;
+        destino: unknown;
+      }>(
+        `SELECT tp.perguntas_snapshot, tp.respostas, tp.card_titulo,
+                to_char(tp.criado_em AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS criado_em, np.status_notion, f.destino
+           FROM tarefa_pedidos tp
+           JOIN pedido_formularios f ON f.id = tp.formulario_id
+           LEFT JOIN notion_paginas np ON np.tarefa_id = tp.tarefa_id
+          WHERE tp.tarefa_id = $1 FOR UPDATE OF tp`,
+        [tarefaId],
+      )
+    ).rows[0];
+    if (!t || !p) return NAO_EXISTE();
+    if (pedidoEncerrado(t.status, p.status_notion)) return falha(409, "Este pedido já foi encerrado: fale pelos comentários.");
+
+    const perguntas = Array.isArray(p.perguntas_snapshot) ? p.perguntas_snapshot : [];
+    const antes = p.respostas ?? {};
+    // Quem pediu e o casamento continuam os do pedido (o servidor preenche, como na criação).
+    const auto = perguntas.find((x) => x.tipo === "automatico_quem_pede");
+    const quemPediu = (auto && typeof antes[auto.id]?.valor === "string" ? (antes[auto.id].valor as string) : null) ?? dono.nome ?? "alguém";
+    const depois = conferirRespostas(perguntas, { ...antes, ...(respostasNovas as Record<string, unknown>) }, { quem: quemPediu, casamento: p.card_titulo });
+    if (ehErro(depois)) return falha(400, depois.erro);
+    const mudaram = respostasQueMudaram(perguntas, antes, depois, p.card_titulo);
+    if (!mudaram.length) return certo({ ok: true, mudaram, aviso: "Nenhuma resposta mudou." });
+
+    // Pedido que nasceu sem prazo (a data era "ainda não temos" ou ficou em branco): a data que chega agora vira o
+    // prazo, só se a ação continua sem prazo (o marketing pode ter tirado de propósito). A regra é a do formulário.
+    const destino = destinoDe(p.destino);
+    const agora = new Date();
+    const prazo =
+      t.sem_prazo && prazoVemDasRespostas(destino) && !prazoDoPedido(destino, perguntas, antes, agora)
+        ? prazoDoPedido(destino, perguntas, depois, agora)
+        : null;
+
+    const descricao = descricaoAtualizada(t.descricao, perguntas, antes, depois, quemPediu, diaMesBR(p.criado_em), p.card_titulo);
+    const comentario = `Respostas atualizadas por ${user.nome}: ${mudaram.join(", ")}`.slice(0, TEXTO_MAX_DO_COMENTARIO);
+    await c.query(`UPDATE tarefa_pedidos SET respostas = $2 WHERE tarefa_id = $1`, [tarefaId, JSON.stringify(depois)]);
+    await c.query(`UPDATE tarefas SET descricao = $2 WHERE id = $1`, [tarefaId, descricao]);
+    if (prazo) await c.query(`UPDATE tarefas SET prazo = $2 WHERE id = $1 AND prazo IS NULL`, [tarefaId, fimDoDiaBR(prazo)]);
+    await registrarEvento(c, tarefaId, "editada", { origem: "pedido_respostas", changed: prazo ? { descricao: true, prazo: true } : { descricao: true } }, user.id);
+    await c.query(`INSERT INTO tarefa_comentarios (tarefa_id, texto, autor_user_id) VALUES ($1, $2, $3)`, [tarefaId, comentario, user.id]);
+    return certo(prazo ? { ok: true, mudaram, prazo_posto: prazo } : { ok: true, mudaram });
+  });
+}
+
 /** GET /api/ttars/pedidos/por-card/:cardId — os pedidos vivos deste casamento (dos formulários que a pessoa pode pedir). */
 export async function pedidosDoCard(user: User, cardId: string): Promise<Saida> {
   if (!UUID_RE.test(cardId)) return certo({ pedidos: [] });
@@ -334,6 +481,7 @@ export async function pedidosDoCard(user: User, cardId: string): Promise<Saida> 
     const situacao = sit.get(p.tarefa_id);
     if (!situacao || situacao === "cancelada") continue;
     pedidos.push({
+      formulario_id: p.formulario_id,
       formulario_nome: p.formulario_nome,
       tarefa_id: p.tarefa_id,
       pedido_por: p.pedido_por ?? "Alguém",
@@ -377,7 +525,7 @@ export async function opcoesParaMontar(user: User): Promise<Saida> {
       `SELECT np.page_id, np.nome FROM notion_projetos np JOIN notion_conexoes c ON c.id = np.conexao_id AND c.ativo
         WHERE NOT np.no_lixo AND COALESCE(LOWER(np.etapa), '') <> 'archived' ORDER BY np.nome`,
     ),
-    timesDoPublico({ tipo: "todos", empresas: [], times: [] }),
+    timesDoPublico({ tipo: "todos", empresas: [], times: [], pessoas: [] }),
   ]);
   return certo({
     pessoas_marketing: pessoas.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
@@ -393,9 +541,66 @@ function rascunhoPadrao(nome: string): Rascunho {
     explica: "",
     icone: "📝",
     perguntas: [],
-    publico: { tipo: "empresas", empresas: [], times: [] },
-    destino: { quem_email: "", projeto_notion_page_id: null, bu: "Institucional", prioridade: "media", prazo: { tipo: "sem" }, titulo_modelo: "" },
+    publico: { tipo: "combinado", empresas: [], times: [], pessoas: [] },
+    destino: destinoVazio(),
   };
+}
+
+// ── quem monta ──────────────────────────────────────────────────────────────────────────────
+
+type Montador = { email: string; nome: string };
+
+async function listaDeMontadores(): Promise<Montador[]> {
+  return query<Montador>(
+    `SELECT m.email, COALESCE(tp.nome, u.nome, m.email) AS nome
+       FROM pedido_montadores m
+       LEFT JOIN ttars_pessoas tp ON tp.email = m.email
+       LEFT JOIN LATERAL (SELECT x.nome FROM users x WHERE LOWER(x.email) = m.email AND x.deleted_at IS NULL LIMIT 1) u ON true
+      ORDER BY 2, 1`,
+  );
+}
+
+const montadoresSaida = async (podeMudar: boolean) => certo({ montadores: await listaDeMontadores(), pode_mudar: podeMudar });
+const SO_QUEM_MONTA_MUDA = () => falha(403, "Só quem monta os pedidos muda quem monta.");
+const emailDe = (x: unknown) => (typeof x === "string" ? x.trim().toLowerCase() : "");
+
+/** GET /api/ttars/pedidos/montar/montadores — quem monta os formulários; muda quem já monta ou o administrador. */
+export async function montadores(user: User): Promise<Saida> {
+  return montadoresSaida(await podeMontar(user.id));
+}
+
+/** POST …/montadores { email } — põe alguém da lista do TTARS (da Welcome) para montar os formulários. */
+export async function porMontador(user: User, corpo: unknown): Promise<Saida> {
+  if (!(await podeMontar(user.id))) return SO_QUEM_MONTA_MUDA();
+  const email = emailDe(obj(corpo).email);
+  if (!EMAIL_RE.test(email)) return falha(400, "Escolha a pessoa.");
+  if (ehRoboOuTeste(email) || ehDeFora(email)) return falha(400, "Só gente da Welcome monta os pedidos.");
+  const daLista = await query(`SELECT 1 FROM ttars_pessoas WHERE email = $1 AND COALESCE(organizacao, '') <> ''`, [email]);
+  if (!daLista.length) return falha(400, "Essa pessoa não está na lista do TTARS.");
+  const posto = await query(`INSERT INTO pedido_montadores (email, por) VALUES ($1, $2) ON CONFLICT (email) DO NOTHING RETURNING email`, [email, user.id]);
+  if (posto.length) {
+    await query(`INSERT INTO audit_log (user_id, action, target_id) VALUES ($1, 'pedidos.montador_posto', $2)`, [user.id, email]);
+  }
+  return montadoresSaida(true);
+}
+
+/** DELETE …/montadores { email } — tira alguém de quem monta (nunca o último). */
+export async function tirarMontador(user: User, corpo: unknown): Promise<Saida> {
+  if (!(await podeMontar(user.id))) return SO_QUEM_MONTA_MUDA();
+  const email = emailDe(obj(corpo).email);
+  if (!email) return falha(400, "Escolha a pessoa.");
+  // A lista presa na mesma transação: duas retiradas ao mesmo tempo nunca esvaziam a lista.
+  const r = await withTenant(user.id, async (c) => {
+    const lista = (await c.query<{ email: string }>(`SELECT email FROM pedido_montadores FOR UPDATE`)).rows.map((x) => x.email);
+    if (!lista.includes(email)) return "nao_monta" as const;
+    if (lista.length <= 1) return "ultimo" as const;
+    await c.query(`DELETE FROM pedido_montadores WHERE email = $1`, [email]);
+    await c.query(`INSERT INTO audit_log (user_id, action, target_id) VALUES ($1, 'pedidos.montador_tirado', $2)`, [user.id, email]);
+    return "ok" as const;
+  });
+  if (r === "nao_monta") return falha(404, "Essa pessoa não monta os pedidos.");
+  if (r === "ultimo") return falha(409, "Precisa ficar pelo menos uma pessoa montando os pedidos.");
+  return montadoresSaida(true);
 }
 
 /** POST /api/ttars/pedidos/montar — formulário novo (rascunho). O corpo pode já trazer o rascunho (ex.: lido de arquivo). */

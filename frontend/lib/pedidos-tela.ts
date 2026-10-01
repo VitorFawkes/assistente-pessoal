@@ -2,7 +2,15 @@
 // formulário veio, as respostas (com as perguntas da versão em que foi pedido) e o que quem vê pode fazer.
 import { query } from "./db";
 import { marketingNaoComecou, mexeNoPedido } from "./pedidos-trava";
-import { casalDoPedido, rotuloDaPergunta, textoDaResposta, type PedidoDaAcao, type Pergunta, type Resposta } from "./pedidos-tipos";
+import {
+  casalDoPedido,
+  pedidoEncerrado,
+  rotuloDaPergunta,
+  textoDaResposta,
+  type PedidoDaAcao,
+  type Pergunta,
+  type Resposta,
+} from "./pedidos-tipos";
 
 type Linha = {
   tarefa_id: string;
@@ -55,6 +63,9 @@ export async function pedidosParaTela(
       respostas: perguntas.map((p) => ({ rotulo: rotuloDaPergunta(p, casal), texto: textoDaResposta(p, respostas[p.id]) })),
       somente_leitura: !doMarketing,
       pode_cancelar: aberta && (doMarketing || (l.pedido_por === viewerId && marketingNaoComecou(l))),
+      pode_completar: !pedidoEncerrado(status.get(l.tarefa_id), l.status_notion) && (doMarketing || l.pedido_por === viewerId),
+      perguntas,
+      respostas_brutas: respostas,
     });
   }
   return out;
