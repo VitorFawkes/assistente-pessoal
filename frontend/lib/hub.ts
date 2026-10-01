@@ -230,7 +230,8 @@ export type ListaSalva = {
   vista: string | null;
 };
 
-export const ONDE_RE = /^(minhas|(time|projeto|objetivo):[A-Za-z0-9_-]{1,80})$/;
+// marketing:hub = os pedidos do Hub do Marketing no TTARS (01/10/2026).
+export const ONDE_RE = /^(minhas|marketing:hub|(time|projeto|objetivo):[A-Za-z0-9_-]{1,80})$/;
 export const ORDENS = ["prazo", "criada", "pessoa", "pediu", "prioridade", "projeto", "objetivo", "time", "reuniao", "situacao", "titulo"];
 export const VISTAS = ["lista", "quadro", "tabela"];
 
