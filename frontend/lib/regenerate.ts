@@ -1,3 +1,4 @@
+import type { PoolClient } from "pg";
 import { withTenant } from "@/lib/db";
 
 // Mesmo webhook que o rename de speaker usa: pipeline de 2 estágios
@@ -11,6 +12,19 @@ export type RegenerateResult = {
   reprocessed: boolean;
   tarefas_apagadas: number;
 };
+
+/** Apaga as ações da reunião para refazer, menos as que guardam a fala de OUTRA reunião ou alguém marcado (equipe,
+ *  01/10/2026). A re-transcrição do admin usa a mesma regra. */
+export async function apagarAcoesDaReuniao(db: PoolClient, meetingId: string): Promise<number> {
+  const temAcessos = (await db.query<{ ok: boolean }>(`SELECT to_regclass('tarefa_acessos') IS NOT NULL AS ok`)).rows[0]?.ok;
+  const r = await db.query(
+    `DELETE FROM tarefas WHERE meeting_id = $1::uuid
+        AND NOT EXISTS (SELECT 1 FROM tarefa_mencoes tm WHERE tm.tarefa_id = tarefas.id AND tm.meeting_id IS DISTINCT FROM tarefas.meeting_id)
+        ${temAcessos ? "AND NOT EXISTS (SELECT 1 FROM tarefa_acessos ta WHERE ta.tarefa_id = tarefas.id)" : ""}`,
+    [meetingId],
+  );
+  return r.rowCount ?? 0;
+}
 
 /**
  * Refaz resumo + tarefas a partir da transcrição que está no banco AGORA.
@@ -28,16 +42,7 @@ export async function regenerateMeeting(
   // Equipe (01/10/2026): fica a ação que guarda a fala de OUTRA reunião (a trava contra repetida juntou ali o que
   // outra pessoa gravou) ou que alguém foi marcado para ver: apagar levaria junto o que não é desta reunião.
   // A leitura nova da reunião acha essas ações e não cria de novo (tarefas-repetidas-db).
-  const apagadas = await withTenant(userId, async (db) => {
-    const temAcessos = (await db.query<{ ok: boolean }>(`SELECT to_regclass('tarefa_acessos') IS NOT NULL AS ok`)).rows[0]?.ok;
-    const r = await db.query(
-      `DELETE FROM tarefas WHERE meeting_id = $1::uuid
-          AND NOT EXISTS (SELECT 1 FROM tarefa_mencoes tm WHERE tm.tarefa_id = tarefas.id AND tm.meeting_id IS DISTINCT FROM tarefas.meeting_id)
-          ${temAcessos ? "AND NOT EXISTS (SELECT 1 FROM tarefa_acessos ta WHERE ta.tarefa_id = tarefas.id)" : ""}`,
-      [meetingId],
-    );
-    return r.rowCount ?? 0;
-  });
+  const apagadas = await withTenant(userId, (db) => apagarAcoesDaReuniao(db, meetingId));
 
   let reprocessed = true;
   try {

@@ -249,6 +249,32 @@ async function lerContexto(
   };
 }
 
+/** Palavras do nome, sem acento ("Tiago Abdul" → tiago, abdul). */
+const palavrasDoNome = (s: string | null | undefined) => normalizarTitulo(s ?? "").split(" ").filter(Boolean);
+
+/** O nome dito (ou dado a uma voz) é o desta pessoa? Mesmo primeiro nome e as outras palavras na ordem do nome
+ *  completo: "Tiago Abdul" é "Tiago de Mello Abdul Hak". */
+function nomeBate(dito: string, nome: string): boolean {
+  const d = palavrasDoNome(dito);
+  const n = palavrasDoNome(nome);
+  if (!d.length || d[0] !== n[0]) return false;
+  let j = 0;
+  for (const w of n) if (j < d.length && w === d[j]) j++;
+  return j === d.length;
+}
+
+/** De quem é o nome: a ÚNICA pessoa da equipe com quem ele bate ("Ana", com duas Anas, é de ninguém). */
+export function pessoaDoNome(dito: string, pessoas: { id: string; nome: string }[]): string | null {
+  const achadas = pessoas.filter((p) => nomeBate(dito, p.nome));
+  return achadas.length === 1 ? achadas[0].id : null;
+}
+
+/** Os nomes dados às vozes de uma reunião ({"A": "Tiago Abdul", "B": "Vitor"}). */
+function nomesDasVozes(vozes: unknown): string[] {
+  if (!vozes || typeof vozes !== "object" || Array.isArray(vozes)) return [];
+  return Object.values(vozes as Record<string, unknown>).filter((v): v is string => typeof v === "string" && v.trim() !== "");
+}
+
 /**
  * "A mesma reunião" gravada por outra pessoa: começou até 15 min antes ou depois desta E as duas se cruzam em pelo
  * menos metade da mais curta. Reunião encostada (uma termina, a outra começa) não conta. Sem a duração de alguma das
@@ -266,13 +292,13 @@ type Par = { tarefa_id: string; dono_id: string };
 /**
  * Equipe: ações de OUTRAS pessoas que a reunião nova pode estar repetindo.
  *   - as que passaram ou marcaram para quem gravou (ela já tem a ação na lista);
- *   - as de outra gravação da MESMA reunião (MESMA_REUNIAO): (a) reunião de outra pessoa em que quem gravou
- *     ESTAVA, pela regra de puxar ação (equipe_chamado_na_reuniao: convite, voz ou marcado como "estava" por quem é
- *     dono DELA; reunião em "Só eu" fora); (b) gravação de quem FALOU nesta reunião (a voz dela está nesta gravação),
- *     fora as em "Só eu". Ex.: 29/09, "Weddings" no Teams da Diana e "Plano Weddings" no celular do Tiago.
- * Quem gravou não consegue se pôr na reunião de ninguém: "estava" e convite marcados por ele na reunião DELE não
- * contam (revisão de 01/10/2026). Só ações abertas, sem pedido ao marketing e sem Notion. Volta também os títulos
- * que esta reunião já juntou em ações dessas pessoas (o reenvio não junta nem cria de novo).
+ *   - as de outra gravação da MESMA reunião (MESMA_REUNIAO), com a prova vinda da gravação da OUTRA pessoa:
+ *     (a) a reunião dela chama quem gravou (equipe_chamado_na_reuniao: convite, voz ou "estava" marcados nela; "Só
+ *     eu" fora); (b) a reunião dela dá nome à voz de quem gravou (a voz de uma pessoa só da equipe). Ex.: 29/09,
+ *     "Weddings" no Teams da Diana tem a voz "Tiago Abdul"; "Plano Weddings" é a gravação do Tiago no celular.
+ * O que quem gravou marcou na reunião DELE (voz com o nome de alguém, "estava") só diz em quem procurar, nunca abre a
+ * ação de ninguém (revisão de 01/10/2026). Só ações abertas, sem pedido ao marketing e sem Notion. Volta também os
+ * títulos que esta reunião já juntou em ações dessas pessoas (o reenvio não junta nem cria de novo).
  */
 export async function candidatasDaEquipe(
   userId: string,
@@ -282,7 +308,7 @@ export async function candidatasDaEquipe(
 ): Promise<{ candidatas: Cand[]; jaJuntados: Set<string> }> {
   const duracao = Math.max(0, Math.round((fim.getTime() - inicio.getTime()) / 1000));
   const horario = [inicio.toISOString(), fim.toISOString(), duracao];
-  const { pares, falaram } = await withTenantLeituraEquipe(userId, async (c) => {
+  const { pares, procurar } = await withTenantLeituraEquipe(userId, async (c) => {
     const minhas = await c.query<Par>(
       `SELECT tarefa_id::text AS tarefa_id, dono_id::text AS dono_id FROM equipe_tarefas_para_mim()
        UNION
@@ -294,24 +320,39 @@ export async function candidatasDaEquipe(
         WHERE m.user_id <> $1 AND ${MESMA_REUNIAO} AND equipe_chamado_na_reuniao(m.id)`,
       [userId, ...horario],
     );
-    // Quem falou nesta reunião (a voz reconhecida nesta gravação), não quem foi convidado ou marcado à mão.
+    // Quem estava nesta reunião pelo que quem gravou registrou: só diz em quem procurar a outra gravação.
     const f = await c.query<{ id: string }>(
       `SELECT DISTINCT user_id::text AS id FROM meeting_acessos
-        WHERE meeting_id = $1 AND user_id IS NOT NULL AND user_id <> $2 AND motivo = 'falou'`,
+        WHERE meeting_id = $1 AND user_id IS NOT NULL AND user_id <> $2 AND motivo <> 'quem_ve'`,
       [meetingId, userId],
     );
-    return { pares: [...minhas.rows, ...mesmas.rows], falaram: f.rows.map((x) => x.id) };
+    return { pares: [...minhas.rows, ...mesmas.rows], procurar: f.rows.map((x) => x.id) };
   });
-  for (const pessoa of falaram) {
-    const r = await withTenant(pessoa, (c) =>
-      c.query<Par>(
-        `SELECT t.id::text AS tarefa_id, t.user_id::text AS dono_id
-           FROM meetings m JOIN tarefas t ON t.meeting_id = m.id
-          WHERE m.user_id = $1 AND m.visibilidade <> 'so_eu' AND ${MESMA_REUNIAO}`,
-        [pessoa, ...horario],
-      ),
+  if (procurar.length) {
+    const pessoas = await query<{ id: string; nome: string }>(
+      `SELECT id::text AS id, nome FROM users WHERE deleted_at IS NULL AND COALESCE(nome, '') <> ''`,
     );
-    pares.push(...r.rows);
+    for (const pessoa of procurar) {
+      const r = await withTenant(pessoa, async (c) => {
+        const reunioes = (
+          await c.query<{ id: string; vozes: unknown }>(
+            `SELECT m.id::text AS id, m.speaker_labels AS vozes FROM meetings m
+              WHERE m.user_id = $1 AND m.visibilidade <> 'so_eu' AND ${MESMA_REUNIAO}`,
+            [pessoa, ...horario],
+          )
+        ).rows
+          .filter((m) => nomesDasVozes(m.vozes).some((n) => pessoaDoNome(n, pessoas) === userId))
+          .map((m) => m.id);
+        if (!reunioes.length) return [];
+        return (
+          await c.query<Par>(
+            `SELECT id::text AS tarefa_id, user_id::text AS dono_id FROM tarefas WHERE meeting_id = ANY($1::uuid[]) AND user_id = $2`,
+            [reunioes, pessoa],
+          )
+        ).rows;
+      });
+      pares.push(...r);
+    }
   }
 
   const porDono = new Map<string, Set<string>>();
@@ -792,14 +833,14 @@ async function juntarNaDeOutro(gravouId: string, meetingId: string, t: Limpa, al
     const jaTem = await c.query(`SELECT 1 FROM tarefa_mencoes WHERE tarefa_id = $1 AND meeting_id = $2 LIMIT 1`, [alvo.id, meetingId]);
     if ((jaTem.rowCount ?? 0) > 0) return true;
 
-    const nomes = new Map(
-      (await c.query<{ id: string; nome: string }>(`SELECT id::text AS id, nome FROM users WHERE id = ANY($1::uuid[])`, [[gravouId, alvo.dono_id]])).rows.map(
-        (x) => [x.id, x.nome] as const,
-      ),
-    );
-    const primeiro = (n: string | null | undefined) => normalizarTitulo(n ?? "").split(" ")[0] ?? "";
-    const quem = t.owner && isOwner(t.owner) ? (nomes.get(gravouId) ?? t.owner) : t.owner;
-    const daDona = !!quem && !!primeiro(quem) && primeiro(quem) === primeiro(nomes.get(alvo.dono_id));
+    const pessoas = (
+      await c.query<{ id: string; nome: string }>(`SELECT id::text AS id, nome FROM users WHERE deleted_at IS NULL AND COALESCE(nome, '') <> ''`)
+    ).rows;
+    // O "eu" de quem gravou é ele, nunca a dona da ação; outro nome só é o da dona se for dela e de mais ninguém
+    // (Ana Tereza dizendo "eu" numa ação da Ana Carolina não vira "eu" da Ana Carolina).
+    const deQuemGravou = isOwner(t.owner);
+    const quem = deQuemGravou ? (pessoas.find((x) => x.id === gravouId)?.nome ?? t.owner) : t.owner;
+    const daDona = !deQuemGravou && !!quem && pessoaDoNome(quem, pessoas) === alvo.dono_id;
     const fala: Limpa = {
       ...t,
       owner: daDona ? getOwnerSlug() : quem,
@@ -846,6 +887,115 @@ async function comNomes(gravouId: string, novas: Limpa[], candidatas: Cand[]) {
 }
 
 /** O gasto da comparação no registro de gastos com IA (aba Gastos): o juiz e os vetores, por reunião. */
+/** Dono de uma reunião, procurado conta por conta (cada uma só vê as dela): primeiro em `provaveis`. */
+async function donoDaReuniao(meetingId: string, provaveis: string[]): Promise<string | null> {
+  const contas = (await query<{ id: string }>(`SELECT id::text AS id FROM users WHERE deleted_at IS NULL`)).map((x) => x.id);
+  for (const id of [...new Set([...provaveis, ...contas])]) {
+    const r = await withTenant(id, (c) => c.query(`SELECT 1 FROM meetings WHERE id = $1 AND user_id = $2`, [meetingId, id]));
+    if ((r.rowCount ?? 0) > 0) return id;
+  }
+  return null;
+}
+
+/**
+ * "Não é a mesma: virar ação separada" numa fala que a trava juntou vinda da reunião de OUTRA pessoa (revisão de
+ * 01/10/2026): a ação volta para a lista de quem gravou, como ação da reunião dele, e o juiz dos dois aprende que
+ * são diferentes; quem gravou deixa de ver a ação da dona (se só via por causa dessa fala). null = a fala não é de
+ * reunião de outra pessoa (segue o caminho de sempre).
+ */
+export async function devolverFalaDeOutro(
+  donaId: string,
+  mencaoId: string,
+): Promise<{ tarefa_id: string; gravou_id: string; gravou_nome: string | null } | null> {
+  const lido = await withTenant(donaId, async (c) => {
+    const m = (
+      await c.query<{
+        tarefa_id: string;
+        meeting_id: string | null;
+        tarefa_origem_id: string | null;
+        da_dona: boolean;
+        titulo_falado: string;
+        owner_falado: string | null;
+        prazo_falado: string | null;
+        prazo_text_falado: string | null;
+        prioridade_falada: string | null;
+      }>(
+        `SELECT tarefa_id::text AS tarefa_id, meeting_id::text AS meeting_id, tarefa_origem_id::text AS tarefa_origem_id,
+                EXISTS (SELECT 1 FROM meetings WHERE id = tarefa_mencoes.meeting_id AND user_id = $2) AS da_dona,
+                titulo_falado, owner_falado, prazo_falado, prazo_text_falado, prioridade_falada
+           FROM tarefa_mencoes WHERE id = $1`,
+        [mencaoId, donaId],
+      )
+    ).rows[0];
+    if (!m || !m.meeting_id || m.da_dona || m.tarefa_origem_id) return null;
+    const card = (await c.query<{ titulo: string; descricao: string | null }>(`SELECT titulo, descricao FROM tarefas WHERE id = $1`, [m.tarefa_id])).rows[0];
+    if (!card) return null;
+    const provaveis = (
+      await c.query<{ id: string }>(`SELECT user_id::text AS id FROM tarefa_acessos WHERE tarefa_id = $1 AND created_by = user_id`, [m.tarefa_id])
+    ).rows.map((x) => x.id);
+    const outras = (
+      await c.query<{ id: string }>(
+        `SELECT DISTINCT meeting_id::text AS id FROM tarefa_mencoes WHERE tarefa_id = $1 AND id <> $2 AND meeting_id IS NOT NULL`,
+        [m.tarefa_id, mencaoId],
+      )
+    ).rows.map((x) => x.id);
+    return { m: { ...m, meeting_id: m.meeting_id }, card, provaveis, outras };
+  });
+  if (!lido) return null;
+  const { m, card, provaveis, outras } = lido;
+  const gravouId = await donoDaReuniao(m.meeting_id, provaveis);
+  if (!gravouId) return null;
+
+  const pessoas = await query<{ id: string; nome: string }>(`SELECT id::text AS id, nome FROM users WHERE deleted_at IS NULL AND COALESCE(nome, '') <> ''`);
+  const nomeDe = (id: string) => pessoas.find((x) => x.id === id)?.nome ?? null;
+  // A fala está escrita do ponto de vista da dona ("eu" = ela): volta para o de quem gravou.
+  const dito = (m.owner_falado ?? "").trim();
+  const daDona = !dito || isOwner(dito);
+  const dele = !daDona && pessoaDoNome(dito, pessoas) === gravouId;
+  const owner = dele ? getOwnerSlug() : daDona ? (nomeDe(donaId) ?? dito) : dito;
+  const prioridade = PRIORIDADES.includes(String(m.prioridade_falada)) ? String(m.prioridade_falada) : "media";
+
+  // Primeiro a ação de quem gravou, depois a fala sai da ação da dona: se cair no meio, sobra uma a mais, nunca some.
+  const { tarefaId, aindaDele } = await withTenant(gravouId, async (c) => {
+    const aindaDele =
+      outras.length > 0 &&
+      ((await c.query(`SELECT 1 FROM meetings WHERE id = ANY($1::uuid[]) AND user_id = $2 LIMIT 1`, [outras, gravouId])).rowCount ?? 0) > 0;
+    const r = await c.query<{ id: string }>(
+      `INSERT INTO tarefas (user_id, meeting_id, titulo, owner, acao, prazo, prazo_text, prioridade)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id::text AS id`,
+      [gravouId, m.meeting_id, m.titulo_falado, owner, dele ? "executar" : "cobrar", m.prazo_falado, m.prazo_text_falado, prioridade],
+    );
+    await c.query(`INSERT INTO extracao_feedback (user_id, meeting_id, tipo, payload) VALUES ($1,$2,'diferente',$3)`, [
+      gravouId,
+      m.meeting_id,
+      JSON.stringify({ nova: { titulo: m.titulo_falado, descricao: null }, existente: { titulo: card.titulo, descricao: null } }),
+    ]);
+    return { tarefaId: r.rows[0].id, aindaDele };
+  });
+
+  await withTenant(donaId, async (c) => {
+    await c.query(`DELETE FROM tarefa_mencoes WHERE id = $1`, [mencaoId]);
+    await c.query(`INSERT INTO extracao_feedback (user_id, meeting_id, tipo, payload) VALUES ($1,$2,'diferente',$3)`, [
+      donaId,
+      m.meeting_id,
+      JSON.stringify({ nova: { titulo: m.titulo_falado, descricao: null }, existente: { titulo: card.titulo, descricao: card.descricao } }),
+    ]);
+    if (aindaDele) return;
+    const saiu = await c.query(
+      `DELETE FROM tarefa_acessos WHERE tarefa_id = $1 AND user_id = $2 AND created_by = $2 AND NOT faz`,
+      [m.tarefa_id, gravouId],
+    );
+    if ((saiu.rowCount ?? 0) > 0) {
+      await c.query(`INSERT INTO tarefa_eventos (tarefa_id, evento, payload, ator_user_id) VALUES ($1, 'editada', $2, $3)`, [
+        m.tarefa_id,
+        JSON.stringify({ changed: { quem_ve: { saiu: gravouId } }, origem: "repetida_separada", meeting_id: m.meeting_id }),
+        donaId,
+      ]);
+    }
+  });
+  return { tarefa_id: tarefaId, gravou_id: gravouId, gravou_nome: nomeDe(gravouId) };
+}
+
 async function registrarGasto(
   userId: string,
   meetingId: string,
