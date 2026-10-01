@@ -7,9 +7,8 @@ import { carregarTarefas } from "./equipe-compartilhado";
 import { criarAcao, type Prioridade } from "./nova-acao";
 import { lerFonte, paginasEditadas, ultimaEscritaNoNotion } from "./notion-api";
 import { etapaEmPortugues, lerPagina, PROPS, statusDoNotion } from "./notion-mapa";
-import { conexaoAtiva, pedirEnvio, pessoaDaAcao, pessoasDoNotion } from "./notion-sync";
+import { conexaoAtiva, mudadosNoAcoes, pedirEnvio } from "./notion-sync";
 import { situacoesDoNotion } from "./notion-tela";
-import { diaBR, ehDataValida } from "./data-br";
 import { paraTela, tarefaNaTela } from "./ttars-tela";
 
 const QUANTOS = 300;
@@ -136,7 +135,7 @@ export async function tarefasDoMarketing(userId: string) {
     [c.id],
   );
   const quadros = [c.quadro_id, ...projetos.map((p) => p.quadro_id)].filter((x): x is string => !!x);
-  const [noQuadro, links, agora, eu, comentarios, gente] = await Promise.all([
+  const [noQuadro, links, agora, eu, comentarios, mudados] = await Promise.all([
     withTenant(c.dono_user_id, (db) =>
       db.query<{ tarefa_id: string; dono_id: string; quadro_id: string }>(
         `SELECT t.tarefa_id::text AS tarefa_id, t.dono_id::text AS dono_id, q.id::text AS quadro_id
@@ -144,8 +143,8 @@ export async function tarefasDoMarketing(userId: string) {
         [quadros],
       ),
     ),
-    query<{ tarefa_id: string; dono_id: string; page_id: string; ultimos: Record<string, string | null> | null }>(
-      `SELECT tarefa_id::text AS tarefa_id, tarefa_dono_id::text AS dono_id, page_id, ultimos FROM notion_paginas WHERE conexao_id = $1`,
+    query<{ tarefa_id: string; dono_id: string; page_id: string }>(
+      `SELECT tarefa_id::text AS tarefa_id, tarefa_dono_id::text AS dono_id, page_id FROM notion_paginas WHERE conexao_id = $1`,
       [c.id],
     ),
     notionAgora().catch(() => null),
@@ -155,34 +154,16 @@ export async function tarefasDoMarketing(userId: string) {
       `SELECT page_id, count(*)::int AS n FROM notion_comentarios WHERE conexao_id = $1 AND comment_id NOT LIKE 'pendente:%' GROUP BY page_id`,
       [c.id],
     ).catch(() => []),
-    pessoasDoNotion(),
+    // O que mudou aqui e a rodada ainda vai levar (a mesma conta dela): nesses campos a tela mostra o daqui.
+    mudadosNoAcoes(c),
   ]);
   const comentariosDa = new Map(comentarios.map((x) => [x.page_id, x.n]));
-  const pessoas = new Map(gente.map((p) => [p.notion_user_id, p]));
   const pares = new Map<string, { tarefa_id: string; dono_id: string }>();
   for (const x of [...noQuadro.rows, ...links]) if (!pares.has(x.tarefa_id)) pares.set(x.tarefa_id, { tarefa_id: x.tarefa_id, dono_id: x.dono_id });
   const quadrosDa = new Map<string, string[]>();
   for (const x of noQuadro.rows) quadrosDa.set(x.tarefa_id, [...(quadrosDa.get(x.tarefa_id) ?? []), x.quadro_id]);
   const paginaDa = new Map(links.map((l) => [l.tarefa_id, l.page_id]));
-  const ultimosDa = new Map(links.map((l) => [l.tarefa_id, l.ultimos ?? {}]));
-  const cruas = await carregarTarefas(userId, [...pares.values()], { donoNome: true });
-  const cruaDa = new Map(cruas.map((t) => [t.id, t]));
-  // O que mudou aqui desde a última ida ao Notion (a rodada leva até 1 minuto): nesses campos a tela mostra o
-  // daqui; nos outros, o que está lá. A mesma conta da rodada (prazo do dia, prioridade, quem faz).
-  const aquiMudou = (id: string): string[] => {
-    const t = cruaDa.get(id);
-    const u = ultimosDa.get(id);
-    if (!t || !u) return [];
-    const mudou: string[] = [];
-    if ("prazo" in u && (u.prazo ?? "") !== (t.prazo && ehDataValida(t.prazo) ? diaBR(t.prazo) : "")) mudou.push("prazo");
-    if ("prioridade" in u && u.prioridade !== t.prioridade) mudou.push("prioridade");
-    if ("pessoa" in u) {
-      const quem = { owner: t.owner, responsavel_user_id: t.responsavel_user_id ?? null } as Parameters<typeof pessoaDaAcao>[0];
-      if (pessoaDaAcao(quem, pessoas, u.pessoa ?? undefined) !== (u.pessoa ?? "")) mudou.push("pessoa");
-    }
-    return mudou;
-  };
-  const tarefas = await paraTela(userId, cruas);
+  const tarefas = await paraTela(userId, await carregarTarefas(userId, [...pares.values()], { donoNome: true }));
   const nomeDoQuadro = new Map<string, string>(projetos.filter((p) => p.quadro_id).map((p) => [p.quadro_id!, p.nome]));
   return {
     ligado: true as const,
@@ -201,7 +182,7 @@ export async function tarefasDoMarketing(userId: string) {
         projetos_do_marketing: (quadrosDa.get(t.id) ?? []).filter((q) => q !== c.quadro_id).map((q) => ({ id: q, nome: nomeDoQuadro.get(q) ?? "Projeto" })),
         no_notion: pagina ? (agora?.porPagina.get(pagina) ?? null) : null,
         comentarios_no_notion: pagina ? (comentariosDa.get(pagina) ?? 0) : 0,
-        aqui_mudou: pagina ? aquiMudou(t.id) : [],
+        aqui_mudou: mudados.get(t.id) ?? [],
       };
     }),
   };

@@ -633,6 +633,8 @@ async function gravarLink(
   link: { tarefa_id: string; tarefa_dono_id: string },
   ultimos: Campos,
   statusNotion: string,
+  /** Nasceu pelo Hub do Marketing: Person e Assign andam juntos daqui em diante (023). */
+  pessoasJuntas = false,
 ) {
   if (!(await temBancoNovo())) {
     await query(
@@ -644,10 +646,11 @@ async function gravarLink(
     );
     return;
   }
+  // O vínculo e o "andam juntos" numa gravação só (o ON CONFLICT não mexe nele: os vínculos seguintes preservam).
   await query(
     `INSERT INTO notion_paginas (page_id, conexao_id, tarefa_id, tarefa_dono_id, url, status_notion, bu, ultimos, editado_notion, editado_por,
-                                 criado_por, campo_descricao, sincronizado_em)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now())
+                                 criado_por, campo_descricao, sincronizado_em${pessoasJuntas ? ", pessoas_juntas" : ""})
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now()${pessoasJuntas ? ", true" : ""})
      ON CONFLICT (page_id) DO UPDATE SET url = EXCLUDED.url, status_notion = EXCLUDED.status_notion, bu = EXCLUDED.bu,
        ultimos = EXCLUDED.ultimos, editado_notion = EXCLUDED.editado_notion, editado_por = EXCLUDED.editado_por,
        criado_por = COALESCE(EXCLUDED.criado_por, notion_paginas.criado_por), campo_descricao = EXCLUDED.campo_descricao, sincronizado_em = now()`,
@@ -876,19 +879,51 @@ function porDono<T extends { tarefa_dono_id: string }>(links: T[]): Map<string, 
   return m;
 }
 
+/** As ações como estão no banco (a linha crua, sem o jeito de quem vê), lidas no tenant de cada dono. */
+async function acoesCruasDoDono(dono: string, ids: string[]): Promise<Map<string, TarefaCrua>> {
+  const res = await withTenant(dono, (db) =>
+    db.query<TarefaCrua>(
+      `SELECT id::text AS id, titulo, descricao, prazo, status, prioridade, owner, acao,
+              responsavel_user_id::text AS responsavel_user_id, updated_at
+         FROM tarefas WHERE id = ANY($1::uuid[])`,
+      [ids],
+    ),
+  );
+  return new Map(res.rows.map((t) => [t.id, t]));
+}
+
+/** Os campos (dentre `chaves`) em que a ação mudou desde a última ida ao Notion. */
+function diferencas(antes: Partial<Campos>, agora: Campos, chaves: readonly (keyof Campos)[]): Partial<Campos> {
+  const mudou: Partial<Campos> = {};
+  for (const k of chaves) if (String(antes[k] ?? "") !== String(agora[k] ?? "")) (mudou as Record<string, unknown>)[k] = agora[k];
+  return mudou;
+}
+
+/**
+ * Hub do Marketing: em que campos (prazo, prioridade, pessoa) cada ação mudou no Ações e a rodada ainda vai
+ * levar ao Notion — a mesma conta do `empurrar` (linha crua, mudou depois da última sincronização). Neles a
+ * tela mostra o daqui; nos outros, o que está lá.
+ */
+export async function mudadosNoAcoes(c: Conexao): Promise<Map<string, (keyof Campos)[]>> {
+  const pessoas = await pessoasDaConexao(c);
+  const chaves = ["prazo", "prioridade", "pessoa"] as const;
+  const out = new Map<string, (keyof Campos)[]>();
+  for (const [dono, lista] of porDono(await linksDaConexao(c))) {
+    const vivas = await acoesCruasDoDono(dono, lista.map((l) => l.tarefa_id));
+    for (const l of lista) {
+      const t = vivas.get(l.tarefa_id);
+      if (!t || Date.parse(iso(t.updated_at)) <= Date.parse(iso(l.sincronizado_em))) continue;
+      const mudou = Object.keys(diferencas(l.ultimos, camposDaAcao(t, pessoas, l.ultimos, ""), chaves.filter((k) => k in l.ultimos))) as (keyof Campos)[];
+      if (mudou.length) out.set(l.tarefa_id, mudou);
+    }
+  }
+  return out;
+}
+
 async function empurrar(c: Conexao, r: Rodada, pessoas: Map<string, PessoaNotion>) {
   const links = await linksDaConexao(c);
   for (const [dono, lista] of porDono(links)) {
-    const ids = lista.map((l) => l.tarefa_id);
-    const res = await withTenant(dono, (db) =>
-      db.query<TarefaCrua>(
-        `SELECT id::text AS id, titulo, descricao, prazo, status, prioridade, owner, acao,
-                responsavel_user_id::text AS responsavel_user_id, updated_at
-           FROM tarefas WHERE id = ANY($1::uuid[])`,
-        [ids],
-      ),
-    );
-    const vivas = new Map(res.rows.map((t) => [t.id, t]));
+    const vivas = await acoesCruasDoDono(dono, lista.map((l) => l.tarefa_id));
     for (const l of lista) {
       const t = vivas.get(l.tarefa_id);
       if (!t) {
@@ -903,11 +938,7 @@ async function empurrar(c: Conexao, r: Rodada, pessoas: Map<string, PessoaNotion
       const trocouDeProjeto = r.projetosOk && "projeto" in antes && projetoAqui !== (antes.projeto ?? "");
       if (!trocouDeProjeto && Date.parse(iso(t.updated_at)) <= Date.parse(iso(l.sincronizado_em))) continue;
       const agora = camposDaAcao(t, pessoas, l.ultimos, projetoAqui);
-      const mudou: Partial<Campos> = {};
-      for (const k of CHAVES) {
-        if (k === "projeto" && (!r.projetosOk || !("projeto" in antes))) continue;
-        if (String(antes[k] ?? "") !== String(agora[k] ?? "")) (mudou as Record<string, unknown>)[k] = agora[k];
-      }
+      const mudou = diferencas(antes, agora, CHAVES.filter((k) => k !== "projeto" || (r.projetosOk && "projeto" in antes)));
       if (!Object.keys(mudou).length) {
         await query(`UPDATE notion_paginas SET sincronizado_em = now() WHERE page_id = $1`, [l.page_id]);
         continue;
@@ -1008,8 +1039,7 @@ async function enviar(c: Conexao, r: Rodada, pessoas: Map<string, PessoaNotion>)
       // Vínculo gravado logo depois de criar: a página nova nunca vira uma segunda ação.
       const valendo: Campos = { ...campos };
       if (!r.projetosOk) delete (valendo as Partial<Campos>).projeto;
-      await gravarLink(c, lida, { tarefa_id: t.id, tarefa_dono_id: e.tarefa_dono_id }, valendo, lida.statusNotion);
-      if (hub) await query(`UPDATE notion_paginas SET pessoas_juntas = true WHERE page_id = $1`, [lida.pageId]);
+      await gravarLink(c, lida, { tarefa_id: t.id, tarefa_dono_id: e.tarefa_dono_id }, valendo, lida.statusNotion, !!hub);
       await query(`DELETE FROM notion_envios WHERE tarefa_id = $1`, [e.tarefa_id]);
       if (r.projetosOk || !bancoNovo) await colocarNoLugar(c, r, t.id, projeto).catch(() => undefined);
     } catch (err) {
