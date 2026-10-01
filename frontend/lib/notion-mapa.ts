@@ -130,7 +130,8 @@ export function statusDoNotion(nome: string | null | undefined): StatusAcoes {
 export function statusParaNotion(s: StatusAcoes, anteriorNoNotion: string | null | undefined): string | null {
   if (s === "cancelada") return null;
   const anterior = (anteriorNoNotion ?? "").trim();
-  if (anterior && DE_NOTION[anterior.toLowerCase()] === s) return anterior;
+  // Situação que só existe lá (Revision) conta como A fazer, como em statusDoNotion.
+  if (anterior && statusDoNotion(anterior) === s) return anterior;
   if (s === "aberta") return "Not started";
   if (s === "em_andamento") return "This Week";
   if (s === "aguardando_aprovacao") return "In Approval";
@@ -138,7 +139,8 @@ export function statusParaNotion(s: StatusAcoes, anteriorNoNotion: string | null
 }
 
 const PRIO_DE_NOTION: Record<string, Prioridade> = { urgent: "urgente", high: "alta", medium: "media", low: "baixa" };
-const PRIO_PARA_NOTION: Record<Prioridade, string | null> = { urgente: "Urgent", alta: "High", media: "Medium", baixa: null };
+// Low existe na base desde 01/10/2026 (antes, baixa ia vazia e voltava como Média).
+const PRIO_PARA_NOTION: Record<Prioridade, string | null> = { urgente: "Urgent", alta: "High", media: "Medium", baixa: "Low" };
 
 export const prioridadeDoNotion = (nome: string | null | undefined): Prioridade =>
   PRIO_DE_NOTION[(nome ?? "").trim().toLowerCase()] ?? "media";

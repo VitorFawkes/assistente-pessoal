@@ -951,9 +951,10 @@ async function enviar(c: Conexao, r: Rodada, pessoas: Map<string, PessoaNotion>)
     bu: string | null;
     pedido_por: string | null;
     tentativas: number;
+    do_hub: EscolhasDoHub | null;
   }>(
     `SELECT e.tarefa_id::text AS tarefa_id, e.tarefa_dono_id::text AS tarefa_dono_id, e.notion_user_id, e.bu,
-            e.pedido_por::text AS pedido_por, e.tentativas
+            e.pedido_por::text AS pedido_por, e.tentativas, e.do_hub
        FROM notion_envios e
       WHERE e.conexao_id = $1 AND e.tentativas < 5
         AND NOT EXISTS (SELECT 1 FROM notion_paginas p WHERE p.tarefa_id = e.tarefa_id)`,
@@ -983,11 +984,21 @@ async function enviar(c: Conexao, r: Rodada, pessoas: Map<string, PessoaNotion>)
       const quem = e.pedido_por
         ? (await query<{ nome: string }>(`SELECT nome FROM users WHERE id = $1`, [e.pedido_por]))[0]?.nome
         : null;
+      const hub = e.do_hub;
+      // Pedido: a área é a do pedido (nunca a da aba de quem mexeu antes de a página nascer). Nova pelo Hub: nasce
+      // como foi escolhida, igual ao New de lá: a situação (se ainda quer dizer a mesma daqui), quem faz em Person
+      // e Assign, e prioridade e área vazias quando ninguém escolheu.
+      const props = propriedadesPara(campos, {
+        bu: hub ? (hub.bu ?? null) : (pedido?.bu ?? e.bu ?? "Institucional"),
+        assign: !!pedido || !!hub,
+        pessoas: lista,
+        statusAnterior: hub?.situacao ?? null,
+      });
+      if (hub && !hub.prioridade) delete props[PROPS.prioridade];
       const pg = await criarPagina(
         c.token,
         c.data_source_id,
-        // Pedido: a área é a do pedido (nunca a da aba de quem mexeu antes de a página nascer).
-        propriedadesPara(campos, { bu: pedido?.bu ?? e.bu ?? "Institucional", assign: !!pedido, pessoas: lista }),
+        props,
         pedido ? `Pedido por ${pedido.quem ?? quem ?? "alguém"} pelo TTARS, ${diaMesBR(pedido.criado_em)}` : `Pedido por ${quem ?? "alguém"} no Ações.`,
       );
       const lida = lerPagina(pg);
@@ -1013,18 +1024,24 @@ export async function pedirEnvio(opts: {
   pedidoPor: string;
   notionUserId?: string | null;
   bu?: string | null;
+  /** Nova pelo Hub do Marketing: a página nasce como foi escolhida lá (023_envio_com_situacao.sql). */
+  doHub?: EscolhasDoHub | null;
 }): Promise<boolean> {
   const c = await conexaoAtiva();
   if (!c) return false;
   await query(
-    `INSERT INTO notion_envios (tarefa_id, tarefa_dono_id, conexao_id, notion_user_id, bu, pedido_por)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO notion_envios (tarefa_id, tarefa_dono_id, conexao_id, notion_user_id, bu, pedido_por, do_hub)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (tarefa_id) DO UPDATE SET notion_user_id = COALESCE(EXCLUDED.notion_user_id, notion_envios.notion_user_id),
-       bu = COALESCE(EXCLUDED.bu, notion_envios.bu), tentativas = 0, erro = NULL`,
-    [opts.tarefaId, opts.donoId, c.id, opts.notionUserId ?? null, opts.bu ?? null, opts.pedidoPor],
+       bu = COALESCE(EXCLUDED.bu, notion_envios.bu), do_hub = COALESCE(EXCLUDED.do_hub, notion_envios.do_hub),
+       tentativas = 0, erro = NULL`,
+    [opts.tarefaId, opts.donoId, c.id, opts.notionUserId ?? null, opts.bu ?? null, opts.pedidoPor, opts.doHub ? JSON.stringify(opts.doHub) : null],
   );
   return true;
 }
+
+/** O que foi escolhido na Nova tarefa do Hub: a situação de lá, se a prioridade foi escolhida e a área. */
+export type EscolhasDoHub = { situacao: string | null; prioridade: boolean; bu: string | null };
 
 // ── cada ação no seu projeto ──────────────────────────────────────────────────────────
 
@@ -1602,7 +1619,7 @@ export async function notionDasAcoes(ids: string[]) {
     criado_por_nome: string | null;
     esperando: boolean;
   }>(
-    `SELECT x.id::text AS tarefa_id, p.url, p.status_notion, p.bu, p.editado_notion,
+    `SELECT x.id::text AS tarefa_id, p.url, COALESCE(p.status_notion, e.do_hub ->> 'situacao') AS status_notion, p.bu, p.editado_notion,
             (SELECT np.nome FROM notion_pessoas np WHERE np.conexao_id = p.conexao_id AND np.notion_user_id = p.editado_por) AS editado_por_nome,
             ${novo ? "(SELECT np.nome FROM notion_pessoas np WHERE np.conexao_id = p.conexao_id AND np.notion_user_id = p.criado_por)" : "NULL::text"} AS criado_por_nome,
             (p.page_id IS NULL AND e.tarefa_id IS NOT NULL) AS esperando

@@ -11,6 +11,7 @@ import {
   propriedadesPara,
   statusDoNotion,
   statusParaNotion,
+  prioridadeDoNotion,
   type Campos,
   type PaginaNotion,
 } from "./notion-mapa";
@@ -175,6 +176,9 @@ describe("situação", () => {
   test("Ações → Notion: aberta mantém Up next; cancelada não tem situação (vai pra lixeira)", () => {
     expect(statusParaNotion("aberta", "Up next")).toBe("Up next");
     expect(statusParaNotion("aberta", "Done")).toBe("Not started");
+    // Situação criada depois lá (Revision) é A fazer: fica; noutra situação daqui vai o nome padrão.
+    expect(statusParaNotion("aberta", "Revision")).toBe("Revision");
+    expect(statusParaNotion("em_andamento", "Revision")).toBe("This Week");
     expect(statusParaNotion("em_andamento", null)).toBe("This Week");
     expect(statusParaNotion("aguardando_aprovacao", null)).toBe("In Approval");
     expect(statusParaNotion("concluida", null)).toBe("Done");
@@ -198,10 +202,11 @@ describe("gravando no Notion", () => {
       BU: { select: { name: "Trips" } },
     });
   });
-  test("sem prazo apaga a data; prioridade baixa fica vazia", () => {
+  test("sem prazo apaga a data; prioridade baixa vai como Low e volta baixa (ida e volta iguais)", () => {
     const p = propriedadesPara({ prazo: "", prioridade: "baixa" });
     expect(p["Due date"]).toEqual({ date: null });
-    expect(p.Priority).toEqual({ select: null });
+    expect(p.Priority).toEqual({ select: { name: "Low" } });
+    expect(prioridadeDoNotion("Low")).toBe("baixa");
   });
 });
 

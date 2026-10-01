@@ -38,13 +38,14 @@ export async function acessoTarefa(userId: string, tarefaId: string): Promise<Ac
 
 /**
  * Hub do Marketing (01/10/2026): quem é do marketing ou administrador (pedido_posso_mexer, a mesma régua
- * das travas do pedido) abre qualquer pedido e qualquer tarefa do Notion do marketing, mesmo fora do
- * projeto, como quem foi marcado para ver. O dono continua o mesmo (quem pediu, ou o dono do espelho).
+ * das travas do pedido) abre qualquer pedido e qualquer tarefa do Notion do marketing (também a que ainda
+ * está indo para lá), mesmo fora do projeto, como quem foi marcado para ver. O dono continua o mesmo (quem pediu, ou o dono do espelho).
  */
 async function acessoDoMarketing(userId: string, tarefaId: string): Promise<AcessoTarefa | null> {
   const [pedido] = await query<{ dono_id: string | null }>(
     `SELECT COALESCE((SELECT pedido_por::text FROM tarefa_pedidos WHERE tarefa_id = $1),
-                     (SELECT tarefa_dono_id::text FROM notion_paginas WHERE tarefa_id = $1 LIMIT 1)) AS dono_id`,
+                     (SELECT tarefa_dono_id::text FROM notion_paginas WHERE tarefa_id = $1 LIMIT 1),
+                     (SELECT tarefa_dono_id::text FROM notion_envios WHERE tarefa_id = $1)) AS dono_id`,
     [tarefaId],
   ).catch((e: unknown) => {
     if ((e as { code?: string })?.code === "42P01") return [];

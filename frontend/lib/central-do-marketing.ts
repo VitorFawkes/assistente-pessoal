@@ -6,9 +6,10 @@ import { query, withTenant } from "./db";
 import { carregarTarefas } from "./equipe-compartilhado";
 import { criarAcao, type Prioridade } from "./nova-acao";
 import { lerFonte, paginasEditadas } from "./notion-api";
-import { etapaEmPortugues, lerPagina, PROPS } from "./notion-mapa";
-import { conexaoAtiva } from "./notion-sync";
-import { paraTela } from "./ttars-tela";
+import { etapaEmPortugues, lerPagina, PROPS, statusDoNotion } from "./notion-mapa";
+import { conexaoAtiva, pedirEnvio } from "./notion-sync";
+import { tarefasFor } from "./queries";
+import { paraTela, tarefaNaTela } from "./ttars-tela";
 
 const QUANTOS = 300;
 
@@ -53,6 +54,8 @@ export type NoNotionAgora = {
   inicio: string | null;
   fim: string | null;
   projetos: string[];
+  /** Quando o Notion foi lido: mudança feita aqui depois disso ainda não está nesta leitura. */
+  lido_em: string;
 };
 type Leitura = { em: number; esquema: EsquemaDoNotion; porPagina: Map<string, NoNotionAgora> };
 
@@ -70,6 +73,7 @@ async function notionAgora(): Promise<Leitura | null> {
   lendo ??= (async () => {
     const c = await conexaoAtiva();
     if (!c) return null;
+    const lidoEm = new Date().toISOString();
     const [fonte, paginas] = await Promise.all([lerFonte(c.token, c.data_source_id), paginasEditadas(c.token, c.data_source_id, null)]);
     const props = fonte.properties as Record<string, PropDoEsquema>;
     const status = props[PROPS.status]?.status;
@@ -100,6 +104,7 @@ async function notionAgora(): Promise<Leitura | null> {
         inicio: data?.start ?? null,
         fim: data?.end ?? null,
         projetos: l.projetos,
+        lido_em: lidoEm,
       });
     }
     lido = { em: Date.now(), esquema, porPagina };
@@ -126,7 +131,7 @@ export async function tarefasDoMarketing(userId: string) {
     [c.id],
   );
   const quadros = [c.quadro_id, ...projetos.map((p) => p.quadro_id)].filter((x): x is string => !!x);
-  const [noQuadro, links, agora, eu] = await Promise.all([
+  const [noQuadro, links, agora, eu, comentarios] = await Promise.all([
     withTenant(c.dono_user_id, (db) =>
       db.query<{ tarefa_id: string; dono_id: string; quadro_id: string }>(
         `SELECT t.tarefa_id::text AS tarefa_id, t.dono_id::text AS dono_id, q.id::text AS quadro_id
@@ -140,7 +145,13 @@ export async function tarefasDoMarketing(userId: string) {
     ),
     notionAgora().catch(() => null),
     query<{ nome: string }>(`SELECT nome FROM notion_pessoas WHERE conexao_id = $1 AND user_id = $2 LIMIT 1`, [c.id, userId]),
+    // Os comentários da página (os de lá e os feitos aqui que já foram), o número que o cartão de lá mostra.
+    query<{ page_id: string; n: number }>(
+      `SELECT page_id, count(*)::int AS n FROM notion_comentarios WHERE conexao_id = $1 AND comment_id NOT LIKE 'pendente:%' GROUP BY page_id`,
+      [c.id],
+    ).catch(() => []),
   ]);
+  const comentariosDa = new Map(comentarios.map((x) => [x.page_id, x.n]));
   const pares = new Map<string, { tarefa_id: string; dono_id: string }>();
   for (const x of [...noQuadro.rows, ...links]) if (!pares.has(x.tarefa_id)) pares.set(x.tarefa_id, { tarefa_id: x.tarefa_id, dono_id: x.dono_id });
   const quadrosDa = new Map<string, string[]>();
@@ -164,18 +175,21 @@ export async function tarefasDoMarketing(userId: string) {
         // Os projetos do marketing em que a tarefa está (pelo Ações, vale também para quem não está neles).
         projetos_do_marketing: (quadrosDa.get(t.id) ?? []).filter((q) => q !== c.quadro_id).map((q) => ({ id: q, nome: nomeDoQuadro.get(q) ?? "Projeto" })),
         no_notion: pagina ? (agora?.porPagina.get(pagina) ?? null) : null,
+        comentarios_no_notion: pagina ? (comentariosDa.get(pagina) ?? 0) : 0,
       };
     }),
   };
 }
 
-// A área do Notion vai pelo "espaço" de quem cria (buDoWorkspace): Weddings, Trips, Corp; o resto é Institucional.
-const ESPACO_DA_AREA: Record<string, string> = { Weddings: "welcome-weddings", Trips: "welcome-trips", Corp: "welcome-corporativo", Institucional: "institucional" };
+// As áreas (BU) da base; uma criada depois lá vale pela leitura de lá.
+const AREAS_CONHECIDAS = ["Weddings", "Trips", "Corp", "Institucional"];
 const PRIORIDADES: Prioridade[] = ["baixa", "media", "alta", "urgente"];
 
 /**
  * POST /api/ttars/marketing/tarefas — "Nova tarefa" do Hub, com os campos escolhidos (sem a IA reler o
- * título): vai para um projeto do marketing (ou o "sem projeto") e de lá para o Notion, como Not started.
+ * título), como o New do Notion: vai para um projeto do marketing (ou o "sem projeto") e de lá para o Notion,
+ * na situação escolhida ("+ New task" da coluna), com quem faz em Person e Assign ("Eu" = quem cria) e
+ * prioridade e área vazias quando ninguém escolheu.
  */
 export async function novaTarefaDoMarketing(user: User, corpo: unknown) {
   const b = (corpo && typeof corpo === "object" ? corpo : {}) as Record<string, unknown>;
@@ -189,17 +203,33 @@ export async function novaTarefaDoMarketing(user: User, corpo: unknown) {
   ).catch(() => [{ ok: false }]);
   if (!doMarketing[0]?.ok) return { status: 400, json: { error: "Escolha um projeto do marketing." } };
   const area = txt(b.area);
-  const prioridade = PRIORIDADES.includes(b.prioridade as Prioridade) ? (b.prioridade as Prioridade) : "media";
+  const bu = area && (AREAS_CONHECIDAS.includes(area) || !!lido?.esquema.areas.some((a) => a.nome === area)) ? area : null;
+  const prioridade = PRIORIDADES.includes(b.prioridade as Prioridade) ? (b.prioridade as Prioridade) : null;
+  const situacao = txt(b.situacao)?.slice(0, 60) ?? null;
+  // Sem projeto aqui: quem é do marketing cria mesmo sem ser membro do projeto (o projeto é do robô do Notion).
   const r = await criarAcao(user, {
     titulo: txt(b.titulo) ?? "",
     descricao: txt(b.descricao),
     quem_email: txt(b.quem_email),
     prazo: txt(b.prazo),
-    prioridade,
-    projeto_id: projeto,
-    workspace: area ? (ESPACO_DA_AREA[area] ?? null) : null,
+    prioridade: prioridade ?? "media",
     origem: "manual",
+    semFila: true,
   });
   if (!r.ok) return { status: r.status, json: { error: r.erro } };
-  return { status: 201, json: { tarefa: r.tarefa, aviso: r.aviso } };
+  const id = r.tarefa.id;
+  await withTenant(c.dono_user_id, (db) =>
+    db.query(`INSERT INTO quadro_tarefas (quadro_id, tarefa_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [projeto, id]),
+  );
+  // "+ New task" no pé de uma coluna: nasce nela (aqui, na situação do Ações que ela quer dizer).
+  const status = statusDoNotion(situacao);
+  if (situacao && status !== "aberta") await tarefasFor(user.id).atualizar(id, { status }, "manual");
+  // "Eu": no Notion vai quem cria (se está no Notion do marketing).
+  const quem =
+    r.notionUserId ??
+    (await query<{ id: string }>(`SELECT notion_user_id AS id FROM notion_pessoas WHERE conexao_id = $1 AND user_id = $2 LIMIT 1`, [c.id, user.id]))[0]?.id ??
+    null;
+  await pedirEnvio({ tarefaId: id, donoId: user.id, pedidoPor: user.id, notionUserId: quem, bu, doHub: { situacao, prioridade: !!prioridade, bu } });
+  const tarefa = (await tarefaNaTela(user.id, id))?.tarefa ?? r.tarefa;
+  return { status: 201, json: { tarefa, aviso: r.aviso } };
 }
