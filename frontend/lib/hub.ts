@@ -230,7 +230,7 @@ export type ListaSalva = {
   vista: string | null;
 };
 
-export const ONDE_RE = /^(minhas|(time|projeto|objetivo):[A-Za-z0-9_-]{1,80})$/;
+export const ONDE_RE = /^(minhas|pedidos|(time|projeto|objetivo):[A-Za-z0-9_-]{1,80})$/;
 export const ORDENS = ["prazo", "criada", "pessoa", "pediu", "prioridade", "projeto", "objetivo", "time", "reuniao", "situacao", "titulo"];
 export const VISTAS = ["lista", "quadro", "tabela"];
 
