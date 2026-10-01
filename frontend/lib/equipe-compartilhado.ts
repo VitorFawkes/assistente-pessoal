@@ -33,23 +33,24 @@ export async function acessoTarefa(userId: string, tarefaId: string): Promise<Ac
   );
   const row = r.rows[0];
   if (row) return { donoId: row.dono_id, papel: row.papel };
-  return acessoDoMarketingAoPedido(userId, tarefaId);
+  return acessoDoMarketing(userId, tarefaId);
 }
 
 /**
- * Pedido ao marketing (Central do Marketing, 01/10/2026): quem é do marketing ou administrador
- * (pedido_posso_mexer, a mesma régua das travas do pedido) abre qualquer pedido, mesmo fora do projeto
- * de destino, como quem foi marcado para ver. O dono continua sendo quem pediu.
+ * Hub do Marketing (01/10/2026): quem é do marketing ou administrador (pedido_posso_mexer, a mesma régua
+ * das travas do pedido) abre qualquer pedido e qualquer tarefa do Notion do marketing, mesmo fora do
+ * projeto, como quem foi marcado para ver. O dono continua o mesmo (quem pediu, ou o dono do espelho).
  */
-async function acessoDoMarketingAoPedido(userId: string, tarefaId: string): Promise<AcessoTarefa | null> {
-  const [pedido] = await query<{ dono_id: string }>(
-    `SELECT pedido_por::text AS dono_id FROM tarefa_pedidos WHERE tarefa_id = $1`,
+async function acessoDoMarketing(userId: string, tarefaId: string): Promise<AcessoTarefa | null> {
+  const [pedido] = await query<{ dono_id: string | null }>(
+    `SELECT COALESCE((SELECT pedido_por::text FROM tarefa_pedidos WHERE tarefa_id = $1),
+                     (SELECT tarefa_dono_id::text FROM notion_paginas WHERE tarefa_id = $1 LIMIT 1)) AS dono_id`,
     [tarefaId],
   ).catch((e: unknown) => {
     if ((e as { code?: string })?.code === "42P01") return [];
     throw e;
   });
-  if (!pedido) return null;
+  if (!pedido?.dono_id) return null;
   const r = await withTenant(userId, (c) => c.query<{ ok: boolean }>(`SELECT pedido_posso_mexer() AS ok`));
   return r.rows[0]?.ok === true ? { donoId: pedido.dono_id, papel: "pessoa" } : null;
 }

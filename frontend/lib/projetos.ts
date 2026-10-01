@@ -199,12 +199,15 @@ export async function adicionarAoProjeto(
   // Pedido ao marketing: o projeto é do marketing (mudaria o projeto da página no Notion).
   const trava = await travaDoPedido(userId, ids, { campos: ["projeto"] });
   if (trava) return trava;
-  // Pedido ao marketing: o marketing e o administrador mexem em qualquer pedido (a mesma régua de acessoTarefa).
+  // Pedido ao marketing e tarefa do Notion do marketing: o marketing e o administrador mexem em qualquer
+  // uma (a mesma régua de acessoTarefa).
   const permitidas = await withTenant(userId, async (c) => {
     const r = await c.query<{ id: string }>(
       `SELECT x::text AS id FROM unnest($1::uuid[]) AS x
         WHERE EXISTS (SELECT 1 FROM equipe_acesso_tarefa(x))
-           OR (EXISTS (SELECT 1 FROM tarefa_pedidos tp WHERE tp.tarefa_id = x) AND pedido_posso_mexer())`,
+           OR ((EXISTS (SELECT 1 FROM tarefa_pedidos tp WHERE tp.tarefa_id = x)
+                OR EXISTS (SELECT 1 FROM notion_paginas np WHERE np.tarefa_id = x))
+               AND pedido_posso_mexer())`,
       [ids],
     );
     return r.rows.map((x) => x.id);
