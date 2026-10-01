@@ -124,7 +124,7 @@ export async function tarefasDoMarketing(userId: string) {
     [c.id],
   );
   const quadros = [c.quadro_id, ...projetos.map((p) => p.quadro_id)].filter((x): x is string => !!x);
-  const [noQuadro, links, agora] = await Promise.all([
+  const [noQuadro, links, agora, eu] = await Promise.all([
     withTenant(c.dono_user_id, (db) =>
       db.query<{ tarefa_id: string; dono_id: string; quadro_id: string }>(
         `SELECT t.tarefa_id::text AS tarefa_id, t.dono_id::text AS dono_id, q.id::text AS quadro_id
@@ -137,6 +137,7 @@ export async function tarefasDoMarketing(userId: string) {
       [c.id],
     ),
     notionAgora().catch(() => null),
+    query<{ nome: string }>(`SELECT nome FROM notion_pessoas WHERE conexao_id = $1 AND user_id = $2 LIMIT 1`, [c.id, userId]),
   ]);
   const pares = new Map<string, { tarefa_id: string; dono_id: string }>();
   for (const x of [...noQuadro.rows, ...links]) if (!pares.has(x.tarefa_id)) pares.set(x.tarefa_id, { tarefa_id: x.tarefa_id, dono_id: x.dono_id });
@@ -149,6 +150,8 @@ export async function tarefasDoMarketing(userId: string) {
     ligado: true as const,
     notion_ok: !!agora,
     url_da_base: `https://www.notion.so/${c.database_id.replace(/-/g, "")}`,
+    // Quem vê, como aparece nas colunas Person e Assign de lá (null = não está no Notion do marketing).
+    eu_no_notion: eu[0]?.nome ?? null,
     esquema: agora?.esquema ?? null,
     sem_projeto: c.quadro_id,
     projetos: projetos.map((p) => ({ ...p, etapa_pt: etapaEmPortugues(p.etapa) })),
