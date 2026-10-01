@@ -250,10 +250,11 @@ type Par = { tarefa_id: string; dono_id: string };
  * Equipe: ações de OUTRAS pessoas que a reunião nova pode estar repetindo.
  *   - as que passaram ou marcaram para quem gravou (ela já tem a ação na lista);
  *   - as de outra gravação da MESMA reunião: alguém gravou no mesmo horário (no Teams, no celular, no Mac) e
- *     quem gravou estava na dela, ou ela estava nesta. Ex.: 29/09, "Weddings" no Teams da Diana e "Plano
+ *     quem gravou ESTAVA na dela, ou ela ESTAVA nesta. Ex.: 29/09, "Weddings" no Teams da Diana e "Plano
  *     Weddings" no celular do Tiago, a mesma reunião.
- * Reunião em que quem gravou não estava nunca entra. Só ações abertas, sem pedido ao marketing e sem Notion
- * (o prazo e a situação dessas são do marketing).
+ * "Estava" é a mesma regra de puxar ação (equipe_chamado_na_reuniao): convite, voz ou marcado como "estava";
+ * quem só foi marcado para ver não conta, e reunião fechada em "Só eu" nunca entra. Só ações abertas, sem
+ * pedido ao marketing e sem Notion (o prazo e a situação dessas são do marketing).
  */
 export async function candidatasDaEquipe(
   userId: string,
@@ -271,27 +272,29 @@ export async function candidatasDaEquipe(
        UNION
        SELECT tarefa_id::text, dono_id::text FROM equipe_tarefas_marcadas_para_mim()`,
     );
-    // Reuniões de outras pessoas que quem gravou consegue abrir (estava nelas), no mesmo horário desta.
+    // Reuniões de outras pessoas, no mesmo horário desta, em que quem gravou estava.
     const mesmas = await c.query<Par>(
       `SELECT t.id::text AS tarefa_id, t.user_id::text AS dono_id
          FROM meetings m JOIN tarefas t ON t.meeting_id = m.id
-        WHERE m.user_id <> $1 AND ${mesmoHorario}`,
+        WHERE m.user_id <> $1 AND ${mesmoHorario} AND equipe_chamado_na_reuniao(m.id)`,
       [userId, de, ate],
     );
+    // Quem estava nesta reunião (convite, voz ou "estava"; não quem só foi marcado para ver).
     const p = await c.query<{ id: string }>(
       `SELECT DISTINCT user_id::text AS id FROM meeting_acessos
-        WHERE meeting_id = $1 AND user_id IS NOT NULL AND user_id <> $2`,
+        WHERE meeting_id = $1 AND user_id IS NOT NULL AND user_id <> $2 AND motivo <> 'quem_ve'`,
       [meetingId, userId],
     );
     return { pares: [...minhas.rows, ...mesmas.rows], presentes: p.rows.map((x) => x.id) };
   });
   // Quem estava nesta reunião e gravou a mesma no mesmo horário (quem gravou esta pode não estar marcado na dela).
+  // Gravação que a pessoa fechou em "Só eu" fica de fora.
   for (const pessoa of presentes) {
     const r = await withTenant(pessoa, (c) =>
       c.query<Par>(
         `SELECT t.id::text AS tarefa_id, t.user_id::text AS dono_id
            FROM meetings m JOIN tarefas t ON t.meeting_id = m.id
-          WHERE m.user_id = $1 AND ${mesmoHorario}`,
+          WHERE m.user_id = $1 AND m.visibilidade <> 'so_eu' AND ${mesmoHorario}`,
         [pessoa, de, ate],
       ),
     );
