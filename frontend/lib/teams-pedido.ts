@@ -1,5 +1,5 @@
 // Formato do que o TTARS manda (conferido antes de tocar no banco).
-import type { Candidato, Legenda } from "./teams";
+import type { Candidato, Legenda, NoTeams } from "./teams";
 
 const texto = (v: unknown, max: number) => (typeof v === "string" && v.length <= max ? v : null);
 const data = (v: unknown) => {
@@ -20,6 +20,14 @@ export function lerCandidato(v: unknown): Candidato | null {
     : [];
   const assunto = o.assunto == null ? null : texto(o.assunto, 500);
   return { chave, organizador, convidados, inicio, fim, assunto };
+}
+
+/** Gravando ou parou (30/09/2026). Sem o campo (TTARS antigo): parou, duração pelo horário marcado. */
+export function lerNoTeams(v: unknown): NoTeams {
+  const o = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
+  const d = o.duracao;
+  const duracao = typeof d === "number" && Number.isFinite(d) && d >= 1 && d <= 24 * 3600 ? Math.round(d) : null;
+  return { gravando: o.gravando === true, duracao };
 }
 
 // Uma reunião de 3 h passa pouco de 200 mil letras; 4 MB cobre folgado sem abrir a porta.

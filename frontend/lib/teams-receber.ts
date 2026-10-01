@@ -14,6 +14,7 @@ import {
   type Candidato,
   type ContextoDaDecisao,
   type Legenda,
+  type NoTeams,
   CHEGANDO,
   CHEGANDO_EXPIRA_MS,
   chamadosDaReuniao,
@@ -225,10 +226,11 @@ export async function receber(p: PedidoDaReuniao): Promise<{ meeting_id?: string
   return { meeting_id: id };
 }
 
-/** O Teams já tem a transcrição, mas ela ainda fecha: a reunião nasce aqui como "chegando", sem
- *  conversa, para quem estava nela ver na hora. O TTARS chama a cada rodada até mandar a
- *  transcrição (`receber`, que completa esta mesma reunião); chamar de novo não cria outra. */
-export async function chegando(p: Candidato): Promise<{ meeting_id?: string; ignorada?: string }> {
+/** A reunião nasce aqui como "chegando", sem conversa, para quem estava nela ver na hora: assim que
+ *  alguém começa a gravar no Teams, ou quando o Teams já tem a transcrição e ela ainda fecha. O TTARS
+ *  chama a cada rodada até mandar a transcrição (`receber`, que completa esta mesma reunião); chamar
+ *  de novo não cria outra, só atualiza se ainda grava. */
+export async function chegando(p: Candidato, noTeams: NoTeams): Promise<{ meeting_id?: string; ignorada?: string }> {
   const recusada = recusadas.get(chaveCompleta(p));
   if (recusada) return { ignorada: recusada };
   const ctx = await contexto([p]);
@@ -238,20 +240,36 @@ export async function chegando(p: Candidato): Promise<{ meeting_id?: string; ign
   if (!gente) return { ignorada: "quem marcou não é da Welcome" };
   const { dono, convidados, chamados } = gente;
   const assunto = assuntoDe(p);
+  // O TTARS antigo não diz se grava: é o aviso de que o Teams já tem a transcrição (a gravação parou).
+  // Parou sem dizer quanto: fica a duração que já veio; sem nenhuma, a do horário marcado.
+  const marcada = Math.max(60, Math.round((Date.parse(p.fim) - Date.parse(p.inicio)) / 1000));
   const id = await withTenant(dono.id, async (c) => {
     await travar(c, p);
-    const ja = await c.query<{ id: string | null }>(
-      `SELECT id::text AS id FROM meetings WHERE user_id = $1 AND teams_evento = $2
-       UNION ALL SELECT NULL FROM teams_apagadas WHERE user_id = $1 AND teams_evento = $2`,
-      [dono.id, p.chave],
+    const ja = await c.query<{ id: string | null; chegando: boolean }>(
+      `SELECT id::text AS id, status = $3 AS chegando FROM meetings WHERE user_id = $1 AND teams_evento = $2
+       UNION ALL SELECT NULL, false FROM teams_apagadas WHERE user_id = $1 AND teams_evento = $2`,
+      [dono.id, p.chave, CHEGANDO],
     );
-    if (ja.rows.length) return ja.rows[0].id;
+    if (ja.rows.length) {
+      const { id: jaId, chegando: aindaChega } = ja.rows[0];
+      // Cada aviso renova a chegando: a limpeza de 3 h conta desde o último (reunião longa gravando).
+      if (jaId && aindaChega) {
+        await c.query(
+          `UPDATE meetings
+              SET duration_seconds = CASE WHEN $3::boolean THEN NULL ELSE COALESCE($4::int, duration_seconds, $5::int) END,
+                  created_at = now()
+            WHERE id = $1 AND user_id = $2 AND status = $6`,
+          [jaId, dono.id, noTeams.gravando, noTeams.duracao, marcada, CHEGANDO],
+        );
+      }
+      return jaId;
+    }
     const r = await c.query<{ id: string }>(
-      `INSERT INTO meetings (user_id, source, meeting_type, original_filename, nome, recorded_at, status, visibilidade,
-                             teams_evento, teams_convidados)
-       VALUES ($1, 'teams', 'online', $2, $3, $4, $5, 'escolhidos', $6, $7)
+      `INSERT INTO meetings (user_id, source, meeting_type, original_filename, nome, recorded_at, duration_seconds, status,
+                             visibilidade, teams_evento, teams_convidados)
+       VALUES ($1, 'teams', 'online', $2, $3, $4, $5, $6, 'escolhidos', $7, $8)
        RETURNING id::text AS id`,
-      [dono.id, `Teams · ${assunto ?? "reunião"}`, assunto, p.inicio, CHEGANDO, p.chave, convidados],
+      [dono.id, `Teams · ${assunto ?? "reunião"}`, assunto, p.inicio, noTeams.gravando ? null : noTeams.duracao ?? marcada, CHEGANDO, p.chave, convidados],
     );
     await abrirParaChamados(c, r.rows[0].id, chamados);
     return r.rows[0].id;
@@ -262,27 +280,33 @@ export async function chegando(p: Candidato): Promise<{ meeting_id?: string; ign
 /** Tira a reunião que estava chegando. A ação que quem marcou já criou nela fica, solta da reunião
  *  (a reunião apagada levaria junto; revisão de 30/09). FOR UPDATE: se a transcrição a completou no
  *  meio do caminho, ela deixa de ser "chegando" e fica (2ª revisão de 30/09). */
-async function apagarChegando(c: PoolClient, userId: string, onde: string, valores: unknown[]) {
+async function apagarChegando(c: PoolClient, userId: string, onde: string, valores: unknown[]): Promise<number> {
   const alvo = await c.query<{ id: string }>(
     `SELECT id::text AS id FROM meetings WHERE user_id = $1 AND source = 'teams' AND status = $2 AND ${onde} FOR UPDATE`,
     [userId, CHEGANDO, ...valores],
   );
   const ids = alvo.rows.map((x) => x.id);
-  if (!ids.length) return;
+  if (!ids.length) return 0;
   await c.query(`UPDATE tarefas SET meeting_id = NULL WHERE meeting_id = ANY($1::uuid[])`, [ids]);
   await c.query(`DELETE FROM meetings WHERE id = ANY($1::uuid[]) AND status = $2`, [ids, CHEGANDO]);
+  return ids.length;
+}
+
+/** O TTARS desistiu: a gravação parou há tempo e o Teams não fez a transcrição (gravou sem transcrever). */
+export async function largar(p: Candidato): Promise<{ largada: boolean }> {
+  return { largada: (await largarChegando(p)) > 0 };
 }
 
 /** A que estava chegando e não vai virar reunião (conversa curta, deixou de ser querida) sai. */
-async function largarChegando(p: Candidato) {
+async function largarChegando(p: Candidato): Promise<number> {
   const [dono] = await query<{ id: string }>(
     `SELECT id::text AS id FROM users WHERE LOWER(email) = $1 AND deleted_at IS NULL`,
     [normalizarEmail(p.organizador)],
   );
-  if (!dono) return;
-  await withTenant(dono.id, async (c) => {
+  if (!dono) return 0;
+  return await withTenant(dono.id, async (c) => {
     await travar(c, p);
-    await apagarChegando(c, dono.id, "teams_evento = $3", [p.chave]);
+    return await apagarChegando(c, dono.id, "teams_evento = $3", [p.chave]);
   });
 }
 
