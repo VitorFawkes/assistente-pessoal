@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
-import { souDoMarketing, tarefasDoMarketing } from "@/lib/central-do-marketing";
+import { novaTarefaDoMarketing, souDoMarketing, tarefasDoMarketing } from "@/lib/central-do-marketing";
 
 export const dynamic = "force-dynamic";
 
@@ -10,4 +10,13 @@ export const GET = withAuth(async (user) => {
     return NextResponse.json({ error: "As tarefas do marketing são do time de marketing." }, { status: 403 });
   }
   return NextResponse.json(await tarefasDoMarketing(user.id));
+});
+
+// "Nova tarefa" do Hub: { titulo, descricao?, quem_email?, prazo?, prioridade?, projeto_id?, area? }.
+export const POST = withAuth(async (user, req) => {
+  if (!(await souDoMarketing(user.id))) {
+    return NextResponse.json({ error: "As tarefas do marketing são do time de marketing." }, { status: 403 });
+  }
+  const r = await novaTarefaDoMarketing(user, await req.json().catch(() => null));
+  return NextResponse.json(r.json, { status: r.status });
 });

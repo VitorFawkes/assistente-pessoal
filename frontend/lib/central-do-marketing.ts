@@ -1,8 +1,10 @@
 // Central do Marketing (01/10/2026, pedido do Vitor: "um hub para as meninas do marketing… é lá que
 // pedidos pro marketing devem aparecer"): os pedidos que chegaram ao marketing, para quem é do marketing
 // ou administrador (pedido_posso_mexer). Cada pedido vem como as outras listas do TTARS mostram.
+import type { User } from "./auth";
 import { query, withTenant } from "./db";
 import { carregarTarefas } from "./equipe-compartilhado";
+import { criarAcao, type Prioridade } from "./nova-acao";
 import { lerFonte, paginasEditadas } from "./notion-api";
 import { etapaEmPortugues, lerPagina, PROPS } from "./notion-mapa";
 import { conexaoAtiva } from "./notion-sync";
@@ -165,4 +167,39 @@ export async function tarefasDoMarketing(userId: string) {
       };
     }),
   };
+}
+
+// A área do Notion vai pelo "espaço" de quem cria (buDoWorkspace): Weddings, Trips, Corp; o resto é Institucional.
+const ESPACO_DA_AREA: Record<string, string> = { Weddings: "welcome-weddings", Trips: "welcome-trips", Corp: "welcome-corporativo", Institucional: "institucional" };
+const PRIORIDADES: Prioridade[] = ["baixa", "media", "alta", "urgente"];
+
+/**
+ * POST /api/ttars/marketing/tarefas — "Nova tarefa" do Hub, com os campos escolhidos (sem a IA reler o
+ * título): vai para um projeto do marketing (ou o "sem projeto") e de lá para o Notion, como Not started.
+ */
+export async function novaTarefaDoMarketing(user: User, corpo: unknown) {
+  const b = (corpo && typeof corpo === "object" ? corpo : {}) as Record<string, unknown>;
+  const txt = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  const c = await conexaoAtiva();
+  if (!c?.quadro_id) return { status: 409, json: { error: "O Notion do marketing não está ligado." } };
+  const projeto = txt(b.projeto_id) ?? c.quadro_id;
+  const doMarketing = await query<{ ok: boolean }>(
+    `SELECT ($2::uuid = $3::uuid OR EXISTS (SELECT 1 FROM notion_projetos WHERE conexao_id = $1 AND quadro_id = $2::uuid AND NOT no_lixo)) AS ok`,
+    [c.id, projeto, c.quadro_id],
+  ).catch(() => [{ ok: false }]);
+  if (!doMarketing[0]?.ok) return { status: 400, json: { error: "Escolha um projeto do marketing." } };
+  const area = txt(b.area);
+  const prioridade = PRIORIDADES.includes(b.prioridade as Prioridade) ? (b.prioridade as Prioridade) : "media";
+  const r = await criarAcao(user, {
+    titulo: txt(b.titulo) ?? "",
+    descricao: txt(b.descricao),
+    quem_email: txt(b.quem_email),
+    prazo: txt(b.prazo),
+    prioridade,
+    projeto_id: projeto,
+    workspace: area ? (ESPACO_DA_AREA[area] ?? null) : null,
+    origem: "manual",
+  });
+  if (!r.ok) return { status: r.status, json: { error: r.erro } };
+  return { status: 201, json: { tarefa: r.tarefa, aviso: r.aviso } };
 }
