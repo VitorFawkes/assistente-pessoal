@@ -32,7 +32,26 @@ export async function acessoTarefa(userId: string, tarefaId: string): Promise<Ac
     ),
   );
   const row = r.rows[0];
-  return row ? { donoId: row.dono_id, papel: row.papel } : null;
+  if (row) return { donoId: row.dono_id, papel: row.papel };
+  return acessoDoMarketingAoPedido(userId, tarefaId);
+}
+
+/**
+ * Pedido ao marketing (Central do Marketing, 01/10/2026): quem é do marketing ou administrador
+ * (pedido_posso_mexer, a mesma régua das travas do pedido) abre qualquer pedido, mesmo fora do projeto
+ * de destino, como quem foi marcado para ver. O dono continua sendo quem pediu.
+ */
+async function acessoDoMarketingAoPedido(userId: string, tarefaId: string): Promise<AcessoTarefa | null> {
+  const [pedido] = await query<{ dono_id: string }>(
+    `SELECT pedido_por::text AS dono_id FROM tarefa_pedidos WHERE tarefa_id = $1`,
+    [tarefaId],
+  ).catch((e: unknown) => {
+    if ((e as { code?: string })?.code === "42P01") return [];
+    throw e;
+  });
+  if (!pedido) return null;
+  const r = await withTenant(userId, (c) => c.query<{ ok: boolean }>(`SELECT pedido_posso_mexer() AS ok`));
+  return r.rows[0]?.ok === true ? { donoId: pedido.dono_id, papel: "pessoa" } : null;
 }
 
 /** Roda `fn` no tenant do dono da tarefa, depois de conferir que `userId` pode mexer nela. */
