@@ -25,6 +25,7 @@
 
 import { createHash } from "node:crypto";
 import { dataBR as dataBRFmt, ehDataValida } from "./data-br";
+import { isTeamMode } from "./team-mode";
 
 export const MODELO_VETOR = "text-embedding-3-small";
 export const DIMENSOES_VETOR = 512;
@@ -98,8 +99,12 @@ export function cosseno(a: number[], b: number[]): number {
   return aa && bb ? dot / Math.sqrt(aa * bb) : 0;
 }
 
-/** Vetor de sentido de cada texto, em lotes. Lança erro se a OpenAI falhar. */
-export async function vetorizar(textos: string[], signal?: AbortSignal): Promise<number[][]> {
+/** Vetor de sentido de cada texto, em lotes. Lança erro se a OpenAI falhar. `aoUsar` recebe os tokens de cada lote. */
+export async function vetorizar(
+  textos: string[],
+  signal?: AbortSignal,
+  aoUsar?: (tokens: number) => void,
+): Promise<number[][]> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY ausente no ambiente");
   const out: number[][] = [];
@@ -112,7 +117,8 @@ export async function vetorizar(textos: string[], signal?: AbortSignal): Promise
       signal: signal ?? AbortSignal.timeout(60_000),
     });
     if (!res.ok) throw new Error(`OpenAI embeddings ${res.status}: ${(await res.text()).slice(0, 300)}`);
-    const data = (await res.json()) as { data?: { index: number; embedding: number[] }[] };
+    const data = (await res.json()) as { data?: { index: number; embedding: number[] }[]; usage?: { prompt_tokens?: number } };
+    aoUsar?.(data.usage?.prompt_tokens ?? 0);
     const rows = (data.data ?? []).sort((a, b) => a.index - b.index);
     if (rows.length !== lote.length) throw new Error("OpenAI embeddings: resposta incompleta");
     for (const r of rows) out.push(r.embedding);
@@ -256,9 +262,18 @@ export function montarMensagens(
   ];
 }
 
+/**
+ * O modelo do juiz. No Ações da equipe, o barato (GPT-6 Luna, 01/10/2026: "de forma barata"): no ensaio com as
+ * 17 reuniões da equipe (185 tarefas) custou US$ 0,005 por reunião e juntou 11; o Sol custou US$ 0,088 e juntou 16.
+ * No Ações pessoal continua o Sol. DEDUP_MODEL troca os dois.
+ */
+export function modeloDoJuiz(): string {
+  return process.env.DEDUP_MODEL ?? (isTeamMode() ? "gpt-6-luna" : "gpt-6-sol");
+}
+
 /** Juiz de verdade: OpenAI com resposta em formato fixo. */
 export function juizOpenAI(opts?: { modelo?: string; esforco?: string; timeoutMs?: number }): Juiz {
-  const modelo = opts?.modelo ?? process.env.DEDUP_MODEL ?? "gpt-6-sol";
+  const modelo = opts?.modelo ?? modeloDoJuiz();
   const esforco = opts?.esforco ?? process.env.DEDUP_REASONING ?? "low";
   return async (mensagens) => {
     const apiKey = process.env.OPENAI_API_KEY;
