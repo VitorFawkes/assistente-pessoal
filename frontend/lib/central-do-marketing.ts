@@ -14,12 +14,12 @@ export async function souDoMarketing(userId: string): Promise<boolean> {
   return r.rows[0]?.ok === true;
 }
 
-/** Os pedidos mais novos primeiro (o dono de cada ação é quem pediu). */
+/** Os pedidos mais novos primeiro, os cancelados por último (o dono de cada ação é quem pediu). */
 export async function pedidosDaCentral(userId: string) {
   const linhas = await query<{ tarefa_id: string; dono_id: string }>(
     `SELECT tarefa_id::text AS tarefa_id, pedido_por::text AS dono_id
        FROM tarefa_pedidos
-      ORDER BY criado_em DESC
+      ORDER BY cancelado, criado_em DESC
       LIMIT ${QUANTOS}`,
   );
   if (!linhas.length) return [];
