@@ -7,7 +7,7 @@ import { withTenant } from "./db";
 import { TAREFA_SELECT, type Tarefa } from "./queries";
 import type { AtividadeItem, Quadro } from "./quadros";
 import { CANDIDATAS_LIMIT } from "./quadros";
-import { travaDoPedido, type Recusa } from "./pedidos-trava";
+import { mexeNoPedido, pedidosDasTarefas, travaDoPedido, type Recusa } from "./pedidos-trava";
 import {
   carregarTarefas,
   colegasDe,
@@ -178,7 +178,11 @@ export async function candidatasDoProjeto(userId: string, quadroId: string, q?: 
       !noProjeto.has(t.id) &&
       (!alvo || `${t.titulo} ${t.descricao ?? ""}`.toLowerCase().includes(alvo)),
   );
-  return [...recebidas, ...minhas].slice(0, CANDIDATAS_LIMIT);
+  const todas = [...recebidas, ...minhas];
+  // Pedido ao marketing: o projeto dele é do marketing; quem não é do marketing não o vê na lista para trazer.
+  const pedidos = await pedidosDasTarefas(todas.map((t) => t.id));
+  const semPedidos = pedidos.size && !(await mexeNoPedido(userId)) ? todas.filter((t) => !pedidos.has(t.id)) : todas;
+  return semPedidos.slice(0, CANDIDATAS_LIMIT);
 }
 
 /** Põe tarefas no projeto. Só entram as que quem pede pode mexer (dele, passadas a ele ou já num projeto dele). */

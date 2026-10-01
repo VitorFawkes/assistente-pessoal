@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
 import { mudarQuemVeDaTarefa, type MudancaDeQuemVe } from "@/lib/quem-ve";
+import { TIME_FORA_DO_PUBLICO } from "@/lib/pedidos-publico";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,7 @@ export const PUT = withAuth<Ctx>(async (user, req, ctx) => {
   if (r === "nao_achou") return NextResponse.json({ error: "Essa ação não existe mais ou não está com você." }, { status: 404 });
   if (r === "so_quem_criou") return NextResponse.json({ error: "Só quem criou a ação muda quem vê." }, { status: 403 });
   if (r === "time") return NextResponse.json({ error: "Você não está nesse time." }, { status: 400 });
+  if (r === "time_fora_do_publico") return NextResponse.json({ error: TIME_FORA_DO_PUBLICO }, { status: 400 });
   if (r === "pessoa") return NextResponse.json({ error: "Essa pessoa não está na lista da Welcome." }, { status: 400 });
   return NextResponse.json({ ok: true });
 });

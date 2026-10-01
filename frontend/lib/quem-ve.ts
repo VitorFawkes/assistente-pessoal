@@ -3,7 +3,7 @@
 import { query, withTenant } from "./db";
 import { garantirColegaDoTtars, nomesDeUsuarios, registrarEvento } from "./equipe-compartilhado";
 import { nomesDosTimes } from "./hub";
-import { timeValeNaTarefa } from "./pedidos-publico";
+import { recusaDoTimeNaTarefa, TIME_FORA_DO_PUBLICO } from "./pedidos-publico";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -137,7 +137,7 @@ export async function mudarQuemVeDaTarefa(
   userId: string,
   tarefaId: string,
   m: MudancaDeQuemVe,
-): Promise<"ok" | "nao_achou" | "so_quem_criou" | "time" | "pessoa"> {
+): Promise<"ok" | "nao_achou" | "so_quem_criou" | "time" | "time_fora_do_publico" | "pessoa"> {
   if (!UUID_RE.test(tarefaId)) return "nao_achou";
   const dono = await withTenant(userId, (c) =>
     c.query<{ dono_id: string; papel: string }>(`SELECT dono_id::text AS dono_id, papel FROM equipe_acesso_tarefa($1)`, [tarefaId]),
@@ -146,7 +146,8 @@ export async function mudarQuemVeDaTarefa(
   if (!acesso) return "nao_achou";
   if (acesso.papel !== "dono") return "so_quem_criou";
   // Pedido ao marketing: só um time das empresas do público do formulário (mesmo que quem pediu não seja dele).
-  if (m.time_id !== undefined && m.time_id !== null && !(await timeValeNaTarefa(userId, tarefaId, m.time_id))) return "time";
+  const recusaDoTime = m.time_id !== undefined && m.time_id !== null ? await recusaDoTimeNaTarefa(userId, tarefaId, m.time_id) : null;
+  if (recusaDoTime) return recusaDoTime === TIME_FORA_DO_PUBLICO ? "time_fora_do_publico" : "time";
 
   const ids = async (emails: string[] | undefined) => {
     const out: string[] = [];

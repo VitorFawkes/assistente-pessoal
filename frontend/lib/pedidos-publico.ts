@@ -46,13 +46,18 @@ export async function timeValeNoPedido(tarefaId: string, timeId: string): Promis
   return !!r[0] && (await timeValeNoPublico(r[0].publico, timeId));
 }
 
+export const NAO_ESTA_NO_TIME = "Você não está nesse time.";
+export const TIME_FORA_DO_PUBLICO = "Esse time não pode acompanhar pedidos deste formulário.";
+
 /**
- * O time que pode ficar numa ação. Fora de pedido: um time de quem muda (equipe_pode_time). Num pedido, para
- * quem não é do marketing: só um time das empresas do público do formulário, a mesma regra do envio (trocar o
- * time muda quem vê o pedido).
+ * O time que pode ficar numa ação (null = pode; senão, o motivo da recusa). Fora de pedido: um time de quem
+ * muda (equipe_pode_time). Num pedido, para quem não é do marketing: só um time das empresas do público do
+ * formulário, a mesma regra do envio (trocar o time muda quem vê o pedido).
  */
-export async function timeValeNaTarefa(userId: string, tarefaId: string, timeId: string): Promise<boolean> {
-  if (!timeIdValido(timeId)) return false;
-  if ((await pedidosDasTarefas([tarefaId])).size && !(await mexeNoPedido(userId))) return timeValeNoPedido(tarefaId, timeId);
-  return (await podeTime(userId, timeId)) || (await timeValeNoPedido(tarefaId, timeId));
+export async function recusaDoTimeNaTarefa(userId: string, tarefaId: string, timeId: string): Promise<string | null> {
+  if (!timeIdValido(timeId)) return NAO_ESTA_NO_TIME;
+  if ((await pedidosDasTarefas([tarefaId])).size && !(await mexeNoPedido(userId))) {
+    return (await timeValeNoPedido(tarefaId, timeId)) ? null : TIME_FORA_DO_PUBLICO;
+  }
+  return (await podeTime(userId, timeId)) || (await timeValeNoPedido(tarefaId, timeId)) ? null : NAO_ESTA_NO_TIME;
 }
