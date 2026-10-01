@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
 import { meetingsFor } from "@/lib/queries";
+import { contarFaladasDeColegas } from "@/lib/equipe-compartilhado";
 import { meetingSubject } from "@/lib/meeting-label";
 
 export const dynamic = "force-dynamic";
@@ -8,9 +9,14 @@ export const dynamic = "force-dynamic";
 // Reuniões para as telas do Ações dentro do TTARS: as minhas e as que colegas abriram pra mim.
 export const GET = withAuth(async (user) => {
   const { minhas, daEquipe } = await meetingsFor(user.id).listParaTtars();
+  // A fala que a trava juntou numa ação de colega também conta (senão a reunião parecia "Sem ações").
+  const deColegas = await contarFaladasDeColegas(user.id, minhas.map((m) => m.id));
   const comRotulo = <T extends { nome: string | null; summary: string | null }>(m: T) => {
     const { summary, ...resto } = m;
     return { ...resto, rotulo: meetingSubject(summary, m.nome) || "Reunião" };
   };
-  return NextResponse.json({ minhas: minhas.map(comRotulo), daEquipe: daEquipe.map(comRotulo) });
+  return NextResponse.json({
+    minhas: minhas.map((m) => comRotulo({ ...m, n_faladas: m.n_faladas + (deColegas.get(m.id) ?? 0) })),
+    daEquipe: daEquipe.map(comRotulo),
+  });
 });

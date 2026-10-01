@@ -7,12 +7,12 @@ import { getOwnerSlug } from "@/lib/owner-slug";
 import { paraQuemVe } from "@/lib/compartilhar";
 import { meetingSubject } from "@/lib/meeting-label";
 import { buildSpeakerCards } from "@/lib/speakers";
-import { comProjetos, nomesDeUsuarios } from "@/lib/equipe-compartilhado";
+import { comProjetos, faladasDeNovoDeColegas, nomesDeUsuarios } from "@/lib/equipe-compartilhado";
 import { notionDasAcoes } from "@/lib/notion-sync";
 import { trocarFalantes } from "@/lib/falantes";
 import { nomesDosObjetivos } from "@/lib/hub";
 import { quemVeDaReuniao } from "@/lib/quem-ve";
-import { genteQueTambemFaz, quemTambemFaz } from "@/lib/ttars-tela";
+import { genteQueTambemFaz, paraTela, quemTambemFaz } from "@/lib/ttars-tela";
 
 export const dynamic = "force-dynamic";
 
@@ -95,6 +95,19 @@ export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
         }))
       : [];
 
+  // Ações que já existiam e que esta reunião falou de novo: a trava contra repetida juntou a fala nelas em vez de
+  // criar outra (01/10/2026). As de quem gravou e as de colegas que ele vê; sem isso a reunião parecia sem ações.
+  let faladas: Awaited<ReturnType<typeof paraTela>> = [];
+  if (souDono) {
+    const daReuniao = new Set(tarefas.map((t) => t.id));
+    const [proprias, deColegas] = await Promise.all([
+      tarefasFor(user.id).faladasDeNovoNa(id) as Promise<Tarefa[]>,
+      faladasDeNovoDeColegas(user.id, id),
+    ]);
+    const juntas = [...proprias, ...deColegas].filter((t, i, todas) => !daReuniao.has(t.id) && todas.findIndex((x) => x.id === t.id) === i);
+    if (juntas.length) faladas = await paraTela(user.id, juntas);
+  }
+
   const [acessos, quemVe] = souDono && isTeamMode()
     ? await Promise.all([teamAccessFor(user.id).listAcessos(id), quemVeDaReuniao(user.id, id)])
     : [[], null];
@@ -130,5 +143,6 @@ export const GET = withAuth<Ctx>(async (user, _req, ctx) => {
       reuniao_rotulo: rotulo,
       notion: notion.get(t.id) ?? null,
     })),
+    faladas_de_novo: faladas,
   });
 });

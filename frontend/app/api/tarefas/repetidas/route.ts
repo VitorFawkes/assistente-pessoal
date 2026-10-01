@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
 import { withTenant } from "@/lib/db";
-import { aposentarCopia, registrarMencao } from "@/lib/tarefas-repetidas-db";
+import { aposentarCopia, devolverFalaDeOutro, registrarMencao } from "@/lib/tarefas-repetidas-db";
 import { getOwnerSlug, isOwner } from "@/lib/owner-slug";
 import { travaDoPedido, type Recusa } from "@/lib/pedidos-trava";
 
@@ -67,6 +67,13 @@ export const POST = withAuth(async (user, req) => {
       if (m) trava = await travaDoPedido(user.id, [m.tarefa_id, m.tarefa_origem_id ?? ""], { campos: ["status", "prazo"] });
     }
     if (trava) return NextResponse.json({ error: trava.erro }, { status: trava.status });
+
+    // Fala que a trava contra repetida trouxe da reunião de OUTRA pessoa: separar devolve a ação para a lista de
+    // quem gravou (revisão de 01/10/2026).
+    if (body.acao === "separar" && UUID_RE.test(body.mencao_id)) {
+      const devolvida = await devolverFalaDeOutro(user.id, body.mencao_id);
+      if (devolvida) return NextResponse.json({ ok: true, tarefa_id: null, devolvida_a: devolvida.gravou_nome }, { status: 200 });
+    }
 
     const r = await withTenant(user.id, async (c) => {
       const pegar = async (id: string) =>
@@ -163,6 +170,11 @@ export const POST = withAuth(async (user, req) => {
           }
         }
         if (!novaId) {
+          // Fala de reunião de outra pessoa cujo dono não foi achado (a de sempre volta pelo devolverFalaDeOutro):
+          // a ação nasce aqui, sem a reunião e sem o trecho, que são de quem gravou (01/10/2026).
+          const daMinhaReuniao =
+            !m.meeting_id ||
+            ((await c.query(`SELECT 1 FROM meetings WHERE id = $1 AND user_id = $2`, [m.meeting_id, user.id])).rowCount ?? 0) > 0;
           const dono = (m.owner_falado ?? "").trim() || getOwnerSlug();
           const acao = ["executar", "cobrar", "aguardar"].includes(String(m.acao_falada))
             ? m.acao_falada
@@ -175,7 +187,7 @@ export const POST = withAuth(async (user, req) => {
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb) RETURNING id`,
             [
               user.id,
-              m.meeting_id,
+              daMinhaReuniao ? m.meeting_id : null,
               m.titulo_falado,
               m.descricao_falada,
               dono,
@@ -185,7 +197,7 @@ export const POST = withAuth(async (user, req) => {
               ["baixa", "media", "alta", "urgente"].includes(String(m.prioridade_falada))
                 ? m.prioridade_falada
                 : "media",
-              m.evidencia,
+              daMinhaReuniao ? m.evidencia : null,
               m.area_falada,
               m.pessoas_falado ? JSON.stringify(m.pessoas_falado) : null,
             ],

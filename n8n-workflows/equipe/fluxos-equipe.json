@@ -2019,7 +2019,7 @@
       {
         "parameters": {
           "operation": "executeQuery",
-          "query": "DELETE FROM tarefas WHERE meeting_id = '{{ $('Webhook').first().json.body.meeting_id }}'::uuid\n  AND status NOT IN ('concluida','cancelada')\n  AND NOT EXISTS (SELECT 1 FROM tarefa_eventos te WHERE te.tarefa_id = tarefas.id AND te.evento = 'criada')\n  AND responsavel_user_id IS NULL",
+          "query": "DELETE FROM tarefas WHERE meeting_id = '{{ $('Webhook').first().json.body.meeting_id }}'::uuid\n  AND status NOT IN ('concluida','cancelada')\n  AND NOT EXISTS (SELECT 1 FROM tarefa_eventos te WHERE te.tarefa_id = tarefas.id AND te.evento = 'criada')\n  AND responsavel_user_id IS NULL\n  AND NOT EXISTS (SELECT 1 FROM tarefa_acessos ta WHERE ta.tarefa_id = tarefas.id)\n  AND NOT EXISTS (SELECT 1 FROM tarefa_mencoes tm WHERE tm.tarefa_id = tarefas.id AND tm.meeting_id IS DISTINCT FROM tarefas.meeting_id)",
           "options": {}
         },
         "id": "pg-del",

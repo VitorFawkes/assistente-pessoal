@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { query, withTenant } from "@/lib/db";
+import { apagarAcoesDaReuniao } from "@/lib/regenerate";
 
 export const dynamic = "force-dynamic";
 
@@ -85,7 +86,8 @@ export async function POST(
         );
       }
       if (!r.rows.length) throw new Error("NOT_FOUND");
-      await c.query(`DELETE FROM tarefas WHERE meeting_id = $1::uuid`, [id]);
+      // Fica a ação que guarda a fala de outra reunião ou alguém marcado (equipe, 01/10/2026).
+      await apagarAcoesDaReuniao(c, id);
       return { id: r.rows[0].id };
     });
     return NextResponse.json({
