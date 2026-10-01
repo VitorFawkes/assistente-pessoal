@@ -47,6 +47,7 @@ import {
   nomeLimpo,
   propriedadesPara,
   statusParaNotion,
+  trocarPrimeiraPessoa,
   type ArquivoDoNotion,
   type CampoDaDescricao,
   type Campos,
@@ -151,19 +152,51 @@ type Rodada = {
 };
 
 /** Pedido ao marketing: a página nasce no projeto do formulário, com Person e Assign juntos (a equipe usa o
- *  Assign; lido antes do Person) e "Pedido por X pelo TTARS, dd/mm" no corpo. */
-type PedidoNaRodada = { projeto: string; bu: string | null; quem: string | null; criado_em: string | Date };
+ *  Assign; lido antes do Person) e "Pedido por X pelo TTARS, dd/mm" no corpo. `quem_emails` = quem recebe,
+ *  na ordem (01/10: várias pessoas; a página nasce com todas as que estão no Notion). */
+type PedidoNaRodada = { projeto: string; bu: string | null; quem: string | null; criado_em: string | Date; quem_emails: string[] | null };
 
 async function pedidosDaRodada(): Promise<Map<string, PedidoNaRodada>> {
-  const r = await query<PedidoNaRodada & { tarefa_id: string }>(
-    `SELECT tp.tarefa_id::text AS tarefa_id, COALESCE(tp.projeto_notion_page_id, '') AS projeto, tp.bu, u.nome AS quem, tp.criado_em
-       FROM tarefa_pedidos tp LEFT JOIN users u ON u.id = tp.pedido_por`,
-  ).catch((e: unknown) => {
-    // Banco antes da 020: nenhuma ação é pedido.
-    if (semTabela(e)) return [] as (PedidoNaRodada & { tarefa_id: string })[];
-    throw e;
-  });
+  const ler = (comQuem: boolean) =>
+    query<PedidoNaRodada & { tarefa_id: string }>(
+      `SELECT tp.tarefa_id::text AS tarefa_id, COALESCE(tp.projeto_notion_page_id, '') AS projeto, tp.bu, u.nome AS quem, tp.criado_em,
+              ${comQuem ? "tp.quem_emails" : "NULL::text[]"} AS quem_emails
+         FROM tarefa_pedidos tp LEFT JOIN users u ON u.id = tp.pedido_por`,
+    );
+  const r = await ler(true)
+    // Banco antes da 021 (sem quem_emails): a rodada do Notion não para por isso.
+    .catch((e: unknown) => ((e as { code?: string })?.code === "42703" ? ler(false) : Promise.reject(e)))
+    .catch((e: unknown) => {
+      // Banco antes da 020: nenhuma ação é pedido.
+      if (semTabela(e)) return [] as (PedidoNaRodada & { tarefa_id: string })[];
+      throw e;
+    });
   return new Map(r.map(({ tarefa_id, ...x }) => [tarefa_id, x]));
+}
+
+/** Pedido: Person e Assign valem juntos e a 1ª do Assign manda (sem Assign, a do Person). */
+const listaDoPedido = (p: PaginaLida) => (p.listaAssign.length ? p.listaAssign : p.listaPerson);
+
+/** As pessoas do Notion destes e-mails (pela conta no Ações ou pelo e-mail de lá), na ordem; quem não está lá fica de fora. */
+async function pessoasNotionNa(c: Conexao, emails: string[]): Promise<string[]> {
+  const lista = emails.map((e) => e.trim().toLowerCase()).filter(Boolean);
+  if (!lista.length) return [];
+  const r = await query<{ notion_user_id: string | null }>(
+    `SELECT (SELECT np.notion_user_id FROM notion_pessoas np
+               LEFT JOIN users u ON u.id = np.user_id AND u.deleted_at IS NULL
+              WHERE np.conexao_id = $2 AND (LOWER(u.email) = e.email OR LOWER(np.email) = e.email)
+              ORDER BY (np.user_id IS NULL), np.atualizado_em DESC LIMIT 1) AS notion_user_id
+       FROM unnest($1::text[]) WITH ORDINALITY AS e(email, ordem)
+      ORDER BY e.ordem`,
+    [lista, c.id],
+  );
+  return [...new Set(r.map((x) => x.notion_user_id).filter((x): x is string => !!x))];
+}
+
+/** Quem recebe um pedido e está no Notion do marketing (ids de lá, na ordem). Vazio sem a ligação. */
+export async function pessoasNotionDosEmails(emails: string[]): Promise<string[]> {
+  const c = emails.length ? await conexaoAtiva() : null;
+  return c ? pessoasNotionNa(c, emails) : [];
 }
 
 /** Enquanto as tabelas do Notion não existem no banco, tudo aqui age como "Notion desligado". */
@@ -696,7 +729,7 @@ async function tratarPagina(c: Conexao, r: Rodada, p: PaginaLida, pessoas: Map<s
   let statusNotion = p.statusNotion;
   let editadoEm = p.editadoEm;
   if (Object.keys(d.paraNotion).length) {
-    const res = await empurrarCampos(c, p.pageId, d.paraNotion, p.statusNotion, p.campoDescricao, pedido);
+    const res = await empurrarCampos(c, p.pageId, d.paraNotion, p.statusNotion, p.campoDescricao, pedido && { pessoasLa: listaDoPedido(p) });
     statusNotion = res.statusNotion;
     editadoEm = res.editadoEm ?? editadoEm;
   }
@@ -705,21 +738,30 @@ async function tratarPagina(c: Conexao, r: Rodada, p: PaginaLida, pessoas: Map<s
   await gravarLink(c, { ...p, editadoEm }, link, valendo, statusNotion);
 }
 
-/** Grava no Notion; cancelada vai pra lixeira, reaberta volta dela. */
+/**
+ * Grava no Notion; cancelada vai pra lixeira, reaberta volta dela. `pedido` (página de pedido ao marketing):
+ * a pessoa vai em Person e Assign e só a 1ª muda; as outras de lá ficam (`pessoasLa`, ou lidas na hora).
+ */
 async function empurrarCampos(
   c: Conexao,
   pageId: string,
   mudanca: Partial<Campos>,
   statusAnterior: string | null,
   campoDescricao?: CampoDaDescricao | string | null,
-  assign = false,
+  pedido: false | { pessoasLa?: string[] } = false,
 ) {
   const { status, ...resto } = mudanca;
   const vaiProLixo = status === "cancelada";
+  let pessoas: string[] | undefined;
+  if (pedido && mudanca.pessoa !== undefined) {
+    const la = pedido.pessoasLa ?? listaDoPedido(lerPagina(await lerPaginaDoNotion(c.token, pageId)));
+    pessoas = trocarPrimeiraPessoa(la, mudanca.pessoa);
+  }
   const props = propriedadesPara(status && !vaiProLixo ? { ...resto, status } : resto, {
     statusAnterior,
     campoDescricao: campoDescricao === "Text" || campoDescricao === "Ambos" ? campoDescricao : "Description",
-    assign,
+    assign: !!pedido,
+    pessoas,
   });
   const pg = await mudarPagina(c.token, pageId, {
     ...(Object.keys(props).length ? { properties: props } : {}),
@@ -867,7 +909,7 @@ async function empurrar(c: Conexao, r: Rodada, pessoas: Map<string, PessoaNotion
         await query(`UPDATE notion_paginas SET sincronizado_em = now() WHERE page_id = $1`, [l.page_id]);
         continue;
       }
-      const feito = await empurrarCampos(c, l.page_id, mudou, l.status_notion, l.campo_descricao, r.pedidos.has(l.tarefa_id));
+      const feito = await empurrarCampos(c, l.page_id, mudou, l.status_notion, l.campo_descricao, r.pedidos.has(l.tarefa_id) && {});
       await query(
         `UPDATE notion_paginas SET ultimos = $2, status_notion = $3, editado_notion = COALESCE($4, editado_notion), sincronizado_em = now()
           WHERE page_id = $1`,
@@ -931,16 +973,21 @@ async function enviar(c: Conexao, r: Rodada, pessoas: Map<string, PessoaNotion>)
       // Pedido ao marketing: nasce no projeto do formulário (se ele existe e não foi arquivado lá).
       const projeto =
         pedido && projetoVivo(r, pedido.projeto) ? pedido.projeto : r.projetosOk ? (r.lugares.get(t.id)?.projeto ?? "") : "";
-      const campos = camposDaAcao(t, pessoas, { pessoa: e.notion_user_id ?? undefined }, projeto);
-      if (e.notion_user_id) campos.pessoa = e.notion_user_id;
+      // Pedido: Person e Assign com todas as pessoas que recebem e estão no Notion, na ordem (a 1ª faz; quem o
+      // marketing escolheu ao mandar vai na frente).
+      const doPedido = pedido?.quem_emails?.length ? await pessoasNotionNa(c, pedido.quem_emails) : [];
+      const lista = pedido && e.notion_user_id ? [e.notion_user_id, ...doPedido.filter((x) => x !== e.notion_user_id)] : doPedido;
+      const primeira = lista[0] ?? e.notion_user_id ?? null;
+      const campos = camposDaAcao(t, pessoas, { pessoa: primeira ?? undefined }, projeto);
+      if (primeira) campos.pessoa = primeira;
       const quem = e.pedido_por
         ? (await query<{ nome: string }>(`SELECT nome FROM users WHERE id = $1`, [e.pedido_por]))[0]?.nome
         : null;
       const pg = await criarPagina(
         c.token,
         c.data_source_id,
-        // Pedido: a área é sempre a do formulário (nunca a da aba de quem mexeu antes de a página nascer).
-        propriedadesPara(campos, { bu: pedido?.bu ?? e.bu ?? "Institucional", assign: !!pedido }),
+        // Pedido: a área é a do pedido (nunca a da aba de quem mexeu antes de a página nascer).
+        propriedadesPara(campos, { bu: pedido?.bu ?? e.bu ?? "Institucional", assign: !!pedido, pessoas: lista }),
         pedido ? `Pedido por ${pedido.quem ?? quem ?? "alguém"} pelo TTARS, ${diaMesBR(pedido.criado_em)}` : `Pedido por ${quem ?? "alguém"} no Ações.`,
       );
       const lida = lerPagina(pg);

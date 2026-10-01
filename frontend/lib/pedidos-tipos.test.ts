@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  areaDoPedido,
   casalDoTitulo,
   conferirRespostas,
+  descricaoAtualizada,
   descricaoDoPedido,
   ehDeFora,
   ehErro,
@@ -11,7 +13,11 @@ import {
   limparDestino,
   limparPerguntas,
   limparRascunho,
+  marcasDaOrganizacao,
+  pedidoEncerrado,
   pessoasDoCasal,
+  prazoDoPedido,
+  respostasQueMudaram,
   rotuloDaPergunta,
   situacaoDoPedido,
   situacaoEmPortugues,
@@ -19,9 +25,10 @@ import {
   textoDaResposta,
   timeNoPublico,
   tituloDoPedido,
+  type Destino,
   type Pergunta,
 } from "./pedidos-tipos";
-import { propriedadesPara, lerPagina, type PaginaNotion } from "./notion-mapa";
+import { propriedadesPara, lerPagina, trocarPrimeiraPessoa, type PaginaNotion } from "./notion-mapa";
 
 const P = (x: Partial<Pergunta> & Pick<Pergunta, "id" | "tipo" | "rotulo">): Pergunta => ({ obrigatoria: false, aceita_nao_temos: false, ...x });
 
@@ -189,6 +196,182 @@ describe("Notion: Person e Assign no pedido", () => {
     };
     const p = lerPagina(pg);
     expect(p.pessoa).toBe("n-fabi");
+    expect(p.assign).toBe("n-angela");
+  });
+});
+
+describe("sem limites (01/10/2026)", () => {
+  const destino = (x: Record<string, unknown>): Destino => {
+    const d = limparDestino(x, false);
+    if (ehErro(d)) throw new Error(d.erro);
+    return d;
+  };
+
+  test("quem recebe: lista na ordem, em minúsculas e sem repetir; o 1º continua em quem_email", () => {
+    const d = destino({ quem_emails: ["Fabiola@WelcomeTrips.com.br", "angela@welcometrips.com.br", "fabiola@welcometrips.com.br", " "] });
+    expect(d.quem_emails).toEqual(["fabiola@welcometrips.com.br", "angela@welcometrips.com.br"]);
+    expect(d.quem_email).toBe("fabiola@welcometrips.com.br");
+    expect(ehErro(limparDestino({ quem_emails: ["fabiola"] }, false))).toBe(true);
+    expect(ehErro(limparDestino({ quem_emails: Array.from({ length: 11 }, (_, i) => `p${i}@welcometrips.com.br`) }, false))).toBe(true);
+    expect(destino({ quem_emails: Array.from({ length: 10 }, (_, i) => `p${i}@welcometrips.com.br`) }).quem_emails).toHaveLength(10);
+    expect(ehErro(limparDestino({ quem_emails: [] }, true))).toBe(true);
+  });
+
+  test("formulário antigo (só quem_email) vira lista de uma pessoa; com os dois, a lista vale", () => {
+    expect(destino({ quem_email: "Fabiola@welcometrips.com.br" }).quem_emails).toEqual(["fabiola@welcometrips.com.br"]);
+    expect(destino({}).quem_emails).toEqual([]);
+    expect(destino({ quem_email: "x@welcometrips.com.br", quem_emails: ["y@welcometrips.com.br"] }).quem_emails).toEqual(["y@welcometrips.com.br"]);
+  });
+
+  test("um pedido por casamento: padrão sim; desligado fica desligado", () => {
+    expect(destino({}).um_por_casamento).toBe(true);
+    expect(destino({ um_por_casamento: false }).um_por_casamento).toBe(false);
+    expect(destino({ um_por_casamento: "nao" }).um_por_casamento).toBe(true);
+  });
+
+  test("área da marca de quem pede", () => {
+    expect(destino({ bu: "quem_pede" }).bu).toBe("quem_pede");
+    expect(destino({ bu: "Qualquer" }).bu).toBe("Institucional");
+    expect(marcasDaOrganizacao("Welcome Trips, Welcome Weddings")).toEqual(["Trips", "Weddings"]);
+    expect(marcasDaOrganizacao("Welcome Weddings, Welcome Corporativo, Welcome Weddings")).toEqual(["Weddings", "Corp"]);
+    expect(marcasDaOrganizacao("Welcome Trips, Welcome Group")).toEqual(["Trips"]);
+    expect(marcasDaOrganizacao("Teams · Welcome Trips")).toEqual(["Trips"]);
+    expect(marcasDaOrganizacao("Welcome Group")).toEqual([]);
+    expect(marcasDaOrganizacao(null)).toEqual([]);
+    // Área fixa do formulário: a escolha de quem pede não conta.
+    expect(areaDoPedido("Weddings", ["Trips"], "Trips")).toBe("Weddings");
+    expect(areaDoPedido("quem_pede", [], undefined)).toBe("Institucional");
+    expect(areaDoPedido("quem_pede", ["Trips"], "Weddings")).toBe("Trips");
+    expect(areaDoPedido("quem_pede", ["Trips", "Weddings"], "Weddings")).toBe("Weddings");
+    const semEscolha = areaDoPedido("quem_pede", ["Trips", "Weddings"], undefined);
+    expect(ehErro(semEscolha) && semEscolha.erro).toBe("Escolha a área do pedido: Trips ou Weddings.");
+    expect(ehErro(areaDoPedido("quem_pede", ["Trips", "Weddings"], "Corp"))).toBe(true);
+  });
+
+  const comData = [
+    P({ id: "quando", tipo: "data", rotulo: "Para quando?", obrigatoria: true }),
+    P({ id: "talvez", tipo: "data", rotulo: "Data opcional" }),
+    P({ id: "oque", tipo: "texto", rotulo: "O que precisa?", obrigatoria: true }),
+  ];
+  const rascunho = (prazo: Record<string, unknown>) => {
+    const r = limparRascunho({ nome: "Arte", perguntas: comData, publico: { tipo: "todos" }, destino: { quem_emails: ["angela@welcometrips.com.br"], prazo } });
+    if (ehErro(r)) throw new Error(r.erro);
+    return r;
+  };
+
+  test("prazo pela pergunta: publicar confere que ela existe, é de data e é obrigatória", () => {
+    expect(rascunho({ tipo: "pergunta", pergunta_id: "quando" }).destino.prazo).toEqual({ tipo: "pergunta", pergunta_id: "quando" });
+    expect(rascunho({ tipo: "pergunta" }).destino.prazo).toEqual({ tipo: "pergunta", pergunta_id: "" });
+    expect(faltaParaPublicar(rascunho({ tipo: "pergunta", pergunta_id: "quando" }))).toBeNull();
+    expect(faltaParaPublicar(rascunho({ tipo: "pergunta" }))).toBe("Escolha a pergunta de data que vira o prazo.");
+    expect(faltaParaPublicar(rascunho({ tipo: "pergunta", pergunta_id: "sumiu" }))).toBe("Escolha a pergunta de data que vira o prazo.");
+    expect(faltaParaPublicar(rascunho({ tipo: "pergunta", pergunta_id: "oque" }))).toContain("não é uma pergunta de data");
+    expect(faltaParaPublicar(rascunho({ tipo: "pergunta", pergunta_id: "talvez" }))).toContain("precisa ser obrigatória");
+    const semQuem = limparRascunho({ nome: "Arte", perguntas: comData, publico: { tipo: "todos" }, destino: { quem_emails: [] } });
+    expect(!ehErro(semQuem) && faltaParaPublicar(semQuem)).toBe("Escolha a pessoa do marketing que recebe o pedido.");
+  });
+
+  test("o prazo da ação: dia do casamento, dias, a data respondida ou sem", () => {
+    const agora = new Date("2026-10-01T15:00:00Z");
+    const r = { quando: { valor: "2026-10-20" }, oque: { valor: "Arte" } };
+    expect(prazoDoPedido(destino({ prazo: { tipo: "pergunta", pergunta_id: "quando" } }), comData, r, agora)).toBe("2026-10-20");
+    expect(prazoDoPedido(destino({ prazo: { tipo: "pergunta", pergunta_id: "talvez" } }), comData, r, agora)).toBeNull();
+    expect(prazoDoPedido(destino({ prazo: { tipo: "dias", dias: 5 } }), comData, r, agora)).toBe("2026-10-06");
+    expect(prazoDoPedido(destino({ prazo: { tipo: "sem" } }), comData, r, agora)).toBeNull();
+    const casamento = [P({ id: "data", tipo: "data", rotulo: "Data", preenche: "data_casamento" })];
+    expect(prazoDoPedido(destino({ prazo: { tipo: "data_casamento" } }), casamento, { data: { valor: "2026-11-22" } }, agora)).toBe("2026-11-22");
+  });
+
+  test("encerrado = feito ou cancelado (aqui ou Done no Notion)", () => {
+    expect(pedidoEncerrado("aberta", "Not started")).toBe(false);
+    expect(pedidoEncerrado("em_andamento", "This Week")).toBe(false);
+    expect(pedidoEncerrado("concluida", null)).toBe(true);
+    expect(pedidoEncerrado("cancelada", "Not started")).toBe(true);
+    expect(pedidoEncerrado("em_andamento", "Done")).toBe(true);
+  });
+
+  const cobertura = [
+    P({ id: "quem", tipo: "automatico_quem_pede", rotulo: "Nome de quem está preenchendo" }),
+    P({ id: "casamento", tipo: "casamento", rotulo: "Casamento", obrigatoria: true }),
+    P({ id: "casal", tipo: "texto", rotulo: "Nome do casal", preenche: "casal" }),
+    P({ id: "i1", tipo: "instagram", rotulo: "Instagram da noiva", aceita_nao_temos: true, pessoa: 1 }),
+    P({ id: "contato", tipo: "telefone_email", rotulo: "Contato da assessora", obrigatoria: true, aceita_nao_temos: true }),
+  ];
+  const antes = {
+    quem: { valor: "Diana Parigot" },
+    casamento: { valor: "DW | Lucas e William" },
+    casal: { valor: "Lucas e William" },
+    i1: { valor: null, nao_temos: true },
+    contato: { valor: null, nao_temos: true },
+  };
+  const depois = { ...antes, i1: { valor: "@lucas" }, contato: { valor: "+1 809 555 0000" } };
+  const velha = descricaoDoPedido(cobertura, antes, "Diana Parigot", "28/09", "DW | Lucas e William");
+
+  test("completar: o que mudou, com o rótulo que quem lê vê", () => {
+    expect(respostasQueMudaram(cobertura, antes, depois, "DW | Lucas e William")).toEqual(["Instagram de Lucas", "Contato da assessora"]);
+    expect(respostasQueMudaram(cobertura, antes, { ...antes, quem: { valor: "Outra" } }, "DW | Lucas e William")).toEqual([]);
+  });
+
+  test("completar: a descrição é refeita com o dia do pedido; o que alguém escreveu não se perde", () => {
+    const nova = descricaoAtualizada(velha, cobertura, antes, depois, "Diana Parigot", "28/09", "DW | Lucas e William");
+    expect(nova.split("\n")).toEqual([
+      "Pedido por Diana Parigot pelo TTARS, 28/09",
+      "Nome do casal: Lucas e William",
+      "Instagram de Lucas: @lucas",
+      "Contato da assessora: +1 809 555 0000",
+    ]);
+    expect(nova).toBe(descricaoDoPedido(cobertura, depois, "Diana Parigot", "28/09", "DW | Lucas e William"));
+    // Nota do marketing depois do bloco (coluna Text do Notion): fica.
+    expect(descricaoAtualizada(`${velha}\n\nnota da Fabí`, cobertura, antes, depois, "Diana Parigot", "28/09", "DW | Lucas e William")).toBe(`${nova}\n\nnota da Fabí`);
+    // O bloco foi mexido: troca só as linhas que mudaram; o resto (e a mexida) fica.
+    const mexida = velha.replace("Nome do casal: Lucas e William", "Nome do casal: Lucas e William (confirmado com a Fabí)") + "\nobs: ligar antes";
+    expect(descricaoAtualizada(mexida, cobertura, antes, depois, "Diana Parigot", "28/09", "DW | Lucas e William").split("\n")).toEqual([
+      "Pedido por Diana Parigot pelo TTARS, 28/09",
+      "Nome do casal: Lucas e William (confirmado com a Fabí)",
+      "Instagram de Lucas: @lucas",
+      "Contato da assessora: +1 809 555 0000",
+      "obs: ligar antes",
+    ]);
+    // A linha da resposta foi apagada por alguém: a nova vai no fim.
+    const semContato = velha.replace("\nContato da assessora: ainda não temos", "");
+    expect(descricaoAtualizada(semContato, cobertura, antes, depois, "Diana Parigot", "28/09", "DW | Lucas e William").split("\n").at(-1)).toBe(
+      "Contato da assessora: +1 809 555 0000",
+    );
+    expect(descricaoAtualizada(null, cobertura, antes, depois, "Diana Parigot", "28/09", "DW | Lucas e William")).toBe(nova);
+  });
+});
+
+describe("Notion: várias pessoas no pedido (01/10/2026)", () => {
+  const dois = { people: [{ id: "n-fabi" }, { id: "n-angela" }] };
+  test("a página nasce com todas, na ordem, em Person e Assign", () => {
+    expect(propriedadesPara({ pessoa: "n-fabi" }, { assign: true, pessoas: ["n-fabi", "n-angela"] })).toEqual({ Person: dois, Assign: dois });
+    // Página comum: uma pessoa, só no Person (como sempre).
+    expect(propriedadesPara({ pessoa: "n-fabi" }, { pessoas: [] })).toEqual({ Person: { people: [{ id: "n-fabi" }] } });
+    expect(propriedadesPara({ pessoa: "" }, { assign: true, pessoas: ["n-fabi"] })).toEqual({ Person: { people: [] }, Assign: { people: [] } });
+  });
+  test("outro campo mudando não regrava as pessoas", () => {
+    expect(propriedadesPara({ status: "em_andamento", prioridade: "urgente" }, { assign: true, pessoas: ["n-fabi", "n-angela"] })).toEqual({
+      Status: { status: { name: "This Week" } },
+      Priority: { select: { name: "Urgent" } },
+    });
+  });
+  test("só a 1ª muda; as outras ficam, na ordem", () => {
+    expect(trocarPrimeiraPessoa(["n-fabi", "n-angela", "n-ju"], "n-paula")).toEqual(["n-paula", "n-angela", "n-ju"]);
+    expect(trocarPrimeiraPessoa(["n-fabi", "n-angela"], "n-angela")).toEqual(["n-angela"]);
+    expect(trocarPrimeiraPessoa([], "n-paula")).toEqual(["n-paula"]);
+    expect(trocarPrimeiraPessoa(["n-fabi", "n-angela"], "")).toEqual([]);
+  });
+  test("a leitura guarda a lista de cada coluna", () => {
+    const p = lerPagina({
+      id: "pg",
+      last_edited_time: "2026-10-01T12:00:00Z",
+      properties: {
+        Person: { type: "people", people: [{ id: "n-fabi" }, { id: "n-angela" }] },
+        Assign: { type: "people", people: [{ id: "n-angela" }, { id: "n-fabi" }] },
+      },
+    });
+    expect(p.listaPerson).toEqual(["n-fabi", "n-angela"]);
+    expect(p.listaAssign).toEqual(["n-angela", "n-fabi"]);
     expect(p.assign).toBe("n-angela");
   });
 });
