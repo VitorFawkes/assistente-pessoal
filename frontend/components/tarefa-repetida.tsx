@@ -20,7 +20,8 @@ import type { Tarefa, TarefaMencao } from "@/lib/queries";
 
 const dia = (iso: string | null | undefined) => (iso && ehDataValida(iso) ? diaMesBR(iso) : "");
 
-async function chamar(body: Record<string, string>): Promise<boolean> {
+/** false = não salvou (o aviso já saiu); senão, a resposta (separar devolve `devolvida_a` quando a fala era de outra pessoa). */
+async function chamar(body: Record<string, string>): Promise<false | { devolvida_a?: string | null }> {
   try {
     const res = await fetch("/api/tarefas/repetidas", {
       method: "POST",
@@ -28,7 +29,7 @@ async function chamar(body: Record<string, string>): Promise<boolean> {
       body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(String(res.status));
-    return true;
+    return (await res.json().catch(() => ({}))) as { devolvida_a?: string | null };
   } catch (e) {
     toast.error(`Não consegui salvar: ${e instanceof Error ? e.message : "erro"}`);
     return false;
@@ -121,8 +122,10 @@ function Mencao({ m, podeSeparar }: { m: TarefaMencao; podeSeparar: boolean }) {
   async function separar() {
     if (ocupado) return;
     setOcupado(true);
-    if (await chamar({ acao: "separar", mencao_id: m.id })) {
-      toast.success("Virou uma tarefa separada");
+    const r = await chamar({ acao: "separar", mencao_id: m.id });
+    if (r) {
+      // Fala que veio da reunião de outra pessoa: a tarefa volta para a lista de quem gravou.
+      toast.success(r.devolvida_a ? `Voltou para a lista de ${r.devolvida_a.split(" ")[0]}` : "Virou uma tarefa separada");
       mut.refresh();
     }
     setOcupado(false);

@@ -1,5 +1,6 @@
 import type { PoolClient } from "pg";
 import { withTenant } from "@/lib/db";
+import { isTeamMode } from "@/lib/team-mode";
 
 // Mesmo webhook que o rename de speaker usa: pipeline de 2 estágios
 // (resumo executivo → tarefas), síncrono — só responde no fim.
@@ -13,9 +14,11 @@ export type RegenerateResult = {
   tarefas_apagadas: number;
 };
 
-/** Apaga as ações da reunião para refazer, menos as que guardam a fala de OUTRA reunião ou alguém marcado (equipe,
- *  01/10/2026). A re-transcrição do admin usa a mesma regra. */
+/** Apaga as ações da reunião para refazer. Na equipe ficam as que guardam a fala de OUTRA reunião ou alguém marcado
+ *  (01/10/2026). A re-transcrição do admin usa a mesma regra. */
 export async function apagarAcoesDaReuniao(db: PoolClient, meetingId: string): Promise<number> {
+  // Ações pessoal: apaga todas e recria, como sempre (lá a leitura nova pode estar sem a comparação ligada).
+  if (!isTeamMode()) return (await db.query(`DELETE FROM tarefas WHERE meeting_id = $1::uuid`, [meetingId])).rowCount ?? 0;
   const temAcessos = (await db.query<{ ok: boolean }>(`SELECT to_regclass('tarefa_acessos') IS NOT NULL AS ok`)).rows[0]?.ok;
   const r = await db.query(
     `DELETE FROM tarefas WHERE meeting_id = $1::uuid

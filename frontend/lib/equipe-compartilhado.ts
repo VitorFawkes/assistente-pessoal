@@ -247,17 +247,49 @@ export async function faladasDeNovoDeColegas(userId: string, meetingId: string):
   const porDono = new Map<string, string[]>();
   for (const p of [...paraMim, ...marcadas]) porDono.set(p.dono_id, [...(porDono.get(p.dono_id) ?? []), p.tarefa_id]);
   const comFala = new Set<string>();
-  for (const [donoId, ids] of porDono) {
-    const r = await withTenant(donoId, (c) =>
-      c.query<{ id: string }>(`SELECT DISTINCT tarefa_id::text AS id FROM tarefa_mencoes WHERE meeting_id = $1 AND tarefa_id = ANY($2::uuid[])`, [meetingId, ids]),
-    );
-    for (const x of r.rows) comFala.add(x.id);
-  }
+  const achadas = await Promise.all(
+    [...porDono].map(([donoId, ids]) =>
+      withTenant(donoId, (c) =>
+        c.query<{ id: string }>(`SELECT DISTINCT tarefa_id::text AS id FROM tarefa_mencoes WHERE meeting_id = $1 AND tarefa_id = ANY($2::uuid[])`, [meetingId, ids]),
+      ),
+    ),
+  );
+  for (const r of achadas) for (const x of r.rows) comFala.add(x.id);
   if (!comFala.size) return [];
   const marcadaIds = new Set(marcadas.map((x) => x.tarefa_id));
   const pares = [...paraMim, ...marcadas].filter((p, i, todos) => comFala.has(p.tarefa_id) && todos.findIndex((x) => x.tarefa_id === p.tarefa_id) === i);
   const lista = await carregarTarefas(userId, pares);
   return lista.map((t) => (marcadaIds.has(t.id) && !paraMim.some((x) => x.tarefa_id === t.id) ? { ...t, marcada_para_mim: true } : t)).sort(ordenarPendencias);
+}
+
+/** Por reunião de `userId`: quantas ações de colegas guardam a fala dela (para a lista de reuniões bater com a página). */
+export async function contarFaladasDeColegas(userId: string, meetingIds: string[]): Promise<Map<string, number>> {
+  const conta = new Map<string, number>();
+  if (!isTeamMode() || !meetingIds.length) return conta;
+  const pares = await withTenant(userId, async (c) =>
+    (
+      await c.query<Par>(
+        `SELECT tarefa_id::text AS tarefa_id, dono_id::text AS dono_id FROM equipe_tarefas_para_mim()
+         UNION
+         SELECT tarefa_id::text, dono_id::text FROM equipe_tarefas_marcadas_para_mim()`,
+      )
+    ).rows,
+  );
+  const porDono = new Map<string, string[]>();
+  for (const p of pares) porDono.set(p.dono_id, [...(porDono.get(p.dono_id) ?? []), p.tarefa_id]);
+  const grupos = await Promise.all(
+    [...porDono].map(([donoId, ids]) =>
+      withTenant(donoId, (c) =>
+        c.query<{ m: string; n: number }>(
+          `SELECT meeting_id::text AS m, count(DISTINCT tarefa_id)::int AS n FROM tarefa_mencoes
+            WHERE tarefa_id = ANY($1::uuid[]) AND meeting_id = ANY($2::uuid[]) GROUP BY meeting_id`,
+          [ids, meetingIds],
+        ),
+      ),
+    ),
+  );
+  for (const r of grupos) for (const x of r.rows) conta.set(x.m, (conta.get(x.m) ?? 0) + x.n);
+  return conta;
 }
 
 /** Em quais projetos (de quem vê) cada tarefa está. */
