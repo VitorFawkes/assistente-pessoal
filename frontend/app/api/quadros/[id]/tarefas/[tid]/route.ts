@@ -10,9 +10,9 @@ export const DELETE = withAuth<Ctx>(async (user, req, ctx) => {
   const { id, tid } = await ctx.params;
   if (isTeamMode()) {
     // Qualquer pessoa do projeto tira uma tarefa dele (a tarefa continua existindo).
-    if (!(await tirarDoProjeto(user.id, id, tid))) {
-      return NextResponse.json({ error: "projeto não encontrado" }, { status: 404 });
-    }
+    const r = await tirarDoProjeto(user.id, id, tid);
+    if (typeof r === "object") return NextResponse.json({ error: r.erro }, { status: r.status });
+    if (!r) return NextResponse.json({ error: "projeto não encontrado" }, { status: 404 });
     return new NextResponse(null, { status: 204 });
   }
   await quadrosFor(user.id).removerTarefa(id, tid);

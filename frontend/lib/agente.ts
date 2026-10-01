@@ -443,6 +443,7 @@ async function executar(
     if (!ts.length) return { erro: "nenhuma ação válida" };
     const r = await adicionarAoProjeto(user.id, projeto.id, ts.map((t) => t.id));
     if (!r) return { erro: "você não está nesse projeto" };
+    if ("erro" in r) return { erro: r.erro };
     const nomes = ts.length === 1 ? `"${tituloCurto(ts[0].titulo)}"` : `${ts.length} ações`;
     pendente.feitas.push({
       descricao: `Pus ${nomes} no projeto ${projeto.nome}.`,
@@ -458,7 +459,9 @@ async function executar(
     const projeto = retrato.projetos.get(str(a.projeto) ?? "");
     const t = retrato.tarefas.get(str(a.acao) ?? "");
     if (!projeto || !t) return { erro: "ação ou projeto não existe no retrato" };
-    if (!(await tirarDoProjeto(user.id, projeto.id, t.id))) return { erro: "você não está nesse projeto" };
+    const tirou = await tirarDoProjeto(user.id, projeto.id, t.id);
+    if (typeof tirou === "object") return { erro: tirou.erro };
+    if (!tirou) return { erro: "você não está nesse projeto" };
     pendente.feitas.push({
       descricao: `Tirei "${tituloCurto(t.titulo)}" do projeto ${projeto.nome}.`,
       tarefa_id: t.id,

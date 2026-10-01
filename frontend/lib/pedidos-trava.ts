@@ -1,7 +1,7 @@
 // A trava dos Pedidos ao Marketing (30/09/2026): numa ação que nasceu de um pedido, quem não é do
 // marketing (quem monta os pedidos ou está nos projetos do Notion do marketing) nem administrador só
-// comenta, mexe no próprio Quem vê e anexa. Situação, prazo, título, quem faz, área e prioridade são do
-// marketing. Cancelar ou apagar: quem pediu, só enquanto o marketing não começou (página do Notion em
+// comenta, mexe no próprio Quem vê e anexa. Situação, prazo, título, quem faz, área, prioridade e projeto são
+// do marketing; o time, quem pediu troca, mas só por um das empresas do público do formulário. Cancelar ou apagar: quem pediu, só enquanto o marketing não começou (página do Notion em
 // "Not started" ou ainda não criada).
 //
 // UM ponto só: toda rota que muda, cancela ou apaga ação chama travaDoPedido antes de gravar
@@ -33,6 +33,8 @@ const CAMPOS_DO_MARKETING = new Set([
   "area",
   "quem_faz",
   "tambem_fazem",
+  // Pôr ou tirar de projeto (o projeto do pedido é o do Notion do marketing).
+  "projeto",
 ]);
 
 export type PedidoDaTarefa = { tarefa_id: string; pedido_por: string; tem_pagina: boolean; status_notion: string | null };

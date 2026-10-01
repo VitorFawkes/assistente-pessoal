@@ -53,6 +53,7 @@ export const POST = withAuth<Ctx>(async (user, req, ctx) => {
       body.tarefaIds.filter((x): x is string => typeof x === "string"),
     );
     if (!r) return NextResponse.json({ error: "projeto não encontrado" }, { status: 404 });
+    if ("erro" in r) return NextResponse.json({ error: r.erro }, { status: r.status });
     return NextResponse.json(r, { status: 201 });
   }
 

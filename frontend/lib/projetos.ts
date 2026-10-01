@@ -7,6 +7,7 @@ import { withTenant } from "./db";
 import { TAREFA_SELECT, type Tarefa } from "./queries";
 import type { AtividadeItem, Quadro } from "./quadros";
 import { CANDIDATAS_LIMIT } from "./quadros";
+import { travaDoPedido, type Recusa } from "./pedidos-trava";
 import {
   carregarTarefas,
   colegasDe,
@@ -185,12 +186,15 @@ export async function adicionarAoProjeto(
   userId: string,
   quadroId: string,
   tarefaIds: string[],
-): Promise<{ adicionadas: number; duplicadas: number; recusadas: number } | null> {
+): Promise<{ adicionadas: number; duplicadas: number; recusadas: number } | Recusa | null> {
   const donoId = await donoDoProjeto(userId, quadroId);
   if (!donoId) return null;
   const ids = [...new Set(tarefaIds)].filter((x) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(x),
   );
+  // Pedido ao marketing: o projeto é do marketing (mudaria o projeto da página no Notion).
+  const trava = await travaDoPedido(userId, ids, { campos: ["projeto"] });
+  if (trava) return trava;
   const permitidas = await withTenant(userId, async (c) => {
     const r = await c.query<{ id: string }>(
       `SELECT x::text AS id FROM unnest($1::uuid[]) AS x
@@ -218,7 +222,9 @@ export async function adicionarAoProjeto(
   };
 }
 
-export async function tirarDoProjeto(userId: string, quadroId: string, tarefaId: string): Promise<boolean> {
+export async function tirarDoProjeto(userId: string, quadroId: string, tarefaId: string): Promise<boolean | Recusa> {
+  const trava = await travaDoPedido(userId, [tarefaId], { campos: ["projeto"] });
+  if (trava) return trava;
   const r = await comoDonoDoProjeto(userId, quadroId, (c) =>
     c.query(`DELETE FROM quadro_tarefas WHERE quadro_id = $1 AND tarefa_id = $2`, [quadroId, tarefaId]),
   );
