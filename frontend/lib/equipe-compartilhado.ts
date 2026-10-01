@@ -233,6 +233,33 @@ export async function tarefasMarcadasParaMim(userId: string): Promise<Tarefa[]> 
   return lista.map((t) => ({ ...t, marcada_para_mim: true })).sort(ordenarPendencias);
 }
 
+/**
+ * Ações de colegas em que a trava contra repetida juntou a fala desta reunião de `userId` ("falada de novo", 01/10/2026):
+ * as passadas a ele ou marcadas para ele ver (a junção marca quem gravou). A fala em si fica com a dona; daqui só sai
+ * a ação, do jeito que ele já a vê na lista.
+ */
+export async function faladasDeNovoDeColegas(userId: string, meetingId: string): Promise<Tarefa[]> {
+  if (!isTeamMode()) return [];
+  const [paraMim, marcadas] = await withTenant(userId, async (c) => [
+    (await c.query<Par>(`SELECT tarefa_id::text AS tarefa_id, dono_id::text AS dono_id FROM equipe_tarefas_para_mim()`)).rows,
+    (await c.query<Par>(`SELECT tarefa_id::text AS tarefa_id, dono_id::text AS dono_id FROM equipe_tarefas_marcadas_para_mim()`)).rows,
+  ]);
+  const porDono = new Map<string, string[]>();
+  for (const p of [...paraMim, ...marcadas]) porDono.set(p.dono_id, [...(porDono.get(p.dono_id) ?? []), p.tarefa_id]);
+  const comFala = new Set<string>();
+  for (const [donoId, ids] of porDono) {
+    const r = await withTenant(donoId, (c) =>
+      c.query<{ id: string }>(`SELECT DISTINCT tarefa_id::text AS id FROM tarefa_mencoes WHERE meeting_id = $1 AND tarefa_id = ANY($2::uuid[])`, [meetingId, ids]),
+    );
+    for (const x of r.rows) comFala.add(x.id);
+  }
+  if (!comFala.size) return [];
+  const marcadaIds = new Set(marcadas.map((x) => x.tarefa_id));
+  const pares = [...paraMim, ...marcadas].filter((p, i, todos) => comFala.has(p.tarefa_id) && todos.findIndex((x) => x.tarefa_id === p.tarefa_id) === i);
+  const lista = await carregarTarefas(userId, pares);
+  return lista.map((t) => (marcadaIds.has(t.id) && !paraMim.some((x) => x.tarefa_id === t.id) ? { ...t, marcada_para_mim: true } : t)).sort(ordenarPendencias);
+}
+
 /** Em quais projetos (de quem vê) cada tarefa está. */
 export async function projetosDasTarefas(
   userId: string,

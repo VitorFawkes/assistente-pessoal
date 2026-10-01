@@ -575,11 +575,16 @@ export const meetingsFor = (userId: string) => ({
            m.nome, m.summary, m.status, m.duration_seconds, m.meeting_type, m.source,
            to_char(coalesce(m.recorded_at, m.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
            COALESCE((SELECT array_agg(DISTINCT v) FROM jsonb_each_text(COALESCE(m.speaker_labels, '{}'::jsonb)) AS e(k, v) WHERE v <> ''), '{}') AS falantes,
-           (SELECT count(*) FROM tarefas WHERE meeting_id = m.id AND status IS DISTINCT FROM 'cancelada')::int AS n_tarefas`;
+           (SELECT count(*) FROM tarefas WHERE meeting_id = m.id AND status IS DISTINCT FROM 'cancelada')::int AS n_tarefas,
+           -- Ações de quem gravou que já existiam e que esta reunião falou de novo (a trava contra repetida,
+           -- 01/10/2026); nas reuniões de colegas fica 0, como a página da reunião.
+           (SELECT count(DISTINCT tm.tarefa_id) FROM tarefa_mencoes tm JOIN tarefas tt ON tt.id = tm.tarefa_id
+             WHERE tm.meeting_id = m.id AND tt.meeting_id IS DISTINCT FROM m.id
+               AND tt.user_id = m.user_id AND m.user_id::text = current_setting('app.current_user_id', true))::int AS n_faladas`;
     type Linha = {
       id: string; user_id: string; dono_nome: string | null; nome: string | null; summary: string | null;
       status: string; duration_seconds: number | null; meeting_type: string | null; source: string;
-      recorded_at: string | null; falantes: string[]; n_tarefas: number;
+      recorded_at: string | null; falantes: string[]; n_tarefas: number; n_faladas: number;
     };
     const [minhas, daEquipe] = await Promise.all([
       withTenant(userId, (db) =>
