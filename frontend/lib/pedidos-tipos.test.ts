@@ -17,6 +17,7 @@ import {
   pedidoEncerrado,
   pessoasDoCasal,
   prazoDoPedido,
+  prazoVemDasRespostas,
   respostasQueMudaram,
   rotuloDaPergunta,
   situacaoDoPedido,
@@ -25,15 +26,23 @@ import {
   textoDaResposta,
   timeNoPublico,
   tituloDoPedido,
+  limparPublico,
   type Destino,
   type Pergunta,
+  type Publico,
 } from "./pedidos-tipos";
 import { propriedadesPara, lerPagina, trocarPrimeiraPessoa, type PaginaNotion } from "./notion-mapa";
 
 const P = (x: Partial<Pergunta> & Pick<Pergunta, "id" | "tipo" | "rotulo">): Pergunta => ({ obrigatoria: false, aceita_nao_temos: false, ...x });
 
 describe("quem pode pedir", () => {
-  const ww = { tipo: "empresas" as const, empresas: ["Welcome Weddings"], times: [] };
+  const publico = (x: unknown): Publico => {
+    const p = limparPublico(x);
+    if (ehErro(p)) throw new Error(p.erro);
+    return p;
+  };
+  // Formato antigo (30/09): lido como combinado só com a lista dele.
+  const ww = publico({ tipo: "empresas", empresas: ["Welcome Weddings"], times: [{ id: "t-esquecido", nome: "Esquecido" }] });
   test("empresa na lista do TTARS (várias separadas por vírgula)", () => {
     expect(estaNoPublico({ organizacao: "Welcome Trips, Welcome Weddings", times: [] }, ww)).toBe(true);
     expect(estaNoPublico({ organizacao: "Welcome Trips", times: [] }, ww)).toBe(false);
@@ -41,14 +50,21 @@ describe("quem pode pedir", () => {
   });
   test("quem só está no Teams entra só em Toda a Welcome", () => {
     expect(estaNoPublico({ organizacao: "Teams · Welcome Weddings", times: [] }, ww)).toBe(false);
-    expect(estaNoPublico({ organizacao: "Teams · Welcome Weddings", times: [] }, { tipo: "todos", empresas: [], times: [] })).toBe(true);
+    expect(estaNoPublico({ organizacao: "Teams · Welcome Weddings", times: [] }, publico({ tipo: "todos" }))).toBe(true);
   });
   test("times", () => {
-    const pub = { tipo: "times" as const, empresas: [], times: [{ id: "t-plan", nome: "Planejamento" }] };
+    const pub = publico({ tipo: "times", empresas: ["Welcome Trips"], times: [{ id: "t-plan", nome: "Planejamento" }] });
+    expect(pub).toEqual({ tipo: "combinado", empresas: [], times: [{ id: "t-plan", nome: "Planejamento" }], pessoas: [] });
     expect(estaNoPublico({ organizacao: "Welcome Weddings", times: [{ id: "t-plan" }] }, pub)).toBe(true);
     expect(estaNoPublico({ organizacao: "Welcome Weddings", times: [{ id: "t-g2" }] }, pub)).toBe(false);
+    expect(estaNoPublico({ organizacao: "Welcome Trips", times: [] }, pub)).toBe(false);
     expect(timeNoPublico({ id: "t-x", organizacao: "Welcome Weddings" }, ww)).toBe(true);
     expect(timeNoPublico({ id: "t-x", organizacao: "Welcome Trips" }, ww)).toBe(false);
+  });
+  test("formato antigo: a lista que não valia continua sem valer", () => {
+    expect(ww).toEqual({ tipo: "combinado", empresas: ["Welcome Weddings"], times: [], pessoas: [] });
+    expect(estaNoPublico({ organizacao: "Welcome Trips", times: [{ id: "t-esquecido" }] }, ww)).toBe(false);
+    expect(ehErro(limparPublico({ tipo: "qualquer" }))).toBe(true);
   });
   test("robôs e contas de teste não contam", () => {
     expect(ehRoboOuTeste("sarah.ia@welcomeweddings.com.br")).toBe(true);
@@ -373,5 +389,90 @@ describe("Notion: várias pessoas no pedido (01/10/2026)", () => {
     expect(p.listaPerson).toEqual(["n-fabi", "n-angela"]);
     expect(p.listaAssign).toEqual(["n-angela", "n-fabi"]);
     expect(p.assign).toBe("n-angela");
+  });
+});
+
+describe("sem limites, rodada 2 (01/10/2026)", () => {
+  const publico = (x: unknown): Publico => {
+    const p = limparPublico(x);
+    if (ehErro(p)) throw new Error(p.erro);
+    return p;
+  };
+  const destino = (x: Record<string, unknown>): Destino => {
+    const d = limparDestino(x, false);
+    if (ehErro(d)) throw new Error(d.erro);
+    return d;
+  };
+
+  test("quem pode pedir combinado: basta estar em qualquer lista (empresa, time ou pessoa)", () => {
+    const pub = publico({
+      tipo: "combinado",
+      empresas: ["Welcome Corporativo", "Inventada"],
+      times: [{ id: "t-g4", nome: "Grupo 4" }],
+      pessoas: ["Diana@WelcomeWeddings.com.br", "diana@welcomeweddings.com.br", "sem-arroba"],
+    });
+    expect(pub).toEqual({ tipo: "combinado", empresas: ["Welcome Corporativo"], times: [{ id: "t-g4", nome: "Grupo 4" }], pessoas: ["diana@welcomeweddings.com.br"] });
+    expect(estaNoPublico({ email: "carla@welcometrips.com.br", organizacao: "Welcome Corporativo", times: [] }, pub)).toBe(true);
+    expect(estaNoPublico({ email: "sarah@welcomeweddings.com.br", organizacao: "Welcome Weddings", times: [{ id: "t-g4" }] }, pub)).toBe(true);
+    expect(estaNoPublico({ email: "diana@welcomeweddings.com.br", organizacao: "Welcome Weddings", times: [{ id: "t-prod" }] }, pub)).toBe(true);
+    expect(estaNoPublico({ email: "bruno@welcometrips.com.br", organizacao: "Welcome Trips", times: [{ id: "t-trips" }] }, pub)).toBe(false);
+    // Escolhida pelo e-mail entra mesmo só no Teams ou fora da lista do TTARS.
+    expect(estaNoPublico({ email: "diana@welcomeweddings.com.br", organizacao: "Teams · Welcome Weddings", times: null }, pub)).toBe(true);
+    expect(estaNoPublico({ email: "diana@welcomeweddings.com.br", organizacao: null, times: null }, pub)).toBe(true);
+  });
+
+  test("time que acompanha: os times escolhidos e os das empresas escolhidas; pessoa avulsa não libera time", () => {
+    const pub = publico({ tipo: "combinado", empresas: ["Welcome Corporativo"], times: [{ id: "t-g4", nome: "Grupo 4" }], pessoas: ["diana@welcomeweddings.com.br"] });
+    expect(timeNoPublico({ id: "t-g4", organizacao: "Welcome Weddings" }, pub)).toBe(true);
+    expect(timeNoPublico({ id: "t-corp", organizacao: "Welcome Corporativo" }, pub)).toBe(true);
+    expect(timeNoPublico({ id: "t-prod", organizacao: "Welcome Weddings" }, pub)).toBe(false);
+    expect(timeNoPublico({ id: "t-prod", organizacao: "Welcome Weddings" }, publico({ tipo: "todos" }))).toBe(true);
+  });
+
+  test("salvar grava sempre todos ou combinado; combinado vazio não publica", () => {
+    expect(publico({ tipo: "todos" }).tipo).toBe("todos");
+    expect(publico({ tipo: "empresas", empresas: ["Welcome Trips"] }).tipo).toBe("combinado");
+    const vazio = limparRascunho({ nome: "X", perguntas: [{ tipo: "texto", rotulo: "Q" }], publico: { tipo: "combinado" }, destino: { quem_emails: ["fabiola@welcometrips.com.br"] } });
+    expect(!ehErro(vazio) && faltaParaPublicar(vazio)).toBe("Escolha quem pode pedir: empresas, times ou pessoas.");
+    const soPessoa = limparRascunho({ nome: "X", perguntas: [{ tipo: "texto", rotulo: "Q" }], publico: { tipo: "combinado", pessoas: ["diana@welcomeweddings.com.br"] }, destino: { quem_emails: ["fabiola@welcometrips.com.br"] } });
+    expect(!ehErro(soPessoa) && faltaParaPublicar(soPessoa)).toBeNull();
+  });
+
+  test("prazo X dias antes/depois do casamento (de 365 antes a 365 depois)", () => {
+    expect(destino({ prazo: { tipo: "dias_do_casamento", dias: -7 } }).prazo).toEqual({ tipo: "dias_do_casamento", dias: -7 });
+    expect(destino({ prazo: { tipo: "dias_do_casamento", dias: 365 } }).prazo).toEqual({ tipo: "dias_do_casamento", dias: 365 });
+    expect(ehErro(limparDestino({ prazo: { tipo: "dias_do_casamento", dias: -366 } }, false))).toBe(true);
+    expect(ehErro(limparDestino({ prazo: { tipo: "dias_do_casamento", dias: 1.5 } }, false))).toBe(true);
+    expect(ehErro(limparDestino({ prazo: { tipo: "dias_do_casamento" } }, false))).toBe(true);
+    const ps = [P({ id: "data", tipo: "data", rotulo: "Data do casamento", preenche: "data_casamento" })];
+    const em = (dia: string, dias: number) => prazoDoPedido(destino({ prazo: { tipo: "dias_do_casamento", dias } }), ps, { data: { valor: dia } }, new Date("2026-10-01T15:00:00Z"));
+    expect(em("2026-11-22", -7)).toBe("2026-11-15");
+    expect(em("2026-11-22", 3)).toBe("2026-11-25");
+    expect(em("2027-01-03", -7)).toBe("2026-12-27");
+    expect(em("2026-02-27", 3)).toBe("2026-03-02");
+    expect(em("2026-11-22", 0)).toBe("2026-11-22");
+    expect(prazoDoPedido(destino({ prazo: { tipo: "dias_do_casamento", dias: -7 } }), ps, { data: { valor: null, nao_temos: true } }, new Date())).toBeNull();
+    // Data que não é data (pergunta mal marcada): sem prazo, nunca "prazo inválido".
+    expect(prazoDoPedido(destino({ prazo: { tipo: "data_casamento" } }), [P({ id: "data", tipo: "texto", rotulo: "Quando", preenche: "data_casamento" })], { data: { valor: "em novembro" } }, new Date())).toBeNull();
+  });
+
+  test("prazo pelo casamento exige a pergunta da data do casamento; a do prazo não aceita 'ainda não temos'", () => {
+    const rasc = (perguntas: unknown[], prazo: Record<string, unknown>) => {
+      const r = limparRascunho({ nome: "X", perguntas, publico: { tipo: "todos" }, destino: { quem_emails: ["fabiola@welcometrips.com.br"], prazo } });
+      if (ehErro(r)) throw new Error(r.erro);
+      return r;
+    };
+    const semData = [{ tipo: "texto", rotulo: "Q" }];
+    const comData = [{ id: "data", tipo: "data", rotulo: "Data do casamento", preenche: "data_casamento" }];
+    const msg = "O prazo pelo casamento precisa de uma pergunta que preenche a data do casamento.";
+    expect(faltaParaPublicar(rasc(semData, { tipo: "dias_do_casamento", dias: -7 }))).toBe(msg);
+    expect(faltaParaPublicar(rasc(semData, { tipo: "data_casamento" }))).toBe(msg);
+    expect(faltaParaPublicar(rasc(comData, { tipo: "dias_do_casamento", dias: -7 }))).toBeNull();
+    const naoTemos = [{ id: "quando", tipo: "data", rotulo: "Para quando?", obrigatoria: true, aceita_nao_temos: true }];
+    expect(faltaParaPublicar(rasc(naoTemos, { tipo: "pergunta", pergunta_id: "quando" }))).toBe("A pergunta do prazo não pode aceitar 'ainda não temos'.");
+    expect(prazoVemDasRespostas(destino({ prazo: { tipo: "pergunta", pergunta_id: "quando" } }))).toBe(true);
+    expect(prazoVemDasRespostas(destino({ prazo: { tipo: "dias_do_casamento", dias: 2 } }))).toBe(true);
+    expect(prazoVemDasRespostas(destino({ prazo: { tipo: "dias", dias: 2 } }))).toBe(false);
+    expect(prazoVemDasRespostas(destino({}))).toBe(false);
   });
 });

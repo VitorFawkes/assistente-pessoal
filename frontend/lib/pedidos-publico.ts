@@ -4,13 +4,15 @@ import { query } from "./db";
 import { pessoasDaEquipe } from "./equipe-compartilhado";
 import { podeTime, timeIdValido, timesDasPessoas } from "./hub";
 import { mexeNoPedido, pedidosDasTarefas } from "./pedidos-trava";
-import { estaNoPublico, timeNoPublico, type PessoaDoPublico, type Publico } from "./pedidos-tipos";
+import { ehErro, estaNoPublico, limparPublico, timeNoPublico, type PessoaDoPublico, type Publico } from "./pedidos-tipos";
 
-/** A pessoa na lista do TTARS (null = não está, ex.: conta de teste do Ações). */
+/** A pessoa pelo e-mail, com a empresa e os times da lista do TTARS (fora da lista: só o e-mail, que vale
+ *  quando ela foi escolhida pelo nome no público). */
 export async function pessoaDoPublico(email: string | null | undefined): Promise<PessoaDoPublico | null> {
-  if (!email) return null;
-  const r = await query<PessoaDoPublico>(`SELECT organizacao, times FROM ttars_pessoas WHERE email = LOWER($1)`, [email]);
-  return r[0] ?? null;
+  const alvo = (email ?? "").trim().toLowerCase();
+  if (!alvo) return null;
+  const r = await query<PessoaDoPublico>(`SELECT email, organizacao, times FROM ttars_pessoas WHERE email = $1`, [alvo]);
+  return r[0] ?? { email: alvo, organizacao: null, times: null };
 }
 
 export async function euNoPublico(email: string | null | undefined, publico: Publico): Promise<boolean> {
@@ -36,14 +38,16 @@ export async function timeValeNoPublico(publico: Publico, timeId: string): Promi
  * das empresas do público do formulário pode acompanhar, mesmo que quem pediu não seja dele.
  */
 export async function timeValeNoPedido(tarefaId: string, timeId: string): Promise<boolean> {
-  const r = await query<{ publico: Publico }>(
+  const r = await query<{ publico: unknown }>(
     `SELECT f.publico FROM tarefa_pedidos tp JOIN pedido_formularios f ON f.id = tp.formulario_id WHERE tp.tarefa_id = $1`,
     [tarefaId],
   ).catch((e: unknown) => {
-    if ((e as { code?: string })?.code === "42P01") return [] as { publico: Publico }[];
+    if ((e as { code?: string })?.code === "42P01") return [] as { publico: unknown }[];
     throw e;
   });
-  return !!r[0] && (await timeValeNoPublico(r[0].publico, timeId));
+  // Guardado no formato antigo ("empresas"/"times") ou no combinado: lido sempre do mesmo jeito.
+  const publico = r[0] ? limparPublico(r[0].publico) : null;
+  return !!publico && !ehErro(publico) && (await timeValeNoPublico(publico, timeId));
 }
 
 export const NAO_ESTA_NO_TIME = "Você não está nesse time.";
