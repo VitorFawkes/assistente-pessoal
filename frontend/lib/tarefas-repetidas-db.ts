@@ -104,11 +104,14 @@ function limpar(t: TarefaExtraida) {
 }
 type Limpa = ReturnType<typeof limpar>;
 
-/** Candidata com o dono da linha (quem criou): na equipe pode ser outra pessoa. */
-type Cand = Candidata & { meeting_id: string | null; dono_id: string };
+/** Candidata com o dono da linha (quem criou): na equipe pode ser outra pessoa. `comQuemGravou`: ação de outra
+ *  pessoa que já é feita por quem gravou (passada a ele ou ele também faz). */
+type Cand = Candidata & { meeting_id: string | null; dono_id: string; comQuemGravou?: boolean };
 
 type Contexto = {
   reuniaoEm: string | null;
+  /** A reunião de quem gravou está em "Só eu": nada dela vai para ação de outra pessoa. */
+  soEu: boolean;
   /** Fim da reunião (começo + duração), para achar outra gravação do mesmo horário. */
   reuniaoFim: string | null;
   paiId: string | null;
@@ -125,8 +128,9 @@ async function lerContexto(
   reprocessar: boolean,
 ): Promise<Contexto> {
   const m = (
-    await c.query<{ reuniao_em: string | null; duracao: number | null; parent_meeting_id: string | null }>(
-      `SELECT COALESCE(recorded_at, created_at) AS reuniao_em, duration_seconds AS duracao, parent_meeting_id
+    await c.query<{ reuniao_em: string | null; duracao: number | null; parent_meeting_id: string | null; so_eu: boolean }>(
+      `SELECT COALESCE(recorded_at, created_at) AS reuniao_em, duration_seconds AS duracao, parent_meeting_id,
+              COALESCE(to_jsonb(meetings) ->> 'visibilidade', '') = 'so_eu' AS so_eu
          FROM meetings WHERE id = $1`,
       [meetingId],
     )
@@ -149,6 +153,9 @@ async function lerContexto(
   const titulosJaNaReuniao = new Set(ja.rows.map((r) => normalizarTitulo(r.titulo)));
 
   let candidatas: Contexto["candidatas"] = [];
+  // Na equipe o n8n refaz a reunião sem avisar que é reprocesso (renomear quem falou): as ações desta reunião que
+  // sobraram (passadas, com fala de outra reunião, marcadas para alguém) também contam, senão nasceriam de novo.
+  const todas = ligada && (reprocessar || isTeamMode());
   if (ligada || m.parent_meeting_id) {
     const r = await c.query<{
       id: string;
@@ -171,13 +178,13 @@ async function lerContexto(
           AND ${
             ligada
               ? // reprocessando: as que sobraram desta reunião (feitas ou criadas na mão) também contam
-                reprocessar
+                todas
                 ? "TRUE"
                 : "t.meeting_id IS DISTINCT FROM $5"
               : // desligada: só a gravação inteira de quem é parte (fatiada)
                 "t.meeting_id = $5 AND t.status = ANY($2::text[])"
           }`,
-      ligada && reprocessar
+      todas
         ? [userId, ABERTAS, m.reuniao_em, DIAS_CONCLUIDA]
         : [userId, ABERTAS, m.reuniao_em, DIAS_CONCLUIDA, ligada ? meetingId : m.parent_meeting_id],
     );
@@ -232,6 +239,7 @@ async function lerContexto(
   const inicio = m.reuniao_em ? new Date(m.reuniao_em) : null;
   return {
     reuniaoEm: inicio ? inicio.toISOString() : null,
+    soEu: !!m.so_eu,
     reuniaoFim: inicio ? new Date(inicio.getTime() + Math.max(0, Number(m.duracao) || 0) * 1000).toISOString() : null,
     paiId: m.parent_meeting_id,
     ligada,
@@ -241,61 +249,66 @@ async function lerContexto(
   };
 }
 
-/** Folga em volta do horário da reunião ao procurar outra gravação dela (o Teams e o celular não começam juntos). */
-const FOLGA_MESMA_REUNIAO_MS = 15 * 60_000;
+/**
+ * "A mesma reunião" gravada por outra pessoa: começou até 15 min antes ou depois desta E as duas se cruzam em pelo
+ * menos metade da mais curta. Reunião encostada (uma termina, a outra começa) não conta. Sem a duração de alguma das
+ * duas, vale só o começo, com até 10 min de diferença. $2 = começo desta, $3 = fim, $4 = duração (s).
+ */
+const MESMA_REUNIAO = `abs(extract(epoch FROM (COALESCE(m.recorded_at, m.created_at) - $2::timestamptz))) <= 900
+       AND (CASE WHEN COALESCE(m.duration_seconds, 0) = 0 OR $4::int = 0
+                 THEN abs(extract(epoch FROM (COALESCE(m.recorded_at, m.created_at) - $2::timestamptz))) <= 600
+                 ELSE extract(epoch FROM (LEAST(COALESCE(m.recorded_at, m.created_at) + make_interval(secs => m.duration_seconds), $3::timestamptz)
+                                          - GREATEST(COALESCE(m.recorded_at, m.created_at), $2::timestamptz)))
+                      >= 0.5 * LEAST(m.duration_seconds, $4::int) END)`;
 
 type Par = { tarefa_id: string; dono_id: string };
 
 /**
  * Equipe: ações de OUTRAS pessoas que a reunião nova pode estar repetindo.
  *   - as que passaram ou marcaram para quem gravou (ela já tem a ação na lista);
- *   - as de outra gravação da MESMA reunião: alguém gravou no mesmo horário (no Teams, no celular, no Mac) e
- *     quem gravou ESTAVA na dela, ou ela ESTAVA nesta. Ex.: 29/09, "Weddings" no Teams da Diana e "Plano
- *     Weddings" no celular do Tiago, a mesma reunião.
- * "Estava" é a mesma regra de puxar ação (equipe_chamado_na_reuniao): convite, voz ou marcado como "estava";
- * quem só foi marcado para ver não conta, e reunião fechada em "Só eu" nunca entra. Só ações abertas, sem
- * pedido ao marketing e sem Notion (o prazo e a situação dessas são do marketing).
+ *   - as de outra gravação da MESMA reunião (MESMA_REUNIAO): (a) reunião de outra pessoa em que quem gravou
+ *     ESTAVA, pela regra de puxar ação (equipe_chamado_na_reuniao: convite, voz ou marcado como "estava" por quem é
+ *     dono DELA; reunião em "Só eu" fora); (b) gravação de quem FALOU nesta reunião (a voz dela está nesta gravação),
+ *     fora as em "Só eu". Ex.: 29/09, "Weddings" no Teams da Diana e "Plano Weddings" no celular do Tiago.
+ * Quem gravou não consegue se pôr na reunião de ninguém: "estava" e convite marcados por ele na reunião DELE não
+ * contam (revisão de 01/10/2026). Só ações abertas, sem pedido ao marketing e sem Notion. Volta também os títulos
+ * que esta reunião já juntou em ações dessas pessoas (o reenvio não junta nem cria de novo).
  */
 export async function candidatasDaEquipe(
   userId: string,
   meetingId: string,
   inicio: Date,
   fim: Date,
-): Promise<Cand[]> {
-  const de = new Date(inicio.getTime() - FOLGA_MESMA_REUNIAO_MS);
-  const ate = new Date(fim.getTime() + FOLGA_MESMA_REUNIAO_MS);
-  const mesmoHorario = `COALESCE(m.recorded_at, m.created_at) < $3
-       AND COALESCE(m.recorded_at, m.created_at) + make_interval(secs => COALESCE(m.duration_seconds, 0)) > $2`;
-  const { pares, presentes } = await withTenantLeituraEquipe(userId, async (c) => {
+): Promise<{ candidatas: Cand[]; jaJuntados: Set<string> }> {
+  const duracao = Math.max(0, Math.round((fim.getTime() - inicio.getTime()) / 1000));
+  const horario = [inicio.toISOString(), fim.toISOString(), duracao];
+  const { pares, falaram } = await withTenantLeituraEquipe(userId, async (c) => {
     const minhas = await c.query<Par>(
       `SELECT tarefa_id::text AS tarefa_id, dono_id::text AS dono_id FROM equipe_tarefas_para_mim()
        UNION
        SELECT tarefa_id::text, dono_id::text FROM equipe_tarefas_marcadas_para_mim()`,
     );
-    // Reuniões de outras pessoas, no mesmo horário desta, em que quem gravou estava.
     const mesmas = await c.query<Par>(
       `SELECT t.id::text AS tarefa_id, t.user_id::text AS dono_id
          FROM meetings m JOIN tarefas t ON t.meeting_id = m.id
-        WHERE m.user_id <> $1 AND ${mesmoHorario} AND equipe_chamado_na_reuniao(m.id)`,
-      [userId, de, ate],
+        WHERE m.user_id <> $1 AND ${MESMA_REUNIAO} AND equipe_chamado_na_reuniao(m.id)`,
+      [userId, ...horario],
     );
-    // Quem estava nesta reunião (convite, voz ou "estava"; não quem só foi marcado para ver).
-    const p = await c.query<{ id: string }>(
+    // Quem falou nesta reunião (a voz reconhecida nesta gravação), não quem foi convidado ou marcado à mão.
+    const f = await c.query<{ id: string }>(
       `SELECT DISTINCT user_id::text AS id FROM meeting_acessos
-        WHERE meeting_id = $1 AND user_id IS NOT NULL AND user_id <> $2 AND motivo <> 'quem_ve'`,
+        WHERE meeting_id = $1 AND user_id IS NOT NULL AND user_id <> $2 AND motivo = 'falou'`,
       [meetingId, userId],
     );
-    return { pares: [...minhas.rows, ...mesmas.rows], presentes: p.rows.map((x) => x.id) };
+    return { pares: [...minhas.rows, ...mesmas.rows], falaram: f.rows.map((x) => x.id) };
   });
-  // Quem estava nesta reunião e gravou a mesma no mesmo horário (quem gravou esta pode não estar marcado na dela).
-  // Gravação que a pessoa fechou em "Só eu" fica de fora.
-  for (const pessoa of presentes) {
+  for (const pessoa of falaram) {
     const r = await withTenant(pessoa, (c) =>
       c.query<Par>(
         `SELECT t.id::text AS tarefa_id, t.user_id::text AS dono_id
            FROM meetings m JOIN tarefas t ON t.meeting_id = m.id
-          WHERE m.user_id = $1 AND m.visibilidade <> 'so_eu' AND ${mesmoHorario}`,
-        [pessoa, de, ate],
+          WHERE m.user_id = $1 AND m.visibilidade <> 'so_eu' AND ${MESMA_REUNIAO}`,
+        [pessoa, ...horario],
       ),
     );
     pares.push(...r.rows);
@@ -307,7 +320,8 @@ export async function candidatasDaEquipe(
     if (!porDono.has(x.dono_id)) porDono.set(x.dono_id, new Set());
     porDono.get(x.dono_id)!.add(x.tarefa_id);
   }
-  if (!porDono.size) return [];
+  const jaJuntados = new Set<string>();
+  if (!porDono.size) return { candidatas: [], jaJuntados };
   const t = await query<{ pedidos: boolean; notion: boolean }>(
     `SELECT to_regclass('tarefa_pedidos') IS NOT NULL AS pedidos, to_regclass('notion_paginas') IS NOT NULL AS notion`,
   );
@@ -317,8 +331,8 @@ export async function candidatasDaEquipe(
   ].join(" ");
   const grupos = await Promise.all(
     [...porDono.entries()].map(([dono, ids]) =>
-      withTenant(dono, (c) =>
-        c.query<{
+      withTenant(dono, async (c) => {
+        const r = await c.query<{
           id: string;
           titulo: string;
           descricao: string | null;
@@ -328,25 +342,31 @@ export async function candidatasDaEquipe(
           criada_em: string;
           concluida_em: string | null;
           reuniao_em: string | null;
+          com_quem_gravou: boolean;
         }>(
           `SELECT t.id::text AS id, t.titulo, t.descricao, t.owner, t.status, t.meeting_id::text AS meeting_id,
-                  t.created_at AS criada_em, t.concluida_em, COALESCE(mt.recorded_at, mt.created_at) AS reuniao_em
+                  t.created_at AS criada_em, t.concluida_em, COALESCE(mt.recorded_at, mt.created_at) AS reuniao_em,
+                  (t.responsavel_user_id = $4::uuid
+                   OR EXISTS (SELECT 1 FROM tarefa_acessos ta WHERE ta.tarefa_id = t.id AND ta.user_id = $4::uuid AND ta.faz)) AS com_quem_gravou
              FROM tarefas t LEFT JOIN meetings mt ON mt.id = t.meeting_id
             WHERE t.id = ANY($1::uuid[]) AND t.user_id = $2 AND t.status = ANY($3::text[]) ${fora}`,
-          [[...ids], dono, ABERTAS],
-        ),
-      ).then((r) =>
-        r.rows.map((x) => ({
+          [[...ids], dono, ABERTAS, userId],
+        );
+        // O que esta reunião já juntou nas ações desta pessoa (reenvio do n8n ou reprocesso).
+        const ja = await c.query<{ titulo: string }>(`SELECT titulo_falado AS titulo FROM tarefa_mencoes WHERE meeting_id = $1`, [meetingId]);
+        for (const x of ja.rows) jaJuntados.add(normalizarTitulo(x.titulo));
+        return r.rows.map(({ com_quem_gravou, ...x }) => ({
           ...x,
           dono_id: dono,
+          comQuemGravou: !!com_quem_gravou,
           criada_em: new Date(x.criada_em).toISOString(),
           concluida_em: x.concluida_em ? new Date(x.concluida_em).toISOString() : null,
           reuniao_em: x.reuniao_em ? new Date(x.reuniao_em).toISOString() : null,
-        })),
-      ),
+        }));
+      }),
     ),
   );
-  return grupos.flat();
+  return { candidatas: grupos.flat(), jaJuntados };
 }
 
 /** Vetores das candidatas: usa o guardado quando o texto não mudou; calcula o resto. */
@@ -426,14 +446,18 @@ async function inserirTarefa(
   return r.rows[0];
 }
 
-/** A tarefa já foi mexida por alguém? (aí ela nunca sai sozinha) */
+/** A tarefa já foi mexida por alguém? (aí ela nunca sai sozinha) Na equipe, conta também quem foi marcado nela e a
+ *  fala de outra reunião juntada nela (01/10/2026). */
 export async function foiMexida(c: PoolClient, tarefaId: string): Promise<boolean> {
+  const temAcessos = (await c.query<{ ok: boolean }>(`SELECT to_regclass('tarefa_acessos') IS NOT NULL AS ok`)).rows[0]?.ok;
   const r = await c.query<{ mexida: boolean }>(
     `SELECT (t.no_plano
              OR EXISTS (SELECT 1 FROM quadro_tarefas q WHERE q.tarefa_id = t.id)
              OR EXISTS (SELECT 1 FROM tarefa_eventos e WHERE e.tarefa_id = t.id AND e.evento <> 'criada')
              OR EXISTS (SELECT 1 FROM tarefa_anexos a WHERE a.tarefa_id = t.id)
-             OR EXISTS (SELECT 1 FROM coach_commitments cc WHERE cc.tarefa_id = t.id)) AS mexida
+             OR EXISTS (SELECT 1 FROM coach_commitments cc WHERE cc.tarefa_id = t.id)
+             OR EXISTS (SELECT 1 FROM tarefa_mencoes tm WHERE tm.tarefa_id = t.id AND tm.meeting_id IS DISTINCT FROM t.meeting_id)
+             ${temAcessos ? "OR EXISTS (SELECT 1 FROM tarefa_acessos ta WHERE ta.tarefa_id = t.id)" : ""}) AS mexida
        FROM tarefas t WHERE t.id = $1`,
     [tarefaId],
   );
@@ -523,6 +547,15 @@ export async function aposentarCopia(
   );
   await c.query(`DELETE FROM quadro_tarefas WHERE tarefa_id = $1`, [p.copiaId]);
   await c.query(`UPDATE tarefa_anexos SET tarefa_id = $2 WHERE tarefa_id = $1`, [p.copiaId, p.principalId]);
+  // Equipe: quem via a cópia passa a ver a que fica (quem também fazia continua fazendo).
+  if ((await c.query<{ ok: boolean }>(`SELECT to_regclass('tarefa_acessos') IS NOT NULL AS ok`)).rows[0]?.ok) {
+    await c.query(
+      `INSERT INTO tarefa_acessos (tarefa_id, user_id, created_by, faz)
+       SELECT $2, user_id, created_by, faz FROM tarefa_acessos WHERE tarefa_id = $1
+       ON CONFLICT DO NOTHING`,
+      [p.copiaId, p.principalId],
+    );
+  }
   await c.query(`UPDATE tarefas SET parece_com_id = $2 WHERE parece_com_id = $1 AND id <> $2`, [
     p.copiaId,
     p.principalId,
@@ -561,6 +594,21 @@ export async function incorporarTarefas(p: {
     comparacao: ctx.ligada ? "ligada" : ctx.paiId ? "so_gravacao_fatiada" : "desligada",
   };
 
+  // Equipe: as ações de outras pessoas que esta reunião pode repetir. Reunião de quem gravou em "Só eu" nunca
+  // entra: nada dela vai para a ação de outra pessoa.
+  const equipe = isTeamMode();
+  if (equipe && ctx.ligada && !ctx.soEu && tarefas.length && ctx.reuniaoEm && ctx.reuniaoFim) {
+    try {
+      const ja = new Set(ctx.candidatas.map((x) => x.id));
+      const r = await candidatasDaEquipe(p.userId, p.meetingId, new Date(ctx.reuniaoEm), new Date(ctx.reuniaoFim));
+      ctx.candidatas.push(...r.candidatas.filter((x) => !ja.has(x.id)));
+      for (const t of r.jaJuntados) ctx.titulosJaNaReuniao.add(t);
+    } catch (e) {
+      // Sem as das outras pessoas, a comparação segue com as de quem gravou.
+      console.error("[tarefas-repetidas] ações da equipe não vieram:", e instanceof Error ? e.message : e);
+    }
+  }
+
   // Reenvio da mesma reunião (o n8n tentou de novo) ou tarefa que sobreviveu ao
   // reprocessamento (feita, ou criada à mão): o que já existe aqui não nasce de novo.
   const novas = tarefas.filter((t) => {
@@ -570,18 +618,6 @@ export async function incorporarTarefas(p: {
     }
     return true;
   });
-
-  const equipe = isTeamMode();
-  if (equipe && ctx.ligada && novas.length && ctx.reuniaoEm && ctx.reuniaoFim) {
-    try {
-      const ja = new Set(ctx.candidatas.map((x) => x.id));
-      const outras = await candidatasDaEquipe(p.userId, p.meetingId, new Date(ctx.reuniaoEm), new Date(ctx.reuniaoFim));
-      ctx.candidatas.push(...outras.filter((x) => !ja.has(x.id)));
-    } catch (e) {
-      // Sem as das outras pessoas, a comparação segue com as de quem gravou.
-      console.error("[tarefas-repetidas] ações da equipe não vieram:", e instanceof Error ? e.message : e);
-    }
-  }
 
   let decisoes: Decisao[] = novas.map(() => ({ tipo: "nova", votos: 0 }));
   let vetoresNovas: number[][] = [];
@@ -626,7 +662,31 @@ export async function incorporarTarefas(p: {
   }
 
   const candPorId = new Map(ctx.candidatas.map((x) => [x.id, x]));
-  const deOutros: { t: Limpa; alvo: Cand; vetor?: number[] }[] = [];
+  // Ação de outra pessoa (equipe): a mesma vira "falada de novo" lá ANTES de gravar as desta reunião (se cair no
+  // meio, o reenvio refaz sem perder nada). Nasce normal: a dúvida com ação de outra pessoa, e a ação que quem
+  // gravou disse que ELE faz (nunca some da lista de quem vai fazer), a não ser que ela já seja com ele (passada a
+  // ele ou ele também faz): aí ela já está na lista dele.
+  const juntadasFora = new Set<number>();
+  for (let i = 0; i < novas.length; i++) {
+    const d = decisoes[i];
+    const alvo = d.tipo !== "nova" ? candPorId.get(d.tarefaId) : undefined;
+    if (!alvo || alvo.dono_id === p.userId) continue;
+    if (d.tipo === "mesma" && (!isOwner(novas[i].owner) || alvo.comQuemGravou)) {
+      let juntou = false;
+      try {
+        juntou = await juntarNaDeOutro(p.userId, p.meetingId, novas[i], alvo);
+      } catch (e) {
+        console.error("[tarefas-repetidas] juntar na ação de outra pessoa falhou:", e instanceof Error ? e.message : e);
+      }
+      if (juntou) {
+        juntadasFora.add(i);
+        out.juntadas.push({ tarefa_id: alvo.id, titulo_existente: alvo.titulo, titulo_falado: novas[i].titulo, prazo_mudou: false });
+        continue;
+      }
+    }
+    decisoes[i] = { tipo: "nova", votos: 0 };
+  }
+
   await withTenant(p.userId, async (c) => {
     await c.query(`SELECT pg_advisory_xact_lock(hashtext('tarefas-repetidas:' || $1))`, [p.userId]);
     if (p.reprocessar) {
@@ -648,17 +708,9 @@ export async function incorporarTarefas(p: {
 
     const guardar: { id: string; hash: string; v: number[] }[] = [...vetoresNovos];
     for (let i = 0; i < novas.length; i++) {
+      if (juntadasFora.has(i)) continue;
       const t = novas[i];
       let d = decisoes[i];
-      const alvoDeOutro = d.tipo !== "nova" ? candPorId.get(d.tarefaId) : undefined;
-      if (alvoDeOutro && alvoDeOutro.dono_id !== p.userId) {
-        // Ação de outra pessoa: a mesma vira "falada de novo" lá (depois desta gravação); a dúvida nasce normal.
-        if (d.tipo === "mesma") {
-          deOutros.push({ t, alvo: alvoDeOutro, vetor: vetoresNovas[i] });
-          continue;
-        }
-        d = { tipo: "nova", votos: 0 };
-      }
       if (d.tipo === "nova" && ctx.ligada) {
         const igual = recentePorTitulo.get(normalizarTitulo(t.titulo));
         if (igual) d = { tipo: "mesma", tarefaId: igual, votos: 0 };
@@ -713,32 +765,17 @@ export async function incorporarTarefas(p: {
     await guardarVetores(c, p.userId, guardar);
   });
 
-  for (const x of deOutros) {
-    let juntou = false;
-    try {
-      juntou = await juntarNaDeOutro(p.userId, p.meetingId, x.t, x.alvo);
-    } catch (e) {
-      console.error("[tarefas-repetidas] juntar na ação de outra pessoa falhou:", e instanceof Error ? e.message : e);
-    }
-    if (juntou) {
-      out.juntadas.push({ tarefa_id: x.alvo.id, titulo_existente: x.alvo.titulo, titulo_falado: x.t.titulo, prazo_mudou: false });
-      continue;
-    }
-    // A ação da outra pessoa fechou nesse meio tempo (ou deu erro): a tarefa nasce aqui, como sempre.
-    const nova = await withTenant(p.userId, async (c) => {
-      const n = await inserirTarefa(c, p.userId, p.meetingId, x.t, null);
-      if (x.vetor) await guardarVetores(c, p.userId, [{ id: n.id, hash: hashTexto(textoParaVetor(x.t)), v: x.vetor }]);
-      return n;
-    });
-    out.criadas.push({ ...nova, parece_com_id: null });
-  }
   return out;
 }
 
 /**
- * A fala que repete a ação de outra pessoa: vira "falada de novo" na ação dela (no tenant dela, sem mudar o
- * prazo) e quem gravou passa a ver a ação (marcado nela), para não perder o que foi dito na reunião dele.
- * false = a ação já não está aberta (ou é pedido ao marketing): quem chama cria a tarefa normal.
+ * A fala que repete a ação de outra pessoa (equipe): vira "falada de novo" na ação dela, no tenant dela, sem mudar o
+ * prazo, e quem gravou passa a ver a ação (fica registrado no histórico dela). Revisão de 01/10/2026:
+ *   - vai só o que foi pedido (título, dono e prazo falados): o trecho, o detalhe e as pessoas da reunião de quem
+ *     gravou não saem dela (mesma regra de SEM_REUNIAO para colega);
+ *   - o dono falado é escrito do ponto de vista da dona da ação ("eu" = ela; outra pessoa = cobrar);
+ *   - reenvio e reprocesso não juntam de novo: uma menção por reunião em cada ação.
+ * false = a ação já não está aberta (ou é pedido ao marketing): quem chama cria a ação normal.
  */
 async function juntarNaDeOutro(gravouId: string, meetingId: string, t: Limpa, alvo: Cand): Promise<boolean> {
   return withTenant(alvo.dono_id, async (c) => {
@@ -752,19 +789,39 @@ async function juntarNaDeOutro(gravouId: string, meetingId: string, t: Limpa, al
     // Pedido ao marketing: o prazo e a situação são do marketing; a reunião nunca junta nele.
     const temPedidos = (await c.query<{ ok: boolean }>(`SELECT to_regclass('tarefa_pedidos') IS NOT NULL AS ok`)).rows[0]?.ok;
     if (temPedidos && ((await c.query(`SELECT 1 FROM tarefa_pedidos WHERE tarefa_id = $1`, [alvo.id])).rowCount ?? 0) > 0) return false;
-    await registrarMencao(c, {
-      userId: alvo.dono_id,
-      alvoId: alvo.id,
-      meetingId,
-      t,
-      origem: "reuniao",
-      mudarPrazo: false,
-    });
+    const jaTem = await c.query(`SELECT 1 FROM tarefa_mencoes WHERE tarefa_id = $1 AND meeting_id = $2 LIMIT 1`, [alvo.id, meetingId]);
+    if ((jaTem.rowCount ?? 0) > 0) return true;
+
+    const nomes = new Map(
+      (await c.query<{ id: string; nome: string }>(`SELECT id::text AS id, nome FROM users WHERE id = ANY($1::uuid[])`, [[gravouId, alvo.dono_id]])).rows.map(
+        (x) => [x.id, x.nome] as const,
+      ),
+    );
+    const primeiro = (n: string | null | undefined) => normalizarTitulo(n ?? "").split(" ")[0] ?? "";
+    const quem = t.owner && isOwner(t.owner) ? (nomes.get(gravouId) ?? t.owner) : t.owner;
+    const daDona = !!quem && !!primeiro(quem) && primeiro(quem) === primeiro(nomes.get(alvo.dono_id));
+    const fala: Limpa = {
+      ...t,
+      owner: daDona ? getOwnerSlug() : quem,
+      acao: daDona ? "executar" : "cobrar",
+      descricao: null,
+      evidencia: null,
+      pessoas_raw: null,
+      area_raw: null,
+    };
+    await registrarMencao(c, { userId: alvo.dono_id, alvoId: alvo.id, meetingId, t: fala, origem: "reuniao", mudarPrazo: false });
     if (agora.responsavel !== gravouId) {
-      await c.query(
+      const novo = await c.query(
         `INSERT INTO tarefa_acessos (tarefa_id, user_id, created_by) VALUES ($1, $2, $2) ON CONFLICT DO NOTHING`,
         [alvo.id, gravouId],
       );
+      if ((novo.rowCount ?? 0) > 0) {
+        await c.query(`INSERT INTO tarefa_eventos (tarefa_id, evento, payload, ator_user_id) VALUES ($1, 'editada', $2, $3)`, [
+          alvo.id,
+          JSON.stringify({ changed: { quem_ve: { juntou: gravouId } }, origem: "repetida", meeting_id: meetingId }),
+          gravouId,
+        ]);
+      }
     }
     return true;
   });

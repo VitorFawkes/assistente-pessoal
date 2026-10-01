@@ -163,6 +163,11 @@ export const POST = withAuth(async (user, req) => {
           }
         }
         if (!novaId) {
+          // Fala que veio da reunião de OUTRA pessoa (a trava contra repetida juntou aqui): a ação separada nasce
+          // sem a reunião e sem o trecho, que são de quem gravou (01/10/2026).
+          const daMinhaReuniao =
+            !m.meeting_id ||
+            ((await c.query(`SELECT 1 FROM meetings WHERE id = $1 AND user_id = $2`, [m.meeting_id, user.id])).rowCount ?? 0) > 0;
           const dono = (m.owner_falado ?? "").trim() || getOwnerSlug();
           const acao = ["executar", "cobrar", "aguardar"].includes(String(m.acao_falada))
             ? m.acao_falada
@@ -175,7 +180,7 @@ export const POST = withAuth(async (user, req) => {
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb) RETURNING id`,
             [
               user.id,
-              m.meeting_id,
+              daMinhaReuniao ? m.meeting_id : null,
               m.titulo_falado,
               m.descricao_falada,
               dono,
@@ -185,7 +190,7 @@ export const POST = withAuth(async (user, req) => {
               ["baixa", "media", "alta", "urgente"].includes(String(m.prioridade_falada))
                 ? m.prioridade_falada
                 : "media",
-              m.evidencia,
+              daMinhaReuniao ? m.evidencia : null,
               m.area_falada,
               m.pessoas_falado ? JSON.stringify(m.pessoas_falado) : null,
             ],

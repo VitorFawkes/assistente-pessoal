@@ -18,16 +18,24 @@ export type RegenerateResult = {
  * A limpeza das tarefas mora aqui, não no workflow: lá o DELETE é conservador
  * de propósito (preserva concluída/cancelada e as criadas à mão) porque roda
  * também quando o user só renomeia um speaker. Quando o pedido é explícito
- * ("refazer"), o combinado com o Vitor é apagar todas e recriar.
+ * ("refazer"), o combinado com o Vitor é apagar todas e recriar — menos as que guardam a fala de outra reunião ou
+ * alguém marcado (equipe, 01/10/2026).
  */
 export async function regenerateMeeting(
   userId: string,
   meetingId: string,
 ): Promise<RegenerateResult> {
+  // Equipe (01/10/2026): fica a ação que guarda a fala de OUTRA reunião (a trava contra repetida juntou ali o que
+  // outra pessoa gravou) ou que alguém foi marcado para ver: apagar levaria junto o que não é desta reunião.
+  // A leitura nova da reunião acha essas ações e não cria de novo (tarefas-repetidas-db).
   const apagadas = await withTenant(userId, async (db) => {
-    const r = await db.query(`DELETE FROM tarefas WHERE meeting_id = $1::uuid`, [
-      meetingId,
-    ]);
+    const temAcessos = (await db.query<{ ok: boolean }>(`SELECT to_regclass('tarefa_acessos') IS NOT NULL AS ok`)).rows[0]?.ok;
+    const r = await db.query(
+      `DELETE FROM tarefas WHERE meeting_id = $1::uuid
+          AND NOT EXISTS (SELECT 1 FROM tarefa_mencoes tm WHERE tm.tarefa_id = tarefas.id AND tm.meeting_id IS DISTINCT FROM tarefas.meeting_id)
+          ${temAcessos ? "AND NOT EXISTS (SELECT 1 FROM tarefa_acessos ta WHERE ta.tarefa_id = tarefas.id)" : ""}`,
+      [meetingId],
+    );
     return r.rowCount ?? 0;
   });
 
