@@ -3,8 +3,11 @@
 -- igual ao New do Notion. "+ New task" no pé de uma coluna do quadro By status nasce naquela situação
 -- (To Day, Daily, Up next…, e não no nome padrão da situação do Ações); o que não foi escolhido (prioridade,
 -- BU) fica vazio; quem faz vai em Person e Assign. A fila de envio guarda essas escolhas até a página nascer:
---   do_hub = {"situacao": "To Day", "prioridade": true|false, "bu": "Weddings"|null}
--- Pode rodar de novo; só acrescenta a coluna.
+--   notion_envios.do_hub = {"situacao": "To Day", "prioridade": true|false, "bu": "Weddings"|null}
+-- E a página nascida assim mantém Person e Assign andando juntos (como a de pedido ao marketing):
+--   notion_paginas.pessoas_juntas = true
+-- Pode rodar de novo; só acrescenta colunas (o servidor anterior lê e grava com lista de colunas, segue igual).
 BEGIN;
 ALTER TABLE notion_envios ADD COLUMN IF NOT EXISTS do_hub JSONB;
+ALTER TABLE notion_paginas ADD COLUMN IF NOT EXISTS pessoas_juntas BOOLEAN NOT NULL DEFAULT false;
 COMMIT;

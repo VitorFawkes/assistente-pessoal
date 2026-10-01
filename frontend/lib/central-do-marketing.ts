@@ -5,10 +5,11 @@ import type { User } from "./auth";
 import { query, withTenant } from "./db";
 import { carregarTarefas } from "./equipe-compartilhado";
 import { criarAcao, type Prioridade } from "./nova-acao";
-import { lerFonte, paginasEditadas } from "./notion-api";
+import { lerFonte, paginasEditadas, ultimaEscritaNoNotion } from "./notion-api";
 import { etapaEmPortugues, lerPagina, PROPS, statusDoNotion } from "./notion-mapa";
-import { conexaoAtiva, pedirEnvio } from "./notion-sync";
-import { tarefasFor } from "./queries";
+import { conexaoAtiva, pedirEnvio, pessoaDaAcao, pessoasDoNotion } from "./notion-sync";
+import { situacoesDoNotion } from "./notion-tela";
+import { diaBR, ehDataValida } from "./data-br";
 import { paraTela, tarefaNaTela } from "./ttars-tela";
 
 const QUANTOS = 300;
@@ -67,13 +68,17 @@ type PropDoEsquema = {
   select?: { options?: { name: string; color: string }[] };
 };
 
-/** O Notion agora: lido de novo no máximo a cada minuto (o limite de lá é ~3 pedidos por segundo). */
+/**
+ * O Notion agora: lido de novo no máximo a cada minuto (o limite de lá é ~3 pedidos por segundo), e logo
+ * depois que o Ações gravou lá (situação, área, a rodada): a tela nunca mostra o que acabou de mudar.
+ */
 async function notionAgora(): Promise<Leitura | null> {
-  if (lido && Date.now() - lido.em < 60_000) return lido;
+  if (lido && Date.now() - lido.em < 60_000 && ultimaEscritaNoNotion() < lido.em) return lido;
   lendo ??= (async () => {
     const c = await conexaoAtiva();
     if (!c) return null;
-    const lidoEm = new Date().toISOString();
+    const inicio = Date.now();
+    const lidoEm = new Date(inicio).toISOString();
     const [fonte, paginas] = await Promise.all([lerFonte(c.token, c.data_source_id), paginasEditadas(c.token, c.data_source_id, null)]);
     const props = fonte.properties as Record<string, PropDoEsquema>;
     const status = props[PROPS.status]?.status;
@@ -107,7 +112,7 @@ async function notionAgora(): Promise<Leitura | null> {
         lido_em: lidoEm,
       });
     }
-    lido = { em: Date.now(), esquema, porPagina };
+    lido = { em: inicio, esquema, porPagina };
     return lido;
   })().finally(() => {
     lendo = null;
@@ -131,7 +136,7 @@ export async function tarefasDoMarketing(userId: string) {
     [c.id],
   );
   const quadros = [c.quadro_id, ...projetos.map((p) => p.quadro_id)].filter((x): x is string => !!x);
-  const [noQuadro, links, agora, eu, comentarios] = await Promise.all([
+  const [noQuadro, links, agora, eu, comentarios, gente] = await Promise.all([
     withTenant(c.dono_user_id, (db) =>
       db.query<{ tarefa_id: string; dono_id: string; quadro_id: string }>(
         `SELECT t.tarefa_id::text AS tarefa_id, t.dono_id::text AS dono_id, q.id::text AS quadro_id
@@ -139,8 +144,8 @@ export async function tarefasDoMarketing(userId: string) {
         [quadros],
       ),
     ),
-    query<{ tarefa_id: string; dono_id: string; page_id: string }>(
-      `SELECT tarefa_id::text AS tarefa_id, tarefa_dono_id::text AS dono_id, page_id FROM notion_paginas WHERE conexao_id = $1`,
+    query<{ tarefa_id: string; dono_id: string; page_id: string; ultimos: Record<string, string | null> | null }>(
+      `SELECT tarefa_id::text AS tarefa_id, tarefa_dono_id::text AS dono_id, page_id, ultimos FROM notion_paginas WHERE conexao_id = $1`,
       [c.id],
     ),
     notionAgora().catch(() => null),
@@ -150,14 +155,34 @@ export async function tarefasDoMarketing(userId: string) {
       `SELECT page_id, count(*)::int AS n FROM notion_comentarios WHERE conexao_id = $1 AND comment_id NOT LIKE 'pendente:%' GROUP BY page_id`,
       [c.id],
     ).catch(() => []),
+    pessoasDoNotion(),
   ]);
   const comentariosDa = new Map(comentarios.map((x) => [x.page_id, x.n]));
+  const pessoas = new Map(gente.map((p) => [p.notion_user_id, p]));
   const pares = new Map<string, { tarefa_id: string; dono_id: string }>();
   for (const x of [...noQuadro.rows, ...links]) if (!pares.has(x.tarefa_id)) pares.set(x.tarefa_id, { tarefa_id: x.tarefa_id, dono_id: x.dono_id });
   const quadrosDa = new Map<string, string[]>();
   for (const x of noQuadro.rows) quadrosDa.set(x.tarefa_id, [...(quadrosDa.get(x.tarefa_id) ?? []), x.quadro_id]);
   const paginaDa = new Map(links.map((l) => [l.tarefa_id, l.page_id]));
-  const tarefas = await paraTela(userId, await carregarTarefas(userId, [...pares.values()], { donoNome: true }));
+  const ultimosDa = new Map(links.map((l) => [l.tarefa_id, l.ultimos ?? {}]));
+  const cruas = await carregarTarefas(userId, [...pares.values()], { donoNome: true });
+  const cruaDa = new Map(cruas.map((t) => [t.id, t]));
+  // O que mudou aqui desde a última ida ao Notion (a rodada leva até 1 minuto): nesses campos a tela mostra o
+  // daqui; nos outros, o que está lá. A mesma conta da rodada (prazo do dia, prioridade, quem faz).
+  const aquiMudou = (id: string): string[] => {
+    const t = cruaDa.get(id);
+    const u = ultimosDa.get(id);
+    if (!t || !u) return [];
+    const mudou: string[] = [];
+    if ("prazo" in u && (u.prazo ?? "") !== (t.prazo && ehDataValida(t.prazo) ? diaBR(t.prazo) : "")) mudou.push("prazo");
+    if ("prioridade" in u && u.prioridade !== t.prioridade) mudou.push("prioridade");
+    if ("pessoa" in u) {
+      const quem = { owner: t.owner, responsavel_user_id: t.responsavel_user_id ?? null } as Parameters<typeof pessoaDaAcao>[0];
+      if (pessoaDaAcao(quem, pessoas, u.pessoa ?? undefined) !== (u.pessoa ?? "")) mudou.push("pessoa");
+    }
+    return mudou;
+  };
+  const tarefas = await paraTela(userId, cruas);
   const nomeDoQuadro = new Map<string, string>(projetos.filter((p) => p.quadro_id).map((p) => [p.quadro_id!, p.nome]));
   return {
     ligado: true as const,
@@ -176,6 +201,7 @@ export async function tarefasDoMarketing(userId: string) {
         projetos_do_marketing: (quadrosDa.get(t.id) ?? []).filter((q) => q !== c.quadro_id).map((q) => ({ id: q, nome: nomeDoQuadro.get(q) ?? "Projeto" })),
         no_notion: pagina ? (agora?.porPagina.get(pagina) ?? null) : null,
         comentarios_no_notion: pagina ? (comentariosDa.get(pagina) ?? 0) : 0,
+        aqui_mudou: pagina ? aquiMudou(t.id) : [],
       };
     }),
   };
@@ -205,7 +231,19 @@ export async function novaTarefaDoMarketing(user: User, corpo: unknown) {
   const area = txt(b.area);
   const bu = area && (AREAS_CONHECIDAS.includes(area) || !!lido?.esquema.areas.some((a) => a.nome === area)) ? area : null;
   const prioridade = PRIORIDADES.includes(b.prioridade as Prioridade) ? (b.prioridade as Prioridade) : null;
-  const situacao = txt(b.situacao)?.slice(0, 60) ?? null;
+  // Só uma situação que existe lá (com a grafia de lá; criada há pouco lá: lê de novo). Notion fora do ar: vale
+  // a pedida (a página nasce quando ele voltar).
+  const pedida = txt(b.situacao)?.slice(0, 60) ?? null;
+  let situacao: string | null = null;
+  if (pedida) {
+    const achar = (nomes: string[]) => nomes.find((n) => n.toLowerCase() === pedida.toLowerCase()) ?? null;
+    try {
+      situacao = achar(await situacoesDoNotion()) ?? achar(await situacoesDoNotion(true));
+    } catch {
+      situacao = pedida;
+    }
+    if (!situacao) return { status: 400, json: { error: "Essa situação não existe no Notion do marketing." } };
+  }
   // Sem projeto aqui: quem é do marketing cria mesmo sem ser membro do projeto (o projeto é do robô do Notion).
   const r = await criarAcao(user, {
     titulo: txt(b.titulo) ?? "",
@@ -218,18 +256,27 @@ export async function novaTarefaDoMarketing(user: User, corpo: unknown) {
   });
   if (!r.ok) return { status: r.status, json: { error: r.erro } };
   const id = r.tarefa.id;
-  await withTenant(c.dono_user_id, (db) =>
-    db.query(`INSERT INTO quadro_tarefas (quadro_id, tarefa_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [projeto, id]),
-  );
-  // "+ New task" no pé de uma coluna: nasce nela (aqui, na situação do Ações que ela quer dizer).
+  // "+ New task" no pé de uma coluna: nasce nela (aqui, na situação do Ações que ela quer dizer; é a criação,
+  // não um "reabriu" no histórico).
   const status = statusDoNotion(situacao);
-  if (situacao && status !== "aberta") await tarefasFor(user.id).atualizar(id, { status }, "manual");
+  if (situacao && status !== "aberta") {
+    await withTenant(user.id, (db) =>
+      db.query(
+        `UPDATE tarefas SET status = $2, situacao_desde = now(), concluida_em = CASE WHEN $2 = 'concluida' THEN now() END WHERE id = $1`,
+        [id, status],
+      ),
+    );
+  }
   // "Eu": no Notion vai quem cria (se está no Notion do marketing).
   const quem =
     r.notionUserId ??
     (await query<{ id: string }>(`SELECT notion_user_id AS id FROM notion_pessoas WHERE conexao_id = $1 AND user_id = $2 LIMIT 1`, [c.id, user.id]))[0]?.id ??
     null;
-  await pedirEnvio({ tarefaId: id, donoId: user.id, pedidoPor: user.id, notionUserId: quem, bu, doHub: { situacao, prioridade: !!prioridade, bu } });
+  // No projeto e na fila na mesma transação: a rodada do Notion nunca acha a tarefa no projeto sem as escolhas.
+  await withTenant(c.dono_user_id, async (db) => {
+    await db.query(`INSERT INTO quadro_tarefas (quadro_id, tarefa_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [projeto, id]);
+    await pedirEnvio({ tarefaId: id, donoId: user.id, pedidoPor: user.id, notionUserId: quem, bu, doHub: { situacao, prioridade: !!prioridade, bu }, db: { client: db, conexaoId: c.id } });
+  });
   const tarefa = (await tarefaNaTela(user.id, id))?.tarefa ?? r.tarefa;
   return { status: 201, json: { tarefa, aviso: r.aviso } };
 }

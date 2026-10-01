@@ -206,7 +206,8 @@ export async function adicionarAoProjeto(
       `SELECT x::text AS id FROM unnest($1::uuid[]) AS x
         WHERE EXISTS (SELECT 1 FROM equipe_acesso_tarefa(x))
            OR ((EXISTS (SELECT 1 FROM tarefa_pedidos tp WHERE tp.tarefa_id = x)
-                OR EXISTS (SELECT 1 FROM notion_paginas np WHERE np.tarefa_id = x))
+                OR EXISTS (SELECT 1 FROM notion_paginas np WHERE np.tarefa_id = x)
+                OR EXISTS (SELECT 1 FROM notion_envios ne WHERE ne.tarefa_id = x))
                AND pedido_posso_mexer())`,
       [ids],
     );

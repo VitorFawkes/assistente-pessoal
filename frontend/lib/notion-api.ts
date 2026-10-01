@@ -93,8 +93,14 @@ export async function paginasEditadas(token: string, dataSourceId: string, desde
   return out;
 }
 
+// Quando o Ações gravou no Notion pela última vez: quem guarda uma leitura de lá (o Hub do Marketing) relê
+// depois disso, em vez de mostrar por até 1 minuto o que acabou de mudar.
+let ultimaEscrita = 0;
+export const ultimaEscritaNoNotion = () => ultimaEscrita;
+const escreveu = <T>(p: Promise<T>) => p.then((x) => ((ultimaEscrita = Date.now()), x));
+
 export function criarPagina(token: string, dataSourceId: string, propriedades: Record<string, unknown>, nota: string | null) {
-  return pedir<PaginaNotion>(token, "/pages", {
+  return escreveu(pedir<PaginaNotion>(token, "/pages", {
     method: "POST",
     json: {
       parent: { type: "data_source_id", data_source_id: dataSourceId },
@@ -103,11 +109,11 @@ export function criarPagina(token: string, dataSourceId: string, propriedades: R
         ? { children: [{ object: "block", type: "paragraph", paragraph: { rich_text: [{ type: "text", text: { content: nota } }] } }] }
         : {}),
     },
-  });
+  }));
 }
 
 export function mudarPagina(token: string, pageId: string, mudanca: { properties?: Record<string, unknown>; in_trash?: boolean }) {
-  return pedir<PaginaNotion>(token, `/pages/${pageId}`, { method: "PATCH", json: mudanca });
+  return escreveu(pedir<PaginaNotion>(token, `/pages/${pageId}`, { method: "PATCH", json: mudanca }));
 }
 
 export function lerPaginaDoNotion(token: string, pageId: string) {

@@ -104,6 +104,8 @@ type Link = {
   editado_notion?: string | null;
   campo_descricao?: string | null;
   arquivos?: ArquivoGuardado[] | null;
+  /** Nasceu pelo Hub do Marketing: Person e Assign andam juntos, como na página de pedido (023). */
+  pessoas_juntas?: boolean;
 };
 
 type PessoaNotion = { notion_user_id: string; nome: string; email: string | null; user_id: string | null };
@@ -709,7 +711,8 @@ async function tratarPagina(c: Conexao, r: Rodada, p: PaginaLida, pessoas: Map<s
     if (!p.noLixo) await criarAcaoDaPagina(c, r, p, pessoas);
     return;
   }
-  const pedido = r.pedidos.has(link.tarefa_id);
+  // Pedido ao marketing e página nascida pelo Hub: Person e Assign andam juntos (a equipe usa o Assign).
+  const pedido = r.pedidos.has(link.tarefa_id) || !!link.pessoas_juntas;
   if (pedido) p = { ...p, pessoa: p.assign || p.pessoa };
   const t = await lerAcao(link.tarefa_dono_id, link.tarefa_id);
   if (!t) {
@@ -909,7 +912,7 @@ async function empurrar(c: Conexao, r: Rodada, pessoas: Map<string, PessoaNotion
         await query(`UPDATE notion_paginas SET sincronizado_em = now() WHERE page_id = $1`, [l.page_id]);
         continue;
       }
-      const feito = await empurrarCampos(c, l.page_id, mudou, l.status_notion, l.campo_descricao, r.pedidos.has(l.tarefa_id) && {});
+      const feito = await empurrarCampos(c, l.page_id, mudou, l.status_notion, l.campo_descricao, (r.pedidos.has(l.tarefa_id) || !!l.pessoas_juntas) && {});
       await query(
         `UPDATE notion_paginas SET ultimos = $2, status_notion = $3, editado_notion = COALESCE($4, editado_notion), sincronizado_em = now()
           WHERE page_id = $1`,
@@ -1006,6 +1009,7 @@ async function enviar(c: Conexao, r: Rodada, pessoas: Map<string, PessoaNotion>)
       const valendo: Campos = { ...campos };
       if (!r.projetosOk) delete (valendo as Partial<Campos>).projeto;
       await gravarLink(c, lida, { tarefa_id: t.id, tarefa_dono_id: e.tarefa_dono_id }, valendo, lida.statusNotion);
+      if (hub) await query(`UPDATE notion_paginas SET pessoas_juntas = true WHERE page_id = $1`, [lida.pageId]);
       await query(`DELETE FROM notion_envios WHERE tarefa_id = $1`, [e.tarefa_id]);
       if (r.projetosOk || !bancoNovo) await colocarNoLugar(c, r, t.id, projeto).catch(() => undefined);
     } catch (err) {
@@ -1026,16 +1030,18 @@ export async function pedirEnvio(opts: {
   bu?: string | null;
   /** Nova pelo Hub do Marketing: a página nasce como foi escolhida lá (023_envio_com_situacao.sql). */
   doHub?: EscolhasDoHub | null;
+  /** Grava na mesma transação de quem chama (o Hub põe no projeto e na fila juntos), com a conexão já lida. */
+  db?: { client: PoolClient; conexaoId: string };
 }): Promise<boolean> {
-  const c = await conexaoAtiva();
-  if (!c) return false;
-  await query(
+  const conexaoId = opts.db?.conexaoId ?? (await conexaoAtiva())?.id;
+  if (!conexaoId) return false;
+  await (opts.db ? (sql: string, p: unknown[]) => opts.db!.client.query(sql, p) : query)(
     `INSERT INTO notion_envios (tarefa_id, tarefa_dono_id, conexao_id, notion_user_id, bu, pedido_por, do_hub)
      VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (tarefa_id) DO UPDATE SET notion_user_id = COALESCE(EXCLUDED.notion_user_id, notion_envios.notion_user_id),
        bu = COALESCE(EXCLUDED.bu, notion_envios.bu), do_hub = COALESCE(EXCLUDED.do_hub, notion_envios.do_hub),
        tentativas = 0, erro = NULL`,
-    [opts.tarefaId, opts.donoId, c.id, opts.notionUserId ?? null, opts.bu ?? null, opts.pedidoPor, opts.doHub ? JSON.stringify(opts.doHub) : null],
+    [opts.tarefaId, opts.donoId, conexaoId, opts.notionUserId ?? null, opts.bu ?? null, opts.pedidoPor, opts.doHub ? JSON.stringify(opts.doHub) : null],
   );
   return true;
 }
