@@ -10,7 +10,7 @@
 // quem pede, repetido só nos formulários de um pedido por casamento, e quem monta muda pela tela.
 import type { User } from "./auth";
 import { query, withTenant } from "./db";
-import { diaMesBR } from "./data-br";
+import { diaMesBR, fimDoDiaBR } from "./data-br";
 import { acessoTarefa, garantirColegaDoTtars, pessoasDaEquipe, registrarEvento } from "./equipe-compartilhado";
 import { criarAcao } from "./nova-acao";
 import { pedirEnvio, pessoasNotionDosEmails } from "./notion-sync";
@@ -36,6 +36,7 @@ import {
   marcasDaOrganizacao,
   pedidoEncerrado,
   prazoDoPedido,
+  prazoVemDasRespostas,
   respostaQuePreenche,
   respostasQueMudaram,
   situacaoDoPedido,
@@ -77,7 +78,7 @@ const SELECT_FORMULARIO = `
 
 function publicoDe(x: unknown): Publico {
   const p = limparPublico(x);
-  return ehErro(p) ? { tipo: "empresas", empresas: [], times: [] } : p;
+  return ehErro(p) ? { tipo: "combinado", empresas: [], times: [], pessoas: [] } : p;
 }
 function destinoDe(x: unknown): Destino {
   const d = limparDestino(x, false);
@@ -341,11 +342,19 @@ export async function criarPedido(user: User, corpo: unknown): Promise<Saida> {
   return certo({ tarefa_id: tarefaId, aviso }, 201);
 }
 
-type PedidoAchado = { tarefa_id: string; pedido_por_id: string; publico: Publico; formulario_nome: string; criado_em: string; pedido_por: string | null };
+type PedidoAchado = {
+  tarefa_id: string;
+  pedido_por_id: string;
+  publico: unknown;
+  formulario_id: string;
+  formulario_nome: string;
+  criado_em: string;
+  pedido_por: string | null;
+};
 
 async function pedidosAchados(onde: string, valor: string): Promise<PedidoAchado[]> {
   return query<PedidoAchado>(
-    `SELECT tp.tarefa_id::text AS tarefa_id, tp.pedido_por::text AS pedido_por_id, f.publico, f.nome AS formulario_nome,
+    `SELECT tp.tarefa_id::text AS tarefa_id, tp.pedido_por::text AS pedido_por_id, f.publico, f.id::text AS formulario_id, f.nome AS formulario_nome,
             to_char(tp.criado_em AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS criado_em, u.nome AS pedido_por
        FROM tarefa_pedidos tp
        JOIN pedido_formularios f ON f.id = tp.formulario_id
@@ -404,12 +413,26 @@ export async function completarRespostas(user: User, tarefaId: string, corpo: un
   // Tudo numa transação, no tenant de quem pediu (a ação é dela), com a ação e o pedido presos: quem completa
   // ao mesmo tempo (ou o marketing encerrando) nunca se atropela.
   return withTenant(dono.pedido_por, async (c): Promise<Saida> => {
-    const t = (await c.query<{ status: string; descricao: string | null }>(`SELECT status, descricao FROM tarefas WHERE id = $1 FOR UPDATE`, [tarefaId])).rows[0];
+    const t = (
+      await c.query<{ status: string; descricao: string | null; sem_prazo: boolean }>(
+        `SELECT status, descricao, prazo IS NULL AS sem_prazo FROM tarefas WHERE id = $1 FOR UPDATE`,
+        [tarefaId],
+      )
+    ).rows[0];
     const p = (
-      await c.query<{ perguntas_snapshot: Pergunta[]; respostas: Record<string, Resposta> | null; card_titulo: string | null; criado_em: string; status_notion: string | null }>(
+      await c.query<{
+        perguntas_snapshot: Pergunta[];
+        respostas: Record<string, Resposta> | null;
+        card_titulo: string | null;
+        criado_em: string;
+        status_notion: string | null;
+        destino: unknown;
+      }>(
         `SELECT tp.perguntas_snapshot, tp.respostas, tp.card_titulo,
-                to_char(tp.criado_em AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS criado_em, np.status_notion
-           FROM tarefa_pedidos tp LEFT JOIN notion_paginas np ON np.tarefa_id = tp.tarefa_id
+                to_char(tp.criado_em AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS criado_em, np.status_notion, f.destino
+           FROM tarefa_pedidos tp
+           JOIN pedido_formularios f ON f.id = tp.formulario_id
+           LEFT JOIN notion_paginas np ON np.tarefa_id = tp.tarefa_id
           WHERE tp.tarefa_id = $1 FOR UPDATE OF tp`,
         [tarefaId],
       )
@@ -427,13 +450,23 @@ export async function completarRespostas(user: User, tarefaId: string, corpo: un
     const mudaram = respostasQueMudaram(perguntas, antes, depois, p.card_titulo);
     if (!mudaram.length) return certo({ ok: true, mudaram, aviso: "Nenhuma resposta mudou." });
 
+    // Pedido que nasceu sem prazo (a data era "ainda não temos" ou ficou em branco): a data que chega agora vira o
+    // prazo, só se a ação continua sem prazo (o marketing pode ter tirado de propósito). A regra é a do formulário.
+    const destino = destinoDe(p.destino);
+    const agora = new Date();
+    const prazo =
+      t.sem_prazo && prazoVemDasRespostas(destino) && !prazoDoPedido(destino, perguntas, antes, agora)
+        ? prazoDoPedido(destino, perguntas, depois, agora)
+        : null;
+
     const descricao = descricaoAtualizada(t.descricao, perguntas, antes, depois, quemPediu, diaMesBR(p.criado_em), p.card_titulo);
     const comentario = `Respostas atualizadas por ${user.nome}: ${mudaram.join(", ")}`.slice(0, TEXTO_MAX_DO_COMENTARIO);
     await c.query(`UPDATE tarefa_pedidos SET respostas = $2 WHERE tarefa_id = $1`, [tarefaId, JSON.stringify(depois)]);
     await c.query(`UPDATE tarefas SET descricao = $2 WHERE id = $1`, [tarefaId, descricao]);
-    await registrarEvento(c, tarefaId, "editada", { origem: "pedido_respostas", changed: { descricao: true } }, user.id);
+    if (prazo) await c.query(`UPDATE tarefas SET prazo = $2 WHERE id = $1 AND prazo IS NULL`, [tarefaId, fimDoDiaBR(prazo)]);
+    await registrarEvento(c, tarefaId, "editada", { origem: "pedido_respostas", changed: prazo ? { descricao: true, prazo: true } : { descricao: true } }, user.id);
     await c.query(`INSERT INTO tarefa_comentarios (tarefa_id, texto, autor_user_id) VALUES ($1, $2, $3)`, [tarefaId, comentario, user.id]);
-    return certo({ ok: true, mudaram });
+    return certo(prazo ? { ok: true, mudaram, prazo_posto: prazo } : { ok: true, mudaram });
   });
 }
 
@@ -448,6 +481,7 @@ export async function pedidosDoCard(user: User, cardId: string): Promise<Saida> 
     const situacao = sit.get(p.tarefa_id);
     if (!situacao || situacao === "cancelada") continue;
     pedidos.push({
+      formulario_id: p.formulario_id,
       formulario_nome: p.formulario_nome,
       tarefa_id: p.tarefa_id,
       pedido_por: p.pedido_por ?? "Alguém",
@@ -491,7 +525,7 @@ export async function opcoesParaMontar(user: User): Promise<Saida> {
       `SELECT np.page_id, np.nome FROM notion_projetos np JOIN notion_conexoes c ON c.id = np.conexao_id AND c.ativo
         WHERE NOT np.no_lixo AND COALESCE(LOWER(np.etapa), '') <> 'archived' ORDER BY np.nome`,
     ),
-    timesDoPublico({ tipo: "todos", empresas: [], times: [] }),
+    timesDoPublico({ tipo: "todos", empresas: [], times: [], pessoas: [] }),
   ]);
   return certo({
     pessoas_marketing: pessoas.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
@@ -507,7 +541,7 @@ function rascunhoPadrao(nome: string): Rascunho {
     explica: "",
     icone: "📝",
     perguntas: [],
-    publico: { tipo: "empresas", empresas: [], times: [] },
+    publico: { tipo: "combinado", empresas: [], times: [], pessoas: [] },
     destino: destinoVazio(),
   };
 }

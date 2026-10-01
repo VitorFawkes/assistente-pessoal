@@ -34,10 +34,14 @@ export interface Pergunta {
   pessoa?: 1 | 2;
   linha_original?: string;
 }
+/** "combinado" = basta estar em qualquer lista (empresas, times ou pessoas). Os antigos "empresas" e "times" são
+ *  lidos como combinado só com a lista deles; salvar grava sempre "todos" ou "combinado". */
 export interface Publico {
-  tipo: "todos" | "empresas" | "times";
+  tipo: "todos" | "combinado";
   empresas: string[];
   times: { id: string; nome: string }[];
+  /** E-mails de pessoas avulsas (não liberam time para acompanhar). */
+  pessoas: string[];
 }
 export type Area = "Weddings" | "Trips" | "Corp" | "Institucional";
 export type PrioridadePedido = "baixa" | "media" | "alta" | "urgente";
@@ -50,8 +54,9 @@ export interface Destino {
   /** "quem_pede" = a marca de quem pede (com mais de uma, ela escolhe). */
   bu: Area | "quem_pede";
   prioridade: PrioridadePedido;
-  /** "pergunta" = a data que quem pede responde na pergunta `pergunta_id` (de data e obrigatória). */
-  prazo: { tipo: "data_casamento" | "dias" | "sem" | "pergunta"; dias?: number; pergunta_id?: string };
+  /** "pergunta" = a data que quem pede responde na pergunta `pergunta_id` (de data, obrigatória e sem "ainda não
+   *  temos"); "dias_do_casamento" = `dias` antes (negativo) ou depois (positivo) do dia do casamento. */
+  prazo: { tipo: "data_casamento" | "dias" | "sem" | "pergunta" | "dias_do_casamento"; dias?: number; pergunta_id?: string };
   /** Ex.: "Cobertura I {casal} I Pedido"; {casal} e {quem}. */
   titulo_modelo: string;
   /** Um pedido vivo por casamento (false = o mesmo casamento pode ter vários). */
@@ -182,10 +187,14 @@ export function limparPerguntas(xs: unknown): Pergunta[] | Erro {
   return out;
 }
 
+export const MAX_PESSOAS_NO_PUBLICO = 300;
+
+/** Quem pode pedir, conferido. Os antigos "empresas" e "times" valiam só pela lista deles: viram "combinado" só
+ *  com ela (a outra lista guardada não passa a valer). */
 export function limparPublico(x: unknown): Publico | Erro {
   const o = (x && typeof x === "object" ? x : {}) as Record<string, unknown>;
-  const tipo = o.tipo as Publico["tipo"];
-  if (!["todos", "empresas", "times"].includes(tipo)) return { erro: "Escolha quem pode pedir." };
+  const tipo = o.tipo;
+  if (tipo !== "todos" && tipo !== "combinado" && tipo !== "empresas" && tipo !== "times") return { erro: "Escolha quem pode pedir." };
   const empresas = Array.isArray(o.empresas) ? [...new Set(o.empresas.filter((e): e is string => typeof e === "string" && EMPRESAS.includes(e)))] : [];
   const times = Array.isArray(o.times)
     ? o.times
@@ -195,7 +204,12 @@ export function limparPublico(x: unknown): Publico | Erro {
         .filter((t, i, arr) => arr.findIndex((y) => y.id === t.id) === i)
         .slice(0, 50)
     : [];
-  return { tipo, empresas, times };
+  const pessoas = Array.isArray(o.pessoas)
+    ? [...new Set(o.pessoas.map((e) => texto(e, 200).toLowerCase()).filter((e) => EMAIL_RE.test(e)))].slice(0, MAX_PESSOAS_NO_PUBLICO)
+    : [];
+  if (tipo === "empresas") return { tipo: "combinado", empresas, times: [], pessoas: [] };
+  if (tipo === "times") return { tipo: "combinado", empresas: [], times, pessoas: [] };
+  return { tipo, empresas, times, pessoas };
 }
 
 /**
@@ -224,6 +238,10 @@ export function limparDestino(x: unknown, estrito: boolean): Destino | Erro {
   } else if (pr.tipo === "pergunta") {
     // A pergunta ainda pode não ter sido escolhida no rascunho: publicar confere.
     prazo = { tipo: "pergunta", pergunta_id: typeof pr.pergunta_id === "string" && ID_PERGUNTA.test(pr.pergunta_id) ? pr.pergunta_id : "" };
+  } else if (pr.tipo === "dias_do_casamento") {
+    const dias = Number(pr.dias);
+    if (!Number.isInteger(dias) || dias < -365 || dias > 365) return { erro: "O prazo pelo casamento vai de 365 dias antes a 365 dias depois." };
+    prazo = { tipo: "dias_do_casamento", dias };
   }
   const projeto = typeof o.projeto_notion_page_id === "string" && o.projeto_notion_page_id.trim() ? o.projeto_notion_page_id.trim().slice(0, 100) : null;
   return {
@@ -268,35 +286,45 @@ export function limparRascunho(x: unknown): Rascunho | Erro {
 export function faltaParaPublicar(r: Rascunho): string | null {
   if (!r.perguntas.length) return "Ponha pelo menos uma pergunta.";
   if (!r.destino.quem_emails.length) return "Escolha a pessoa do marketing que recebe o pedido.";
-  if (r.publico.tipo === "empresas" && !r.publico.empresas.length) return "Escolha pelo menos uma empresa que pode pedir.";
-  if (r.publico.tipo === "times" && !r.publico.times.length) return "Escolha pelo menos um time que pode pedir.";
-  const semOpcao = r.perguntas.find((p) => COM_OPCOES.includes(p.tipo) && (p.opcoes?.length ?? 0) < 2);
+  const p = r.publico;
+  if (p.tipo === "combinado" && !p.empresas.length && !p.times.length && !p.pessoas.length) return "Escolha quem pode pedir: empresas, times ou pessoas.";
+  const semOpcao = r.perguntas.find((x) => COM_OPCOES.includes(x.tipo) && (x.opcoes?.length ?? 0) < 2);
   if (semOpcao) return `"${semOpcao.rotulo}" precisa de pelo menos 2 opções.`;
-  if (r.destino.prazo.tipo === "pergunta") {
-    const p = r.perguntas.find((x) => x.id === r.destino.prazo.pergunta_id);
-    if (!p) return "Escolha a pergunta de data que vira o prazo.";
-    if (p.tipo !== "data") return `"${p.rotulo}" não é uma pergunta de data: o prazo precisa de uma pergunta de data.`;
-    if (!p.obrigatoria) return `"${p.rotulo}" precisa ser obrigatória para virar o prazo.`;
+  const prazo = r.destino.prazo;
+  if (prazo.tipo === "pergunta") {
+    const q = r.perguntas.find((x) => x.id === prazo.pergunta_id);
+    if (!q) return "Escolha a pergunta de data que vira o prazo.";
+    if (q.tipo !== "data") return `"${q.rotulo}" não é uma pergunta de data: o prazo precisa de uma pergunta de data.`;
+    if (!q.obrigatoria) return `"${q.rotulo}" precisa ser obrigatória para virar o prazo.`;
+    if (q.aceita_nao_temos) return "A pergunta do prazo não pode aceitar 'ainda não temos'.";
+  }
+  // Prazo pelo casamento sem a data do casamento nunca teria prazo.
+  if ((prazo.tipo === "data_casamento" || prazo.tipo === "dias_do_casamento") && !r.perguntas.some((x) => x.preenche === "data_casamento")) {
+    return "O prazo pelo casamento precisa de uma pergunta que preenche a data do casamento.";
   }
   return null;
 }
 
 // ── quem pode pedir ─────────────────────────────────────────────────────────────────────────
 
-export type PessoaDoPublico = { organizacao: string | null; times: { id: string }[] | null };
+export type PessoaDoPublico = { email?: string | null; organizacao: string | null; times: { id: string }[] | null };
 
 const empresasDe = (organizacao: string) => organizacao.split(",").map((s) => s.trim()).filter(Boolean);
 
-/** A pessoa (da lista do TTARS) está no público do formulário. Quem só está no Teams entra só em "todos". */
+/**
+ * A pessoa (da lista do TTARS) está no público do formulário: "todos", ou qualquer lista do combinado (empresa,
+ * time ou ela mesma pelo e-mail). Quem só está no Teams entra por empresa ou time só em "todos"; escolhida pelo
+ * e-mail, entra.
+ */
 export function estaNoPublico(p: PessoaDoPublico | null, publico: Publico): boolean {
   if (publico.tipo === "todos") return true;
   if (!p) return false;
+  const email = (p.email ?? "").trim().toLowerCase();
+  if (email && (publico.pessoas ?? []).includes(email)) return true;
   const org = p.organizacao ?? "";
   if (!org || org.startsWith(MARCA_DO_TEAMS)) return false;
-  if (publico.tipo === "empresas") {
-    const minhas = empresasDe(org);
-    return publico.empresas.some((e) => minhas.includes(e));
-  }
+  const minhas = empresasDe(org);
+  if (publico.empresas.some((e) => minhas.includes(e))) return true;
   const meus = new Set((Array.isArray(p.times) ? p.times : []).map((t) => t?.id).filter(Boolean));
   return publico.times.some((t) => meus.has(t.id));
 }
@@ -322,10 +350,11 @@ export function areaDoPedido(bu: Destino["bu"], marcas: Area[], escolhida: unkno
   return { erro: `Escolha a área do pedido: ${marcas.join(" ou ")}.` };
 }
 
-/** Um time do TTARS pode acompanhar pedidos deste público (empresas: o time é de uma delas). */
+/** Um time do TTARS pode acompanhar pedidos deste público: um dos times escolhidos ou um time das empresas
+ *  escolhidas. Pessoa avulsa não libera time. */
 export function timeNoPublico(time: { id: string; organizacao: string | null }, publico: Publico): boolean {
   if (publico.tipo === "todos") return true;
-  if (publico.tipo === "times") return publico.times.some((t) => t.id === time.id);
+  if (publico.times.some((t) => t.id === time.id)) return true;
   const orgs = empresasDe(time.organizacao ?? "");
   return publico.empresas.some((e) => orgs.includes(e));
 }
@@ -535,17 +564,24 @@ export function respostasQueMudaram(
     .map((p) => rotuloDaPergunta(p, casal));
 }
 
-/** O prazo da ação (AAAA-MM-DD de Brasília) pelo destino do formulário. */
+/** O prazo da ação (AAAA-MM-DD de Brasília) pelo destino do formulário (sem a data que ele usa: sem prazo). */
 export function prazoDoPedido(destino: Destino, perguntas: Pergunta[], respostas: Record<string, Resposta>, agora: Date): string | null {
   const prazo = destino.prazo;
-  if (prazo.tipo === "data_casamento") return respostaQuePreenche(perguntas, respostas, "data_casamento");
+  const dia = (v: unknown) => (typeof v === "string" && DIA.test(v) ? v : null);
   if (prazo.tipo === "dias") return maisDiasBR(prazo.dias ?? 0, agora);
-  if (prazo.tipo === "pergunta") {
-    const v = prazo.pergunta_id ? respostas[prazo.pergunta_id]?.valor : null;
-    return typeof v === "string" && DIA.test(v) ? v : null;
+  if (prazo.tipo === "pergunta") return prazo.pergunta_id ? dia(respostas[prazo.pergunta_id]?.valor) : null;
+  if (prazo.tipo === "data_casamento" || prazo.tipo === "dias_do_casamento") {
+    const casamento = dia(respostaQuePreenche(perguntas, respostas, "data_casamento"));
+    if (!casamento || prazo.tipo === "data_casamento") return casamento;
+    // Conta no calendário a partir do dia do casamento (meio-dia de Brasília: nunca escorrega de dia).
+    return maisDiasBR(prazo.dias ?? 0, `${casamento}T12:00:00-03:00`);
   }
   return null;
 }
+
+/** O prazo depende só das respostas (pergunta de data ou dia do casamento), não do dia em que foi pedido. */
+export const prazoVemDasRespostas = (d: Destino) =>
+  d.prazo.tipo === "pergunta" || d.prazo.tipo === "data_casamento" || d.prazo.tipo === "dias_do_casamento";
 
 /** Encerrado (feito ou cancelado): quem pediu não completa mais as respostas, só comenta. */
 export function pedidoEncerrado(status: string | null | undefined, statusNotion: string | null | undefined): boolean {
