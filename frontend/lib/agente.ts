@@ -503,8 +503,10 @@ const FERRAMENTAS: Ferramenta[] = [
         },
         incluir_concluidas: { type: "boolean", description: "true = também as concluídas. Canceladas nunca vêm." },
         repetidas: { type: "boolean", description: "true = agrupar as que são o mesmo combinado (pedido de repetidas ou 'sem repetir')." },
+        quem_faz: nulo("string", "Filtro exato de quem faz: 'eu' (a própria pessoa) ou o nome. null = qualquer um."),
+        lista_de: nulo("string", "Filtro exato de quem criou a ação: 'eu', 'outros' (qualquer outra pessoa) ou o nome. null = qualquer um."),
       },
-      required: ["pedido", "incluir_concluidas", "repetidas"],
+      required: ["pedido", "incluir_concluidas", "repetidas", "quem_faz", "lista_de"],
     },
   },
   {
@@ -679,7 +681,7 @@ function instrucoes(nome: string): string {
     "LISTA DELA: pergunta sobre o que ela tem (o que vence, atrasadas, o que faz, o que cobra ou espera de alguém, o que aguarda, sem prazo, por prioridade, concluídas, quantas, organizar a semana) responde só com 'acoes' do retrato. Nunca chame procurar para isso: a lista inteira já está no retrato. ja_mostradas e o que as ferramentas trouxeram só entram quando ela falar dessas ações ou do assunto delas.",
     "LUGAR ABERTO: 'aqui', 'destas', 'deste projeto/time/reunião' falam do lugar aberto na tela (campo tela do retrato): use ver_reuniao, ver_projeto ou ver_time daquele lugar, nunca procurar.",
     "RESTO DO QUE ELA VÊ: pedido por assunto, por pessoa ou de repetidas ('tudo de TTARS', 'o que falei de X nas reuniões', 'o que a Paula me deve', 'o que eu devo ao Tiago', 'com o meu nome', 'quais estão repetidas') → procurar, com um pedido completo e de sentido amplo; ele escolhe pelo SENTIDO em tudo o que a pessoa vê. 'Coisas no TTARS/CRM' = telas, cards, funil, etapas, régua, relatórios, painéis, acessos, módulos, busca, assistente, atendimento e WhatsApp do sistema, mesmo sem a palavra. 'Só as minhas' = diga no pedido 'só as que " + nome + " faz'.",
-    "PESSOA: 'o que X me deve' = da lista dela ('acoes'), as ações em que quem faz é X (sem ferramenta). 'O que eu devo a X' = procurar ('ações em que quem faz é " + nome + ", da lista de X ou que X cobra'). 'O que ele tem comigo' ou 'o que tenho com ele' = os dois sentidos: os dois juntos, dizendo quantas de cada lado.",
+    "PESSOA: 'o que X me deve' = da lista dela ('acoes'), as ações em que quem faz é X (sem ferramenta). 'O que eu devo a X' = procurar com quem_faz 'eu', lista_de X e pedido 'todas'. 'Com o meu nome nas reuniões dos outros' = procurar com quem_faz 'eu', lista_de 'outros' e pedido 'todas'. 'O que ele tem comigo' ou 'o que tenho com ele' = os dois sentidos juntos, dizendo quantas de cada lado. Assunto com pessoa ('o que falei de TTARS com a Ana') = procurar com o filtro e o assunto no pedido.",
     "DETALHE: ver_acao lê UMA ação (descrição, trecho falado, comentários, andamento, quem vê). Para responder sobre uma lista, use as linhas que já vieram; nunca leia uma por uma. Nunca diga que algo não existe sem ler.",
     "REUNIÕES: uma reunião → ver_reuniao; várias ou um período ('as desta semana e o que saiu delas') → ver_reunioes, numa ida só. Quem estava: só quem gravou vê; na reunião de um colega, diga isso e quem gravou, sem tirar participantes do resumo.",
     "PROJETOS E TIMES: andamento ou ações de um projeto → ver_projeto; de um time → ver_time.",
@@ -1120,8 +1122,31 @@ async function executar(
     const hoje = hojeBR();
     const linha = (t: TarefaVista, detalhe: boolean) =>
       linhaCorrida(linhaDoRetrato(refNoRetrato(retrato, t), t, hoje, quemFazSouEu(t, user, retrato.pessoas)), detalhe ? t.descricao : null);
-    const linhas = todas.map((t) => linha(t, todas.length <= ACERVO_COM_DETALHE));
-    const escolha = await escolherPeloSentido(user, pedido, linhas, repetidas);
+    // Pessoa dita (quem faz, quem criou): filtro exato antes da escolha. Pela escolha, "o que eu devo ao Tiago" achava
+    // 1 das 8 da Daily Noix (bateria de 02/10/2026).
+    const quemFaz = str(a.quem_faz);
+    const listaDe = str(a.lista_de);
+    const mesmaPessoa = (dito: string, naAcao: string | null | undefined) => {
+      if (!naAcao) return false;
+      const achado = acharPessoa(dito, retrato);
+      const alvo = slugNome(achado && "pessoa" in achado ? achado.pessoa.nome : dito);
+      const nome = slugNome(naAcao);
+      return !!alvo && !!nome && (alvo === nome || alvo.startsWith(`${nome}-`) || nome.startsWith(`${alvo}-`));
+    };
+    const passa = (t: TarefaVista) => {
+      const souEu = quemFazSouEu(t, user, retrato.pessoas) || quemFazNaTela(t) === "você";
+      if (quemFaz && (ehEu(quemFaz) ? !souEu : souEu || !mesmaPessoa(quemFaz, quemFazNaTela(t)))) return false;
+      if (listaDe) {
+        const criei = !t.compartilhada;
+        if (ehEu(listaDe) ? !criei : /^outr/i.test(listaDe) ? criei : criei || !mesmaPessoa(listaDe, t.criador_nome)) return false;
+      }
+      return true;
+    };
+    const filtradas = quemFaz || listaDe ? todas.filter(passa) : todas;
+    const tudo = (quemFaz || listaDe) && /^\s*(todas?|tudo)\b/i.test(pedido);
+    const escolha = tudo
+      ? { refs: filtradas.map((t) => refNoRetrato(retrato, t)), repetidas: [] as string[][], custoUsd: 0 }
+      : await escolherPeloSentido(user, pedido, filtradas.map((t) => linha(t, filtradas.length <= ACERVO_COM_DETALHE)), repetidas);
     pendente.custo += escolha.custoUsd;
     const escolhidas = [...new Set(escolha.refs)].map((r) => retrato.tarefas.get(r)).filter((t): t is TarefaVista => !!t && vale(t));
     const naEscolha = new Set(escolhidas.map((t) => refNoRetrato(retrato, t)));
