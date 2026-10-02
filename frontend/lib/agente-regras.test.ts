@@ -174,21 +174,31 @@ describe("papel (02/10/2026)", () => {
 });
 
 describe("limite de pessoa na procura", () => {
-  const nomes = ["Vitor Gambetti", "Tiago Moreira", "Paula Klotz", "Ana Tereza Souza"];
+  const nomes = ["Vitor Gambetti", "Tiago Moreira", "Paula Klotz", "Ana Tereza Souza", "Clara Dias", "Simone Rocha", "Welcome Weddings"];
 
-  it("o assunto das reuniões não limita (o print do Vitor de 02/10/2026)", () => {
-    const pergunta = "Tem algumas reuniões que falei em fazer coisas no CRM, TTARS. Algumas inclusive devem estar repetidas. Consegue compilar e me mandar aqui, por favor?";
-    expect(limitaPorPessoa(pergunta, nomes)).toBe(false);
-    expect(limitaPorPessoa("que falei em fazer", nomes)).toBe(false);
-    expect(limitaPorPessoa("Tudo que falamos sobre WhatsApp nas reuniões", nomes)).toBe(false);
-    expect(limitaPorPessoa("o que eu falei nas minhas reuniões sobre TTARS", nomes)).toBe(false);
+  it("o assunto das reuniões não limita (o print do Vitor de 02/10/2026 e a revisão)", () => {
+    for (const frase of [
+      "Tem algumas reuniões que falei em fazer coisas no CRM, TTARS. Algumas inclusive devem estar repetidas. Consegue compilar e me mandar aqui, por favor?",
+      "que falei em fazer",
+      "Tudo que falamos sobre WhatsApp nas reuniões",
+      "o que eu falei nas minhas reuniões sobre TTARS",
+      "o que falei nas minhas últimas reuniões",
+      "Devo ter falado de TTARS em várias reuniões, compila e me manda",
+      "Compila pra mim tudo de TTARS",
+      "Eu fiz umas reuniões sobre o CRM",
+      "eu vou ver depois o que mesclar",
+      "deixa a tela do funil mais clara",
+      "Sim, manda todas",
+      "o que falamos da Welcome Weddings nas reuniões",
+    ]) {
+      expect([frase, limitaPorPessoa(frase, nomes)]).toEqual([frase, false]);
+    }
     expect(limitaPorPessoa(null, nomes)).toBe(false);
   });
 
-  it("limita quando ela diz que é dela, de quem deve ou de um nome", () => {
+  it("limita quando ela diz que é dela, de quem deve ou cita alguém", () => {
     for (const frase of [
       "O que eu fiquei de fazer no TTARS em todas as reuniões? Só as minhas",
-      "Só as minhas",
       "Tem algo meu atrasado nos projetos do marketing?",
       "O que o marketing está esperando de mim?",
       "O que eu devo ao Tiago e o que ele me deve?",
@@ -197,9 +207,26 @@ describe("limite de pessoa na procura", () => {
       "O que ele tem pendente comigo?",
       "O que a Paula está fazendo?",
       "todas as ações de TTARS que são minhas",
+      "O que estou devendo pra ele?",
+      "O que preciso fazer de TTARS em todas as reuniões?",
+      "O que o marketing quer que eu faça?",
+      "O que o Thiago me pediu?",
+      "Quais ações de TTARS eu criei?",
+      "o que eu tenho de fazer de TTARS",
+      "o que falei de TTARS com a clara",
     ]) {
-      expect(limitaPorPessoa(frase, nomes)).toBe(true);
+      expect([frase, limitaPorPessoa(frase, nomes)]).toEqual([frase, true]);
     }
+  });
+
+  it("a citação tem de estar, nessa ordem, numa fala da pessoa", () => {
+    const falas = ["O que eu devo pro Tiago?", "Me manda em texto"];
+    expect(ditoPelaPessoa("eu devo pro Tiago", falas)).toBe(true);
+    expect(ditoPelaPessoa("Tiago devo eu", falas)).toBe(false);
+    expect(ditoPelaPessoa("só as minhas", falas)).toBe(false);
+    expect(ditoPelaPessoa("", falas)).toBe(false);
+    // "me" de "me mandar" e "devem" de "devem estar" não montam um "me devem"
+    expect(ditoPelaPessoa("me devem", ["Algumas devem estar repetidas. Consegue me mandar aqui?"])).toBe(false);
   });
 
   it("sem limite de pessoa, a linha da escolha não diz quem faz nem de quem é a lista", () => {
@@ -209,13 +236,7 @@ describe("limite de pessoa na procura", () => {
     expect(sem).not.toContain("quem faz");
     expect(sem).not.toContain("lista de");
     expect(sem).toContain("Revisar orçamento");
-  });
-
-  it("a citação tem de estar numa fala da pessoa", () => {
-    const falas = ["O que eu devo pro Tiago?", "Me manda em texto"];
-    expect(ditoPelaPessoa("eu devo pro Tiago", falas)).toBe(true);
-    expect(ditoPelaPessoa("Tiago devo eu", falas)).toBe(true);
-    expect(ditoPelaPessoa("só as minhas", falas)).toBe(false);
-    expect(ditoPelaPessoa("", falas)).toBe(false);
+    const ninguem = linhaDoRetrato("t2", t({ owner: "?", acao: "cobrar" }));
+    expect(linhaCorrida(ninguem, null, true)).toContain("quem faz: a definir");
   });
 });

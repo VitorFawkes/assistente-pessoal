@@ -1171,9 +1171,14 @@ async function executar(
     // Pessoa dita (quem faz, quem criou): filtro exato antes da escolha. Pela escolha, "o que eu devo ao Tiago" achava
     // 1 das 8 da Daily Noix (bateria de 02/10/2026). Só com as palavras dela que limitam: "reuniões que falei em fazer
     // coisas no CRM" virava "só as do Vitor, da lista dele" e voltavam 4 de mais de 50 (print do Vitor, 02/10/2026).
+    // Pedido "todas" é pergunta só de pessoa ("o que eu devo ao Tiago"): ali o filtro é a resposta e vale sempre.
+    const soDePessoa = /^\s*(todas?|tudo)(\s+as\s+a[cç][oõ]es)?\s*[.!]?\s*$/i.test(pedido);
+    // As palavras valem da fala atual e da anterior ("e as concluídas?" segue o "o que eu devo ao Tiago"); um "só as
+    // minhas" de 5 perguntas atrás não limita o "tudo de WhatsApp" de agora.
+    const recentes = ctx.falas.slice(-2);
     const dito = str(a.limite_dito);
-    const palavras = dito && ditoPelaPessoa(dito, ctx.falas) ? dito : (ctx.falas[ctx.falas.length - 1] ?? null);
-    const limitou = limitaPorPessoa(palavras, retrato.pessoas.map((p) => p.nome));
+    const palavras = dito && ditoPelaPessoa(dito, recentes) ? dito : recentes.join("\n");
+    const limitou = soDePessoa || limitaPorPessoa(palavras, retrato.pessoas.map((p) => p.nome));
     const quemFaz = limitou ? str(a.quem_faz) : null;
     const listaDe = limitou ? str(a.lista_de) : null;
     const mesmaPessoa = (dito: string, naAcao: string | null | undefined) => {
@@ -1195,7 +1200,8 @@ async function executar(
       return true;
     };
     const filtradas = quemFaz || listaDe ? todas.filter(passa) : todas;
-    const tudo = (quemFaz || listaDe) && /^\s*(todas?|tudo)\b/i.test(pedido);
+    // Só o pedido "todas" pula a escolha: "todas as ações sobre o CRM" com filtro trazia tudo da pessoa, de qualquer assunto.
+    const tudo = (quemFaz || listaDe) && soDePessoa;
     const escolha = tudo
       ? { refs: filtradas.map((t) => refNoRetrato(retrato, t)), repetidas: [] as string[][], custoUsd: 0 }
       : await escolherPeloSentido(

@@ -195,7 +195,8 @@ export function linhaCorrida(l: ReturnType<typeof linhaDoRetrato>, detalhe?: str
   return [
     l.ref,
     l.titulo,
-    semPessoa ? null : `quem faz: ${l.quem_faz} (${l.tipo})`,
+    // Sem pessoa, fica só o "a definir": "as que estão sem ninguém" continua achável.
+    semPessoa ? (l.quem_faz === "a definir" ? "quem faz: a definir" : null) : `quem faz: ${l.quem_faz} (${l.tipo})`,
     l.prazo ? `prazo ${l.prazo}${l.vence ? `, ${l.vence}` : ""}` : null,
     l.situacao !== "aberta" ? l.situacao : null,
     l.reuniao ? `reunião: ${l.reuniao}` : null,
@@ -248,29 +249,44 @@ export function limparRefs(texto: string): string {
 // dela que limitam; "o que falei, falamos ou combinamos nas reuniões" é o assunto, de qualquer pessoa.
 
 const PALAVRAS_QUE_LIMITAM = [
-  /\b(?:minhas?|meus?)\b(?! (?:reunioes|reuniao|times?|projetos?|areas?)\b)/, // "só as minhas", "algo meu"; não "minhas reuniões"
-  /\b(?:comigo|pra mim|para mim|de mim|a mim|meu nome|sou eu|sou responsavel)\b/,
-  /\b(?:me devem?|devo|devemos|atribuid[oa]s?|prometi|prometemos|fiquei de|fico de)\b/,
-  /\beu (?:faco|fiz|faria|preciso|vou|tenho que)\b/,
+  // "só as minhas", "algo meu", "com o meu nome", "na minha lista"; não "minhas reuniões" nem "minhas últimas reuniões"
+  /\b(?:minhas?|meus?)\b(?!(?: \w+)? (?:reunioes|reuniao|times?|projetos?|areas?|grupos?)\b)/,
+  /\b(?:comigo|de mim|sou eu|sou responsavel|atribuid[oa]s?)\b/,
+  /\b(?:me devem?|devendo|devo (?:a|ao|aos|as|pra|pro|para)|que (?:eu )?devo|me pedi(?:u|ram))\b/,
+  /\b(?:prometi|fiquei de|fico de|fiquei responsavel)\b/,
+  /\b(?:eu (?:faco|faca|preciso|criei|cobro|tenho que|tenho de)|preciso fazer|tenho (?:que|de) fazer)\b/,
   /\b(?:dos|de) (?:outros|colegas)\b|\boutras? pessoas?\b/,
 ];
 
 const palavrasDe = (s: string | null | undefined) => slugNome(s).replace(/-/g, " ");
 
-/** As palavras limitam a procura por pessoa ("só as minhas", "o que eu devo ao Tiago", "com o meu nome", um nome)? */
-export function limitaPorPessoa(palavras: string | null | undefined, nomes: string[]): boolean {
-  const s = palavrasDe(palavras);
-  if (!s) return false;
-  if (PALAVRAS_QUE_LIMITAM.some((re) => re.test(s))) return true;
-  const primeiros = new Set(nomes.map((n) => slugNome(n).split("-")[0]).filter((x) => x.length >= 3));
-  return s.split(" ").some((p) => primeiros.has(p));
+/** Contas do sistema na lista de pessoas, nunca gente. */
+const SEM_NOME = new Set(["welcome", "teste", "test"]);
+const ANTES_DE_NOME = new Set(["o", "a", "do", "da", "pro", "pra", "ao", "com"]);
+/** Grafia solta: "Thiago" = "Tiago", "Isabella" = "Isabela". */
+const grafia = (s: string) => s.replace(/th/g, "t").replace(/ph/g, "f").replace(/y/g, "i").replace(/(.)\1/g, "$1");
+
+/** Cita alguém da equipe pelo primeiro nome: com maiúscula ("Tiago") ou depois de artigo ("o tiago"), para "tela
+ *  mais clara" não virar a Clara. */
+function citaAlguem(texto: string, nomes: string[]): boolean {
+  const primeiros = new Set(nomes.map((n) => grafia(slugNome(n).split("-")[0])).filter((x) => x.length >= 3 && !SEM_NOME.has(x)));
+  const palavras = texto.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  return palavras.some((p, i) => {
+    const s = slugNome(p);
+    if (s.length < 3 || !primeiros.has(grafia(s))) return false;
+    return (/^\p{Lu}/u.test(p) && p !== p.toUpperCase()) || ANTES_DE_NOME.has(slugNome(palavras[i - 1]));
+  });
 }
 
-/** As palavras que o modelo citou estão numa fala da pessoa (fora de ordem, sem acento e pontuação, vale)? */
+/** As palavras limitam a procura por pessoa ("só as minhas", "o que eu devo ao Tiago", "com o meu nome", um nome)? */
+export function limitaPorPessoa(palavras: string | null | undefined, nomes: string[]): boolean {
+  if (!palavras?.trim()) return false;
+  const s = palavrasDe(palavras);
+  return PALAVRAS_QUE_LIMITAM.some((re) => re.test(s)) || citaAlguem(palavras, nomes);
+}
+
+/** As palavras que o modelo citou estão, nessa ordem, numa fala da pessoa (sem acento e pontuação, vale)? */
 export function ditoPelaPessoa(palavras: string | null | undefined, falas: string[]): boolean {
-  const ditas = palavrasDe(palavras).split(" ").filter(Boolean);
-  return ditas.length > 0 && falas.some((f) => {
-    const naFala = new Set(palavrasDe(f).split(" "));
-    return ditas.every((p) => naFala.has(p));
-  });
+  const ditas = palavrasDe(palavras);
+  return !!ditas && falas.some((f) => ` ${palavrasDe(f)} `.includes(` ${ditas} `));
 }
