@@ -357,6 +357,17 @@ const FERRAMENTAS: Ferramenta[] = [
     },
   },
   {
+    name: "todas_as_acoes",
+    description:
+      "Lista TODAS as ações que a pessoa vê, numa linha cada: a lista dela e as das reuniões dela e dos colegas que ela abre. Use para pedido por assunto, por pessoa ou de repetidas, e escolha pelo sentido.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: { incluir_concluidas: { type: "boolean", description: "true = também as concluídas. Canceladas nunca vêm." } },
+      required: ["incluir_concluidas"],
+    },
+  },
+  {
     name: "buscar_acoes",
     description:
       "Procura ações por assunto em tudo o que a pessoa vê: a lista dela e as ações das reuniões dela e dos colegas que ela abre (essas não estão no retrato). Use para 'tudo sobre X', 'o que falamos de X nas reuniões', 'junta as de X'.",
@@ -394,6 +405,7 @@ function instrucoes(nome: string): string {
   return [
     `Você é o Assistente do Ações, dentro do TTARS da Welcome. Ajuda ${nome} a ver e organizar as ações dele(a): combinados internos que a pessoa faz, cobra de alguém ou só aguarda. Não são as Tarefas de cliente do TTARS.`,
     "O RETRATO (primeira mensagem) tem a lista da pessoa (as ações dela e as passadas a ela), os projetos, os nomes das reuniões e as pessoas. As ações das reuniões de colegas NÃO estão na lista. Pedido por assunto ('tudo sobre CRM', 'o que falei de X nas reuniões', 'junta as de X'): chame buscar_acoes com a palavra e as variações (ex.: crm, ttars, tars), que procura em tudo o que a pessoa vê. Uma reunião só: ver_reuniao.",
+    "Pedido por assunto, por pessoa ou de repetidas ('tudo de TTARS', 'o que falei de X nas reuniões', 'o que a Paula me deve', 'quais estão repetidas'): chame todas_as_acoes e escolha pelo SENTIDO, nunca só pela palavra. Ex.: 'coisas no TTARS/CRM' inclui telas, cards, funil, etapas, régua, relatórios, painéis, acessos, módulos, busca, assistente, atendimento e WhatsApp do sistema, mesmo sem a palavra TTARS. Repetidas = o mesmo combinado em mais de um lugar (mesma entrega), mesmo com palavras ou donos diferentes. buscar_acoes só para palavra exata.",
     "Use só o retrato e o que as ferramentas devolverem. Nunca invente ação, pessoa, data ou reunião; se não achar, diga que não achou.",
     "Responda curto e simples, em português do Brasil, sem jargão.",
     "Datas: use o 'hoje' do retrato. 'esta semana' vai até fim_desta_semana. Converta 'sexta', 'amanhã', 'semana que vem' para AAAA-MM-DD. Mostre datas como 'sex 03/10'.",
@@ -621,6 +633,40 @@ async function executar(
     const refs = tarefas.map((t) => linhaDoRetrato(refNoRetrato(retrato, t), t, hoje));
     const resumo = trocarFalantes(det.executive_summary || det.summary || "", det.speaker_labels) ?? "";
     return { resumo: resumo.slice(0, 3500), acoes: refs };
+  }
+
+  if (chamada.name === "todas_as_acoes") {
+    const concluidas = a.incluir_concluidas === true;
+    const vale = (t: TarefaVista) =>
+      t.status === "aberta" || t.status === "em_andamento" || t.status === "aguardando_aprovacao" || (concluidas && t.status === "concluida");
+    const doRetrato = [...retrato.tarefas.values()].filter(vale);
+    const doBanco = await carregarVisiveis(
+      user.id,
+      `(t.status IN ('aberta','em_andamento','aguardando_aprovacao') OR ($1::boolean AND t.status = 'concluida'))`,
+      [concluidas],
+      600,
+    );
+    const vistas = new Set(doRetrato.map((t) => t.id));
+    const todas = [...doRetrato, ...doBanco.filter((t) => !vistas.has(t.id))].sort(ordenarPendencias);
+    const hoje = hojeBR();
+    // Uma linha de texto por ação (chave repetida em cada linha custaria o dobro).
+    const linhas = todas.map((t) => {
+      const l = linhaDoRetrato(refNoRetrato(retrato, t), t, hoje);
+      return [
+        l.ref,
+        l.titulo,
+        `quem faz: ${l.quem_faz} (${l.tipo})`,
+        l.prazo ? `prazo ${l.prazo}${l.vence ? `, ${l.vence}` : ""}` : null,
+        l.situacao !== "aberta" ? l.situacao : null,
+        l.reuniao ? `reunião: ${l.reuniao}` : null,
+        l.criada_por ? `lista de ${l.criada_por}` : null,
+        l.projetos ? `projeto: ${l.projetos.join(", ")}` : null,
+        t.descricao ? `detalhe: ${tituloCurto(t.descricao, 110)}` : null,
+      ]
+        .filter(Boolean)
+        .join(" | ");
+    });
+    return { total: linhas.length, acoes: linhas };
   }
 
   if (chamada.name === "buscar_acoes") {
