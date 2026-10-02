@@ -11,6 +11,8 @@ const PROIBIDO: [RegExp, string][] = [
  [/Sem observa[cç][oõ]es verificadas/iu, "rodapé técnico"],
  [/\bassistant_dossier|dossi[eê]|\bconsulta\b.*\bservidor\b|frases_prontas|objetivo_id|changes_done_now/iu, "palavra interna do sistema"],
  [/\b[tpr]\d{1,3}\b/u, "código interno de ação ou pessoa"],
+ [/caminho mais direto|oportunidade mais pr[oó]xima|isso move a meta|o foco [eé] fechar contratos/iu, "justificativa genérica"],
+ [/;/u, "ponto e vírgula"],
 ];
 export const linhasDe = (texto: string) => texto.split("\n").map(l => l.trim()).filter(Boolean).length;
 

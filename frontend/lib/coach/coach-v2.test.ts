@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { eAceite, eRecusa, fraseDoCombinado, horaValida, mensagemDas18h, resultadoCurto, fimDeSemana, diaSeguinte, proximoDiaDoCoach, diaAnteriorDoCoach, diaFalado, type Combinado } from "./combinado";
+import { eAceite, eRecusa, fraseDoCombinado, horaValida, mensagemDas18h, resultadoCurto, fimDeSemana, diaSeguinte, proximoDiaDoCoach, diaAnteriorDoCoach, diaFalado, promessaDas18h, type Combinado } from "./combinado";
 import { prazoFalado } from "./task-actions";
-import { linhasDoPlacar, mesAnterior, placarParaModelo, validarPlacar, type LeituraDoPlacar } from "./placar";
+import { casalCurto, linhasDoPlacar, mesAnterior, placarParaModelo, validarPlacar, type LeituraDoPlacar } from "./placar";
 import { pedidoDeEsquecer, trechoLiteral, validarItens } from "./memoria";
 import { arejado, checagemSemIa, limparTexto } from "./conferir";
 import { comoMedirComAgora } from "./objetivos";
-import { conversaDoCoach, nomesDoCasal, tipoDoCompromisso } from "./coach-v2";
+import { conversaDoCoach, nomesDoCasal, repeteAMensagem, tipoDoCompromisso } from "./coach-v2";
 import type { CoachMessage } from "./types";
 
 const combinado = (status: Combinado["status"], extra: Partial<Combinado> = {}): Combinado => ({ id: "c1", dia: "2026-10-02", titulo: "Pedir ao Jonas a assinatura do contrato", ate: "12:00", objetivo_id: null, status, origem: "manha", tarefa_id: "t1", motivo: null, mensagem_id: "m1", proposto_em: "2026-10-02T11:00:00Z", aceito_em: null, resolvido_em: null, ...extra });
@@ -73,12 +73,38 @@ describe("dias do Coach", () => {
   expect(diaFalado("2026-10-03", "2026-10-02")).toBe("amanhã");
   expect(diaFalado("2026-10-02", "2026-10-05")).toBe("sexta, 02/10");
  });
+ test("'Às 18h te pergunto' só quando a pergunta das 18h ainda vai sair", () => {
+  const tz = "America/Sao_Paulo";
+  expect(promessaDas18h(tz, new Date("2026-10-02T14:00:00Z"), false)).toBe("Às 18h te pergunto.");
+  expect(promessaDas18h(tz, new Date("2026-10-02T22:30:00Z"), false)).toBe("");
+  expect(promessaDas18h(tz, new Date("2026-10-03T14:00:00Z"), false)).toBe("");
+  expect(promessaDas18h(tz, new Date("2026-10-03T14:00:00Z"), true)).toBe("Às 18h te pergunto.");
+ });
  test("'me lembra amanhã' ganha prazo mesmo se a IA esquecer", () => {
   expect(prazoFalado("Me lembra de ligar pro Guilherme amanhã às 10h", "2026-10-02")).toBe("2026-10-03");
   expect(prazoFalado("ligar hoje", "2026-10-02")).toBe("2026-10-02");
   expect(prazoFalado("depois de amanhã eu vejo", "2026-10-02")).toBe("2026-10-04");
   expect(prazoFalado("hoje não, amanhã", "2026-10-02")).toBeNull();
   expect(prazoFalado("ligar pro Guilherme", "2026-10-02")).toBeNull();
+ });
+});
+
+describe("voz", () => {
+ test("casal pelos primeiros nomes", () => {
+  expect(casalCurto("Jéssica Santos & Bruno Freitas")).toBe("Jéssica e Bruno");
+  expect(casalCurto("Cássia Serrazine & Daniel")).toBe("Cássia e Daniel");
+  expect(casalCurto("Marcela & Luiza")).toBe("Marcela e Luiza");
+  expect(casalCurto("Jonas")).toBe("Jonas");
+ });
+ test("primeira linha que só repete a mensagem dele volta para reescrever", () => {
+  const msg = "Meus focos: vender pelo menos 5 contratos por mês e fazer a área de convidados vender mais hospedagens, voos e passeios.";
+  expect(repeteAMensagem("Seus focos são contratos e vendas aos convidados.\n\nOutubro: 0 contratos.", msg)).toBe(true);
+  expect(repeteAMensagem("Contratos: outubro está em 0 de 5. Jéssica e Bruno já estão com o contrato.", msg)).toBe(false);
+  expect(repeteAMensagem("Oi, Vitor.", "Oi")).toBe(false);
+ });
+ test("justificativa genérica e ponto e vírgula não passam", () => {
+  expect(checagemSemIa("Envie à Jéssica.\n\nEsse é o caminho mais direto para avançar.", 6).join(" ")).toContain("justificativa genérica");
+  expect(checagemSemIa("Reuniões: 17 ações; nenhuma andou.", 6).join(" ")).toContain("ponto e vírgula");
  });
 });
 
@@ -95,9 +121,13 @@ describe("placar", () => {
  test("frases prontas com a meta e o mês anterior", () => {
   const leitura: LeituraDoPlacar = { status: "ok", placar: validarPlacar(placarCru, "2026-10"), de_quando: "2026-10-02T11:00:00Z" };
   const l = linhasDoPlacar(leitura, 5, "America/Sao_Paulo")!;
-  expect(l.contratos).toBe("Outubro: 0 de 5 contratos. Setembro fechou em 4.");
+  expect(l.contratos).toBe("Contratos: outubro está em 0 de 5. Setembro fechou com 4.");
   expect(l.resumo_contratos).toBe("Outubro: 0 de 5 contratos");
-  expect(l.convidados).toBe("Vendas a convidados em outubro: 6 passeios. Setembro: 57 hospedagens, 38 passeios, 42 presentes e 2 passagens.");
+  expect(l.convidados).toBe("Convidados: em outubro, 6 passeios. Setembro fechou com 57 hospedagens, 38 passeios, 42 presentes e 2 passagens.");
+  expect(l.negociacoes[0]).toBe("Jonas e Belleboni: Contrato enviado desde 29/09");
+  expect(linhasDoPlacar(leitura, null, "America/Sao_Paulo")!.contratos).toBe("Contratos: nenhum em outubro até agora. Setembro fechou com 4.");
+  const comDois = { ...leitura, placar: { ...leitura.placar!, contratos: [{ casal: "Ana Souza & Leo Lima", data: "2026-10-01T15:00:00Z", valor: null }, { casal: "Bia & Caio", data: "2026-10-02T15:00:00Z", valor: null }] } };
+  expect(linhasDoPlacar(comDois, 5, "America/Sao_Paulo")!.contratos).toBe("Contratos: outubro está em 2 de 5, com Ana e Leo, Bia e Caio. Setembro fechou com 4.");
   expect(l.resumo_convidados).toBe("Outubro: 6 passeios");
   const m = placarParaModelo(leitura, 5, "America/Sao_Paulo") as Record<string, unknown>;
   expect(m.faltam_para_a_meta).toBe(5);

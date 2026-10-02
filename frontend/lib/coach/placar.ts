@@ -98,7 +98,8 @@ export async function lerPlacar(userId: string, timezone: string, now = new Date
   try { return { status: "ok", placar: validarPlacar(guardada.dados, mes), de_quando: new Date(guardada.capturado_em).toISOString() }; } catch { /* lê de novo */ }
  }
  const cfg = config();
- if (!cfg) return { status: "nao_configurado", placar: null, de_quando: null };
+ // A ponte lê as vendas do dono dela: o Coach de outra pessoa não recebe o placar do Vitor.
+ if (!cfg || process.env.COACH_TTARS_CALENDAR_USER_ID !== userId) return { status: "nao_configurado", placar: null, de_quando: null };
  try {
   const res = await fetcher(`${cfg.base}/coach-placar-read?mes=${mes}`, { headers: { Authorization: `Bearer ${cfg.token}` }, signal: AbortSignal.timeout(20_000), redirect: "error" });
   if (!res.ok) throw new Error(`placar_${res.status}`);
@@ -114,6 +115,11 @@ export async function lerPlacar(userId: string, timezone: string, now = new Date
 
 /** "Marcela & Luiza" vira "Marcela e Luiza" na mensagem (o & lido em voz alta e no WhatsApp fica estranho). */
 export const nomeDoCasal = (casal: string) => casal.replace(/\s*&\s*/g, " e ").replace(/\s+/g, " ").trim();
+/** "Jéssica Santos & Bruno Freitas" vira "Jéssica e Bruno": é assim que ele fala do casal. */
+export function casalCurto(casal: string) {
+ const partes = nomeDoCasal(casal).split(/ e /u).map(p => p.trim().split(" ")[0]).filter(Boolean);
+ return partes.length >= 2 ? partes.join(" e ") : nomeDoCasal(casal);
+}
 const dia = (iso: string, timezone: string) => new Intl.DateTimeFormat("pt-BR", { timeZone: timezone, day: "2-digit", month: "2-digit" }).format(new Date(iso));
 const reais = (n: number) => `R$ ${new Intl.NumberFormat("pt-BR").format(Math.round(n))}`;
 const somaVendas = (v: VendasDoMes) => v.hospedagem.quantidade + v.passeio.quantidade + v.presente.quantidade + v.passagem.quantidade;
@@ -128,13 +134,14 @@ export function linhasDoPlacar(leitura: LeituraDoPlacar, meta: number | null, ti
  if (leitura.status !== "ok" || !p) return null;
  const n = p.contratos.length;
  const mes = nomeDoMes(p.mes), anterior = nomeDoMes(mesAnterior(p.mes));
- const nomes = n ? `: ${p.contratos.map(c => `${nomeDoCasal(c.casal)} (${dia(c.data, timezone)})`).join(", ")}` : "";
+ const Anterior = `${anterior[0].toUpperCase()}${anterior.slice(1)}`;
+ const quem = n ? `, com ${p.contratos.map(c => casalCurto(c.casal)).join(", ")}` : "";
  const contratos = meta
-  ? `${mes[0].toUpperCase()}${mes.slice(1)}: ${n} de ${meta} contratos${nomes}. ${anterior[0].toUpperCase()}${anterior.slice(1)} fechou em ${p.contratos_mes_anterior}.`
-  : `${mes[0].toUpperCase()}${mes.slice(1)}: ${n} ${n === 1 ? "contrato" : "contratos"}${nomes}. ${anterior[0].toUpperCase()}${anterior.slice(1)} fechou em ${p.contratos_mes_anterior}.`;
+  ? `Contratos: ${mes} está em ${n} de ${meta}${quem}. ${Anterior} fechou com ${p.contratos_mes_anterior}.`
+  : `Contratos: ${n ? `${n} em ${mes}${quem}` : `nenhum em ${mes} até agora`}. ${Anterior} fechou com ${p.contratos_mes_anterior}.`;
  const c = p.convidados;
- const convidados = c ? `Vendas a convidados em ${mes}: ${vendasEmTexto(c.mes)}. ${anterior[0].toUpperCase()}${anterior.slice(1)}: ${vendasEmTexto(c.mes_anterior)}.` : null;
- const negociacoes = p.carteira.map(x => `${nomeDoCasal(x.casal)}: ${x.etapa}${x.desde ? ` desde ${dia(x.desde, timezone)}` : ""}`);
+ const convidados = c ? `Convidados: em ${mes}, ${vendasEmTexto(c.mes)}. ${Anterior} fechou com ${vendasEmTexto(c.mes_anterior)}.` : null;
+ const negociacoes = p.carteira.map(x => `${casalCurto(x.casal)}: ${x.etapa}${x.desde ? ` desde ${dia(x.desde, timezone)}` : ""}`);
  const Mes = `${mes[0].toUpperCase()}${mes.slice(1)}`;
  const resumo_contratos = meta ? `${Mes}: ${n} de ${meta} contratos` : `${Mes}: ${n} ${n === 1 ? "contrato" : "contratos"}`;
  const resumo_convidados = c ? `${Mes}: ${vendasEmTexto(c.mes)}` : null;
@@ -156,8 +163,8 @@ export function placarParaModelo(leitura: LeituraDoPlacar, meta: number | null, 
   meta_de_contratos: meta,
   faltam_para_a_meta: faltam,
   contratos_mes_anterior: p.contratos_mes_anterior,
-  contratos: p.contratos.map(x => ({ casal: nomeDoCasal(x.casal), dia: dia(x.data, timezone), valor: x.valor === null ? null : reais(x.valor) })),
-  negociacoes_do_vitor: p.carteira.map(x => ({ casal: nomeDoCasal(x.casal), etapa: x.etapa, desde: x.desde ? dia(x.desde, timezone) : null })),
+  contratos: p.contratos.map(x => ({ casal: nomeDoCasal(x.casal), casal_curto: casalCurto(x.casal), dia: dia(x.data, timezone), valor: x.valor === null ? null : reais(x.valor) })),
+  negociacoes_do_vitor: p.carteira.map(x => ({ casal: nomeDoCasal(x.casal), casal_curto: casalCurto(x.casal), etapa: x.etapa, desde: x.desde ? dia(x.desde, timezone) : null })),
   convidados: c ? {
    mes: { hospedagens: c.mes.hospedagem.quantidade, valor_hospedagens: reais(c.mes.hospedagem.valor), passeios: c.mes.passeio.quantidade, valor_passeios: reais(c.mes.passeio.valor), presentes: c.mes.presente.quantidade, valor_presentes: reais(c.mes.presente.valor), passagens: c.mes.passagem.quantidade, valor_passagens: reais(c.mes.passagem.valor), total_de_vendas: somaVendas(c.mes) },
    mes_anterior: { hospedagens: c.mes_anterior.hospedagem.quantidade, passeios: c.mes_anterior.passeio.quantidade, presentes: c.mes_anterior.presente.quantidade, passagens: c.mes_anterior.passagem.quantidade, total_de_vendas: somaVendas(c.mes_anterior) },
