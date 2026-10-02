@@ -3,7 +3,8 @@
 # Regra (Vitor, 02/10/2026): mexeu no Assistente (lib/agente*.ts, lib/ia.ts), roda isto antes de publicar; nota mínima 95.
 #
 # Uso (no Mac, dentro do repositório): bash frontend/scripts/bateria-assistente/rodar.sh [cenario1,cenario2]
-# Custa uns US$ 0,20 de IA por rodada inteira e leva uns 15 minutos.
+# Cada pergunta roda 3 vezes (BATERIA_VEZES; o modelo varia), 2 de cada vez (BATERIA_PARALELO). Um teste por vez no
+# servidor: três ao mesmo tempo estouraram o limite de conexões do banco (02/10/2026).
 set -euo pipefail
 
 CHAVE=${ACOES_SSH_CHAVE:-$HOME/.ssh/acoes_equipe_ed25519}
@@ -23,7 +24,7 @@ echo "Rodando a bateria..."
 ssh -i "$CHAVE" "$SERVIDOR" "umask 077
   V=\$(mktemp)
   docker exec acoes-equipe-frontend-1 env | grep -E '^(DATABASE_URL|OPENAI_API_KEY|TEAM_MODE|OWNER_SLUG|TZ)=' > \$V
-  docker run --rm --env-file \$V -w /app acoes-equipe-ensaio:$SHA \
+  docker run --rm --env-file \$V -e BATERIA_VEZES=${BATERIA_VEZES:-3} -e BATERIA_PARALELO=${BATERIA_PARALELO:-2} -w /app acoes-equipe-ensaio:$SHA \
     bun scripts/bateria-assistente/bateria.ts scripts/bateria-assistente/cenarios.json '$SO' > /tmp/bateria-$SHA.jsonl 2>/dev/null
   codigo=\$?
   rm -f \$V

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/auth";
-import { conversar, type Contexto, type Fala } from "@/lib/agente";
+import { conversar, type Contexto, type Fala, type Rastro } from "@/lib/agente";
+import { guardarConversa } from "@/lib/agente-conversas";
 import { IaIndisponivel } from "@/lib/ia";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,18 @@ export const POST = withAuth(async (user, req) => {
   }
   const txt = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
   const c = body.contexto ?? {};
+  const comeco = Date.now();
+  const rastro: Rastro = { ferramentas: [] };
+  const ultima = [...body.falas].reverse().find((f) => f?.quem === "pessoa");
+  const registro = {
+    quando: new Date().toISOString(),
+    user_id: user.id,
+    nome: user.nome,
+    tela: txt(c.tela),
+    lugar: txt(c.lugar),
+    pergunta: typeof ultima?.texto === "string" ? ultima.texto.slice(0, 2000) : null,
+    falas_antes: Math.max(0, body.falas.length - 1),
+  };
   try {
     const r = await conversar(user, req, {
       falas: body.falas,
@@ -34,9 +47,28 @@ export const POST = withAuth(async (user, req) => {
         lugar: txt(c.lugar),
       },
       workspace: txt(body.workspace),
+    }, rastro);
+    void guardarConversa({
+      ...registro,
+      entendimento: rastro.entendimento ?? null,
+      ferramentas: rastro.ferramentas,
+      resposta: r.texto.slice(0, 4000),
+      citadas: r.citadas.length,
+      feitas: r.feitas.map((f) => f.descricao),
+      propostas: r.propostas.map((p) => p.descricao),
+      perguntou: r.perguntou ?? false,
+      custo_usd: r.custo_usd,
+      segundos: Number(((Date.now() - comeco) / 1000).toFixed(1)),
     });
     return NextResponse.json(r);
   } catch (e) {
+    void guardarConversa({
+      ...registro,
+      entendimento: rastro.entendimento ?? null,
+      ferramentas: rastro.ferramentas,
+      erro: e instanceof Error ? e.message.slice(0, 300) : String(e).slice(0, 300),
+      segundos: Number(((Date.now() - comeco) / 1000).toFixed(1)),
+    });
     if (e instanceof IaIndisponivel) return NextResponse.json({ error: e.message }, { status: 503 });
     console.error("[agente]", e);
     return NextResponse.json({ error: "O Assistente não conseguiu responder agora. Tente de novo." }, { status: 500 });

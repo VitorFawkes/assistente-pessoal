@@ -60,6 +60,8 @@ export type Resposta = {
  */
 export async function chamarModelo(opts: {
   userId: string;
+  /** Padrão: MODELO_TAREFAS (o barato). */
+  modelo?: string;
   instrucoes: string;
   entrada: Item[];
   ferramentas?: Ferramenta[];
@@ -77,7 +79,7 @@ export async function chamarModelo(opts: {
     throw new IaIndisponivel("Você chegou no limite de uso da IA por hoje. Amanhã volta.");
   }
   const corpo = {
-    model: MODELO_TAREFAS,
+    model: opts.modelo ?? MODELO_TAREFAS,
     store: false,
     instructions: opts.instrucoes,
     input: opts.entrada,
@@ -125,10 +127,10 @@ export async function chamarModelo(opts: {
     cache: r.usage?.input_tokens_details?.cached_tokens ?? 0,
     saida: r.usage?.output_tokens ?? 0,
   };
-  const custo = custoUsd(r.model || MODELO_TAREFAS, uso);
+  const custo = custoUsd(r.model || corpo.model, uso);
   somarGasto(opts.userId, custo);
   console.log(
-    `[ia] ${r.model || MODELO_TAREFAS} user=${opts.userId.slice(0, 8)} in=${uso.entrada} cache=${uso.cache} out=${uso.saida} usd=${custo.toFixed(5)}`,
+    `[ia] ${r.model || corpo.model} user=${opts.userId.slice(0, 8)} in=${uso.entrada} cache=${uso.cache} out=${uso.saida} usd=${custo.toFixed(5)}`,
   );
   if (r.status !== "completed" || !Array.isArray(r.output)) {
     throw new IaIndisponivel("A IA não terminou a resposta. Tente de novo.");
@@ -151,5 +153,5 @@ export async function chamarModelo(opts: {
     .filter((c) => c.type === "output_text" && typeof c.text === "string")
     .map((c) => c.text as string)
     .join("");
-  return { itens, texto, chamadas, custoUsd: custo, modelo: r.model || MODELO_TAREFAS, uso };
+  return { itens, texto, chamadas, custoUsd: custo, modelo: r.model || corpo.model, uso };
 }

@@ -9,6 +9,7 @@
 // reais de quem está em USUARIO (padrão: Vitor); quando uma ação citada for concluída, ajuste o cenário.
 import pg, { type PoolClient } from "pg";
 import { readFileSync } from "node:fs";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 type Cenario = {
   id: string;
@@ -26,12 +27,17 @@ type Cenario = {
   texto_tem?: string[];
   texto_nao_tem?: string[];
   max_segundos?: number;
-  /** Quantas vezes roda (cada vez conta na nota): o modelo varia, e 1 acerto em 3 passava como certo (02/10/2026). */
+  /** Quantas vezes roda (cada vez conta na nota): o modelo varia, e 1 acerto em 3 passava como certo (02/10/2026).
+   *  O padrão é BATERIA_VEZES (o rodar.sh usa 3). */
   vezes?: number;
+  /** O entendimento pode parar para perguntar (aí as outras conferências não valem). */
+  pode_perguntar?: boolean;
+  /** Tem de perguntar antes de mudar. */
+  deve_perguntar?: boolean;
 };
 
 type Chamada = { nome: string; args: string };
-type Resposta = { texto: string; citadas: { titulo: string }[]; segundos: number; chamadas: Chamada[]; usd: number };
+type Resposta = { texto: string; citadas: { titulo: string }[]; segundos: number; chamadas: Chamada[]; usd: number; perguntou: boolean };
 
 // ── Banco só leitura ────────────────────────────────────────────────────────────────
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -65,12 +71,13 @@ function travar(c: PoolClient): PoolClient {
 };
 (globalThis as unknown as { __pgPool: unknown }).__pgPool = pool;
 
-// ── Cada ida à OpenAI: as ferramentas que o modelo pediu ─────────────────────────────
-let chamadas: Chamada[] = [];
+// ── Cada ida à OpenAI: as ferramentas que o modelo pediu (por pergunta: as perguntas rodam em paralelo) ──────
+const daPergunta = new AsyncLocalStorage<Chamada[]>();
 const fetchOriginal = globalThis.fetch;
 globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
   const r = await fetchOriginal(url, init);
-  if (String(url).includes("api.openai.com/v1/responses")) {
+  const chamadas = daPergunta.getStore();
+  if (chamadas && String(url).includes("api.openai.com/v1/responses")) {
     const d = (await r.clone().json().catch(() => null)) as { output?: { type: string; name?: string; arguments?: string }[] } | null;
     for (const it of d?.output ?? []) if (it.type === "function_call") chamadas.push({ nome: it.name ?? "", args: it.arguments ?? "" });
   }
@@ -132,6 +139,8 @@ async function resolver(ctx: Record<string, string>): Promise<Record<string, str
 /** O que falhou na resposta, frente ao que o cenário espera ([] = passou). */
 function conferir(c: Cenario, r: Resposta): string[] {
   const falhas: string[] = [];
+  if (c.deve_perguntar) return r.perguntou ? [] : ["não perguntou antes de mudar"];
+  if (r.perguntou) return c.pode_perguntar ? [] : ["perguntou sem precisar"];
   // Ferramenta pode vir como alternativa: "mudar_acao|mudar_varias".
   const e = (nome: string, padrao: string) => padrao.split("|").includes(nome);
   const titulos = r.citadas.map((x) => x.titulo.toLowerCase());
@@ -155,25 +164,35 @@ function conferir(c: Cenario, r: Resposta): string[] {
 
 const cenarios = JSON.parse(readFileSync(process.argv[2], "utf8")) as Cenario[];
 const escolhidos = process.argv[3] ? new Set(process.argv[3].split(",")) : null;
+const VEZES = Math.max(1, Number(process.env.BATERIA_VEZES || 1));
+const PARALELO = Math.max(1, Number(process.env.BATERIA_PARALELO || 1));
+const fila = cenarios
+  .filter((c) => !escolhidos || escolhidos.has(c.id))
+  .flatMap((c) => Array.from({ length: Math.max(c.vezes ?? 1, VEZES) }, () => c));
 let passaram = 0;
-let total = 0;
 let usd = 0;
-for (const c of cenarios.flatMap((x) => Array.from({ length: x.vezes ?? 1 }, () => x))) {
-  if (escolhidos && !escolhidos.has(c.id)) continue;
-  total++;
+
+async function rodar(c: Cenario): Promise<void> {
   const contexto = await resolver(c.contexto ?? {});
   const falas: { quem: "pessoa" | "assistente"; texto: string; acoes?: string[] }[] = [];
   let ultima: Resposta | null = null;
   let erro: string | null = null;
   for (const p of c.perguntas) {
     falas.push({ quem: "pessoa", texto: p });
-    chamadas = [];
+    const chamadas: Chamada[] = [];
     const t0 = Date.now();
     try {
-      const r = await conversar(user as never, req, { falas, contexto, workspace: "welcome-trips" });
+      const r = await daPergunta.run(chamadas, () => conversar(user as never, req, { falas, contexto, workspace: "welcome-trips" }));
       const acoes = [...new Set([...r.citadas.map((x) => x.id), ...r.feitas.map((f) => f.tarefa_id), ...r.propostas.map((x) => x.tarefa_id)])];
       falas.push({ quem: "assistente", texto: r.texto, acoes: acoes.filter((x): x is string => !!x) });
-      ultima = { texto: r.texto, citadas: r.citadas, segundos: Number(((Date.now() - t0) / 1000).toFixed(1)), chamadas, usd: r.custo_usd };
+      ultima = {
+        texto: r.texto,
+        citadas: r.citadas,
+        segundos: Number(((Date.now() - t0) / 1000).toFixed(1)),
+        chamadas,
+        usd: r.custo_usd,
+        perguntou: r.perguntou === true,
+      };
       usd += r.custo_usd;
     } catch (e) {
       erro = (e as Error).message;
@@ -189,11 +208,20 @@ for (const c of cenarios.flatMap((x) => Array.from({ length: x.vezes ?? 1 }, () 
       falhas,
       segundos: ultima?.segundos ?? null,
       na_tela: ultima?.citadas.length ?? 0,
+      perguntou: ultima?.perguntou ?? false,
       ferramentas: ultima?.chamadas.map((x) => x.nome) ?? [],
       texto: ultima?.texto.slice(0, 400) ?? null,
     }),
   );
 }
+
+let proximo = 0;
+await Promise.all(
+  Array.from({ length: PARALELO }, async () => {
+    while (proximo < fila.length) await rodar(fila[proximo++]);
+  }),
+);
+const total = fila.length;
 const nota = total ? Math.round((passaram / total) * 100) : 0;
 console.log(JSON.stringify({ resultado: `${passaram} de ${total} certos`, nota, usd: Number(usd.toFixed(4)) }));
 process.exit(nota >= 95 ? 0 : 1);
