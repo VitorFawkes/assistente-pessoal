@@ -193,6 +193,9 @@ describe("limite de pessoa na procura", () => {
       "Acho que devo ter falado de TTARS em várias reuniões",
       "Preciso fazer um resumo de tudo de TTARS",
       "Tenho que fazer uma apresentação com tudo de TTARS",
+      "Preciso que você compile tudo de TTARS",
+      "Preciso saber tudo de TTARS das reuniões",
+      "manda o que tem pra mim ver",
     ]) {
       expect([frase, limitaPorPessoa(frase, nomes)]).toEqual([frase, false]);
     }
@@ -221,6 +224,11 @@ describe("limite de pessoa na procura", () => {
       "só as minhas das reuniões",
       "O que ficou pra mim de TTARS nas reuniões?",
       "o que eu tenho que fazer de TTARS",
+      "O que eu ainda tenho que fazer de TTARS nas reuniões?",
+      "O que ainda preciso fazer no TTARS?",
+      "Preciso fazer o quê no TTARS?",
+      "O que eu preciso entregar de TTARS?",
+      "Quais eu tenho que resolver no TTARS?",
     ]) {
       expect([frase, limitaPorPessoa(frase, nomes)]).toEqual([frase, true]);
     }
