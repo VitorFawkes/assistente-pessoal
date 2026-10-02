@@ -3,6 +3,7 @@
 // faço" e cortava de 54 para 4. Aqui o GPT-6 Sol lê só a conversa (sem o retrato) e diz o que ela quer, de quem são as
 // ações e se há dúvida; o Assistente (GPT-6 Luna) segue esse entendimento. Falhou ou demorou: o Assistente segue sem ele.
 import { chamarModelo } from "./ia";
+import { ditoPelaPessoa, limitaPorPessoa } from "./agente-regras";
 
 export const MODELO_ENTENDER = process.env.ACOES_ENTENDER_MODEL || "gpt-6-sol";
 
@@ -16,6 +17,10 @@ export type Entendimento = {
   oferecer: string | null;
   /** Mudança que pode sair errada sem saber o que ela quer: pergunta antes de fazer. */
   pergunta: string | null;
+  /** A pessoa de quem ela fala, como ela escreveu (nome ou apelido). */
+  pessoa_citada: string | null;
+  /** Consulta estreita (só as dela, só as de alguém): a pergunta que oferece só essas, se a resposta for a ampla. */
+  oferta_estreita: string | null;
   custoUsd: number;
   segundos: number;
 };
@@ -32,8 +37,10 @@ const ESQUEMA = {
     certeza: { type: "string", enum: ["alta", "baixa"] },
     oferecer: nulo("Só em consulta com certeza baixa: a pergunta curta que oferece a leitura mais estreita."),
     pergunta: nulo("Só em mudança que pode sair errada: a pergunta curta, com as opções numeradas."),
+    pessoa_citada: nulo("Em de_outra_pessoa ou dela_e_de_outra: o nome ou apelido da pessoa, como ela escreveu."),
+    oferta_estreita: nulo("Em consulta com de_quem diferente de todos: a pergunta curta que ofereceria só essas."),
   },
-  required: ["resumo", "tipo", "de_quem", "certeza", "oferecer", "pergunta"],
+  required: ["resumo", "tipo", "de_quem", "certeza", "oferecer", "pergunta", "pessoa_citada", "oferta_estreita"],
 };
 
 function instrucoes(nome: string): string {
@@ -48,6 +55,8 @@ function instrucoes(nome: string): string {
     "certeza: alta quando as palavras dela decidem; baixa quando o pedido aceita duas leituras e a resposta muda muito entre elas.",
     "oferecer: só em consulta com certeza baixa entre uma leitura mais ampla e uma mais estreita. Fique com a mais ampla em de_quem e escreva aqui a pergunta curta, falando com ela, que oferece a outra. Senão, null.",
     "pergunta: só em mudança que pode sair errada por não saber o que ela quer (o que mudar, em quais ações, para quem). Escreva a pergunta curta com as opções numeradas. Nome de pessoa repetido e qual ação da lista o Assistente resolve com a lista dele: não pergunte por isso. Senão, null.",
+    "pessoa_citada: em de_outra_pessoa ou dela_e_de_outra, o nome ou apelido da pessoa como ela escreveu (se ela usou 'ele' ou 'ela', o nome que ela escreveu antes). Senão, null.",
+    "oferta_estreita: em consulta com de_quem diferente de todos, a pergunta curta, falando com ela, que ofereceria só essas ações. Senão, null.",
     "Nunca pergunte em consulta: a resposta vai pela leitura mais ampla e oferece a outra.",
   ].join("\n");
 }
@@ -86,6 +95,8 @@ export async function entenderPedido(
       certeza: d.certeza,
       oferecer: d.tipo === "consulta" && d.certeza === "baixa" ? (d.oferecer?.trim() || null) : null,
       pergunta: d.tipo === "mudanca" ? (d.pergunta?.trim() || null) : null,
+      pessoa_citada: d.pessoa_citada?.trim() || null,
+      oferta_estreita: d.tipo === "consulta" && d.de_quem !== "todos" ? (d.oferta_estreita?.trim() || null) : null,
       custoUsd: r.custoUsd,
       segundos: Number(((Date.now() - comeco) / 1000).toFixed(1)),
     };
@@ -111,4 +122,24 @@ export function entendimentoEmTexto(e: Entendimento): string {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+const ACEITOU = /^\s*(sim|s|quero|pode|isso|claro|ok|beleza|bora|por favor|manda|mostra|1)\b/i;
+
+/**
+ * Consulta só estreita (só as dela, só as de alguém) com prova nas palavras dela: as que limitam ("só as minhas", "o que
+ * eu devo ao Tiago"), o nome que ela escreveu ou o "sim" à oferta da resposta anterior. Sem prova, vai a leitura ampla e
+ * a estreita vira a oferta do fim. Medido em 02/10/2026: o Sol leu "reuniões que falei em fazer coisas no CRM" como "as
+ * que ela disse que faria", com certeza alta, e a resposta caiu de 50 para 22. Mudança fica como o Sol entendeu: ali a
+ * leitura estreita mexe em menos ações.
+ */
+export function comProva(e: Entendimento, falas: { quem: string; texto: string }[], nomes: string[]): Entendimento {
+  if (e.tipo !== "consulta" || e.de_quem === "todos") return e;
+  const dela = falas.filter((f) => f.quem === "pessoa").map((f) => f.texto);
+  const atual = dela[dela.length - 1] ?? "";
+  const anterior = falas.length > 1 ? falas[falas.length - 2] : null;
+  const aceitou = anterior?.quem === "assistente" && anterior.texto.trim().endsWith("?") && ACEITOU.test(atual);
+  const citou = e.de_quem !== "dela" && !!e.pessoa_citada && ditoPelaPessoa(e.pessoa_citada, dela.slice(-2));
+  if (aceitou || citou || limitaPorPessoa(atual, nomes)) return e;
+  return { ...e, de_quem: "todos", oferecer: e.oferta_estreita ?? e.oferecer };
 }

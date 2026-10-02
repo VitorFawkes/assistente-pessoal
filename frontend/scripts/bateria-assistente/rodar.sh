@@ -24,7 +24,7 @@ echo "Rodando a bateria..."
 ssh -i "$CHAVE" "$SERVIDOR" "umask 077
   V=\$(mktemp)
   docker exec acoes-equipe-frontend-1 env | grep -E '^(DATABASE_URL|OPENAI_API_KEY|TEAM_MODE|OWNER_SLUG|TZ)=' > \$V
-  docker run --rm --env-file \$V -e BATERIA_VEZES=${BATERIA_VEZES:-3} -e BATERIA_PARALELO=${BATERIA_PARALELO:-2} -w /app acoes-equipe-ensaio:$SHA \
+  docker run --rm --env-file \$V -e BATERIA_VEZES=${BATERIA_VEZES:-3} -e BATERIA_PARALELO=${BATERIA_PARALELO:-2} -e ACOES_IA_TETO_DIA_USD=50 -w /app acoes-equipe-ensaio:$SHA \
     bun scripts/bateria-assistente/bateria.ts scripts/bateria-assistente/cenarios.json '$SO' > /tmp/bateria-$SHA.jsonl 2>/dev/null
   codigo=\$?
   rm -f \$V
