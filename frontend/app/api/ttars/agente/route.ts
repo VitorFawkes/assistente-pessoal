@@ -6,8 +6,8 @@ import { IaIndisponivel } from "@/lib/ia";
 export const dynamic = "force-dynamic";
 export const maxDuration = 90;
 
-// Assistente do Ações nas telas do TTARS. Corpo: { falas: [{quem, texto}], contexto?: {tela,
-// projeto_id, reuniao_id, pessoa_email, tarefa_id, time_id, objetivo_id}, workspace? }. A conversa mora no navegador.
+// Assistente do Ações nas telas do TTARS. Corpo: { falas: [{quem, texto, acoes?}], contexto?: {tela, projeto_id,
+// reuniao_id, reuniao_aberta, pessoa_email, tarefa_id, time_id, objetivo_id, lugar}, workspace? }. A conversa mora no navegador.
 export const POST = withAuth(async (user, req) => {
   const body = (await req.json().catch(() => null)) as {
     falas?: Fala[];
@@ -25,11 +25,13 @@ export const POST = withAuth(async (user, req) => {
       contexto: {
         tela: txt(c.tela),
         projeto_id: txt(c.projeto_id),
-        reuniao_id: txt(c.reuniao_id),
+        // reuniao_id só vem na reunião de quem gravou (a caixa "Nova ação" usa); reuniao_aberta, em qualquer uma.
+        reuniao_id: txt(c.reuniao_id) ?? txt((c as { reuniao_aberta?: unknown }).reuniao_aberta),
         pessoa_email: txt(c.pessoa_email),
         tarefa_id: txt(c.tarefa_id),
         time_id: txt(c.time_id),
         objetivo_id: txt(c.objetivo_id),
+        lugar: txt(c.lugar),
       },
       workspace: txt(body.workspace),
     });
