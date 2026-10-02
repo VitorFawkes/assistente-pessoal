@@ -73,13 +73,14 @@ export function quandoVence(prazo: string | null | undefined, hoje: string): str
   return "depois";
 }
 
-/** Linha compacta da tarefa pro modelo. `ref` curto (t1, t2…) no lugar do id. */
-export function linhaDoRetrato(ref: string, t: TarefaVista, hoje?: string) {
+/** Linha compacta da tarefa pro modelo. `ref` curto (t1, t2…) no lugar do id. `quemFazSouEu`: o nome de quem faz é
+ *  o de quem pergunta (ação da lista de um colega com "Vitor" como quem faz vira "você"). */
+export function linhaDoRetrato(ref: string, t: TarefaVista, hoje?: string, quemFazSouEu = false) {
   const fechada = t.status === "concluida" || t.status === "cancelada";
   return {
     ref,
     titulo: t.titulo,
-    quem_faz: quemFazNaTela(t),
+    quem_faz: quemFazSouEu ? "você" : quemFazNaTela(t),
     tipo: papel(t),
     prazo: diaDoPrazo(t.prazo),
     ...(hoje && !fechada ? { vence: quandoVence(t.prazo, hoje) } : {}),
@@ -173,6 +174,24 @@ export function tituloCurto(s: string, max = 70): string {
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
 
+/** A mesma linha em texto corrido, para listas longas (o acervo): chave repetida em cada linha custaria o dobro. */
+export function linhaCorrida(l: ReturnType<typeof linhaDoRetrato>, detalhe?: string | null): string {
+  return [
+    l.ref,
+    l.titulo,
+    `quem faz: ${l.quem_faz} (${l.tipo})`,
+    l.prazo ? `prazo ${l.prazo}${l.vence ? `, ${l.vence}` : ""}` : null,
+    l.situacao !== "aberta" ? l.situacao : null,
+    l.reuniao ? `reunião: ${l.reuniao}` : null,
+    l.criada_por ? `lista de ${l.criada_por}` : null,
+    l.projetos ? `projeto: ${l.projetos.join(", ")}` : null,
+    l.time ? `time: ${l.time}` : null,
+    detalhe ? `detalhe: ${tituloCurto(detalhe, 110)}` : null,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+}
+
 // ── Memória entre perguntas (Vitor, 02/10/2026: "o assistente tá MUITO burro") ──────────
 // A conversa mora no navegador e cada pergunta remonta o retrato do zero. O que apareceu na tela com
 // cada resposta volta na pergunta seguinte (ids em `acoes`); sem isso, "você só mandou 8, manda todas"
@@ -205,37 +224,4 @@ export function limparRefs(texto: string): string {
     .replace(/\s*[[(]na tela:[^\])]*[\])]/gi, "")
     .replace(/\s*[[(](?:[tpr]\d+(?:\s*,\s*)?)+[\])]/g, "")
     .replace(/[ \t]+\n/g, "\n");
-}
-
-// ── Busca por assunto ("tudo o que falamos de CRM nas reuniões") ─────────────────────────
-
-/** O banco compara sem acento com translate(lower(…), ACENTOS, SEM_ACENTOS); as duas listas andam juntas. */
-export const ACENTOS = "áàâãäåéèêëíìîïóòôõöúùûüçñ";
-export const SEM_ACENTOS = "aaaaaaeeeeiiiiooooouuuucn";
-
-export function semAcento(s: string): string {
-  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-}
-
-/** Palavras da busca: sem acento, sem repetir, de 2 a 40 letras, no máximo 8. */
-export function palavrasDaBusca(v: unknown): string[] {
-  const out: string[] = [];
-  for (const x of Array.isArray(v) ? v : [v]) {
-    if (typeof x !== "string") continue;
-    const p = semAcento(x).replace(/\s+/g, " ").trim().slice(0, 40);
-    if (p.length >= 2 && !out.includes(p)) out.push(p);
-    if (out.length === 8) break;
-  }
-  return out;
-}
-
-/** A ação tem alguma das palavras no título ou na descrição? */
-export function casaComBusca(t: { titulo: string; descricao?: string | null }, palavras: string[]): boolean {
-  const alvo = semAcento(`${t.titulo} ${t.descricao ?? ""}`);
-  return palavras.some((p) => alvo.includes(p));
-}
-
-/** As palavras como padrões do LIKE, com % e _ escapados. */
-export function padroesLike(palavras: string[]): string[] {
-  return palavras.map((p) => `%${p.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
 }

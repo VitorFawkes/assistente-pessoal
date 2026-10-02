@@ -14,25 +14,24 @@ import { ordenarPendencias } from "./compartilhar";
 import { listarProjetos, projetoParaQuemVe, adicionarAoProjeto, tirarDoProjeto, type ProjetoResumo } from "./projetos";
 import { meetingSubject } from "./meeting-label";
 import { trocarFalantes } from "./falantes";
-import { paraTela, tarefaNaTela } from "./ttars-tela";
+import { comentarNaTarefa, comentariosDaTarefa, historicoDaTarefa, paraTela, tarefaNaTela } from "./ttars-tela";
+import { pessoasQueVeemATarefa } from "./quem-ve";
+import { acervo, escolherPeloSentido } from "./agente-acervo";
 import { criarAcao } from "./nova-acao";
 import { acharPessoaPorNome, ehEu } from "./pessoa-por-nome";
 import { chamarModelo, IaIndisponivel, type Ferramenta, type Item } from "./ia";
 import {
-  ACENTOS,
-  SEM_ACENTOS,
   anotarNaTela,
-  casaComBusca,
   desfazerQuem,
   diaDoPrazo,
   ehMinha,
   idsDasFalas,
   limparRefs,
+  linhaCorrida,
   linhaDoRetrato,
   montarMudanca,
-  padroesLike,
-  palavrasDaBusca,
   precisaConfirmar,
+  quemFazNaTela,
   tituloCurto,
   type Mudanca,
   type Pedido,
@@ -48,7 +47,8 @@ const MAX_ABERTAS = 150;
 const MAX_FECHADAS = 25;
 // Pedido "todas" vem inteiro (antes eram no máximo 8 no texto e 12 na tela); cabe o retrato inteiro.
 const MAX_CITADAS = 200;
-const MAX_ACHADAS = 80;
+/** Com mais linhas que isto o acervo vai à escolha sem o detalhe (a chamada ficaria lenta). */
+const ACERVO_COM_DETALHE = 400;
 
 /** `acoes` (só nas do assistente): ids do que apareceu na tela com aquela resposta. */
 export type Fala = { quem: "pessoa" | "assistente"; texto: string; acoes?: string[] };
@@ -83,6 +83,13 @@ type Retrato = {
   pessoas: PessoaDaEquipe[];
   texto: string;
 };
+
+/** Quem faz tem o nome de quem pergunta numa ação da lista de um colega ("Vitor" na reunião do Tiago = você). */
+function quemFazSouEu(t: TarefaVista, user: User, pessoas: PessoaDaEquipe[]): boolean {
+  if (!t.compartilhada || t.is_mine || !user.email) return false;
+  const achado = acharPessoaPorNome(quemFazNaTela(t), pessoas);
+  return !!achado && "pessoa" in achado && achado.pessoa.email === user.email.toLowerCase();
+}
 
 /**
  * Ações que quem pergunta enxerga entre as que `onde` escolhe: as dele e as das reuniões que ele abre (a mesma regra
@@ -249,8 +256,10 @@ async function montarRetrato(user: User, ctx: Contexto, lembrar: string[] = []):
     fim_desta_semana: domingo,
     tela: tela.join(" ") || null,
     acoes_abertas: abertas.length > MAX_ABERTAS ? `${abertas.length} (mostrando as ${MAX_ABERTAS} com prazo mais perto)` : abertas.length,
-    acoes: escolhidas.map((t) => linhaDoRetrato(refDe.get(t.id)!, t, hoje)),
-    ...(jaMostradas.length ? { ja_mostradas: jaMostradas.map((t) => linhaDoRetrato(refDe.get(t.id)!, t, hoje)) } : {}),
+    acoes: escolhidas.map((t) => linhaDoRetrato(refDe.get(t.id)!, t, hoje, quemFazSouEu(t, user, pessoas))),
+    ...(jaMostradas.length
+      ? { ja_mostradas: jaMostradas.map((t) => linhaDoRetrato(refDe.get(t.id)!, t, hoje, quemFazSouEu(t, user, pessoas))) }
+      : {}),
     projetos: [...refsProjeto.entries()].map(([ref, p]) => ({
       ref,
       nome: p.nome,
@@ -301,7 +310,7 @@ const FERRAMENTAS: Ferramenta[] = [
       properties: {
         acao: { type: "string", description: "ref da ação (t1, t2…)." },
         titulo: nulo("string", "Título novo ou null."),
-        descricao: nulo("string", "Descrição nova, '' para apagar a descrição, ou null."),
+        descricao: nulo("string", "Só quando a pessoa pedir para mudar a DESCRIÇÃO: o texto novo inteiro, '' para apagar. Comentário vai em comentar_acao. null = não mexe."),
         prazo: nulo("string", "AAAA-MM-DD, 'remover' para tirar o prazo, ou null."),
         prioridade: { type: ["string", "null"], enum: ["baixa", "media", "alta", "urgente", null] },
         situacao: {
@@ -357,32 +366,47 @@ const FERRAMENTAS: Ferramenta[] = [
     },
   },
   {
-    name: "todas_as_acoes",
+    name: "procurar",
     description:
-      "Lista TODAS as ações que a pessoa vê, numa linha cada: a lista dela e as das reuniões dela e dos colegas que ela abre. Use para pedido por assunto, por pessoa ou de repetidas, e escolha pelo sentido.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: { incluir_concluidas: { type: "boolean", description: "true = também as concluídas. Canceladas nunca vêm." } },
-      required: ["incluir_concluidas"],
-    },
-  },
-  {
-    name: "buscar_acoes",
-    description:
-      "Procura ações por assunto em tudo o que a pessoa vê: a lista dela e as ações das reuniões dela e dos colegas que ela abre (essas não estão no retrato). Use para 'tudo sobre X', 'o que falamos de X nas reuniões', 'junta as de X'.",
+      "Procura pelo SENTIDO em tudo o que a pessoa vê: a lista dela, as ações das reuniões dela e dos colegas que ela abre, as passadas e marcadas para ela, as dos projetos (inclusive a área Marketing) e dos times. Use para pedido por assunto ('tudo de TTARS', 'o que falamos de WhatsApp'), por pessoa ('o que a Paula me deve', 'o que eu devo ao Tiago', 'com o meu nome') e de repetidas.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        palavras: {
-          type: "array",
-          items: { type: "string" },
-          description: "A palavra e as variações (ex.: ['crm', 'ttars', 'tars']). Acha a ação que tiver qualquer uma no título ou na descrição, sem diferença de acento.",
+        pedido: {
+          type: "string",
+          description:
+            "O que procurar, em frase completa e com o sentido amplo (ex.: 'ações sobre o TTARS ou CRM: telas, cards, funil, relatórios, acessos; só as que Vitor ficou de fazer').",
         },
         incluir_concluidas: { type: "boolean", description: "true = também as concluídas. Canceladas nunca vêm." },
+        repetidas: { type: "boolean", description: "true = agrupar as que são o mesmo combinado (pedido de repetidas ou 'sem repetir')." },
       },
-      required: ["palavras", "incluir_concluidas"],
+      required: ["pedido", "incluir_concluidas", "repetidas"],
+    },
+  },
+  {
+    name: "ver_acao",
+    description:
+      "Lê tudo de uma ação: descrição, trecho falado na reunião, comentários, histórico, quem vê, quem também faz, anexos, projeto, time, reunião e pedido ao marketing. Use antes de responder sobre detalhes, andamento ou o que já foi feito.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: { acao: { type: "string", description: "ref da ação (t1, t2…)." } },
+      required: ["acao"],
+    },
+  },
+  {
+    name: "comentar_acao",
+    description:
+      "Escreve um comentário numa ação ('comenta', 'anota na ação', 'registra que…'). Comentar nunca é mudar a descrição.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        acao: { type: "string", description: "ref da ação (t1, t2…)." },
+        texto: { type: "string", description: "O comentário, com as palavras da pessoa." },
+      },
+      required: ["acao", "texto"],
     },
   },
 ];
@@ -404,19 +428,22 @@ const RESPOSTA = {
 function instrucoes(nome: string): string {
   return [
     `Você é o Assistente do Ações, dentro do TTARS da Welcome. Ajuda ${nome} a ver e organizar as ações dele(a): combinados internos que a pessoa faz, cobra de alguém ou só aguarda. Não são as Tarefas de cliente do TTARS.`,
-    "O RETRATO (primeira mensagem) tem a lista da pessoa (as ações dela e as passadas a ela), os projetos, os nomes das reuniões e as pessoas. As ações das reuniões de colegas NÃO estão na lista. Pedido por assunto ('tudo sobre CRM', 'o que falei de X nas reuniões', 'junta as de X'): chame buscar_acoes com a palavra e as variações (ex.: crm, ttars, tars), que procura em tudo o que a pessoa vê. Uma reunião só: ver_reuniao.",
-    "Pedido por assunto, por pessoa ou de repetidas ('tudo de TTARS', 'o que falei de X nas reuniões', 'o que a Paula me deve', 'quais estão repetidas'): chame todas_as_acoes e escolha pelo SENTIDO, nunca só pela palavra. Ex.: 'coisas no TTARS/CRM' inclui telas, cards, funil, etapas, régua, relatórios, painéis, acessos, módulos, busca, assistente, atendimento e WhatsApp do sistema, mesmo sem a palavra TTARS. Repetidas = o mesmo combinado em mais de um lugar (mesma entrega), mesmo com palavras ou donos diferentes. buscar_acoes só para palavra exata.",
+    "O RETRATO (primeira mensagem) tem a lista da pessoa ('acoes': as dela, as passadas e as marcadas para ela), os projetos, as reuniões recentes e as pessoas. O resto do que ela vê (ações das reuniões de colegas, dos projetos, da área Marketing e dos times) só vem por procurar.",
+    "Pedido por assunto, por pessoa ou de repetidas ('tudo de TTARS', 'o que falei de X nas reuniões', 'o que a Paula me deve', 'o que eu devo ao Tiago', 'com o meu nome', 'quais estão repetidas'): chame procurar com um pedido completo e de sentido amplo; ele escolhe pelo SENTIDO em tudo o que a pessoa vê. 'Coisas no TTARS/CRM' = telas, cards, funil, etapas, régua, relatórios, painéis, acessos, módulos, busca, assistente, atendimento e WhatsApp do sistema, mesmo sem a palavra. 'Só as minhas' = diga no pedido 'só as que " + nome + " faz'. 'O que ele tem comigo' = os dois sentidos.",
+    "Detalhe de uma ação (descrição, o que foi falado na reunião, comentários, andamento, quem vê): chame ver_acao. Nunca diga que algo não existe sem ler.",
     "Use só o retrato e o que as ferramentas devolverem. Nunca invente ação, pessoa, data ou reunião; se não achar, diga que não achou.",
     "Responda curto e simples, em português do Brasil, sem jargão.",
     "Datas: use o 'hoje' do retrato. 'esta semana' vai até fim_desta_semana. Converta 'sexta', 'amanhã', 'semana que vem' para AAAA-MM-DD. Mostre datas como 'sex 03/10'.",
     "Cada ação tem 'vence' já calculado (atrasada N dias, hoje, amanhã, esta semana, semana que vem, depois). Use esse campo, não faça conta de data. Quando perguntarem o que vence (hoje, esta semana), conte também as atrasadas, dizendo que estão atrasadas.",
-    "A tela mostra, embaixo da resposta, todas as ações que você puser em acoes_citadas, sem limite. Ponha ali todas as que respondem ao pedido: se pedirem todas, nunca corte nem escolha só algumas. No texto, diga quantas são (o mesmo número de acoes_citadas) e resuma em uma ou duas frases; só escreva a lista no texto se a pessoa pedir em texto, e aí a lista inteira, uma por linha. Pediram sem repetir: o mesmo combinado em mais de um lugar entra uma vez só, e diga quantas juntou.",
+    "A tela mostra, embaixo da resposta, todas as ações que você puser em acoes_citadas, sem limite. Ponha ali todas as que respondem ao pedido: se pedirem todas, nunca corte nem escolha só algumas. Em resumo de reuniões, cite só as ações que a pessoa pediu ou as dela, nunca todas as das reuniões. No texto, diga quantas são (o mesmo número de acoes_citadas) e resuma em uma ou duas frases; só escreva a lista no texto se a pessoa pedir em texto, e aí a lista inteira, uma por linha. Pediram sem repetir: o mesmo combinado em mais de um lugar entra uma vez só, e diga quantas juntou.",
     "Cada resposta sua anterior termina com [na tela: …]: as ações que apareceram com ela. 'Manda todas', 'você só mandou 8', 'repete', 'essas' falam delas, que estão no retrato com essas refs (as que não são da lista vêm em ja_mostradas). Nunca escreva [na tela: …] na resposta.",
     "A lista dela é 'acoes' do retrato. Pergunta sobre o que ela tem (o que vence, atrasadas, o que faz, o que cobra) olha só 'acoes'; ja_mostradas e o que as ferramentas trouxeram só entram quando ela falar dessas ações ou do assunto delas.",
-    "quem_faz 'você' = a própria pessoa. tipo é o papel dela: 'eu faço', 'eu cobro', 'só aguardo', 'faço junto' ou 'da lista de quem criou' (nem faz nem cobra: a ação é de criada_por). Se quem_faz for o nome de quem pergunta numa ação da lista de quem criou, disseram que ela faz, mas a ação continua com quem criou.",
+    "quem_faz 'você' = a própria pessoa (também numa ação da lista de outra pessoa). tipo é o papel dela: 'eu faço', 'eu cobro', 'só aguardo', 'faço junto' ou 'da lista de quem criou' (nem faz nem cobra: a ação é de criada_por).",
+    "Comentar ('comenta', 'anota na ação', 'registra que…') = comentar_acao. Mudar a descrição só quando a pessoa pedir para mudar a descrição.",
     "O pedido da pessoa já é a autorização: crie ou mude na hora com as ferramentas, sem perguntar se pode; a tela mostra Desfazer. Só descreva antes, sem mudar, se a pessoa pedir para ver antes. Só diga que fez depois da ferramenta responder ok. Se ela devolver 'aguardando_confirmacao' (trocar quem faz numa ação que outra pessoa criou), diga que é só apertar Confirmar. Se devolver erro, explique em uma frase.",
     "Se o pedido puder ser mais de uma ação, ou o nome da pessoa for de mais de uma pessoa, pergunte antes citando as opções. Não mude nada que a pessoa não pediu.",
     "Só crie ação quando a pessoa pedir pra criar, anotar, lembrar ou pedir algo a alguém. Se ela pediu pra mudar, concluir ou passar uma ação que não está no retrato nem veio de uma ferramenta, diga que não achou essa ação entre as dela e NÃO crie outra no lugar.",
+    "Fora do Ações (mandar e-mail, WhatsApp ou mensagem, ligar, marcar reunião): diga que você não manda nada e ofereça um lembrete para a própria pessoa (ex.: 'Cobrar a Paula pelas peças', quem faz = ela mesma). Nunca crie ação para outra pessoa fazer o envio.",
     "Nunca escreva as refs (t1, p2, r3) no texto: fale pelo nome da ação, do projeto ou da reunião.",
     "Nunca apaga ação: desistir é situacao 'cancelada'. 'Passar para Fulano' = mudar_acao com quem.",
   ].join("\n");
@@ -424,7 +451,8 @@ function instrucoes(nome: string): string {
 
 // ── Execução ─────────────────────────────────────────────────────────────────────────
 
-type Pendente = { feitas: Feita[]; propostas: Proposta[] };
+/** `custo`: o que as ferramentas gastaram de IA (a escolha pelo sentido) e entra na conta da pergunta. */
+type Pendente = { feitas: Feita[]; propostas: Proposta[]; custo: number };
 
 function requisicaoInterna(req: Request, caminho: string, metodo: string, corpo?: unknown): Request {
   const h = new Headers({ "content-type": "application/json" });
@@ -630,70 +658,93 @@ async function executar(
     // gravou (antes virava "você": 4 das 8 ações que o Vitor viu em 02/10 eram da Ana e da Mariana).
     const tarefas = await carregarVisiveis(user.id, "t.meeting_id = $1::uuid", [id], 200);
     const hoje = hojeBR();
-    const refs = tarefas.map((t) => linhaDoRetrato(refNoRetrato(retrato, t), t, hoje));
+    const refs = tarefas.map((t) => linhaDoRetrato(refNoRetrato(retrato, t), t, hoje, quemFazSouEu(t, user, retrato.pessoas)));
     const resumo = trocarFalantes(det.executive_summary || det.summary || "", det.speaker_labels) ?? "";
     return { resumo: resumo.slice(0, 3500), acoes: refs };
   }
 
-  if (chamada.name === "todas_as_acoes") {
+  if (chamada.name === "procurar") {
+    const pedido = str(a.pedido);
+    if (!pedido) return { erro: "faltou dizer o que procurar" };
     const concluidas = a.incluir_concluidas === true;
+    const repetidas = a.repetidas === true;
     const vale = (t: TarefaVista) =>
       t.status === "aberta" || t.status === "em_andamento" || t.status === "aguardando_aprovacao" || (concluidas && t.status === "concluida");
-    const doRetrato = [...retrato.tarefas.values()].filter(vale);
-    const doBanco = await carregarVisiveis(
-      user.id,
-      `(t.status IN ('aberta','em_andamento','aguardando_aprovacao') OR ($1::boolean AND t.status = 'concluida'))`,
-      [concluidas],
-      600,
-    );
-    const vistas = new Set(doRetrato.map((t) => t.id));
-    const todas = [...doRetrato, ...doBanco.filter((t) => !vistas.has(t.id))].sort(ordenarPendencias);
+    const { tarefas, cortado } = await acervo(user.id, { concluidas });
+    // O que já está no retrato (lista, página aberta, o que veio de ferramenta) fica com a ref e a versão de lá.
+    const vistas = new Set<string>();
+    const todas = [...[...retrato.tarefas.values()].filter(vale), ...tarefas].filter((t) => !vistas.has(t.id) && !!vistas.add(t.id));
     const hoje = hojeBR();
-    // Uma linha de texto por ação (chave repetida em cada linha custaria o dobro).
-    const linhas = todas.map((t) => {
-      const l = linhaDoRetrato(refNoRetrato(retrato, t), t, hoje);
-      return [
-        l.ref,
-        l.titulo,
-        `quem faz: ${l.quem_faz} (${l.tipo})`,
-        l.prazo ? `prazo ${l.prazo}${l.vence ? `, ${l.vence}` : ""}` : null,
-        l.situacao !== "aberta" ? l.situacao : null,
-        l.reuniao ? `reunião: ${l.reuniao}` : null,
-        l.criada_por ? `lista de ${l.criada_por}` : null,
-        l.projetos ? `projeto: ${l.projetos.join(", ")}` : null,
-        t.descricao ? `detalhe: ${tituloCurto(t.descricao, 110)}` : null,
-      ]
-        .filter(Boolean)
-        .join(" | ");
-    });
-    return { total: linhas.length, acoes: linhas };
+    const linha = (t: TarefaVista, detalhe: boolean) =>
+      linhaCorrida(linhaDoRetrato(refNoRetrato(retrato, t), t, hoje, quemFazSouEu(t, user, retrato.pessoas)), detalhe ? t.descricao : null);
+    const linhas = todas.map((t) => linha(t, todas.length <= ACERVO_COM_DETALHE));
+    const escolha = await escolherPeloSentido(user, pedido, linhas, repetidas);
+    pendente.custo += escolha.custoUsd;
+    const escolhidas = [...new Set(escolha.refs)].map((r) => retrato.tarefas.get(r)).filter((t): t is TarefaVista => !!t && vale(t));
+    const naEscolha = new Set(escolhidas.map((t) => refNoRetrato(retrato, t)));
+    return {
+      no_acervo: todas.length,
+      ...(cortado ? { aviso: "o acervo passou do limite e foi cortado nas mais recentes" } : {}),
+      achadas: escolhidas.length,
+      acoes: escolhidas.map((t) => linha(t, true)),
+      ...(repetidas ? { repetidas: escolha.repetidas.map((g) => g.filter((r) => naEscolha.has(r) || retrato.tarefas.has(r))).filter((g) => g.length > 1) } : {}),
+    };
   }
 
-  if (chamada.name === "buscar_acoes") {
-    const palavras = palavrasDaBusca(a.palavras);
-    if (!palavras.length) return { erro: "faltou a palavra" };
-    const concluidas = a.incluir_concluidas === true;
-    const vale = (t: TarefaVista) =>
-      t.status === "aberta" || t.status === "em_andamento" || t.status === "aguardando_aprovacao" || (concluidas && t.status === "concluida");
-    // O retrato já tem a lista e a página aberta (as passadas a quem pergunta moram no dono e só vêm por ali);
-    // o banco acha o resto, com a mesma regra de quem vê das telas.
-    const doRetrato = [...retrato.tarefas.values()].filter((t) => vale(t) && casaComBusca(t, palavras));
-    const doBanco = await carregarVisiveis(
-      user.id,
-      `(t.status IN ('aberta','em_andamento','aguardando_aprovacao') OR ($2::boolean AND t.status = 'concluida'))
-        AND translate(lower(normalize(t.titulo || ' ' || coalesce(t.descricao, ''), NFC)), $3, $4) LIKE ANY($1::text[])`,
-      [padroesLike(palavras), concluidas, ACENTOS, SEM_ACENTOS],
-      MAX_ACHADAS * 2,
-    );
-    const vistas = new Set(doRetrato.map((t) => t.id));
-    const todas = [...doRetrato, ...doBanco.filter((t) => !vistas.has(t.id))].sort(ordenarPendencias);
+  if (chamada.name === "ver_acao") {
+    const t = retrato.tarefas.get(str(a.acao) ?? "");
+    if (!t) return { erro: `ação ${a.acao} não existe no retrato` };
     const hoje = hojeBR();
-    const total = doBanco.length >= MAX_ACHADAS * 2 ? `${todas.length} ou mais` : todas.length;
-    return {
-      total,
-      ...(todas.length > MAX_ACHADAS ? { aviso: `vieram ${MAX_ACHADAS} de ${total}: peça um assunto mais estreito` } : {}),
-      acoes: todas.slice(0, MAX_ACHADAS).map((t) => linhaDoRetrato(refNoRetrato(retrato, t), t, hoje)),
+    const achada = await tarefaNaTela(user.id, t.id).catch(() => null);
+    if (!achada) {
+      // Vista só pela reunião de um colega: o painel não abre; vai o que a lista já traz.
+      return {
+        ...linhaDoRetrato(refNoRetrato(retrato, t), t, hoje, quemFazSouEu(t, user, retrato.pessoas)),
+        descricao: t.descricao ?? null,
+        aviso: `ação da lista de ${t.criador_nome ?? "outra pessoa"}: você a vê pela reunião, sem comentários nem histórico`,
+      };
+    }
+    const v = achada.tarefa as TarefaVista & {
+      tambem_fazem?: { nome: string }[];
+      pedido?: unknown;
     };
+    retrato.tarefas.set(refNoRetrato(retrato, t), v);
+    const [historico, comentarios, quemVe] = await Promise.all([
+      historicoDaTarefa(achada.donoId, t.id, user.id).catch(() => []),
+      comentariosDaTarefa(achada.donoId, t.id, user.id).catch(() => []),
+      pessoasQueVeemATarefa(achada.donoId, t.id).catch(() => []),
+    ]);
+    return {
+      ...linhaDoRetrato(refNoRetrato(retrato, v), v, hoje, quemFazSouEu(v, user, retrato.pessoas)),
+      descricao: v.descricao ?? null,
+      trecho_da_reuniao: v.evidencia ?? null,
+      inicio: diaDoPrazo(v.inicio),
+      criada_em: diaDoPrazo(v.created_at),
+      ...(v.concluida_em ? { concluida_em: diaDoPrazo(v.concluida_em) } : {}),
+      tambem_fazem: (v.tambem_fazem ?? []).map((p) => p.nome),
+      quem_ve: quemVe.map((p) => p.nome),
+      anexos: (v.anexos ?? []).map((x) => x.titulo || x.filename || x.url),
+      comentarios: comentarios.map((c) => `${c.quem} (${diaDoPrazo(c.quando)}): ${tituloCurto(c.texto, 300)}`),
+      historico: historico.slice(0, 12).map((h) => `${diaDoPrazo(h.quando)} ${h.quem}: ${h.texto}`),
+      ...(v.pedido ? { pedido_ao_marketing: tituloCurto(JSON.stringify(v.pedido), 1500) } : {}),
+    };
+  }
+
+  if (chamada.name === "comentar_acao") {
+    const t = retrato.tarefas.get(str(a.acao) ?? "");
+    if (!t) return { erro: `ação ${a.acao} não existe no retrato` };
+    const texto = str(a.texto);
+    if (!texto) return { erro: "faltou o comentário" };
+    const r = await comentarNaTarefa(user.id, t.id, texto);
+    if (!r.ok) {
+      return { erro: r.status === 404 && t.compartilhada ? `essa ação é da lista de ${t.criador_nome ?? "outra pessoa"} e não está aberta para você comentar` : r.erro };
+    }
+    pendente.feitas.push({
+      descricao: `Comentei em "${tituloCurto(t.titulo)}": "${tituloCurto(texto, 80)}".`,
+      tarefa_id: t.id,
+      desfazer: [{ metodo: "DELETE", caminho: `/api/ttars/tarefas/${t.id}/comentarios/${r.valor.id}` }],
+    });
+    return { ok: true };
   }
 
   return { erro: `ferramenta desconhecida: ${chamada.name}` };
@@ -732,7 +783,7 @@ export async function conversar(
         : { role: "assistant", content: anotarNaTela(f.texto, idsDasFalas([f]).flatMap((id) => retrato.refDe.get(id) ?? [])) },
     ),
   ];
-  const pendente: Pendente = { feitas: [], propostas: [] };
+  const pendente: Pendente = { feitas: [], propostas: [], custo: 0 };
   let custo = 0;
   let chamadasFeitas = 0;
 
@@ -750,6 +801,7 @@ export async function conversar(
       esforco: "medium",
       formato: { nome: "resposta", schema: RESPOSTA },
       maxSaida: 6000,
+      signal: AbortSignal.timeout(75_000),
     });
     custo += r.custoUsd;
     if (!r.chamadas.length) {
@@ -775,7 +827,7 @@ export async function conversar(
         citadas: naTela.map((t) => ({
           id: t.id,
           titulo: t.titulo,
-          quem_faz: linhaDoRetrato("", t).quem_faz,
+          quem_faz: linhaDoRetrato("", t, undefined, quemFazSouEu(t, user, retrato.pessoas)).quem_faz,
           prazo: diaDoPrazo(t.prazo),
           situacao: t.status,
           abre: !t.compartilhada || !abre || abre.has(t.id),
@@ -783,7 +835,7 @@ export async function conversar(
         })),
         feitas: pendente.feitas,
         propostas: pendente.propostas,
-        custo_usd: Number(custo.toFixed(5)),
+        custo_usd: Number((custo + pendente.custo).toFixed(5)),
       };
     }
     entradaModelo.push(...r.itens);

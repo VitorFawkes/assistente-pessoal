@@ -1,20 +1,15 @@
 import { describe, expect, it } from "bun:test";
 import {
-  ACENTOS,
-  SEM_ACENTOS,
   anotarNaTela,
-  casaComBusca,
   desfazerQuem,
   idsDasFalas,
   limparRefs,
+  linhaCorrida,
   linhaDoRetrato,
   montarMudanca,
-  padroesLike,
-  palavrasDaBusca,
   precisaConfirmar,
   quandoVence,
   quemFazNaTela,
-  semAcento,
   type TarefaVista,
 } from "./agente-regras";
 import { paraQuemVe } from "./compartilhar";
@@ -154,20 +149,14 @@ describe("memória entre perguntas", () => {
   });
 });
 
-describe("busca por assunto", () => {
-  it("palavras sem acento, sem repetir, no máximo 8", () => {
-    expect(palavrasDaBusca(["CRM", "TTARS", "crm", " Régua  de convidados ", "x", 3])).toEqual(["crm", "ttars", "regua de convidados"]);
-    expect(palavrasDaBusca("tars")).toEqual(["tars"]);
-    expect(palavrasDaBusca(Array.from({ length: 12 }, (_, i) => `p${i}`))).toHaveLength(8);
-  });
-  it("acha no título ou na descrição, sem diferença de acento", () => {
-    expect(casaComBusca({ titulo: "Ajustar a régua de convidados no Tars" }, ["regua"])).toBe(true);
-    expect(casaComBusca({ titulo: "Revisar contrato", descricao: "levar para o CRM" }, ["crm"])).toBe(true);
-    expect(casaComBusca({ titulo: "Revisar contrato", descricao: null }, ["crm", "ttars"])).toBe(false);
-  });
-  it("o banco tira os mesmos acentos e o LIKE não vira curinga", () => {
-    expect(ACENTOS.length).toBe(SEM_ACENTOS.length);
-    for (let i = 0; i < ACENTOS.length; i++) expect(semAcento(ACENTOS[i])).toBe(SEM_ACENTOS[i]);
-    expect(padroesLike(["crm", "50%_off", "a\\b"])).toEqual(["%crm%", "%50\\%\\_off%", "%a\\\\b%"]);
+describe("linha corrida do acervo (02/10/2026)", () => {
+  it("junta os campos numa linha e diz 'você' quando quem faz é quem pergunta", () => {
+    const daReuniaoDoTiago = t({ acao: "cobrar", owner: "Vitor", is_mine: false, compartilhada: true, criador_nome: "Tiago", reuniao_rotulo: "Daily Noix" } as never);
+    const l = linhaDoRetrato("t7", daReuniaoDoTiago, "2026-10-02", true);
+    expect(l.quem_faz).toBe("você");
+    expect(linhaCorrida(l, "Fazer o TARS usar a estimativa provável")).toBe(
+      "t7 | Revisar orçamento | quem faz: você (da lista de quem criou) | prazo 2026-10-01, atrasada 1 dia | reunião: Daily Noix | lista de Tiago | detalhe: Fazer o TARS usar a estimativa provável",
+    );
+    expect(linhaDoRetrato("t7", daReuniaoDoTiago, "2026-10-02").quem_faz).toBe("Vitor");
   });
 });
