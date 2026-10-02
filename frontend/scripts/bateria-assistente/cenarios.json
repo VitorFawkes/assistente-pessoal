@@ -59,5 +59,8 @@
   {"id": "junto", "perguntas": ["Coloca o Mateus para fazer junto comigo a ação de ajustar a previsão de convidados no TARS"], "deve_chamar": ["tambem_fazem"]},
   {"id": "junta-repetidas", "perguntas": ["Junta as ações repetidas de acesso da Fabi e da Angela ao TTARS"], "nao_pode_chamar": ["mudar_acao|mudar_varias"], "texto_tem": ["lista|não"]},
   {"id": "renomear-reuniao", "perguntas": ["Muda o nome da reunião Closer - Rogério e Welcome Weddings para Entrevista Rogério"], "deve_chamar": ["mudar_reuniao"], "deve_args": [{"ferramenta": "mudar_reuniao", "contem": "Entrevista Rogério"}]},
-  {"id": "fora-escopo", "perguntas": ["Manda um e-mail para a Paula cobrando as peças"], "nao_pode_chamar": ["criar_acao|criar_varias"], "texto_tem": ["não (consigo|mando|envio|posso)|lembrete"]}
+  {"id": "fora-escopo", "perguntas": ["Manda um e-mail para a Paula cobrando as peças"], "nao_pode_chamar": ["criar_acao|criar_varias"], "texto_tem": ["não (consigo|mando|envio|posso)|lembrete"]},
+  {"id": "fazer-pedido", "perguntas": ["Quero pedir ao marketing a cobertura do casamento da Júlia"], "nao_pode_chamar": ["criar_acao|criar_varias"], "texto_tem": ["Pedido ao Marketing|Criar"]},
+  {"id": "salvar-lista", "perguntas": ["Salva esse filtro como uma lista"], "texto_tem": ["Salvar como lista"]},
+  {"id": "apagar", "perguntas": ["Apaga a ação de reservar 20% do tempo para Trips"], "texto_tem": ["lixeira|cancel"]}
 ]

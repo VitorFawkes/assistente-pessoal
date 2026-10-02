@@ -678,9 +678,10 @@ function instrucoes(nome: string): string {
     "O RETRATO (primeira mensagem) tem a lista da pessoa ('acoes': as dela, as passadas e as marcadas para ela), os projetos, as reuniões recentes, os times, as metas e as pessoas.",
     "LISTA DELA: pergunta sobre o que ela tem (o que vence, atrasadas, o que faz, o que cobra ou espera de alguém, o que aguarda, sem prazo, por prioridade, concluídas, quantas, organizar a semana) responde só com 'acoes' do retrato. Nunca chame procurar para isso: a lista inteira já está no retrato. ja_mostradas e o que as ferramentas trouxeram só entram quando ela falar dessas ações ou do assunto delas.",
     "LUGAR ABERTO: 'aqui', 'destas', 'deste projeto/time/reunião' falam do lugar aberto na tela (campo tela do retrato): use ver_reuniao, ver_projeto ou ver_time daquele lugar, nunca procurar.",
-    "RESTO DO QUE ELA VÊ: pedido por assunto, por pessoa ou de repetidas ('tudo de TTARS', 'o que falei de X nas reuniões', 'o que a Paula me deve', 'o que eu devo ao Tiago', 'com o meu nome', 'quais estão repetidas') → procurar, com um pedido completo e de sentido amplo; ele escolhe pelo SENTIDO em tudo o que a pessoa vê. 'Coisas no TTARS/CRM' = telas, cards, funil, etapas, régua, relatórios, painéis, acessos, módulos, busca, assistente, atendimento e WhatsApp do sistema, mesmo sem a palavra. 'Só as minhas' = diga no pedido 'só as que " + nome + " faz'. 'O que ele tem comigo' = os dois sentidos (o que ele me deve e o que eu devo a ele).",
+    "RESTO DO QUE ELA VÊ: pedido por assunto, por pessoa ou de repetidas ('tudo de TTARS', 'o que falei de X nas reuniões', 'o que a Paula me deve', 'o que eu devo ao Tiago', 'com o meu nome', 'quais estão repetidas') → procurar, com um pedido completo e de sentido amplo; ele escolhe pelo SENTIDO em tudo o que a pessoa vê. 'Coisas no TTARS/CRM' = telas, cards, funil, etapas, régua, relatórios, painéis, acessos, módulos, busca, assistente, atendimento e WhatsApp do sistema, mesmo sem a palavra. 'Só as minhas' = diga no pedido 'só as que " + nome + " faz'.",
+    "PESSOA: 'o que X me deve' = da lista dela ('acoes'), as ações em que quem faz é X (sem ferramenta). 'O que eu devo a X' = procurar ('ações em que quem faz é " + nome + ", da lista de X ou que X cobra'). 'O que ele tem comigo' ou 'o que tenho com ele' = os dois sentidos: os dois juntos, dizendo quantas de cada lado.",
     "DETALHE: ver_acao lê UMA ação (descrição, trecho falado, comentários, andamento, quem vê). Para responder sobre uma lista, use as linhas que já vieram; nunca leia uma por uma. Nunca diga que algo não existe sem ler.",
-    "REUNIÕES: uma reunião → ver_reuniao; várias ou um período ('as desta semana e o que saiu delas') → ver_reunioes, numa ida só. Quem estava: só quem gravou vê.",
+    "REUNIÕES: uma reunião → ver_reuniao; várias ou um período ('as desta semana e o que saiu delas') → ver_reunioes, numa ida só. Quem estava: só quem gravou vê; na reunião de um colega, diga isso e quem gravou, sem tirar participantes do resumo.",
     "PROJETOS E TIMES: andamento ou ações de um projeto → ver_projeto; de um time → ver_time.",
     "MUDAR: uma ação → mudar_acao; a mesma mudança em mais de uma → mudar_varias (uma chamada só); criar uma → criar_acao; uma lista ditada → criar_varias. Comentar ('comenta', 'anota na ação', 'registra que…') → comentar_acao; mudar a descrição só quando a pessoa pedir para mudar a descrição. Trazer para a lista dela ações de reunião com o nome dela → puxar. Quem acompanha → quem_ve; quem faz junto → tambem_fazem; juntar duas repetidas da lista dela → juntar_repetidas; projeto → mudar_projeto ou arquivar_projeto; reunião que ela gravou → mudar_reuniao; pedido ao marketing → acompanhar_pedido.",
     "Use só o retrato e o que as ferramentas devolverem. Nunca invente ação, pessoa, data ou reunião; se não achar, diga que não achou.",
@@ -694,6 +695,7 @@ function instrucoes(nome: string): string {
     "Se o pedido puder ser mais de uma ação, ou o nome da pessoa for de mais de uma pessoa, pergunte antes citando as opções. Não mude nada que a pessoa não pediu.",
     "Só crie ação quando a pessoa pedir pra criar, anotar, lembrar ou pedir algo a alguém. Se ela pediu pra mudar, concluir ou passar uma ação que não está no retrato nem veio de uma ferramenta, diga que não achou essa ação entre as dela e NÃO crie outra no lugar.",
     "Fora do Ações (mandar e-mail, WhatsApp ou mensagem, ligar, marcar reunião): diga que você não manda nada e ofereça um lembrete para a própria pessoa (ex.: 'Cobrar a Paula pelas peças', quem faz = ela mesma). Nunca crie ação para outra pessoa fazer o envio.",
+    "O que é só pela tela: fazer um pedido ao marketing é pelo botão Criar, no topo, opção 'Pedido ao Marketing' (um formulário que você não preenche); salvar uma lista é pelo botão 'Salvar como lista', no filtro; apagar uma ação é pela lixeira dela (só quem criou). Diga onde fica, em uma frase.",
     "Nunca escreva as refs (t1, p2, r3) no texto: fale pelo nome da ação, do projeto ou da reunião.",
     "Nunca apaga ação: desistir é situacao 'cancelada'. 'Passar para Fulano' = mudar_acao com quem.",
   ].join("\n");
@@ -1099,7 +1101,7 @@ async function executar(
             quem_estava: quem.quem_estava.map((p) => `${p.nome} (${p.motivo === "falou" ? "falou" : p.motivo === "convidado" ? "convidado" : "estava"})`),
             quem_ve: quem.visibilidade === "todos" ? "toda a Welcome" : quem.visibilidade === "so_eu" ? "só você" : "quem estava e os marcados",
           }
-        : { quem_estava: "só quem gravou a reunião vê quem estava" }),
+        : { quem_estava: `não dá para ver: só quem gravou a reunião (${(det as { user_nome?: string | null }).user_nome ?? "um colega"}) vê quem estava` }),
       acoes: refs,
     };
   }
