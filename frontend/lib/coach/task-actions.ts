@@ -137,6 +137,14 @@ const addDays = (date: string, n: number) => new Date(Date.parse(`${date}T12:00:
 export const dueAt = (date: string, timezone: string) => fromZonedTime(`${date}T23:59:00`, timezone).toISOString();
 
 /** Server-side check of what the model proposed; anything unclear is dropped. */
+/** "Me lembra amanhã…" e o intérprete esqueceu o prazo (visto na prova de 02/10/2026): hoje, amanhã e depois de amanhã não têm dúvida. */
+export function prazoFalado(quote: string, today: string): string | null {
+ const ditos = new Set([...quote.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().matchAll(/\b(depois de amanha|amanha|hoje)\b/gu)].map(m => m[1]));
+ if (ditos.size !== 1) return null;
+ const dias = ditos.has("hoje") ? 0 : ditos.has("amanha") ? 1 : 2;
+ return new Date(Date.parse(`${today}T12:00:00Z`) + dias * 86400_000).toISOString().slice(0, 10);
+}
+
 export function validateTaskActions(raw: unknown, message: string, tasks: Map<string, CandidateTask>, timezone: string, now: Date): TaskAction[] {
  if (!Array.isArray(raw) || !directTaskRequest(message)) return [];
  const spans = new Set(messageSpans(message));
@@ -158,7 +166,7 @@ export function validateTaskActions(raw: unknown, message: string, tasks: Map<st
    const closed = task.status === "concluida" || task.status === "cancelada";
    if (type === "reopen" ? !closed : closed && type !== "rename") continue;
   }
-  const date = typeof a.due_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(a.due_date) ? a.due_date : null;
+  const date = typeof a.due_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(a.due_date) ? a.due_date : type === "create" ? prazoFalado(a.quote, today) : null;
   if (date && (date < today || date > `${Number(today.slice(0, 4)) + 2}${today.slice(4)}`)) continue;
   action.due_date = type === "clear_due" ? null : date;
   if (type === "reschedule" && !date) continue;

@@ -294,7 +294,7 @@ export function coachStore(userId: string) {
     }),
 
     messages: () => tenant(async (db) => messageFreshness(db,userId,await rows<CoachMessage>(db,
-      `SELECT id, role, content, evidence, context_sources,context_periods,context_version, created_at FROM
+      `SELECT id, role, content, evidence, context_sources,context_periods,context_version, created_at, autor FROM
         (SELECT * FROM coach_messages WHERE user_id = $1 ORDER BY created_at DESC, id DESC LIMIT 100) recent
        ORDER BY created_at, id`, [userId]))),
 
@@ -311,15 +311,15 @@ export function coachStore(userId: string) {
       return result?.receipt||null;
     }),
     messageByKey:(key:string)=>tenant(async(db)=>(await rows<CoachMessage>(db,"SELECT id,role,content,evidence,context_sources,context_periods,context_version,idempotency_key,created_at FROM coach_messages WHERE user_id=$1 AND idempotency_key=$2",[userId,key]))[0]??null),
-    addMessage: (role: CoachMessage["role"], content: string, evidence: Evidence[] = [], revision?: number,idempotencyKey?:string,contextSources:ReportSource[]=[],contextPeriods:ReportPeriodSource[]=[]) => tenant(async (db) => {
+    addMessage: (role: CoachMessage["role"], content: string, evidence: Evidence[] = [], revision?: number,idempotencyKey?:string,contextSources:ReportSource[]=[],contextPeriods:ReportPeriodSource[]=[],autor?:"coach"|"assistente") => tenant(async (db) => {
       if (revision !== undefined) await assertRevision(db, userId, revision);
       await assertEvidenceCurrent(db,userId,evidence);
       await assertReportSourcesCurrent(db,userId,contextSources);
       await assertReportPeriodsCurrent(db,userId,contextPeriods);
       if(idempotencyKey!==undefined&&(!idempotencyKey||idempotencyKey.length>200))throw new Error("invalid_input");
       const inserted=(await rows<CoachMessage>(db,
-        `INSERT INTO coach_messages (user_id, role, content, evidence,idempotency_key,context_sources,context_periods,context_version) VALUES ($1,$2,$3,$4::jsonb,$5,$6::jsonb,$7::jsonb,2)
-         ON CONFLICT(user_id,idempotency_key) DO NOTHING RETURNING id, role, content, evidence, context_sources,context_periods,context_version, idempotency_key,created_at`, [userId, role, content, JSON.stringify(evidence),idempotencyKey??null,JSON.stringify(contextSources),JSON.stringify(contextPeriods)]))[0];
+        `INSERT INTO coach_messages (user_id, role, content, evidence,idempotency_key,context_sources,context_periods,context_version,autor) VALUES ($1,$2,$3,$4::jsonb,$5,$6::jsonb,$7::jsonb,2,$8)
+         ON CONFLICT(user_id,idempotency_key) DO NOTHING RETURNING id, role, content, evidence, context_sources,context_periods,context_version, idempotency_key,created_at,autor`, [userId, role, content, JSON.stringify(evidence),idempotencyKey??null,JSON.stringify(contextSources),JSON.stringify(contextPeriods),role==="assistant"?(autor??"coach"):null]))[0];
       if(inserted)return inserted;
       const existing=(await rows<CoachMessage>(db,"SELECT id,role,content,evidence,context_sources,context_periods,context_version,idempotency_key,created_at FROM coach_messages WHERE user_id=$1 AND idempotency_key=$2",[userId,idempotencyKey]))[0];
       if(!existing||existing.role!==role||existing.content!==content)throw new Error("Chave de mensagem já usada para outro conteúdo.");

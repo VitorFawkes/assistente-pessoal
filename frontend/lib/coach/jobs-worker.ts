@@ -6,6 +6,7 @@ import { reviewPeriod } from "./evidence";
 import { attentionBudget,claimJob,type ClaimedCoachJob,dueCheckins,enqueueJob,extraFollowupAllowed,finishJob,localJobDay,renewJob,type CadenceProfile,type CheckinKind } from "./jobs";
 import { CoachAIError, CoachProviderUnavailableError } from "./model";
 import { CoachBudgetError } from "./budget";
+import { fimDeSemana, fimDeSemanaLigado } from "./combinado";
 
 /** Scheduled work waits past the next 15-minute runner tick; chat answers stay immediate. */
 export const PROVIDER_RETRY_DELAY_SECONDS=20*60;
@@ -50,6 +51,17 @@ async function whatsapp(userId:string,job:ClaimedCoachJob,step:"deliverJob"|"not
 /** Existing 15-minute runner calls this. Daily jobs never backfill an obsolete day. */
 export async function scheduleCoachJobs(userId:string,now=new Date()){
  const store=coachStore(userId);const profile=await store.profile();if(!profile.enabled)return;
+ // Coach v2 (02/10/2026): 8h, 18h e a revisão de sexta. Sábado e domingo sem 8h/18h; a cobrança extra e o aviso por reunião saíram.
+ if(process.env.COACH_V2!=="0"){
+  if(profile.weekly_enabled){
+   const period=reviewPeriod(now,profile.timezone,profile.review_day,profile.review_hour);
+   if(!(await store.reviews()).some(review=>review.week_start===period.weekStart))await enqueueJob(userId,{kind:"review",key:`scheduled:review:${period.weekStart}:${profile.revision}`});
+  }
+  if(fimDeSemana(profile.timezone,now)&&!await fimDeSemanaLigado(userId))return;
+  const cadence={...(profile as typeof profile & CadenceProfile),nudges_enabled:false};
+  for(const kind of dueCheckins(cadence,now,false))await enqueueJob(userId,{kind:"checkin",key:`scheduled:${kind}:${localJobDay(profile.timezone,now)}`,payload:{checkin:kind}});
+  return;
+ }
  const coverage=await store.coverage();
  if(coverage.pending_meetings>0)await enqueueJob(userId,{kind:"analyze",key:`scheduled:analyze:${Math.floor(now.getTime()/900000)}:${coverage.analyzed_chunks}:${coverage.pending_meetings}`});
  const commitments=profile.nudges_enabled?await listCommitments(userId):[];
