@@ -5,6 +5,7 @@ import {
   ditoPelaPessoa,
   idsDasFalas,
   limitaPorPessoa,
+  loteSemSim,
   limparRefs,
   linhaCorrida,
   linhaDoRetrato,
@@ -253,5 +254,25 @@ describe("limite de pessoa na procura", () => {
     expect(sem).toContain("Revisar orçamento");
     const ninguem = linhaDoRetrato("t2", t({ owner: "?", acao: "cobrar" }));
     expect(linhaCorrida(ninguem, null, true)).toContain("quem faz: a definir");
+  });
+});
+
+describe("mudanças em lote só com o sim dela", () => {
+  it("até 15 e até 3 de outras pessoas muda na hora", () => {
+    expect(loteSemSim({ total: 15, deOutros: 3 }, null, "Joga para segunda tudo que está atrasado")).toBe(true);
+  });
+
+  it("140 na 1ª pergunta, ou em conversa antiga, espera o sim", () => {
+    expect(loteSemSim({ total: 140, deOutros: 120 }, null, "Cancela as ações do marketing")).toBe(false);
+    expect(loteSemSim({ total: 140, deOutros: 120 }, "Esta semana vencem 3 ações.", "Cancela as ações do marketing")).toBe(false);
+  });
+
+  it("o sim logo depois da pergunta com o número libera", () => {
+    const pergunta = "Encontrei 116 ações de marketing, 9 suas. Confirma que quer cancelar todas as 116?";
+    expect(loteSemSim({ total: 116, deOutros: 107 }, pergunta, "sim")).toBe(true);
+    expect(loteSemSim({ total: 117, deOutros: 108 }, pergunta, "Sim, cancela todas")).toBe(true);
+    // pergunta sem o número, ou resposta que não é sim
+    expect(loteSemSim({ total: 116, deOutros: 107 }, "Quer cancelar todas?", "sim")).toBe(false);
+    expect(loteSemSim({ total: 116, deOutros: 107 }, pergunta, "não, só as minhas")).toBe(false);
   });
 });

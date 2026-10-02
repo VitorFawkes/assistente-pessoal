@@ -295,3 +295,17 @@ export function ditoPelaPessoa(palavras: string | null | undefined, falas: strin
   const ditas = palavrasDe(palavras);
   return !!ditas && falas.some((f) => ` ${palavrasDe(f)} `.includes(` ${ditas} `));
 }
+
+// ── Mudanças em lote (Vitor, 02/10/2026: "quando não tiver certeza, ele pode perguntar") ─────
+// "Cancela as ações do marketing" cancelava 140 de várias pessoas sem perguntar. Até 15 na pergunta e até 3 da lista de
+// outras pessoas, muda na hora (com Desfazer); acima disso, só com o sim dela logo depois de uma pergunta do Assistente
+// com esse número. A conversa fica guardada no navegador: "já houve outra fala" não prova que ela confirmou.
+
+const SIM = /^\s*(sim|s|pode|confirmo|confirma|confirmado|isso|quero|ok|okay|beleza|manda|todas?|cancela|muda|faz|bora|claro|positivo|1)\b/i;
+
+export function loteSemSim(lote: { total: number; deOutros: number }, perguntaAnterior: string | null, resposta: string | null): boolean {
+  if (lote.total <= 15 && lote.deOutros <= 3) return true;
+  if (!perguntaAnterior?.includes("?") || !resposta || !SIM.test(resposta)) return false;
+  const folga = Math.max(2, Math.round(lote.total * 0.1));
+  return (perguntaAnterior.match(/\d+/g) ?? []).map(Number).some((n) => Math.abs(n - lote.total) <= folga);
+}
