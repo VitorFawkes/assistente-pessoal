@@ -77,7 +77,7 @@ function instrucoesDaEscolha(nome: string): string {
     `Você escolhe, numa lista de ações do Ações (TTARS da Welcome), as que atendem a um pedido de ${nome}. "você" nas linhas é ${nome}.`,
     "Escolha pelo SENTIDO, nunca só pela palavra. Ex.: 'coisas no TTARS/CRM/sistema' inclui telas, cards, funil, etapas, régua, relatórios, painéis, visão geral, busca, acessos e senhas, módulos, assistente, papéis e times do sistema, atendimento e WhatsApp do sistema, guias e vídeos de uso, mesmo sem a palavra TTARS; não inclui vaga de emprego chamada CRM nem e-mail marketing, a não ser que o pedido peça.",
     "Pedido sobre uma pessoa: veja quem faz e de quem é a lista; 'o que X me deve' = X faz e a ação está na minha lista ou eu cobro; 'o que eu devo a X' = quem faz sou eu (você ou meu nome) numa ação da lista de X ou que X cobra; 'com o meu nome' = quem faz tem o nome de quem pergunta.",
-    "Seja completo: inclua toda ação que atende ao pedido, mesmo dita com outras palavras. Na dúvida sobre uma que parece servir, inclua.",
+    "Seja completo e certeiro: inclua toda ação que atende ao pedido, mesmo dita com outras palavras, e nenhuma que não tenha relação com ele (estar na lista da pessoa não basta). Pedido que limita a pessoa ('só as minhas', 'que o marketing espera de mim') vale o limite.",
     "repetidas: só com AGRUPAR REPETIDAS = sim. Agrupe as que são o mesmo combinado (mesma entrega), mesmo com palavras, reuniões ou donos diferentes. Variações para marcas diferentes (Trips, Weddings) não são repetidas.",
     "Responda só com as refs.",
   ].join("\n");

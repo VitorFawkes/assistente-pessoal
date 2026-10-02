@@ -33,7 +33,7 @@ export type TarefaVista = Tarefa & {
 };
 
 /** Pedido que o navegador refaz sozinho (Desfazer, Confirmar): sempre uma rota do Ações. */
-export type Pedido = { metodo: "PATCH" | "DELETE" | "POST"; caminho: string; corpo?: Record<string, unknown> };
+export type Pedido = { metodo: "PATCH" | "DELETE" | "POST" | "PUT"; caminho: string; corpo?: Record<string, unknown> };
 
 export function quemFazNaTela(t: TarefaVista): string {
   // Da lista de outra pessoa e não passada a quem vê: o "executar" é de quem criou, nunca "você".
@@ -104,7 +104,11 @@ export type Mudanca = {
   prazo: string | null;
   prioridade: string | null;
   situacao: string | null;
+  /** "eu faço", "eu cobro" ou "só aguardo" (o papel de quem criou a ação). */
+  papel?: string | null;
 };
+
+const ACAO_DO_PAPEL: Record<string, Tarefa["acao"]> = { "eu faço": "executar", "eu cobro": "cobrar", "só aguardo": "aguardar" };
 
 export type Montada = { corpo: Record<string, unknown>; desfazer: Record<string, unknown>; partes: string[] } | { erro: string };
 
@@ -154,6 +158,16 @@ export function montarMudanca(t: TarefaVista, m: Mudanca): Montada {
       corpo.status = m.situacao;
       desfazer.status = t.status;
       partes.push(ROTULO_SITUACAO[m.situacao as Situacao]);
+    }
+  }
+  if (m.papel != null) {
+    const acao = ACAO_DO_PAPEL[m.papel];
+    if (!acao) return { erro: `papel inválido: ${m.papel}` };
+    if (acao !== t.acao) {
+      corpo.acao = acao;
+      // "eu faço" passa a ação para quem criou: o Desfazer devolve também quem fazia.
+      Object.assign(desfazer, { acao: t.acao, owner: t.owner });
+      partes.push(m.papel);
     }
   }
   return { corpo, desfazer, partes };

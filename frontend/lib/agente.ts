@@ -10,12 +10,20 @@ import { withTenant, withTenantLeituraEquipe } from "./db";
 import { isTeamMode } from "./team-mode";
 import { tarefasFor, meetingsFor, type Tarefa } from "./queries";
 import { carregarTarefas, tarefasMarcadasParaMim, tarefasParaMim, pessoasDaEquipe, type PessoaDaEquipe } from "./equipe-compartilhado";
-import { ordenarPendencias } from "./compartilhar";
-import { listarProjetos, projetoParaQuemVe, adicionarAoProjeto, tirarDoProjeto, type ProjetoResumo } from "./projetos";
+import { ordenarPendencias, slugNome } from "./compartilhar";
+import {
+  listarProjetos,
+  projetoParaQuemVe,
+  adicionarAoProjeto,
+  tirarDoProjeto,
+  atualizarProjeto,
+  type ProjetoResumo,
+} from "./projetos";
 import { meetingSubject } from "./meeting-label";
 import { trocarFalantes } from "./falantes";
 import { comentarNaTarefa, comentariosDaTarefa, historicoDaTarefa, paraTela, tarefaNaTela } from "./ttars-tela";
-import { pessoasQueVeemATarefa } from "./quem-ve";
+import { mudarQuemEstava, pessoasQueVeemATarefa, quemVeDaReuniao } from "./quem-ve";
+import { devolverAcao, puxarAcao } from "./puxar";
 import { acervo, escolherPeloSentido } from "./agente-acervo";
 import { criarAcao } from "./nova-acao";
 import { acharPessoaPorNome, ehEu } from "./pessoa-por-nome";
@@ -33,16 +41,26 @@ import {
   precisaConfirmar,
   quemFazNaTela,
   tituloCurto,
-  type Mudanca,
   type Pedido,
   type TarefaVista,
 } from "./agente-regras";
 import { PATCH as patchTarefa } from "@/app/api/tarefas/[id]/route";
 import { POST as postQuadro } from "@/app/api/quadros/route";
+import { PUT as putQuemVe } from "@/app/api/ttars/tarefas/[id]/quem-ve/route";
+import { PUT as putTambemFazem } from "@/app/api/ttars/tarefas/[id]/tambem-fazem/route";
+import { POST as postRepetidas } from "@/app/api/tarefas/repetidas/route";
+import { POST as postAcompanhar } from "@/app/api/ttars/pedidos/[tarefaId]/acompanhar/route";
+import { PATCH as patchProjetoNoTtars } from "@/app/api/ttars/projetos/[id]/route";
+import { POST as postPessoaNoProjeto } from "@/app/api/quadros/[id]/pessoas/route";
+import { DELETE as deletePessoaDoProjeto } from "@/app/api/quadros/[id]/pessoas/[uid]/route";
+import { PATCH as patchVisibilidade } from "@/app/api/meetings/[id]/visibilidade/route";
 import { objetivosVisiveis, podeTime, tarefasDoObjetivo, tarefasDoTime, timesDasPessoas } from "./hub";
 
-const MAX_RODADAS = 4;
+const MAX_RODADAS = 5;
+/** Mudanças por pergunta (uma em várias ações conta 1). Leitura tem o seu próprio limite. */
 const MAX_CHAMADAS = 10;
+const MAX_LEITURAS = 12;
+const LEITURAS = new Set(["procurar", "ver_acao", "ver_reuniao", "ver_reunioes", "ver_projeto", "ver_time"]);
 const MAX_ABERTAS = 150;
 const MAX_FECHADAS = 25;
 // Pedido "todas" vem inteiro (antes eram no máximo 8 no texto e 12 na tela); cabe o retrato inteiro.
@@ -61,6 +79,8 @@ export type Contexto = {
   /** Hub (28/09/2026): time ou objetivo aberto na tela. */
   time_id?: string | null;
   objetivo_id?: string | null;
+  /** Nome do lugar aberto (lista salva, projeto, reunião…), como a tela mostra. */
+  lugar?: string | null;
 };
 export type Feita = { descricao: string; tarefa_id: string | null; desfazer: Pedido[] };
 export type Proposta = { id: string; descricao: string; executar: Pedido[]; tarefa_id: string | null };
@@ -81,7 +101,11 @@ type Retrato = {
   projetos: Map<string, ProjetoResumo>; // ref → projeto
   reunioes: Map<string, string>; // ref → id
   pessoas: PessoaDaEquipe[];
+  times: { id: string; nome: string }[];
+  metas: { id: string; nome: string }[];
   texto: string;
+  /** O retrato sem a lista de todas as pessoas: nome repetido vale a pessoa que aparece aqui. */
+  assunto: string;
 };
 
 /** Quem faz tem o nome de quem pergunta numa ação da lista de um colega ("Vitor" na reunião do Tiago = você). */
@@ -161,13 +185,14 @@ async function abreNoPainel(userId: string, ids: string[]): Promise<Set<string>>
 
 async function montarRetrato(user: User, ctx: Contexto, lembrar: string[] = []): Promise<Retrato> {
   // A lista é a da tela Minhas ações: as dela, as passadas a ela e as que marcaram para ela ver.
-  const [minhas, paraMim, marcadas, projetos, reunioes, pessoas] = await Promise.all([
+  const [minhas, paraMim, marcadas, projetos, reunioes, pessoas, objetivos] = await Promise.all([
     tarefasFor(user.id).recentes(),
     tarefasParaMim(user.id),
     tarefasMarcadasParaMim(user.id),
     listarProjetos(user.id),
     meetingsFor(user.id).listParaTtars(),
     pessoasDaEquipe(),
+    objetivosVisiveis(user.id).catch(() => []),
   ]);
   let juntas = [...(minhas as unknown as Tarefa[]), ...paraMim, ...marcadas];
   let projetoAberto: { ref: string; nome: string } | null = null;
@@ -211,7 +236,7 @@ async function montarRetrato(user: User, ctx: Contexto, lembrar: string[] = []):
     refDe.set(t.id, `t${i + 1}`);
   });
   const faltam = lembrar.filter((id) => !refDe.has(id));
-  const jaMostradas = faltam.length ? (await lembradas(user.id, faltam)).filter((t) => !refDe.has(t.id)) : [];
+  const jaMostradas: TarefaVista[] = faltam.length ? (await lembradas(user.id, faltam)).filter((t) => !refDe.has(t.id)) : [];
   for (const t of jaMostradas) {
     const ref = `t${tarefas.size + 1}`;
     tarefas.set(ref, t);
@@ -221,7 +246,7 @@ async function montarRetrato(user: User, ctx: Contexto, lembrar: string[] = []):
   const refsReuniao = new Map<string, string>();
   const listaReunioes = [...reunioes.minhas, ...reunioes.daEquipe]
     .sort((a, b) => ((a.recorded_at ?? "") < (b.recorded_at ?? "") ? 1 : -1))
-    .slice(0, 20)
+    .slice(0, 30)
     .map((m, i) => {
       refsReuniao.set(`r${i + 1}`, m.id);
       return {
@@ -232,6 +257,38 @@ async function montarRetrato(user: User, ctx: Contexto, lembrar: string[] = []):
         acoes: m.n_tarefas,
       };
     });
+  // Reunião aberta na tela que não está entre as recentes (mais antiga, ou de um colega): entra, se a pessoa abre.
+  if (ctx.reuniao_id && ![...refsReuniao.values()].includes(ctx.reuniao_id)) {
+    const m = (await meetingsFor(user.id).byIdDetailed(ctx.reuniao_id).catch(() => null)) as {
+      id: string;
+      user_id: string;
+      user_nome: string | null;
+      summary: string | null;
+      nome?: string | null;
+      recorded_at: string | null;
+    } | null;
+    if (m) {
+      const ref = `r${refsReuniao.size + 1}`;
+      refsReuniao.set(ref, m.id);
+      listaReunioes.push({
+        ref,
+        nome: tituloCurto(meetingSubject(m.summary, m.nome ?? null) || "Reunião", 90),
+        dia: diaDoPrazo(m.recorded_at),
+        ...(m.user_id !== user.id ? { gravada_por: m.user_nome } : {}),
+        acoes: 0,
+      });
+    }
+  }
+  // Ação aberta no painel que não está na lista (de projeto, de time, vista por outra página): entra também.
+  if (ctx.tarefa_id && !refDe.has(ctx.tarefa_id)) {
+    const aberta = await tarefaNaTela(user.id, ctx.tarefa_id).catch(() => null);
+    if (aberta) {
+      const ref = `t${tarefas.size + 1}`;
+      tarefas.set(ref, aberta.tarefa as TarefaVista);
+      refDe.set(aberta.tarefa.id, ref);
+      jaMostradas.push(aberta.tarefa as TarefaVista);
+    }
+  }
 
   const hoje = hojeBR();
   const dow = diaDaSemanaBR();
@@ -249,6 +306,9 @@ async function montarRetrato(user: User, ctx: Contexto, lembrar: string[] = []):
     if (p) tela.push(`A pessoa está na página de ${p.nome}.`);
   }
   if (ctx.tarefa_id && refDe.has(ctx.tarefa_id)) tela.push(`A ação ${refDe.get(ctx.tarefa_id)} está aberta no painel.`);
+  if (ctx.lugar && !tela.length) tela.push(`A pessoa está em "${tituloCurto(ctx.lugar, 80)}".`);
+  const times = [...timesDasPessoas(pessoas).values()].map((t) => ({ id: t.id, nome: t.nome }));
+  const metas = objetivos.map((o) => ({ id: o.id, nome: o.nome }));
 
   const retrato = {
     eu: user.nome,
@@ -267,15 +327,20 @@ async function montarRetrato(user: User, ctx: Contexto, lembrar: string[] = []):
       ...(p.sou_dono ? {} : { criado_por: p.pessoas.find((x) => x.e_dono)?.nome }),
     })),
     reunioes: listaReunioes,
-    pessoas_da_welcome: pessoas.map((p) => p.nome),
+    ...(times.length ? { times: times.map((t) => t.nome) } : {}),
+    ...(metas.length ? { metas: metas.map((m) => m.nome) } : {}),
   };
+  const assunto = JSON.stringify(retrato);
   return {
     tarefas,
     refDe,
     projetos: refsProjeto,
     reunioes: refsReuniao,
     pessoas,
-    texto: JSON.stringify(retrato),
+    times,
+    metas,
+    texto: JSON.stringify({ ...retrato, pessoas_da_welcome: pessoas.map((p) => p.nome) }),
+    assunto,
   };
 }
 
@@ -297,8 +362,40 @@ const FERRAMENTAS: Ferramenta[] = [
         prioridade: { type: ["string", "null"], enum: ["baixa", "media", "alta", "urgente", null] },
         projeto: nulo("string", "ref do projeto (p1, p2…) ou null."),
         descricao: nulo("string", "Detalhe, se a pessoa deu. Senão null."),
+        time: nulo("string", "Nome do time (dos times do retrato) se a ação é do time, ou null."),
+        meta: nulo("string", "Nome da meta (das metas do retrato) ou null."),
+        reuniao: nulo("string", "ref da reunião (r1, r2…) de onde a ação saiu, ou null."),
+        quem_ve: { type: "array", items: { type: "string" }, description: "Nomes de quem acompanha (vê e mexe). [] = ninguém além do normal." },
+        tambem_fazem: { type: "array", items: { type: "string" }, description: "Nomes de quem faz junto. [] = ninguém." },
       },
-      required: ["titulo", "quem", "prazo", "prioridade", "projeto", "descricao"],
+      required: ["titulo", "quem", "prazo", "prioridade", "projeto", "descricao", "time", "meta", "reuniao", "quem_ve", "tambem_fazem"],
+    },
+  },
+  {
+    name: "criar_varias",
+    description: "Cria várias ações de uma vez (a pessoa ditou uma lista). Até 30.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        acoes: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              titulo: { type: "string" },
+              quem: nulo("string", "Nome de quem faz ou null (a própria pessoa)."),
+              prazo: nulo("string", "AAAA-MM-DD ou null."),
+              prioridade: { type: ["string", "null"], enum: ["baixa", "media", "alta", "urgente", null] },
+              projeto: nulo("string", "ref do projeto ou null."),
+              descricao: nulo("string", "Detalhe ou null."),
+            },
+            required: ["titulo", "quem", "prazo", "prioridade", "projeto", "descricao"],
+          },
+        },
+      },
+      required: ["acoes"],
     },
   },
   {
@@ -318,8 +415,34 @@ const FERRAMENTAS: Ferramenta[] = [
           enum: ["aberta", "em_andamento", "aguardando_aprovacao", "concluida", "cancelada", null],
         },
         quem: nulo("string", "Nome de quem passa a fazer, 'eu' para a própria pessoa, ou null para não mexer."),
+        papel: { type: ["string", "null"], enum: ["eu faço", "eu cobro", "só aguardo", null], description: "O papel de quem criou a ação, ou null." },
+        time: nulo("string", "Nome do time, 'nenhum' para tirar o time, ou null."),
+        meta: nulo("string", "Nome da meta, 'nenhuma' para tirar, ou null."),
       },
-      required: ["acao", "titulo", "descricao", "prazo", "prioridade", "situacao", "quem"],
+      required: ["acao", "titulo", "descricao", "prazo", "prioridade", "situacao", "quem", "papel", "time", "meta"],
+    },
+  },
+  {
+    name: "mudar_varias",
+    description:
+      "Faz a MESMA mudança em várias ações de uma vez (prazo, prioridade, situação, quem faz, papel, time, meta). Use sempre que o pedido for para mais de uma ação: um Desfazer só para todas.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        acoes: { type: "array", items: { type: "string" }, description: "refs das ações (t1, t2…)." },
+        prazo: nulo("string", "AAAA-MM-DD, 'remover' para tirar o prazo, ou null."),
+        prioridade: { type: ["string", "null"], enum: ["baixa", "media", "alta", "urgente", null] },
+        situacao: {
+          type: ["string", "null"],
+          enum: ["aberta", "em_andamento", "aguardando_aprovacao", "concluida", "cancelada", null],
+        },
+        quem: nulo("string", "Nome de quem passa a fazer, 'eu' para a própria pessoa, ou null para não mexer."),
+        papel: { type: ["string", "null"], enum: ["eu faço", "eu cobro", "só aguardo", null], description: "O papel de quem criou a ação, ou null." },
+        time: nulo("string", "Nome do time, 'nenhum' para tirar o time, ou null."),
+        meta: nulo("string", "Nome da meta, 'nenhuma' para tirar, ou null."),
+      },
+      required: ["acoes", "prazo", "prioridade", "situacao", "quem", "papel", "time", "meta"],
     },
   },
   {
@@ -409,6 +532,130 @@ const FERRAMENTAS: Ferramenta[] = [
       required: ["acao", "texto"],
     },
   },
+  {
+    name: "puxar",
+    description:
+      "Traz para a lista da pessoa ações de reuniões em que ela estava e que estão sem ninguém, como as que têm o nome dela na lista de um colega. Ela passa a fazer; quem criou acompanha.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: { acoes: { type: "array", items: { type: "string" }, description: "refs das ações (t1, t2…)." } },
+      required: ["acoes"],
+    },
+  },
+  {
+    name: "devolver",
+    description: "Devolve uma ação que a pessoa puxou: volta a quem fazia antes.",
+    parameters: { type: "object", additionalProperties: false, properties: { acao: { type: "string" } }, required: ["acao"] },
+  },
+  {
+    name: "quem_ve",
+    description: "Marca ou tira quem acompanha (vê e mexe) uma ou mais ações, ou o time delas. Só quem criou a ação muda.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        acoes: { type: "array", items: { type: "string" }, description: "refs das ações." },
+        juntar: { type: "array", items: { type: "string" }, description: "Nomes de quem passa a acompanhar." },
+        tirar: { type: "array", items: { type: "string" }, description: "Nomes de quem deixa de acompanhar." },
+        time: nulo("string", "Nome do time que passa a ver e mexer, 'nenhum' para tirar o time, ou null para não mexer."),
+      },
+      required: ["acoes", "juntar", "tirar", "time"],
+    },
+  },
+  {
+    name: "tambem_fazem",
+    description: "Põe ou tira quem faz junto numa ação (quem criou ou quem faz muda).",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        acao: { type: "string" },
+        juntar: { type: "array", items: { type: "string" }, description: "Nomes de quem passa a fazer junto." },
+        tirar: { type: "array", items: { type: "string" }, description: "Nomes de quem deixa de fazer junto." },
+      },
+      required: ["acao", "juntar", "tirar"],
+    },
+  },
+  {
+    name: "juntar_repetidas",
+    description:
+      "Junta duas ações que são o mesmo combinado, as duas da lista da pessoa: a cópia sai da lista e vira 'falada de novo' na principal. Só quando a pessoa mandar juntar.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        copia: { type: "string", description: "ref da que sai." },
+        principal: { type: "string", description: "ref da que fica." },
+      },
+      required: ["copia", "principal"],
+    },
+  },
+  {
+    name: "ver_projeto",
+    description: "Lê um projeto: descrição, pessoas, quem criou e as ações dele com o andamento (abertas, atrasadas, concluídas).",
+    parameters: { type: "object", additionalProperties: false, properties: { projeto: { type: "string", description: "ref (p1, p2…)." } }, required: ["projeto"] },
+  },
+  {
+    name: "mudar_projeto",
+    description: "Muda um projeto: nome, descrição, time, meta, chamar ou tirar pessoas.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        projeto: { type: "string" },
+        nome: nulo("string", "Nome novo ou null."),
+        descricao: nulo("string", "Descrição nova ('' apaga) ou null."),
+        time: nulo("string", "Nome do time, 'nenhum' para tirar, ou null."),
+        meta: nulo("string", "Nome da meta, 'nenhuma' para tirar, ou null."),
+        chamar: { type: "array", items: { type: "string" }, description: "Nomes de quem entra no projeto." },
+        tirar: { type: "array", items: { type: "string" }, description: "Nomes de quem sai do projeto." },
+      },
+      required: ["projeto", "nome", "descricao", "time", "meta", "chamar", "tirar"],
+    },
+  },
+  {
+    name: "arquivar_projeto",
+    description: "Arquiva um projeto (só quem criou). Não tem Desfazer: a tela pede Confirmar.",
+    parameters: { type: "object", additionalProperties: false, properties: { projeto: { type: "string" } }, required: ["projeto"] },
+  },
+  {
+    name: "ver_reunioes",
+    description:
+      "Lista as reuniões que a pessoa vê num período (todas, não só as recentes), com o resumo curto e quantas ações saíram de cada uma. Use para 'reuniões desta semana e o que saiu delas' (uma ida só).",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: { de: nulo("string", "AAAA-MM-DD ou null."), ate: nulo("string", "AAAA-MM-DD ou null.") },
+      required: ["de", "ate"],
+    },
+  },
+  {
+    name: "mudar_reuniao",
+    description: "Muda uma reunião que a pessoa gravou: nome, quem vê e quem estava.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        reuniao: { type: "string", description: "ref (r1, r2…)." },
+        nome: nulo("string", "Nome novo ou null."),
+        quem_ve: { type: ["string", "null"], enum: ["todos", "escolhidos", "so_eu", null], description: "todos = toda a Welcome; escolhidos = quem estava e os marcados; so_eu = só quem gravou." },
+        por_quem_estava: { type: "array", items: { type: "string" }, description: "Nomes de quem estava e não falou." },
+        tirar_quem_estava: { type: "array", items: { type: "string" }, description: "Nomes de quem não estava." },
+      },
+      required: ["reuniao", "nome", "quem_ve", "por_quem_estava", "tirar_quem_estava"],
+    },
+  },
+  {
+    name: "ver_time",
+    description: "Lê um time: as pessoas e as ações do time.",
+    parameters: { type: "object", additionalProperties: false, properties: { time: { type: "string", description: "Nome do time." } }, required: ["time"] },
+  },
+  {
+    name: "acompanhar_pedido",
+    description: "Passa a acompanhar um pedido ao marketing (a ação do pedido entra na lista da pessoa).",
+    parameters: { type: "object", additionalProperties: false, properties: { acao: { type: "string" } }, required: ["acao"] },
+  },
 ];
 
 const RESPOSTA = {
@@ -428,19 +675,22 @@ const RESPOSTA = {
 function instrucoes(nome: string): string {
   return [
     `Você é o Assistente do Ações, dentro do TTARS da Welcome. Ajuda ${nome} a ver e organizar as ações dele(a): combinados internos que a pessoa faz, cobra de alguém ou só aguarda. Não são as Tarefas de cliente do TTARS.`,
-    "O RETRATO (primeira mensagem) tem a lista da pessoa ('acoes': as dela, as passadas e as marcadas para ela), os projetos, as reuniões recentes e as pessoas. O resto do que ela vê (ações das reuniões de colegas, dos projetos, da área Marketing e dos times) só vem por procurar.",
-    "Pedido por assunto, por pessoa ou de repetidas ('tudo de TTARS', 'o que falei de X nas reuniões', 'o que a Paula me deve', 'o que eu devo ao Tiago', 'com o meu nome', 'quais estão repetidas'): chame procurar com um pedido completo e de sentido amplo; ele escolhe pelo SENTIDO em tudo o que a pessoa vê. 'Coisas no TTARS/CRM' = telas, cards, funil, etapas, régua, relatórios, painéis, acessos, módulos, busca, assistente, atendimento e WhatsApp do sistema, mesmo sem a palavra. 'Só as minhas' = diga no pedido 'só as que " + nome + " faz'. 'O que ele tem comigo' = os dois sentidos.",
-    "Detalhe de uma ação (descrição, o que foi falado na reunião, comentários, andamento, quem vê): chame ver_acao. Nunca diga que algo não existe sem ler.",
+    "O RETRATO (primeira mensagem) tem a lista da pessoa ('acoes': as dela, as passadas e as marcadas para ela), os projetos, as reuniões recentes, os times, as metas e as pessoas.",
+    "LISTA DELA: pergunta sobre o que ela tem (o que vence, atrasadas, o que faz, o que cobra, o que aguarda, sem prazo, por prioridade, concluídas, quantas, organizar a semana) responde só com 'acoes' do retrato, SEM ferramenta. ja_mostradas e o que as ferramentas trouxeram só entram quando ela falar dessas ações ou do assunto delas.",
+    "LUGAR ABERTO: 'aqui', 'destas', 'deste projeto/time/reunião' falam do lugar aberto na tela (campo tela do retrato): use ver_reuniao, ver_projeto ou ver_time daquele lugar, nunca procurar.",
+    "RESTO DO QUE ELA VÊ: pedido por assunto, por pessoa ou de repetidas ('tudo de TTARS', 'o que falei de X nas reuniões', 'o que a Paula me deve', 'o que eu devo ao Tiago', 'com o meu nome', 'quais estão repetidas') → procurar, com um pedido completo e de sentido amplo; ele escolhe pelo SENTIDO em tudo o que a pessoa vê. 'Coisas no TTARS/CRM' = telas, cards, funil, etapas, régua, relatórios, painéis, acessos, módulos, busca, assistente, atendimento e WhatsApp do sistema, mesmo sem a palavra. 'Só as minhas' = diga no pedido 'só as que " + nome + " faz'. 'O que ele tem comigo' = os dois sentidos (o que ele me deve e o que eu devo a ele).",
+    "DETALHE: ver_acao lê UMA ação (descrição, trecho falado, comentários, andamento, quem vê). Para responder sobre uma lista, use as linhas que já vieram; nunca leia uma por uma. Nunca diga que algo não existe sem ler.",
+    "REUNIÕES: uma reunião → ver_reuniao; várias ou um período ('as desta semana e o que saiu delas') → ver_reunioes, numa ida só. Quem estava: só quem gravou vê.",
+    "PROJETOS E TIMES: andamento ou ações de um projeto → ver_projeto; de um time → ver_time.",
+    "MUDAR: uma ação → mudar_acao; a mesma mudança em mais de uma → mudar_varias (uma chamada só); criar uma → criar_acao; uma lista ditada → criar_varias. Comentar ('comenta', 'anota na ação', 'registra que…') → comentar_acao; mudar a descrição só quando a pessoa pedir para mudar a descrição. Trazer para a lista dela ações de reunião com o nome dela → puxar. Quem acompanha → quem_ve; quem faz junto → tambem_fazem; juntar duas repetidas da lista dela → juntar_repetidas; projeto → mudar_projeto ou arquivar_projeto; reunião que ela gravou → mudar_reuniao; pedido ao marketing → acompanhar_pedido.",
     "Use só o retrato e o que as ferramentas devolverem. Nunca invente ação, pessoa, data ou reunião; se não achar, diga que não achou.",
     "Responda curto e simples, em português do Brasil, sem jargão.",
     "Datas: use o 'hoje' do retrato. 'esta semana' vai até fim_desta_semana. Converta 'sexta', 'amanhã', 'semana que vem' para AAAA-MM-DD. Mostre datas como 'sex 03/10'.",
     "Cada ação tem 'vence' já calculado (atrasada N dias, hoje, amanhã, esta semana, semana que vem, depois). Use esse campo, não faça conta de data. Quando perguntarem o que vence (hoje, esta semana), conte também as atrasadas, dizendo que estão atrasadas.",
-    "A tela mostra, embaixo da resposta, todas as ações que você puser em acoes_citadas, sem limite. Ponha ali todas as que respondem ao pedido: se pedirem todas, nunca corte nem escolha só algumas. Em resumo de reuniões, cite só as ações que a pessoa pediu ou as dela, nunca todas as das reuniões. No texto, diga quantas são (o mesmo número de acoes_citadas) e resuma em uma ou duas frases; só escreva a lista no texto se a pessoa pedir em texto, e aí a lista inteira, uma por linha. Pediram sem repetir: o mesmo combinado em mais de um lugar entra uma vez só, e diga quantas juntou.",
+    "A tela mostra, embaixo da resposta, todas as ações que você puser em acoes_citadas, sem limite. Ponha ali todas as que respondem ao pedido: se pedirem todas, nunca corte nem escolha só algumas. Pergunta de quantidade ('quantas') responde o número e não cita a lista. Em resumo de reuniões, cite só as ações que a pessoa pediu ou as dela, nunca todas as das reuniões. No texto, diga quantas são (o mesmo número de acoes_citadas) e resuma em uma ou duas frases; só escreva a lista no texto se a pessoa pedir em texto, e aí a lista inteira, uma por linha. Pediram sem repetir: o mesmo combinado em mais de um lugar entra uma vez só, e diga quantas juntou.",
     "Cada resposta sua anterior termina com [na tela: …]: as ações que apareceram com ela. 'Manda todas', 'você só mandou 8', 'repete', 'essas' falam delas, que estão no retrato com essas refs (as que não são da lista vêm em ja_mostradas). Nunca escreva [na tela: …] na resposta.",
-    "A lista dela é 'acoes' do retrato. Pergunta sobre o que ela tem (o que vence, atrasadas, o que faz, o que cobra) olha só 'acoes'; ja_mostradas e o que as ferramentas trouxeram só entram quando ela falar dessas ações ou do assunto delas.",
     "quem_faz 'você' = a própria pessoa (também numa ação da lista de outra pessoa). tipo é o papel dela: 'eu faço', 'eu cobro', 'só aguardo', 'faço junto' ou 'da lista de quem criou' (nem faz nem cobra: a ação é de criada_por).",
-    "Comentar ('comenta', 'anota na ação', 'registra que…') = comentar_acao. Mudar a descrição só quando a pessoa pedir para mudar a descrição.",
-    "O pedido da pessoa já é a autorização: crie ou mude na hora com as ferramentas, sem perguntar se pode; a tela mostra Desfazer. Só descreva antes, sem mudar, se a pessoa pedir para ver antes. Só diga que fez depois da ferramenta responder ok. Se ela devolver 'aguardando_confirmacao' (trocar quem faz numa ação que outra pessoa criou), diga que é só apertar Confirmar. Se devolver erro, explique em uma frase.",
+    "O pedido da pessoa já é a autorização: crie ou mude na hora com as ferramentas, sem perguntar se pode; a tela mostra Desfazer. Só descreva antes, sem mudar, se a pessoa pedir para ver antes. Só diga que fez depois da ferramenta responder ok. Se ela devolver 'aguardando_confirmacao', diga que é só apertar Confirmar. Se devolver erro, explique em uma frase, sem sugerir 'tente mais tarde' quando o erro diz o motivo.",
     "Se o pedido puder ser mais de uma ação, ou o nome da pessoa for de mais de uma pessoa, pergunte antes citando as opções. Não mude nada que a pessoa não pediu.",
     "Só crie ação quando a pessoa pedir pra criar, anotar, lembrar ou pedir algo a alguém. Se ela pediu pra mudar, concluir ou passar uma ação que não está no retrato nem veio de uma ferramenta, diga que não achou essa ação entre as dela e NÃO crie outra no lugar.",
     "Fora do Ações (mandar e-mail, WhatsApp ou mensagem, ligar, marcar reunião): diga que você não manda nada e ofereça um lembrete para a própria pessoa (ex.: 'Cobrar a Paula pelas peças', quem faz = ela mesma). Nunca crie ação para outra pessoa fazer o envio.",
@@ -472,12 +722,57 @@ async function lerErro(r: Response): Promise<string> {
   return d?.error || `não deu (${r.status})`;
 }
 
+/** Pessoa pelo nome. Nome de mais de uma pessoa vale a que aparece no assunto (lista, reuniões, projetos), se for
+ *  só uma: "Mariana" nas reuniões do Vitor é a Mariana Ressetti Volpi (bateria de 02/10/2026). */
+function acharPessoa(nome: string, retrato: Retrato): ReturnType<typeof acharPessoaPorNome<PessoaDaEquipe>> {
+  const achado = acharPessoaPorNome(nome, retrato.pessoas);
+  if (achado && "ambiguas" in achado) {
+    const noAssunto = achado.ambiguas.filter((p) => retrato.assunto.includes(p.nome));
+    if (noAssunto.length === 1) return { pessoa: noAssunto[0] };
+  }
+  return achado;
+}
+
+/** Nomes ditos → e-mails da Welcome (o nome que não acha, ou de mais de uma pessoa, volta como erro). */
+function emailsDe(nomes: unknown, retrato: Retrato): { emails: string[]; nomes: string[] } | { erro: string } {
+  const emails: string[] = [];
+  const ditos: string[] = [];
+  for (const n of Array.isArray(nomes) ? nomes : []) {
+    if (typeof n !== "string" || !n.trim()) continue;
+    const achado = acharPessoa(n, retrato);
+    if (achado && "ambiguas" in achado) {
+      return { erro: `mais de uma pessoa com o nome ${n}: ${achado.ambiguas.map((p) => p.nome).join(", ")}. Pergunte qual.` };
+    }
+    if (!achado || !("pessoa" in achado) || !achado.pessoa.email) return { erro: `${n} não está na lista da Welcome` };
+    if (!emails.includes(achado.pessoa.email)) {
+      emails.push(achado.pessoa.email);
+      ditos.push(achado.pessoa.nome);
+    }
+  }
+  return { emails, nomes: ditos };
+}
+
+/** Time ou meta pelo nome (sem diferença de maiúscula e acento). */
+function porNome<T extends { nome: string }>(nome: string, lista: T[]): T | undefined {
+  const alvo = slugNome(nome);
+  return lista.find((x) => slugNome(x.nome) === alvo) ?? lista.find((x) => slugNome(x.nome).includes(alvo));
+}
+
+type Rota<P> = (req: Request, ctx: { params: Promise<P> }) => Promise<Response>;
+
+/** Chama a rota da tela aqui dentro, com o acesso de quem pede (as mesmas travas da tela). */
+async function naRota<P>(req: Request, rota: Rota<P>, caminho: string, metodo: string, params: P, corpo?: unknown): Promise<{ erro: string } | { ok: true; json: Record<string, unknown> }> {
+  const r = await rota(requisicaoInterna(req, caminho, metodo, corpo), { params: Promise.resolve(params) });
+  if (!r.ok) return { erro: await lerErro(r) };
+  return { ok: true, json: ((await r.json().catch(() => ({}))) ?? {}) as Record<string, unknown> };
+}
+
 /** Nome dito → corpo do PATCH para "quem faz". */
 function corpoDeQuem(
   quem: string,
   t: TarefaVista,
   user: User,
-  pessoas: PessoaDaEquipe[],
+  retrato: Retrato,
 ): { corpo: Record<string, unknown>; texto: string } | { erro: string } | null {
   if (ehEu(quem) || quem.trim().toLowerCase() === user.nome.trim().toLowerCase()) {
     if (ehMinha(t)) return t.acao === "executar" ? null : { corpo: { acao: "executar" }, texto: "agora é sua" };
@@ -485,114 +780,249 @@ function corpoDeQuem(
     if (!user.email) return { erro: "não sei o seu e-mail para passar a ação pra você" };
     return { corpo: { responsavel_email: user.email }, texto: "agora é sua" };
   }
-  const achado = acharPessoaPorNome(quem, pessoas);
+  const achado = acharPessoa(quem, retrato);
   if (achado && "ambiguas" in achado) {
     return { erro: `mais de uma pessoa com esse nome: ${achado.ambiguas.map((p) => p.nome).join(", ")}. Pergunte qual.` };
   }
   if (achado && "pessoa" in achado) {
-    if (achado.pessoa.email === (user.email ?? "").toLowerCase()) return corpoDeQuem("eu", t, user, pessoas);
+    if (achado.pessoa.email === (user.email ?? "").toLowerCase()) return corpoDeQuem("eu", t, user, retrato);
     return { corpo: { responsavel_email: achado.pessoa.email }, texto: `passa para ${achado.pessoa.nome}` };
   }
   if (!ehMinha(t)) return { erro: `${quem} não está na lista da Welcome; só quem criou a ação pode pôr alguém de fora.` };
   return { corpo: { owner: quem.trim().slice(0, 80), acao: "cobrar", responsavel_user_id: null }, texto: `com ${quem.trim()} (de fora da Welcome)` };
 }
 
+type Exec = { user: User; req: Request; retrato: Retrato; pendente: Pendente; workspace: string | null };
+
+const texto = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+
+/** Lista de refs (t1, t2…) vinda do modelo, sem repetir. */
+function refsDe(v: unknown): string[] {
+  return [...new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [])];
+}
+
+/** Cria uma ação (com time, meta, reunião, quem vê e quem faz junto, se pedidos). */
+async function criarUma(
+  a: Record<string, unknown>,
+  ctx: Exec,
+): Promise<{ erro: string } | { ref: string; feita: Feita; aviso?: string }> {
+  const { user, req, retrato } = ctx;
+  const titulo = texto(a.titulo);
+  if (!titulo) return { erro: "faltou o título" };
+  const projeto = texto(a.projeto) ? retrato.projetos.get(texto(a.projeto)!) : undefined;
+  if (texto(a.projeto) && !projeto) return { erro: `projeto ${a.projeto} não existe no retrato` };
+  const time = texto(a.time) ? porNome(texto(a.time)!, retrato.times) : undefined;
+  if (texto(a.time) && !time) return { erro: `não achei o time ${a.time}` };
+  const meta = texto(a.meta) ? porNome(texto(a.meta)!, retrato.metas) : undefined;
+  if (texto(a.meta) && !meta) return { erro: `não achei a meta ${a.meta}` };
+  const reuniao = texto(a.reuniao) ? retrato.reunioes.get(texto(a.reuniao)!) : undefined;
+  const veem = emailsDe(a.quem_ve, retrato);
+  if ("erro" in veem) return veem;
+  const junto = emailsDe(a.tambem_fazem, retrato);
+  if ("erro" in junto) return junto;
+  let quem_email: string | null = null;
+  let quem_nome_fora: string | null = null;
+  const quem = texto(a.quem);
+  if (quem && !ehEu(quem)) {
+    const achado = acharPessoa(quem, retrato);
+    if (achado && "ambiguas" in achado) {
+      return { erro: `mais de uma pessoa com esse nome: ${achado.ambiguas.map((p) => p.nome).join(", ")}. Pergunte qual.` };
+    }
+    if (achado && "pessoa" in achado) quem_email = achado.pessoa.email;
+    else quem_nome_fora = quem;
+  }
+  const r = await criarAcao(user, {
+    titulo,
+    descricao: texto(a.descricao),
+    quem_email,
+    quem_nome_fora,
+    prazo: texto(a.prazo),
+    prioridade: (texto(a.prioridade) as never) ?? null,
+    projeto_id: projeto?.id ?? null,
+    time_id: time?.id ?? null,
+    objetivo_id: meta?.id ?? null,
+    meeting_id: reuniao ?? null,
+    workspace: ctx.workspace,
+    origem: "agente",
+  });
+  if (!r.ok) return { erro: r.erro };
+  const t = r.tarefa as TarefaVista;
+  const ref = refNoRetrato(retrato, t);
+  const avisos: string[] = r.aviso ? [r.aviso] : [];
+  if (veem.emails.length) {
+    const q = await naRota(req, putQuemVe as Rota<{ id: string }>, `/api/ttars/tarefas/${t.id}/quem-ve`, "PUT", { id: t.id }, { juntar: veem.emails });
+    if ("erro" in q) avisos.push(`quem vê: ${q.erro}`);
+  }
+  if (junto.emails.length) {
+    const q = await naRota(req, putTambemFazem as Rota<{ id: string }>, `/api/ttars/tarefas/${t.id}/tambem-fazem`, "PUT", { id: t.id }, { pessoas: junto.emails });
+    if ("erro" in q) avisos.push(`quem faz junto: ${q.erro}`);
+  }
+  const partes = [
+    quem_email || quem_nome_fora ? `com ${t.acao === "executar" ? "você" : (t.pessoas?.find((p) => (p as { principal?: boolean }).principal)?.nome ?? t.owner)}` : null,
+    t.prazo ? `prazo ${dataCurtaBR(t.prazo)}` : null,
+    projeto ? `no projeto ${projeto.nome}` : null,
+    time ? `do time ${time.nome}` : null,
+    veem.nomes.length ? `${veem.nomes.join(", ")} acompanha${veem.nomes.length > 1 ? "m" : ""}` : null,
+    junto.nomes.length ? `${junto.nomes.join(", ")} faz junto` : null,
+  ].filter(Boolean);
+  return {
+    ref,
+    feita: {
+      descricao: `Criei "${tituloCurto(t.titulo)}"${partes.length ? `, ${partes.join(", ")}` : ""}.`,
+      tarefa_id: t.id,
+      desfazer: [{ metodo: "DELETE", caminho: `/api/tarefas/${t.id}` }],
+    },
+    ...(avisos.length ? { aviso: avisos.join("; ") } : {}),
+  };
+}
+
+/** Muda uma ação: o que a tela muda no painel (título, descrição, prazo, prioridade, situação, papel, time, meta,
+ *  quem faz). Trocar quem faz numa ação de outra pessoa espera Confirmar. */
+async function mudarUma(
+  t: TarefaVista,
+  a: Record<string, unknown>,
+  ctx: Exec,
+): Promise<{ erro: string } | { nada: true } | { proposta: Proposta } | { feita: Feita }> {
+  const { user, req, retrato, pendente } = ctx;
+  const m = montarMudanca(t, {
+    titulo: texto(a.titulo),
+    descricao: typeof a.descricao === "string" ? a.descricao : null,
+    prazo: texto(a.prazo),
+    prioridade: texto(a.prioridade),
+    situacao: texto(a.situacao),
+    papel: texto(a.papel),
+  });
+  if ("erro" in m) return { erro: m.erro };
+  const corpo = { ...m.corpo };
+  const desfazer = { ...m.desfazer };
+  const partes = [...m.partes];
+  const time = texto(a.time);
+  if (time) {
+    const novo = time === "nenhum" ? null : porNome(time, retrato.times);
+    if (novo === undefined) return { erro: `não achei o time ${time}` };
+    if ((novo?.id ?? null) !== (t.time_id ?? null)) {
+      corpo.time_id = novo?.id ?? null;
+      desfazer.time_id = t.time_id ?? null;
+      partes.push(novo ? `time ${novo.nome}` : "sem time");
+    }
+  }
+  const meta = texto(a.meta);
+  if (meta) {
+    const nova = meta === "nenhuma" ? null : porNome(meta, retrato.metas);
+    if (nova === undefined) return { erro: `não achei a meta ${meta}` };
+    if ((nova?.id ?? null) !== (t.objetivo_id ?? null)) {
+      corpo.objetivo_id = nova?.id ?? null;
+      desfazer.objetivo_id = t.objetivo_id ?? null;
+      partes.push(nova ? `meta ${nova.nome}` : "sem meta");
+    }
+  }
+  const quem = texto(a.quem);
+  if (quem) {
+    const q = corpoDeQuem(quem, t, user, retrato);
+    if (q && "erro" in q) return { erro: q.erro };
+    if (q) {
+      Object.assign(corpo, q.corpo, ctx.workspace ? { workspace: ctx.workspace } : {});
+      if (ehMinha(t)) Object.assign(desfazer, desfazerQuem(t));
+      partes.push(q.texto);
+    }
+  }
+  if (!Object.keys(corpo).length) return { nada: true };
+  const descricao = `"${tituloCurto(t.titulo)}": ${partes.join(", ")}.`;
+  const pedido: Pedido = { metodo: "PATCH", caminho: `/api/tarefas/${t.id}`, corpo };
+  if (precisaConfirmar(t, corpo)) {
+    return { proposta: { id: `${t.id}:${pendente.propostas.length}`, descricao, executar: [pedido], tarefa_id: t.id } };
+  }
+  const r = await patchTarefa(requisicaoInterna(req, pedido.caminho, "PATCH", corpo), { params: Promise.resolve({ id: t.id }) });
+  // Ação vista só pela reunião de um colega: a rota não acha (404); dizer de quem é em vez de "não encontrada".
+  if (r.status === 404 && t.compartilhada) return { erro: `essa ação é da lista de ${t.criador_nome ?? "outra pessoa"}: só ela muda` };
+  if (!r.ok) return { erro: await lerErro(r) };
+  // O retrato passa a ter a ação como ficou (a lista que a tela mostra no fim já sai certa).
+  const atual = await tarefaNaTela(user.id, t.id).catch(() => null);
+  if (atual) retrato.tarefas.set(refNoRetrato(retrato, t), atual.tarefa as TarefaVista);
+  return {
+    feita: {
+      descricao,
+      tarefa_id: t.id,
+      desfazer: Object.keys(desfazer).length ? [{ metodo: "PATCH", caminho: `/api/tarefas/${t.id}`, corpo: desfazer }] : [],
+    },
+  };
+}
+
 async function executar(
   chamada: { name: string; args: Record<string, unknown> },
-  ctx: { user: User; req: Request; retrato: Retrato; pendente: Pendente; workspace: string | null },
+  ctx: Exec,
 ): Promise<unknown> {
   const { user, req, retrato, pendente } = ctx;
   const a = chamada.args;
   const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
 
   if (chamada.name === "criar_acao") {
-    const titulo = str(a.titulo);
-    if (!titulo) return { erro: "faltou o título" };
-    const projeto = str(a.projeto) ? retrato.projetos.get(str(a.projeto)!) : undefined;
-    if (str(a.projeto) && !projeto) return { erro: `projeto ${a.projeto} não existe no retrato` };
-    let quem_email: string | null = null;
-    let quem_nome_fora: string | null = null;
-    const quem = str(a.quem);
-    if (quem && !ehEu(quem)) {
-      const achado = acharPessoaPorNome(quem, retrato.pessoas);
-      if (achado && "ambiguas" in achado) {
-        return { erro: `mais de uma pessoa com esse nome: ${achado.ambiguas.map((p) => p.nome).join(", ")}. Pergunte qual.` };
-      }
-      if (achado && "pessoa" in achado) quem_email = achado.pessoa.email;
-      else quem_nome_fora = quem;
+    const r = await criarUma(a, ctx);
+    if ("erro" in r) return r;
+    pendente.feitas.push(r.feita);
+    return { ok: true, ref: r.ref, ...(r.aviso ? { aviso: r.aviso } : {}) };
+  }
+
+  if (chamada.name === "criar_varias") {
+    const itens = Array.isArray(a.acoes) ? (a.acoes as Record<string, unknown>[]).slice(0, 30) : [];
+    if (!itens.length) return { erro: "faltou a lista de ações" };
+    const criadas: { ref: string; feita: Feita }[] = [];
+    const erros: string[] = [];
+    for (const item of itens) {
+      const r = await criarUma(item, ctx);
+      if ("erro" in r) erros.push(`"${tituloCurto(String(item.titulo ?? ""), 50)}": ${r.erro}`);
+      else criadas.push(r);
     }
-    const r = await criarAcao(user, {
-      titulo,
-      descricao: str(a.descricao),
-      quem_email,
-      quem_nome_fora,
-      prazo: str(a.prazo),
-      prioridade: (str(a.prioridade) as never) ?? null,
-      projeto_id: projeto?.id ?? null,
-      workspace: ctx.workspace,
-      origem: "agente",
-    });
-    if (!r.ok) return { erro: r.erro };
-    const t = r.tarefa as TarefaVista;
-    const ref = `t${retrato.tarefas.size + 1}`;
-    retrato.tarefas.set(ref, t);
-    retrato.refDe.set(t.id, ref);
-    const partes = [
-      quem_email || quem_nome_fora ? `com ${t.acao === "executar" ? "você" : (t.pessoas?.find((p) => (p as { principal?: boolean }).principal)?.nome ?? t.owner)}` : null,
-      t.prazo ? `prazo ${dataCurtaBR(t.prazo)}` : null,
-      projeto ? `no projeto ${projeto.nome}` : null,
-    ].filter(Boolean);
-    const descricao = `Criei "${tituloCurto(t.titulo)}"${partes.length ? `, ${partes.join(", ")}` : ""}.`;
-    pendente.feitas.push({ descricao, tarefa_id: t.id, desfazer: [{ metodo: "DELETE", caminho: `/api/tarefas/${t.id}` }] });
-    return { ok: true, ref, ...(r.aviso ? { aviso: r.aviso } : {}) };
+    if (criadas.length) {
+      pendente.feitas.push({
+        descricao: criadas.length === 1 ? criadas[0].feita.descricao : `Criei ${criadas.length} ações.`,
+        tarefa_id: criadas.length === 1 ? criadas[0].feita.tarefa_id : null,
+        desfazer: criadas.flatMap((c) => c.feita.desfazer),
+      });
+    }
+    return { criadas: criadas.map((c) => c.ref), ...(erros.length ? { erros } : {}) };
   }
 
   if (chamada.name === "mudar_acao") {
-    const ref = str(a.acao) ?? "";
-    const t = retrato.tarefas.get(ref);
-    if (!t) return { erro: `ação ${ref} não existe no retrato` };
-    const mudanca: Mudanca = {
-      titulo: str(a.titulo),
-      descricao: typeof a.descricao === "string" ? a.descricao : null,
-      prazo: str(a.prazo),
-      prioridade: str(a.prioridade),
-      situacao: str(a.situacao),
-    };
-    const m = montarMudanca(t, mudanca);
-    if ("erro" in m) return { erro: m.erro };
-    const corpo = { ...m.corpo };
-    const desfazer = { ...m.desfazer };
-    const partes = [...m.partes];
-    const quem = str(a.quem);
-    if (quem) {
-      const q = corpoDeQuem(quem, t, user, retrato.pessoas);
-      if (q && "erro" in q) return { erro: q.erro };
-      if (q) {
-        Object.assign(corpo, q.corpo, ctx.workspace ? { workspace: ctx.workspace } : {});
-        if (ehMinha(t)) Object.assign(desfazer, desfazerQuem(t));
-        partes.push(q.texto);
-      }
-    }
-    if (!Object.keys(corpo).length) return { ok: true, nada_mudou: true };
-    const descricao = `"${tituloCurto(t.titulo)}": ${partes.join(", ")}.`;
-    const pedido: Pedido = { metodo: "PATCH", caminho: `/api/tarefas/${t.id}`, corpo };
-    const desfazerPedidos: Pedido[] = Object.keys(desfazer).length ? [{ metodo: "PATCH", caminho: `/api/tarefas/${t.id}`, corpo: desfazer }] : [];
-    if (precisaConfirmar(t, corpo)) {
-      pendente.propostas.push({ id: `${t.id}:${pendente.propostas.length}`, descricao, executar: [pedido], tarefa_id: t.id });
+    const t = retrato.tarefas.get(str(a.acao) ?? "");
+    if (!t) return { erro: `ação ${a.acao} não existe no retrato` };
+    const r = await mudarUma(t, a, ctx);
+    if ("erro" in r) return r;
+    if ("nada" in r) return { ok: true, nada_mudou: true };
+    if ("proposta" in r) {
+      pendente.propostas.push(r.proposta);
       return {
         aguardando_confirmacao: true,
         motivo: `a ação foi criada por ${t.criador_nome ?? "outra pessoa"}: trocando quem faz, você pode perder o acesso a ela e o Desfazer não alcança`,
       };
     }
-    const r = await patchTarefa(requisicaoInterna(req, pedido.caminho, "PATCH", corpo), { params: Promise.resolve({ id: t.id }) });
-    // Ação vista só pela reunião de um colega: a rota não acha (404); dizer de quem é em vez de "não encontrada".
-    if (r.status === 404 && t.compartilhada) return { erro: `essa ação é da lista de ${t.criador_nome ?? "outra pessoa"}: só ela muda` };
-    if (!r.ok) return { erro: await lerErro(r) };
-    pendente.feitas.push({ descricao, tarefa_id: t.id, desfazer: desfazerPedidos });
-    // O retrato passa a ter a ação como ficou (a lista que a tela mostra no fim já sai certa).
-    const atual = await tarefaNaTela(user.id, t.id).catch(() => null);
-    if (atual) retrato.tarefas.set(ref, atual.tarefa as TarefaVista);
+    pendente.feitas.push(r.feita);
     return { ok: true };
+  }
+
+  if (chamada.name === "mudar_varias") {
+    const ts = refsDe(a.acoes).map((r) => retrato.tarefas.get(r)).filter((x): x is TarefaVista => !!x);
+    if (!ts.length) return { erro: "nenhuma ação válida" };
+    const feitas: Feita[] = [];
+    const erros: string[] = [];
+    let aConfirmar = 0;
+    for (const t of ts.slice(0, 100)) {
+      const r = await mudarUma(t, a, ctx);
+      if ("erro" in r) erros.push(`"${tituloCurto(t.titulo, 50)}": ${r.erro}`);
+      else if ("proposta" in r) {
+        pendente.propostas.push(r.proposta);
+        aConfirmar++;
+      } else if ("feita" in r) feitas.push(r.feita);
+    }
+    if (feitas.length) {
+      // Uma linha e um Desfazer só para todas (antes eram 10 mudanças por pergunta, no máximo).
+      pendente.feitas.push({
+        descricao: feitas.length === 1 ? feitas[0].descricao : `Mudei ${feitas.length} ações: ${feitas[0].descricao.replace(/^"[^"]*": /, "")}`,
+        tarefa_id: feitas.length === 1 ? feitas[0].tarefa_id : null,
+        desfazer: feitas.flatMap((f) => f.desfazer),
+      });
+    }
+    return { mudadas: feitas.length, ...(aConfirmar ? { aguardando_confirmacao: aConfirmar } : {}), ...(erros.length ? { erros } : {}) };
   }
 
   if (chamada.name === "por_no_projeto") {
@@ -660,7 +1090,18 @@ async function executar(
     const hoje = hojeBR();
     const refs = tarefas.map((t) => linhaDoRetrato(refNoRetrato(retrato, t), t, hoje, quemFazSouEu(t, user, retrato.pessoas)));
     const resumo = trocarFalantes(det.executive_summary || det.summary || "", det.speaker_labels) ?? "";
-    return { resumo: resumo.slice(0, 3500), acoes: refs };
+    // Quem estava e quem falou: só quem gravou vê (a página da reunião de um colega também não mostra).
+    const quem = det.user_id === user.id ? await quemVeDaReuniao(user.id, id).catch(() => null) : null;
+    return {
+      resumo: resumo.slice(0, 3500),
+      ...(quem
+        ? {
+            quem_estava: quem.quem_estava.map((p) => `${p.nome} (${p.motivo === "falou" ? "falou" : p.motivo === "convidado" ? "convidado" : "estava"})`),
+            quem_ve: quem.visibilidade === "todos" ? "toda a Welcome" : quem.visibilidade === "so_eu" ? "só você" : "quem estava e os marcados",
+          }
+        : { quem_estava: "só quem gravou a reunião vê quem estava" }),
+      acoes: refs,
+    };
   }
 
   if (chamada.name === "procurar") {
@@ -747,6 +1188,334 @@ async function executar(
     return { ok: true };
   }
 
+  if (chamada.name === "puxar") {
+    const ts = refsDe(a.acoes).map((r) => retrato.tarefas.get(r)).filter((x): x is TarefaVista => !!x);
+    if (!ts.length) return { erro: "nenhuma ação válida" };
+    const puxadas: TarefaVista[] = [];
+    const erros: string[] = [];
+    for (const t of ts.slice(0, 50)) {
+      const r = await puxarAcao({ id: user.id, nome: user.nome }, t.id);
+      if (r.ok) puxadas.push(t);
+      else erros.push(`"${tituloCurto(t.titulo, 50)}": ${r.erro}`);
+    }
+    if (puxadas.length) {
+      pendente.feitas.push({
+        descricao: puxadas.length === 1 ? `Puxei "${tituloCurto(puxadas[0].titulo)}" para a sua lista.` : `Puxei ${puxadas.length} ações para a sua lista.`,
+        tarefa_id: puxadas.length === 1 ? puxadas[0].id : null,
+        desfazer: puxadas.map((t) => ({ metodo: "POST" as const, caminho: `/api/ttars/tarefas/${t.id}/devolver` })),
+      });
+      for (const t of puxadas) {
+        const atual = await tarefaNaTela(user.id, t.id).catch(() => null);
+        if (atual) retrato.tarefas.set(refNoRetrato(retrato, t), atual.tarefa as TarefaVista);
+      }
+    }
+    return { puxadas: puxadas.length, ...(erros.length ? { erros } : {}) };
+  }
+
+  if (chamada.name === "devolver") {
+    const t = retrato.tarefas.get(str(a.acao) ?? "");
+    if (!t) return { erro: `ação ${a.acao} não existe no retrato` };
+    const r = await devolverAcao({ id: user.id, nome: user.nome }, t.id);
+    if (!r.ok) return { erro: r.erro };
+    pendente.feitas.push({
+      descricao: `Devolvi "${tituloCurto(t.titulo)}".`,
+      tarefa_id: t.id,
+      desfazer: [{ metodo: "POST", caminho: `/api/ttars/tarefas/${t.id}/puxar` }],
+    });
+    return { ok: true };
+  }
+
+  if (chamada.name === "quem_ve") {
+    const ts = refsDe(a.acoes).map((r) => retrato.tarefas.get(r)).filter((x): x is TarefaVista => !!x);
+    if (!ts.length) return { erro: "nenhuma ação válida" };
+    const juntar = emailsDe(a.juntar, retrato);
+    if ("erro" in juntar) return juntar;
+    const tirar = emailsDe(a.tirar, retrato);
+    if ("erro" in tirar) return tirar;
+    const timeDito = str(a.time);
+    const time = timeDito ? (timeDito === "nenhum" ? null : porNome(timeDito, retrato.times)) : undefined;
+    if (time === undefined && timeDito) return { erro: `não achei o time ${timeDito}` };
+    const mudadas: { t: TarefaVista; desfazer: Pedido }[] = [];
+    const erros: string[] = [];
+    for (const t of ts.slice(0, 50)) {
+      const achada = await tarefaNaTela(user.id, t.id).catch(() => null);
+      if (!achada) {
+        erros.push(`"${tituloCurto(t.titulo, 50)}": é da lista de ${t.criador_nome ?? "outra pessoa"}; só quem criou muda quem vê`);
+        continue;
+      }
+      const antes = await pessoasQueVeemATarefa(achada.donoId, t.id).catch(() => []);
+      const corpo = { juntar: juntar.emails, tirar: tirar.emails, ...(timeDito ? { time_id: time?.id ?? null } : {}) };
+      const r = await naRota(req, putQuemVe as Rota<{ id: string }>, `/api/ttars/tarefas/${t.id}/quem-ve`, "PUT", { id: t.id }, corpo);
+      if ("erro" in r) {
+        erros.push(`"${tituloCurto(t.titulo, 50)}": ${r.erro}`);
+        continue;
+      }
+      mudadas.push({
+        t,
+        desfazer: {
+          metodo: "PUT",
+          caminho: `/api/ttars/tarefas/${t.id}/quem-ve`,
+          corpo: { pessoas: antes.flatMap((p) => (p.email ? [p.email] : [])), ...(timeDito ? { time_id: achada.tarefa.time_id ?? null } : {}) },
+        },
+      });
+    }
+    if (mudadas.length) {
+      const o_que = [
+        juntar.nomes.length ? `${juntar.nomes.join(", ")} passa${juntar.nomes.length > 1 ? "m" : ""} a acompanhar` : null,
+        tirar.nomes.length ? `${tirar.nomes.join(", ")} deixa${tirar.nomes.length > 1 ? "m" : ""} de acompanhar` : null,
+        timeDito ? (time ? `time ${time.nome}` : "sem time") : null,
+      ].filter(Boolean).join(", ");
+      pendente.feitas.push({
+        descricao: mudadas.length === 1 ? `"${tituloCurto(mudadas[0].t.titulo)}": ${o_que}.` : `${mudadas.length} ações: ${o_que}.`,
+        tarefa_id: mudadas.length === 1 ? mudadas[0].t.id : null,
+        desfazer: mudadas.map((x) => x.desfazer),
+      });
+    }
+    return { mudadas: mudadas.length, ...(erros.length ? { erros } : {}) };
+  }
+
+  if (chamada.name === "tambem_fazem") {
+    const t = retrato.tarefas.get(str(a.acao) ?? "");
+    if (!t) return { erro: `ação ${a.acao} não existe no retrato` };
+    const juntar = emailsDe(a.juntar, retrato);
+    if ("erro" in juntar) return juntar;
+    const tirar = emailsDe(a.tirar, retrato);
+    if ("erro" in tirar) return tirar;
+    const achada = await tarefaNaTela(user.id, t.id).catch(() => null);
+    if (!achada) return { erro: `essa ação é da lista de ${t.criador_nome ?? "outra pessoa"} e não está aberta para você` };
+    const antes = ((achada.tarefa as { tambem_fazem?: { email: string | null }[] }).tambem_fazem ?? []).flatMap((p) => (p.email ? [p.email] : []));
+    const depois = [...new Set([...antes, ...juntar.emails])].filter((e) => !tirar.emails.includes(e));
+    const r = await naRota(req, putTambemFazem as Rota<{ id: string }>, `/api/ttars/tarefas/${t.id}/tambem-fazem`, "PUT", { id: t.id }, { pessoas: depois });
+    if ("erro" in r) return r;
+    const o_que = [
+      juntar.nomes.length ? `${juntar.nomes.join(", ")} faz${juntar.nomes.length > 1 ? "em" : ""} junto` : null,
+      tirar.nomes.length ? `${tirar.nomes.join(", ")} deixa${tirar.nomes.length > 1 ? "m" : ""} de fazer junto` : null,
+    ].filter(Boolean).join(", ");
+    pendente.feitas.push({
+      descricao: `"${tituloCurto(t.titulo)}": ${o_que}.`,
+      tarefa_id: t.id,
+      desfazer: [{ metodo: "PUT", caminho: `/api/ttars/tarefas/${t.id}/tambem-fazem`, corpo: { pessoas: antes } }],
+    });
+    return { ok: true };
+  }
+
+  if (chamada.name === "juntar_repetidas") {
+    const copia = retrato.tarefas.get(str(a.copia) ?? "");
+    const principal = retrato.tarefas.get(str(a.principal) ?? "");
+    if (!copia || !principal) return { erro: "ação não existe no retrato" };
+    if (copia.id === principal.id) return { erro: "é a mesma ação" };
+    const deOutro = [copia, principal].find((t) => !ehMinha(t));
+    // A tela junta só as duas da própria lista (uma vira "falada de novo" na outra, no mesmo dono).
+    if (deOutro) return { erro: `"${tituloCurto(deOutro.titulo, 50)}" é da lista de ${deOutro.criador_nome ?? "outra pessoa"}: só ela junta as dela` };
+    const r = await naRota(req, ((q: Request) => postRepetidas(q, undefined as never)) as Rota<Record<string, never>>, "/api/tarefas/repetidas", "POST", {}, {
+      acao: "juntar",
+      tarefa_id: copia.id,
+      alvo_id: principal.id,
+    });
+    if ("erro" in r) return r;
+    const mencao = await withTenant(user.id, (c) =>
+      c.query<{ id: string }>(
+        `SELECT id::text AS id FROM tarefa_mencoes WHERE tarefa_id = $1 AND tarefa_origem_id = $2 ORDER BY created_at DESC LIMIT 1`,
+        [principal.id, copia.id],
+      ),
+    ).catch(() => null);
+    const mencaoId = mencao?.rows[0]?.id;
+    pendente.feitas.push({
+      descricao: `Juntei "${tituloCurto(copia.titulo, 50)}" em "${tituloCurto(principal.titulo, 50)}".`,
+      tarefa_id: principal.id,
+      desfazer: mencaoId ? [{ metodo: "POST", caminho: "/api/tarefas/repetidas", corpo: { acao: "separar", mencao_id: mencaoId } }] : [],
+    });
+    return { ok: true };
+  }
+
+  if (chamada.name === "ver_projeto") {
+    const projeto = retrato.projetos.get(str(a.projeto) ?? "");
+    if (!projeto) return { erro: `projeto ${a.projeto} não existe no retrato` };
+    const p = await projetoParaQuemVe(user.id, projeto.id);
+    if (!p) return { erro: "esse projeto não está aberto para você" };
+    const hoje = hojeBR();
+    const tarefas = ((await paraTela(user.id, p.tarefas)) as TarefaVista[]).filter((t) => t.status !== "cancelada").sort(ordenarPendencias);
+    const linhas = tarefas.map((t) => linhaDoRetrato(refNoRetrato(retrato, t), t, hoje, quemFazSouEu(t, user, retrato.pessoas)));
+    const abertas = linhas.filter((l) => l.situacao !== "concluída");
+    return {
+      nome: p.quadro.nome,
+      descricao: (p.quadro as { descricao?: string | null }).descricao ?? null,
+      pessoas: p.pessoas.map((x) => x.nome),
+      ...(p.sou_dono ? {} : { criado_por: p.pessoas.find((x) => x.e_dono)?.nome ?? null }),
+      total: linhas.length,
+      abertas: abertas.length,
+      atrasadas: abertas.filter((l) => String(l.vence ?? "").startsWith("atrasada")).length,
+      concluidas: linhas.length - abertas.length,
+      acoes: linhas.slice(0, 150),
+    };
+  }
+
+  if (chamada.name === "mudar_projeto") {
+    const projeto = retrato.projetos.get(str(a.projeto) ?? "");
+    if (!projeto) return { erro: `projeto ${a.projeto} não existe no retrato` };
+    const q = projeto as ProjetoResumo & { descricao?: string | null; time_id?: string | null; objetivo_id?: string | null };
+    const partes: string[] = [];
+    const desfazer: Pedido[] = [];
+    const nome = str(a.nome);
+    const descricao = typeof a.descricao === "string" ? a.descricao.trim() : null;
+    if (nome || descricao !== null) {
+      const r = await atualizarProjeto(user.id, q.id, { ...(nome ? { nome: nome.slice(0, 120) } : {}), ...(descricao !== null ? { descricao: descricao || null } : {}) });
+      if (!r) return { erro: "você não está nesse projeto" };
+      desfazer.push({ metodo: "PATCH", caminho: `/api/quadros/${q.id}`, corpo: { ...(nome ? { nome: q.nome } : {}), ...(descricao !== null ? { descricao: q.descricao ?? null } : {}) } });
+      if (nome) partes.push(`nome agora é "${nome}"`);
+      if (descricao !== null) partes.push(descricao ? "descrição nova" : "sem descrição");
+    }
+    const timeDito = str(a.time);
+    const metaDita = str(a.meta);
+    if (timeDito || metaDita) {
+      const time = timeDito ? (timeDito === "nenhum" ? null : porNome(timeDito, retrato.times)) : undefined;
+      if (timeDito && time === undefined) return { erro: `não achei o time ${timeDito}` };
+      const meta = metaDita ? (metaDita === "nenhuma" ? null : porNome(metaDita, retrato.metas)) : undefined;
+      if (metaDita && meta === undefined) return { erro: `não achei a meta ${metaDita}` };
+      const corpo = { ...(timeDito ? { time_id: time?.id ?? null } : {}), ...(metaDita ? { objetivo_id: meta?.id ?? null } : {}) };
+      const r = await naRota(req, patchProjetoNoTtars as Rota<{ id: string }>, `/api/ttars/projetos/${q.id}`, "PATCH", { id: q.id }, corpo);
+      if ("erro" in r) return r;
+      desfazer.push({
+        metodo: "PATCH",
+        caminho: `/api/ttars/projetos/${q.id}`,
+        corpo: { ...(timeDito ? { time_id: q.time_id ?? null } : {}), ...(metaDita ? { objetivo_id: q.objetivo_id ?? null } : {}) },
+      });
+      if (timeDito) partes.push(time ? `time ${time.nome}` : "sem time");
+      if (metaDita) partes.push(meta ? `meta ${meta.nome}` : "sem meta");
+    }
+    const chamar = emailsDe(a.chamar, retrato);
+    if ("erro" in chamar) return chamar;
+    for (const [i, email] of chamar.emails.entries()) {
+      const r = await naRota(req, postPessoaNoProjeto as Rota<{ id: string }>, `/api/quadros/${q.id}/pessoas`, "POST", { id: q.id }, { email });
+      if ("erro" in r) return { erro: `${chamar.nomes[i]}: ${r.erro}` };
+      const uid = typeof r.json.user_id === "string" ? r.json.user_id : retrato.pessoas.find((p) => p.email === email)?.id;
+      if (uid) desfazer.push({ metodo: "DELETE", caminho: `/api/quadros/${q.id}/pessoas/${uid}` });
+      partes.push(`${chamar.nomes[i]} entrou`);
+    }
+    const tirar = emailsDe(a.tirar, retrato);
+    if ("erro" in tirar) return tirar;
+    for (const [i, email] of tirar.emails.entries()) {
+      const uid = retrato.pessoas.find((p) => p.email === email)?.id;
+      if (!uid) return { erro: `${tirar.nomes[i]} não está no projeto` };
+      const r = await naRota(req, deletePessoaDoProjeto as Rota<{ id: string; uid: string }>, `/api/quadros/${q.id}/pessoas/${uid}`, "DELETE", { id: q.id, uid });
+      if ("erro" in r) return { erro: `${tirar.nomes[i]}: ${r.erro}` };
+      desfazer.push({ metodo: "POST", caminho: `/api/quadros/${q.id}/pessoas`, corpo: { email } });
+      partes.push(`${tirar.nomes[i]} saiu`);
+    }
+    if (!partes.length) return { ok: true, nada_mudou: true };
+    pendente.feitas.push({ descricao: `Projeto ${q.nome}: ${partes.join(", ")}.`, tarefa_id: null, desfazer });
+    return { ok: true };
+  }
+
+  if (chamada.name === "arquivar_projeto") {
+    const projeto = retrato.projetos.get(str(a.projeto) ?? "");
+    if (!projeto) return { erro: `projeto ${a.projeto} não existe no retrato` };
+    if (!projeto.sou_dono) return { erro: "só quem criou o projeto arquiva" };
+    pendente.propostas.push({
+      id: `projeto:${projeto.id}`,
+      descricao: `Arquivar o projeto ${projeto.nome} (as ações continuam existindo).`,
+      executar: [{ metodo: "DELETE", caminho: `/api/quadros/${projeto.id}` }],
+      tarefa_id: null,
+    });
+    return { aguardando_confirmacao: true, motivo: "arquivar projeto não tem Desfazer" };
+  }
+
+  if (chamada.name === "ver_reunioes") {
+    const de = str(a.de);
+    const ate = str(a.ate);
+    const lista = await meetingsFor(user.id).listParaTtars();
+    const refDaReuniao = (id: string) => {
+      let ref = [...retrato.reunioes.entries()].find(([, x]) => x === id)?.[0];
+      if (!ref) {
+        ref = `r${retrato.reunioes.size + 1}`;
+        retrato.reunioes.set(ref, id);
+      }
+      return ref;
+    };
+    const todas = [...lista.minhas, ...lista.daEquipe]
+      .filter((m) => {
+        const dia = diaDoPrazo(m.recorded_at);
+        return !!dia && (!de || dia >= de) && (!ate || dia <= ate);
+      })
+      .sort((x, y) => ((x.recorded_at ?? "") < (y.recorded_at ?? "") ? 1 : -1));
+    return {
+      total: todas.length,
+      reunioes: todas.slice(0, 25).map((m) => ({
+        ref: refDaReuniao(m.id),
+        nome: tituloCurto(meetingSubject(m.summary, m.nome) || "Reunião", 90),
+        dia: diaDoPrazo(m.recorded_at),
+        ...(m.user_id !== user.id ? { gravada_por: m.dono_nome } : {}),
+        acoes: m.n_tarefas,
+        resumo: tituloCurto((m.summary ?? "").replace(/\s+/g, " "), 600),
+      })),
+    };
+  }
+
+  if (chamada.name === "mudar_reuniao") {
+    const id = retrato.reunioes.get(str(a.reuniao) ?? "");
+    if (!id) return { erro: `reunião ${a.reuniao} não existe no retrato` };
+    const m = (await meetingsFor(user.id).byIdDetailed(id)) as { user_id: string; nome?: string | null; visibilidade?: string | null; summary: string | null } | null;
+    if (!m) return { erro: "essa reunião não está aberta pra você" };
+    if (m.user_id !== user.id) return { erro: "só quem gravou a reunião muda nome, quem vê e quem estava" };
+    const partes: string[] = [];
+    const desfazer: Pedido[] = [];
+    const nome = str(a.nome);
+    if (nome) {
+      await meetingsFor(user.id).renomear(id, nome.slice(0, 120));
+      desfazer.push({ metodo: "PATCH", caminho: `/api/meetings/${id}`, corpo: { nome: m.nome ?? null } });
+      partes.push(`nome agora é "${nome}"`);
+    }
+    const quemVe = str(a.quem_ve);
+    if (quemVe && quemVe !== m.visibilidade) {
+      const r = await naRota(req, patchVisibilidade as Rota<{ id: string }>, `/api/meetings/${id}/visibilidade`, "PATCH", { id }, { visibilidade: quemVe });
+      if ("erro" in r) return r;
+      desfazer.push({ metodo: "PATCH", caminho: `/api/meetings/${id}/visibilidade`, corpo: { visibilidade: m.visibilidade ?? "escolhidos" } });
+      partes.push(quemVe === "todos" ? "toda a Welcome vê" : quemVe === "so_eu" ? "só você vê" : "quem estava e os marcados veem");
+    }
+    for (const [lista, acao] of [[a.por_quem_estava, "por"], [a.tirar_quem_estava, "tirar"]] as const) {
+      const pessoas = emailsDe(lista, retrato);
+      if ("erro" in pessoas) return pessoas;
+      for (const [i, email] of pessoas.emails.entries()) {
+        const r = await mudarQuemEstava(user.id, id, email, acao);
+        if (r !== "ok") return { erro: r === "segue_a_voz" ? `${pessoas.nomes[i]} falou na reunião: quem estava segue a voz` : `não consegui mudar ${pessoas.nomes[i]}` };
+        desfazer.push({ metodo: acao === "por" ? "DELETE" : "POST", caminho: `/api/ttars/reunioes/${id}/quem-estava`, corpo: { email } });
+        partes.push(acao === "por" ? `${pessoas.nomes[i]} estava` : `${pessoas.nomes[i]} não estava`);
+      }
+    }
+    if (!partes.length) return { ok: true, nada_mudou: true };
+    pendente.feitas.push({
+      descricao: `Reunião ${tituloCurto(meetingSubject(m.summary, m.nome ?? null) || "Reunião", 50)}: ${partes.join(", ")}.`,
+      tarefa_id: null,
+      desfazer,
+    });
+    return { ok: true };
+  }
+
+  if (chamada.name === "ver_time") {
+    const time = porNome(str(a.time) ?? "", retrato.times);
+    if (!time) return { erro: `não achei o time ${a.time}` };
+    if (!(await podeTime(user.id, time.id))) return { erro: "você não vê esse time" };
+    const hoje = hojeBR();
+    const tarefas = ((await paraTela(user.id, await tarefasDoTime(user.id, time.id))) as TarefaVista[]).sort(ordenarPendencias);
+    const pessoas = retrato.pessoas.filter((p) => (Array.isArray(p.times) ? p.times : []).some((x) => x?.id === time.id)).map((p) => p.nome);
+    return {
+      nome: time.nome,
+      pessoas,
+      total: tarefas.length,
+      ...(tarefas.length ? {} : { aviso: "o time ainda não tem ações no Ações" }),
+      acoes: tarefas.slice(0, 150).map((t) => linhaDoRetrato(refNoRetrato(retrato, t), t, hoje, quemFazSouEu(t, user, retrato.pessoas))),
+    };
+  }
+
+  if (chamada.name === "acompanhar_pedido") {
+    const t = retrato.tarefas.get(str(a.acao) ?? "");
+    if (!t) return { erro: `ação ${a.acao} não existe no retrato` };
+    const r = await naRota(req, postAcompanhar as Rota<{ tarefaId: string }>, `/api/ttars/pedidos/${t.id}/acompanhar`, "POST", { tarefaId: t.id });
+    if ("erro" in r) return r;
+    pendente.feitas.push({ descricao: `Agora você acompanha o pedido "${tituloCurto(t.titulo)}".`, tarefa_id: t.id, desfazer: [] });
+    return { ok: true };
+  }
+
   return { erro: `ferramenta desconhecida: ${chamada.name}` };
 }
 
@@ -786,9 +1555,10 @@ export async function conversar(
   const pendente: Pendente = { feitas: [], propostas: [], custo: 0 };
   let custo = 0;
   let chamadasFeitas = 0;
+  let leiturasFeitas = 0;
 
   for (let rodada = 0; rodada < MAX_RODADAS; rodada++) {
-    const ultima = rodada === MAX_RODADAS - 1 || chamadasFeitas >= MAX_CHAMADAS;
+    const ultima = rodada === MAX_RODADAS - 1 || chamadasFeitas >= MAX_CHAMADAS || leiturasFeitas >= MAX_LEITURAS;
     const r = await chamarModelo({
       userId: user.id,
       instrucoes: instrucoes(user.nome),
@@ -840,13 +1610,17 @@ export async function conversar(
     }
     entradaModelo.push(...r.itens);
     for (const c of r.chamadas) {
-      chamadasFeitas++;
+      const leitura = LEITURAS.has(c.name);
+      if (leitura) leiturasFeitas++;
+      else chamadasFeitas++;
       let saida: unknown;
       try {
         saida =
-          chamadasFeitas > MAX_CHAMADAS
-            ? { erro: "muitas mudanças de uma vez; peça em partes" }
-            : await executar(c, { user, req, retrato, pendente, workspace: entrada.workspace });
+          leitura && leiturasFeitas > MAX_LEITURAS
+            ? { erro: "muitas leituras de uma vez: responda com o que já veio" }
+            : !leitura && chamadasFeitas > MAX_CHAMADAS
+              ? { erro: "muitas mudanças de uma vez; peça em partes" }
+              : await executar(c, { user, req, retrato, pendente, workspace: entrada.workspace });
       } catch (e) {
         console.error(`[agente] ${c.name}:`, e);
         saida = { erro: "não consegui fazer isso agora" };

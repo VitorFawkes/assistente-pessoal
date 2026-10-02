@@ -160,3 +160,13 @@ describe("linha corrida do acervo (02/10/2026)", () => {
     expect(linhaDoRetrato("t7", daReuniaoDoTiago, "2026-10-02").quem_faz).toBe("Vitor");
   });
 });
+
+describe("papel (02/10/2026)", () => {
+  it("eu cobro / só aguardo / eu faço viram a ação do banco e o Desfazer volta quem fazia", () => {
+    const cobrada = t({ acao: "cobrar", owner: "Paula Klotz" });
+    const r = montarMudanca(cobrada, { ...NADA, papel: "só aguardo" });
+    expect(r).toMatchObject({ corpo: { acao: "aguardar" }, desfazer: { acao: "cobrar", owner: "Paula Klotz" }, partes: ["só aguardo"] });
+    expect(montarMudanca(cobrada, { ...NADA, papel: "eu cobro" })).toMatchObject({ corpo: {}, partes: [] });
+    expect(montarMudanca(cobrada, { ...NADA, papel: "talvez" })).toEqual({ erro: "papel inválido: talvez" });
+  });
+});
