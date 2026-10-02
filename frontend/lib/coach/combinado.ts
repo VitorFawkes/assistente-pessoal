@@ -20,6 +20,23 @@ const COLUNAS = "id,dia,titulo,ate,objetivo_id,status,origem,tarefa_id,motivo,me
 
 export const diaLocal = (timezone: string, now: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
 export const diaSeguinte = (dia: string) => new Date(Date.parse(`${dia}T12:00:00Z`) + 86400_000).toISOString().slice(0, 10);
+const somaDias = (dia: string, n: number) => new Date(Date.parse(`${dia}T12:00:00Z`) + n * 86400_000).toISOString().slice(0, 10);
+const diaDaSemana = (dia: string) => new Date(`${dia}T12:00:00Z`).getUTCDay();
+/** Para quando vai o que ficou para depois: o dia seguinte; com o fim de semana desligado, sexta passa para segunda. */
+export function proximoDiaDoCoach(dia: string, fimDeSemana: boolean) {
+ let d = somaDias(dia, 1);
+ while (!fimDeSemana && (diaDaSemana(d) === 0 || diaDaSemana(d) === 6)) d = somaDias(d, 1);
+ return d;
+}
+/** O último dia em que o Coach falou antes deste (na segunda, a sexta). */
+export function diaAnteriorDoCoach(dia: string, fimDeSemana: boolean) {
+ let d = somaDias(dia, -1);
+ while (!fimDeSemana && (diaDaSemana(d) === 0 || diaDaSemana(d) === 6)) d = somaDias(d, -1);
+ return d;
+}
+const SEMANA = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
+/** "amanhã" ou "segunda, 05/10". */
+export const diaFalado = (dia: string, hoje: string) => (dia === somaDias(hoje, 1) ? "amanhã" : `${SEMANA[diaDaSemana(dia)]}, ${dia.slice(8, 10)}/${dia.slice(5, 7)}`);
 /** Ligado só se a pessoa pediu mensagem no fim de semana (coluna da 024; sem ela, desligado). */
 export async function fimDeSemanaLigado(userId: string): Promise<boolean> {
  try { return (await withTenant(userId, db => db.query<{ fim_de_semana: boolean }>("SELECT fim_de_semana FROM coach_profiles WHERE user_id=$1", [userId]))).rows[0]?.fim_de_semana === true; }
@@ -90,17 +107,20 @@ export async function combinarAgora(user: User, novo: { titulo: string; ate?: st
  return aceitarCombinado(user, await proporCombinado(user.id, { ...novo, origem: "conversa" }, timezone, now));
 }
 
-/** O que a pessoa contou do combinado: feito conclui a ação; amanhã passa a ação e o combinado para o dia seguinte. */
-export async function resolverCombinado(user: User, c: Combinado, resultado: "feito" | "nao_deu" | "adiado", motivo?: string | null): Promise<Combinado> {
+/**
+ * O que a pessoa contou do combinado: feito conclui a ação; "amanhã" passa a ação e o combinado para o próximo dia
+ * em que o Coach fala (na sexta, com o fim de semana desligado, segunda: senão a pergunta prometida nunca chega).
+ */
+export async function resolverCombinado(user: User, c: Combinado, resultado: "feito" | "nao_deu" | "adiado", motivo?: string | null): Promise<Combinado & { retomar_em: string | null }> {
  if (resultado === "feito" && c.tarefa_id) await mudarTarefa(user, c.tarefa_id, { status: "concluida" }).catch(() => null);
- const amanha = diaSeguinte(c.dia);
- if (resultado === "adiado" && c.tarefa_id) await mudarTarefa(user, c.tarefa_id, { prazo: amanha }).catch(() => null);
+ const retomar = resultado === "adiado" ? proximoDiaDoCoach(c.dia, await fimDeSemanaLigado(user.id)) : null;
+ if (retomar && c.tarefa_id) await mudarTarefa(user, c.tarefa_id, { prazo: retomar }).catch(() => null);
  return withTenant(user.id, async db => {
   const r = (await db.query<Linha>(`UPDATE coach_combinados SET status=$3,motivo=coalesce($4,motivo),resolvido_em=now(),updated_at=now() WHERE user_id=$1 AND id=$2 RETURNING ${COLUNAS}`,
    [user.id, c.id, resultado, motivo ? limpo(motivo, 1000) : null])).rows[0];
-  if (resultado === "adiado") await db.query("INSERT INTO coach_combinados(user_id,dia,titulo,ate,objetivo_id,status,origem,tarefa_id,aceito_em) VALUES($1,$2::date,$3,$4,$5,'aceito','conversa',$6,now())",
-   [user.id, amanha, c.titulo, c.ate, c.objetivo_id, c.tarefa_id]);
-  return daLinha(r);
+  if (retomar) await db.query("INSERT INTO coach_combinados(user_id,dia,titulo,ate,objetivo_id,status,origem,tarefa_id,aceito_em) VALUES($1,$2::date,$3,$4,$5,'aceito','conversa',$6,now())",
+   [user.id, retomar, c.titulo, c.ate, c.objetivo_id, c.tarefa_id]);
+  return { ...daLinha(r), retomar_em: retomar };
  });
 }
 
@@ -115,11 +135,12 @@ export async function sincronizarComTarefa(userId: string, c: Combinado | null):
  });
 }
 
+export const comMinuscula = (t: string) => `${t[0].toLowerCase()}${t.slice(1)}`;
 /** A mensagem das 18h é escrita pelo servidor, sem IA: pergunta o combinado aceito ou reconhece o que já saiu. */
 export function mensagemDas18h(c: Combinado | null): string | null {
  if (!c) return null;
- if (c.status === "feito") return `Vi que saiu o combinado de hoje: ${c.titulo}. Boa.`;
- if (c.status === "aceito") return `Combinado de hoje: ${c.titulo}.\n\nSaiu? Responda sim, não ou amanhã.`;
+ if (c.status === "feito") return `Vi que saiu o combinado de hoje: ${comMinuscula(c.titulo)}. Boa.`;
+ if (c.status === "aceito") return `Combinado de hoje: ${comMinuscula(c.titulo)}.\n\nSaiu? Responda sim, não ou amanhã.`;
  return null;
 }
 

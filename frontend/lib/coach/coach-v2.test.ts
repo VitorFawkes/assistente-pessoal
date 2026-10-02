@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { eAceite, eRecusa, fraseDoCombinado, horaValida, mensagemDas18h, resultadoCurto, fimDeSemana, diaSeguinte, type Combinado } from "./combinado";
+import { eAceite, eRecusa, fraseDoCombinado, horaValida, mensagemDas18h, resultadoCurto, fimDeSemana, diaSeguinte, proximoDiaDoCoach, diaAnteriorDoCoach, diaFalado, type Combinado } from "./combinado";
+import { prazoFalado } from "./task-actions";
 import { linhasDoPlacar, mesAnterior, placarParaModelo, validarPlacar, type LeituraDoPlacar } from "./placar";
 import { pedidoDeEsquecer, trechoLiteral, validarItens } from "./memoria";
 import { arejado, checagemSemIa, limparTexto } from "./conferir";
@@ -41,7 +42,7 @@ describe("combinado do dia", () => {
   expect(fraseDoCombinado({ titulo: "Mandar a proposta", ate: null })).toBe("mandar a proposta");
  });
  test("18h: pergunta o aceito, reconhece o feito, cala no resto", () => {
-  expect(mensagemDas18h(combinado("aceito"))).toBe("Combinado de hoje: Pedir ao Jonas a assinatura do contrato.\n\nSaiu? Responda sim, não ou amanhã.");
+  expect(mensagemDas18h(combinado("aceito"))).toBe("Combinado de hoje: pedir ao Jonas a assinatura do contrato.\n\nSaiu? Responda sim, não ou amanhã.");
   expect(mensagemDas18h(combinado("feito"))).toContain("Vi que saiu");
   for (const s of ["proposto", "expirado", "recusado", "nao_deu", "adiado"] as const) expect(mensagemDas18h(combinado(s))).toBeNull();
   expect(mensagemDas18h(null)).toBeNull();
@@ -58,15 +59,37 @@ const placarCru = {
  version: 1, mes: "2026-10", atualizado_em: "2026-10-02T11:00:00Z",
  contratos: [], contratos_mes_anterior: 4,
  carteira: [{ casal: "Jonas & Belleboni", etapa: "Contrato enviado", desde: "2026-09-29T15:00:00Z" }, { casal: "Marcela & Luiza", etapa: "1ª Reunião", desde: null }],
- convidados: { mes: { hospedagem: { quantidade: 0, valor: 0 }, passeio: { quantidade: 6, valor: 1656 }, presente: { quantidade: 0, valor: 0 } }, mes_anterior: { hospedagem: { quantidade: 57, valor: 568732 }, passeio: { quantidade: 38, valor: 28862 }, presente: { quantidade: 42, valor: 29814 } } },
+ convidados: { mes: { hospedagem: { quantidade: 0, valor: 0 }, passeio: { quantidade: 6, valor: 1656 }, presente: { quantidade: 0, valor: 0 }, passagem: { quantidade: 0, valor: 0 } }, mes_anterior: { hospedagem: { quantidade: 57, valor: 568732 }, passeio: { quantidade: 38, valor: 28862 }, presente: { quantidade: 42, valor: 29814 }, passagem: { quantidade: 2, valor: 13088 } } },
  limitacoes: [],
 };
+describe("dias do Coach", () => {
+ test("na sexta, 'amanhã' vai para segunda quando o fim de semana está desligado", () => {
+  expect(proximoDiaDoCoach("2026-10-02", false)).toBe("2026-10-05");
+  expect(proximoDiaDoCoach("2026-10-02", true)).toBe("2026-10-03");
+  expect(proximoDiaDoCoach("2026-10-05", false)).toBe("2026-10-06");
+  expect(diaAnteriorDoCoach("2026-10-05", false)).toBe("2026-10-02");
+  expect(diaAnteriorDoCoach("2026-10-06", false)).toBe("2026-10-05");
+  expect(diaFalado("2026-10-05", "2026-10-02")).toBe("segunda, 05/10");
+  expect(diaFalado("2026-10-03", "2026-10-02")).toBe("amanhã");
+  expect(diaFalado("2026-10-02", "2026-10-05")).toBe("sexta, 02/10");
+ });
+ test("'me lembra amanhã' ganha prazo mesmo se a IA esquecer", () => {
+  expect(prazoFalado("Me lembra de ligar pro Guilherme amanhã às 10h", "2026-10-02")).toBe("2026-10-03");
+  expect(prazoFalado("ligar hoje", "2026-10-02")).toBe("2026-10-02");
+  expect(prazoFalado("depois de amanhã eu vejo", "2026-10-02")).toBe("2026-10-04");
+  expect(prazoFalado("hoje não, amanhã", "2026-10-02")).toBeNull();
+  expect(prazoFalado("ligar pro Guilherme", "2026-10-02")).toBeNull();
+ });
+});
+
 describe("placar", () => {
  test("só passa o que tem forma certa", () => {
   expect(validarPlacar(placarCru, "2026-10").contratos_mes_anterior).toBe(4);
   expect(() => validarPlacar({ ...placarCru, mes: "2026-09" }, "2026-10")).toThrow();
   expect(() => validarPlacar({ ...placarCru, contratos: [{ casal: "", data: "x" }] }, "2026-10")).toThrow();
   expect(() => validarPlacar({ ...placarCru, convidados: { mes: {} } }, "2026-10")).toThrow();
+  const semPassagem = { ...placarCru.convidados.mes, passagem: undefined };
+  expect(() => validarPlacar({ ...placarCru, convidados: { ...placarCru.convidados, mes: semPassagem } }, "2026-10")).toThrow();
   expect(mesAnterior("2026-01")).toBe("2025-12");
  });
  test("frases prontas com a meta e o mês anterior", () => {
@@ -74,9 +97,11 @@ describe("placar", () => {
   const l = linhasDoPlacar(leitura, 5, "America/Sao_Paulo")!;
   expect(l.contratos).toBe("Outubro: 0 de 5 contratos. Setembro fechou em 4.");
   expect(l.resumo_contratos).toBe("Outubro: 0 de 5 contratos");
-  expect(l.convidados).toBe("Convidados em outubro: 0 hospedagens, 6 passeios e 0 presentes pelo site do casal (setembro: 57, 38 e 42).");
+  expect(l.convidados).toBe("Vendas a convidados em outubro: 6 passeios. Setembro: 57 hospedagens, 38 passeios, 42 presentes e 2 passagens.");
+  expect(l.resumo_convidados).toBe("Outubro: 6 passeios");
   const m = placarParaModelo(leitura, 5, "America/Sao_Paulo") as Record<string, unknown>;
   expect(m.faltam_para_a_meta).toBe(5);
+  expect((m.convidados as { mes_anterior: { passagens: number; total_de_vendas: number } }).mes_anterior).toMatchObject({ passagens: 2, total_de_vendas: 139 });
   expect((m.negociacoes_do_vitor as { desde: string | null }[])[0].desde).toBe("29/09");
  });
  test("placar não lido nunca vira zero", () => {

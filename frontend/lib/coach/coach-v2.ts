@@ -2,7 +2,7 @@ import { withTenant } from "../db";
 import { answerInfo, buildDossier } from "./assistant";
 import { budgetNotice, budgetReply, budgetState, runCostUsd } from "./budget";
 import { calendarContext } from "./calendar";
-import { aceitarCombinado, combinadoDoDia, combinadosDoPeriodo, combinarAgora, diaLocal, diaSeguinte, eAceite, eRecusa, fimDeSemana, fimDeSemanaLigado, fraseDoCombinado, horaValida, mensagemDas18h, proporCombinado, recusarCombinado, resolverCombinado, resultadoCurto, sincronizarComTarefa, type Combinado } from "./combinado";
+import { aceitarCombinado, combinadoDoDia, combinadosDoPeriodo, combinarAgora, comMinuscula, diaAnteriorDoCoach, diaFalado, diaLocal, diaSeguinte, eAceite, eRecusa, fimDeSemana, fimDeSemanaLigado, fraseDoCombinado, horaValida, mensagemDas18h, proporCombinado, proximoDiaDoCoach, recusarCombinado, resolverCombinado, resultadoCurto, sincronizarComTarefa, type Combinado } from "./combinado";
 import { arejado, checagemSemIa, fatosSemApoio, limparTexto } from "./conferir";
 import { usuarioDoCoach } from "./equipe";
 import { reviewPeriod } from "./evidence";
@@ -77,9 +77,11 @@ type Contexto = { dados: Record<string, unknown>; objetivos: ObjetivoDoCoach[]; 
 export async function montarContexto(userId: string, store: Store, profile: CoachProfile, now: Date, extra: Record<string, unknown> = {}): Promise<Contexto> {
  const tz = profile.timezone;
  const hoje = diaLocal(tz, now);
- const ontem = new Date(Date.parse(`${hoje}T12:00:00Z`) - 86400_000).toISOString().slice(0, 10);
- const [objetivos, leitura, combinado0, devidas, memorias, mensagens, deOntem] = await Promise.all([
-  objetivosDoCoach(userId), lerPlacar(userId, tz, now), combinadoDoDia(userId, tz, now), dueTasks(userId, tz, now, 8).catch(() => null), store.memories(), store.messages(), combinadosDoPeriodo(userId, ontem, hoje).catch(() => []),
+ // Com o fim de semana desligado, o "dia anterior" da segunda é a sexta e o "próximo" da sexta é a segunda.
+ const fds = await fimDeSemanaLigado(userId);
+ const anterior = diaAnteriorDoCoach(hoje, fds);
+ const [objetivos, leitura, combinado0, devidas, memorias, mensagens, doAnterior] = await Promise.all([
+  objetivosDoCoach(userId), lerPlacar(userId, tz, now), combinadoDoDia(userId, tz, now), dueTasks(userId, tz, now, 8).catch(() => null), store.memories(), store.messages(), combinadosDoPeriodo(userId, anterior, diaSeguinte(anterior)).catch(() => []),
  ]);
  const combinado = await sincronizarComTarefa(userId, combinado0);
  const meta = metaDeContratos(objetivos);
@@ -97,7 +99,8 @@ export async function montarContexto(userId: string, store: Store, profile: Coac
   objetivos: objetivos.map(o => ({ objetivo_id: o.id, nome: o.nome, meta: o.meta, prazo: o.prazo })),
   placar,
   combinado_de_hoje: doCombinado(combinado),
-  combinado_de_ontem: doCombinado(deOntem.at(-1) ?? null),
+  combinado_do_dia_anterior: doAnterior.length ? { dia: diaFalado(anterior, hoje), ...doCombinado(doAnterior.at(-1)!) } : null,
+  proximo_dia_do_coach: diaFalado(proximoDiaDoCoach(hoje, fds), hoje),
   agenda_de_hoje: agenda,
   acoes: devidas ? {
    vencem_hoje: devidas.due_today, atrasadas: devidas.overdue,
@@ -170,7 +173,10 @@ export async function conversaV2(userId: string, store: Store, profile: CoachPro
   const curto = perguntou18h ? resultadoCurto(message) : null;
   if (combinado && curto) {
    const r = await resolverCombinado(user, combinado, curto);
-   await salvar(curto === "feito" ? `Boa. Marquei como feito: ${r.titulo}.` : curto === "adiado" ? `Passei para amanhã: ${r.titulo}.\n\nAmanhã às 18h te pergunto de novo.` : "Entendi, não saiu.\n\nO que travou?", COACH);
+   const quando = r.retomar_em ? diaFalado(r.retomar_em, combinado.dia) : "amanhã";
+   await salvar(curto === "feito" ? `Boa. Marquei como feito: ${comMinuscula(r.titulo)}.`
+    : curto === "adiado" ? `Passei para ${quando}: ${comMinuscula(r.titulo)}.\n\n${quando === "amanhã" ? "Amanhã" : `Na ${quando},`} às 18h te pergunto de novo.`
+    : "Entendi, não saiu.\n\nO que travou?", COACH);
    return;
   }
   // 3) Assistente de tarefas: pedido e informação de tarefas, pessoas, reuniões e agenda. A resposta à proposta das
@@ -212,15 +218,22 @@ export async function conversaV2(userId: string, store: Store, profile: CoachPro
   const { resultado, texto, problemas } = await escrever(CONVERSA, ctx.dados, schema, LIMITE_CONVERSA, onTelemetry);
   if (problemas.length && !texto) throw new CoachAIError("O coach não retornou uma orientação válida.");
   const linhas: string[] = [];
+  let resposta = texto;
   const pedido = (resultado.combinado ?? {}) as Record<string, unknown>;
   if (pedido.acao === "combinar") {
    const novo = combinadoValido(pedido, ctx.objetivos);
-   if (novo) { const c = await combinarAgora(user, novo, tz, now); linhas.push(`Combinado: ${fraseDoCombinado(c)}. Está na sua lista. Às 18h te pergunto.`); }
+   if (novo) {
+    const c = await combinarAgora(user, novo, tz, now);
+    // A linha do combinado é do servidor; a do modelo, se ele escreveu, sairia repetida.
+    resposta = texto.split("\n").filter(l => !/^\s*combinad[oa]\b/iu.test(l)).join("\n").trim();
+    linhas.push(`Combinado: ${fraseDoCombinado(c)}. Está na sua lista. Às 18h te pergunto.`);
+   }
   } else if (pedido.acao === "resultado" && ctx.combinado?.status === "aceito" && ["feito", "nao_deu", "adiado"].includes(String(pedido.resultado))) {
-   await resolverCombinado(user, ctx.combinado, pedido.resultado as "feito" | "nao_deu" | "adiado", typeof pedido.motivo === "string" ? pedido.motivo : null);
+   const r = await resolverCombinado(user, ctx.combinado, pedido.resultado as "feito" | "nao_deu" | "adiado", typeof pedido.motivo === "string" ? pedido.motivo : null);
+   if (r.retomar_em) linhas.push(`Passei para ${diaFalado(r.retomar_em, ctx.combinado.dia)}: ${comMinuscula(r.titulo)}.`);
   }
   linhas.push(...await guardar());
-  await salvar(arejado([feito.join("\n"), esperando.join("\n"), feito.length ? withoutRepeats(texto, feito) : texto, ...linhas].filter(Boolean).join("\n")), COACH);
+  await salvar(arejado([feito.join("\n"), esperando.join("\n"), feito.length ? withoutRepeats(resposta, feito) : resposta, ...linhas].filter(Boolean).join("\n")), COACH);
  } finally {
   await recordModelRuns(userId, "chat", runId || null, telemetry).catch(() => {});
  }

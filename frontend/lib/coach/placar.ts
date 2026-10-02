@@ -2,13 +2,13 @@ import { withTenant } from "../db";
 
 /**
  * O placar dos focos do Vitor (02/10/2026): contratos da Weddings no mês, as negociações dele como closer e as vendas
- * a convidados pelo site do casal. Quem calcula é o TTARS (função coach-placar-read, mesma ponte e mesmo token da
+ * a convidados (hospedagem, passeio, presente e passagem). Quem calcula é o TTARS (função coach-placar-read, mesma ponte e mesmo token da
  * agenda); aqui só se lê, guarda cada leitura e entrega ao Coach. Leitura que falha nunca vira zero.
  */
 export type Contrato = { casal: string; data: string; valor: number | null };
 export type Negociacao = { casal: string; etapa: string; desde: string | null };
 export type VendaConvidados = { quantidade: number; valor: number };
-export type VendasDoMes = { hospedagem: VendaConvidados; passeio: VendaConvidados; presente: VendaConvidados };
+export type VendasDoMes = { hospedagem: VendaConvidados; passeio: VendaConvidados; presente: VendaConvidados; passagem: VendaConvidados };
 export type Placar = {
  mes: string;
  atualizado_em: string;
@@ -52,8 +52,8 @@ function venda(v: unknown): VendaConvidados | null {
 function vendasDoMes(v: unknown): VendasDoMes | null {
  if (!v || typeof v !== "object") return null;
  const o = v as Record<string, unknown>;
- const hospedagem = venda(o.hospedagem), passeio = venda(o.passeio), presente = venda(o.presente);
- return hospedagem && passeio && presente ? { hospedagem, passeio, presente } : null;
+ const hospedagem = venda(o.hospedagem), passeio = venda(o.passeio), presente = venda(o.presente), passagem = venda(o.passagem);
+ return hospedagem && passeio && presente && passagem ? { hospedagem, passeio, presente, passagem } : null;
 }
 
 /** Só passa o que tem forma certa; qualquer peça errada derruba a leitura inteira (melhor "não consegui ler" que um zero falso). */
@@ -116,7 +116,11 @@ export async function lerPlacar(userId: string, timezone: string, now = new Date
 export const nomeDoCasal = (casal: string) => casal.replace(/\s*&\s*/g, " e ").replace(/\s+/g, " ").trim();
 const dia = (iso: string, timezone: string) => new Intl.DateTimeFormat("pt-BR", { timeZone: timezone, day: "2-digit", month: "2-digit" }).format(new Date(iso));
 const reais = (n: number) => `R$ ${new Intl.NumberFormat("pt-BR").format(Math.round(n))}`;
-const somaVendas = (v: VendasDoMes) => v.hospedagem.quantidade + v.passeio.quantidade + v.presente.quantidade;
+const somaVendas = (v: VendasDoMes) => v.hospedagem.quantidade + v.passeio.quantidade + v.presente.quantidade + v.passagem.quantidade;
+const ITENS = [["hospedagem", "hospedagem", "hospedagens"], ["passeio", "passeio", "passeios"], ["presente", "presente", "presentes"], ["passagem", "passagem", "passagens"]] as const;
+const juntar = (xs: string[]) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} e ${xs[xs.length - 1]}`);
+/** "6 passeios" ou "57 hospedagens, 38 passeios, 42 presentes e 2 passagens": só o que vendeu, para a frase caber numa linha. */
+const vendasEmTexto = (v: VendasDoMes) => juntar(ITENS.filter(([k]) => v[k].quantidade > 0).map(([k, um, varios]) => `${v[k].quantidade} ${v[k].quantidade === 1 ? um : varios}`)) || "nenhuma venda";
 
 /** As frases prontas do placar: o Coach usa estas, com estes números, nunca recalcula. */
 export function linhasDoPlacar(leitura: LeituraDoPlacar, meta: number | null, timezone: string): { contratos: string; convidados: string | null; negociacoes: string[]; resumo_contratos: string; resumo_convidados: string | null } | null {
@@ -129,13 +133,11 @@ export function linhasDoPlacar(leitura: LeituraDoPlacar, meta: number | null, ti
   ? `${mes[0].toUpperCase()}${mes.slice(1)}: ${n} de ${meta} contratos${nomes}. ${anterior[0].toUpperCase()}${anterior.slice(1)} fechou em ${p.contratos_mes_anterior}.`
   : `${mes[0].toUpperCase()}${mes.slice(1)}: ${n} ${n === 1 ? "contrato" : "contratos"}${nomes}. ${anterior[0].toUpperCase()}${anterior.slice(1)} fechou em ${p.contratos_mes_anterior}.`;
  const c = p.convidados;
- const convidados = c
-  ? `Convidados em ${mes}: ${c.mes.hospedagem.quantidade} hospedagens, ${c.mes.passeio.quantidade} passeios e ${c.mes.presente.quantidade} presentes pelo site do casal (${anterior}: ${c.mes_anterior.hospedagem.quantidade}, ${c.mes_anterior.passeio.quantidade} e ${c.mes_anterior.presente.quantidade}).`
-  : null;
+ const convidados = c ? `Vendas a convidados em ${mes}: ${vendasEmTexto(c.mes)}. ${anterior[0].toUpperCase()}${anterior.slice(1)}: ${vendasEmTexto(c.mes_anterior)}.` : null;
  const negociacoes = p.carteira.map(x => `${nomeDoCasal(x.casal)}: ${x.etapa}${x.desde ? ` desde ${dia(x.desde, timezone)}` : ""}`);
  const Mes = `${mes[0].toUpperCase()}${mes.slice(1)}`;
  const resumo_contratos = meta ? `${Mes}: ${n} de ${meta} contratos` : `${Mes}: ${n} ${n === 1 ? "contrato" : "contratos"}`;
- const resumo_convidados = c ? `${Mes}: ${c.mes.hospedagem.quantidade} hospedagens, ${c.mes.passeio.quantidade} passeios e ${c.mes.presente.quantidade} presentes` : null;
+ const resumo_convidados = c ? `${Mes}: ${vendasEmTexto(c.mes)}` : null;
  return { contratos, convidados, negociacoes, resumo_contratos, resumo_convidados };
 }
 
@@ -157,9 +159,8 @@ export function placarParaModelo(leitura: LeituraDoPlacar, meta: number | null, 
   contratos: p.contratos.map(x => ({ casal: nomeDoCasal(x.casal), dia: dia(x.data, timezone), valor: x.valor === null ? null : reais(x.valor) })),
   negociacoes_do_vitor: p.carteira.map(x => ({ casal: nomeDoCasal(x.casal), etapa: x.etapa, desde: x.desde ? dia(x.desde, timezone) : null })),
   convidados: c ? {
-   mes: { hospedagens: c.mes.hospedagem.quantidade, valor_hospedagens: reais(c.mes.hospedagem.valor), passeios: c.mes.passeio.quantidade, valor_passeios: reais(c.mes.passeio.valor), presentes: c.mes.presente.quantidade, valor_presentes: reais(c.mes.presente.valor), total_de_vendas: somaVendas(c.mes) },
-   mes_anterior: { hospedagens: c.mes_anterior.hospedagem.quantidade, passeios: c.mes_anterior.passeio.quantidade, presentes: c.mes_anterior.presente.quantidade, total_de_vendas: somaVendas(c.mes_anterior) },
-   voos: "Passagem aérea de convidado não passa pelo site do casal: não está no placar.",
+   mes: { hospedagens: c.mes.hospedagem.quantidade, valor_hospedagens: reais(c.mes.hospedagem.valor), passeios: c.mes.passeio.quantidade, valor_passeios: reais(c.mes.passeio.valor), presentes: c.mes.presente.quantidade, valor_presentes: reais(c.mes.presente.valor), passagens: c.mes.passagem.quantidade, valor_passagens: reais(c.mes.passagem.valor), total_de_vendas: somaVendas(c.mes) },
+   mes_anterior: { hospedagens: c.mes_anterior.hospedagem.quantidade, passeios: c.mes_anterior.passeio.quantidade, presentes: c.mes_anterior.presente.quantidade, passagens: c.mes_anterior.passagem.quantidade, total_de_vendas: somaVendas(c.mes_anterior) },
   } : null,
   frases_prontas: linhas,
   limitacoes: p.limitacoes,
