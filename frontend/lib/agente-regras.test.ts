@@ -1,5 +1,18 @@
 import { describe, expect, it } from "bun:test";
-import { desfazerQuem, linhaDoRetrato, montarMudanca, precisaConfirmar, quandoVence, quemFazNaTela, type TarefaVista } from "./agente-regras";
+import {
+  anotarNaTela,
+  desfazerQuem,
+  idsDasFalas,
+  limparRefs,
+  linhaCorrida,
+  linhaDoRetrato,
+  montarMudanca,
+  precisaConfirmar,
+  quandoVence,
+  quemFazNaTela,
+  type TarefaVista,
+} from "./agente-regras";
+import { paraQuemVe } from "./compartilhar";
 
 function t(over: Partial<TarefaVista> = {}): TarefaVista {
   return {
@@ -88,5 +101,72 @@ describe("quandoVence", () => {
     expect(quandoVence(fim("2026-10-05"), "2026-09-26")).toBe("depois");
     expect(quandoVence(fim("2026-10-01"), "2026-09-28")).toBe("esta semana");
     expect(quandoVence(null, "2026-09-26")).toBeNull();
+  });
+});
+
+describe("dono do ponto de vista de quem pergunta (02/10/2026)", () => {
+  it("o 'eu' de quem gravou a reunião de um colega é de quem gravou, não 'você'", () => {
+    const ANA = "a0000000-0000-0000-0000-000000000001";
+    const VITOR = "b0000000-0000-0000-0000-000000000002";
+    const nomes = new Map([[ANA, "Ana Carolina Kuss"], [VITOR, "Vitor Gambetti"]]);
+    const daAna = t({ user_id: ANA, owner: "eu", acao: "executar", meeting_id: "m1", meeting_nome: "Regua de Convidados" } as never);
+    expect(quemFazNaTela(daAna)).toBe("você"); // a linha crua do banco: era o erro
+    const vista = paraQuemVe(daAna, { viewerId: VITOR, slug: "eu", nomes, veReuniao: true }) as TarefaVista;
+    expect(linhaDoRetrato("t9", vista)).toMatchObject({ quem_faz: "Ana Carolina Kuss", tipo: "da lista de quem criou", criada_por: "Ana Carolina Kuss" });
+    // O "cobrar" que a Ana faz do Mateus também não vira "eu cobro" para o Vitor.
+    const anaCobraMateus = paraQuemVe({ ...daAna, owner: "Mateus", acao: "cobrar" } as never, { viewerId: VITOR, slug: "eu", nomes }) as TarefaVista;
+    expect(linhaDoRetrato("t10", anaCobraMateus)).toMatchObject({ quem_faz: "Mateus", tipo: "da lista de quem criou" });
+    expect(linhaDoRetrato("t11", { ...anaCobraMateus, faco_tambem: true })).toMatchObject({ tipo: "faço junto" });
+    expect(quemFazNaTela({ ...daAna, compartilhada: true, is_mine: false })).toBe("a definir");
+    const passadaAoVitor = paraQuemVe({ ...daAna, owner: "Vitor", acao: "cobrar", responsavel_user_id: VITOR } as never, { viewerId: VITOR, slug: "eu", nomes }) as TarefaVista;
+    expect(linhaDoRetrato("t12", passadaAoVitor)).toMatchObject({ quem_faz: "você", tipo: "eu faço" });
+  });
+});
+
+describe("memória entre perguntas", () => {
+  const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const C = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  it("junta os ids do que apareceu com as respostas, os mais novos primeiro, sem repetir", () => {
+    const falas = [
+      { quem: "pessoa", texto: "oi", acoes: [C] },
+      { quem: "assistente", texto: "3 ações", acoes: [A, B] },
+      { quem: "pessoa", texto: "manda todas" },
+      { quem: "assistente", texto: "22 ações", acoes: [C, A, "t3", 7, "não é id"] },
+    ];
+    expect(idsDasFalas(falas)).toEqual([C, A, B]);
+    expect(idsDasFalas(falas, 2)).toEqual([C, A]);
+    expect(idsDasFalas([{ quem: "assistente", texto: "x", acoes: [A.toUpperCase()] }])).toEqual([A]);
+    expect(idsDasFalas([{ quem: "assistente", texto: "x" }])).toEqual([]);
+  });
+  it("a marca do que estava na tela vai para o modelo e nunca volta para a pessoa", () => {
+    expect(anotarNaTela("Achei 2.", ["t4", "t9"])).toBe("Achei 2.\n[na tela: t4, t9]");
+    expect(anotarNaTela("Achei 0.", [])).toBe("Achei 0.");
+    expect(limparRefs("Achei 2 (t4, t9).\n[na tela: t4, t9]")).toBe("Achei 2.");
+    expect(limparRefs("Achei 1 (na tela: t1).")).toBe("Achei 1.");
+    expect(limparRefs("Revisar o contrato [t3] até sexta")).toBe("Revisar o contrato até sexta");
+    expect(limparRefs("Fale com a Paula (do marketing)")).toBe("Fale com a Paula (do marketing)");
+  });
+});
+
+describe("linha corrida do acervo (02/10/2026)", () => {
+  it("junta os campos numa linha e diz 'você' quando quem faz é quem pergunta", () => {
+    const daReuniaoDoTiago = t({ acao: "cobrar", owner: "Vitor", is_mine: false, compartilhada: true, criador_nome: "Tiago", reuniao_rotulo: "Daily Noix" } as never);
+    const l = linhaDoRetrato("t7", daReuniaoDoTiago, "2026-10-02", true);
+    expect(l.quem_faz).toBe("você");
+    expect(linhaCorrida(l, "Fazer o TARS usar a estimativa provável")).toBe(
+      "t7 | Revisar orçamento | quem faz: você (da lista de quem criou) | prazo 2026-10-01, atrasada 1 dia | reunião: Daily Noix | lista de Tiago | detalhe: Fazer o TARS usar a estimativa provável",
+    );
+    expect(linhaDoRetrato("t7", daReuniaoDoTiago, "2026-10-02").quem_faz).toBe("Vitor");
+  });
+});
+
+describe("papel (02/10/2026)", () => {
+  it("eu cobro / só aguardo / eu faço viram a ação do banco e o Desfazer volta quem fazia", () => {
+    const cobrada = t({ acao: "cobrar", owner: "Paula Klotz" });
+    const r = montarMudanca(cobrada, { ...NADA, papel: "só aguardo" });
+    expect(r).toMatchObject({ corpo: { acao: "aguardar" }, desfazer: { acao: "cobrar", owner: "Paula Klotz" }, partes: ["só aguardo"] });
+    expect(montarMudanca(cobrada, { ...NADA, papel: "eu cobro" })).toMatchObject({ corpo: {}, partes: [] });
+    expect(montarMudanca(cobrada, { ...NADA, papel: "talvez" })).toEqual({ erro: "papel inválido: talvez" });
   });
 });

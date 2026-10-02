@@ -28,13 +28,16 @@ export type TarefaVista = Tarefa & {
   time_nome?: string | null;
   objetivo?: { id: string; nome: string } | null;
   reuniao_rotulo?: string | null;
+  /** Quem vê está em "também fazem" (subresponsável). */
+  faco_tambem?: boolean;
 };
 
 /** Pedido que o navegador refaz sozinho (Desfazer, Confirmar): sempre uma rota do Ações. */
-export type Pedido = { metodo: "PATCH" | "DELETE" | "POST"; caminho: string; corpo?: Record<string, unknown> };
+export type Pedido = { metodo: "PATCH" | "DELETE" | "POST" | "PUT"; caminho: string; corpo?: Record<string, unknown> };
 
 export function quemFazNaTela(t: TarefaVista): string {
-  if (t.acao === "executar") return "você";
+  // Da lista de outra pessoa e não passada a quem vê: o "executar" é de quem criou, nunca "você".
+  if (t.acao === "executar" && (!t.compartilhada || t.is_mine)) return "você";
   const principal = (t.pessoas ?? []).find((p) => (p as { principal?: boolean }).principal)?.nome;
   if (principal) return principal;
   const o = (t.owner ?? "").trim();
@@ -42,6 +45,13 @@ export function quemFazNaTela(t: TarefaVista): string {
 }
 
 const TIPO: Record<string, string> = { executar: "eu faço", cobrar: "eu cobro", aguardar: "só aguardo" };
+
+/** O papel de quem pergunta. Na ação da lista de outra pessoa que não foi passada a ela, o "cobrar" é de quem
+ *  criou: sem isso, "o que estou cobrando?" trazia as ações dos colegas (ensaio de 02/10/2026). */
+function papel(t: TarefaVista): string {
+  if (t.compartilhada && !t.is_mine) return t.faco_tambem ? "faço junto" : "da lista de quem criou";
+  return TIPO[t.acao] ?? t.acao;
+}
 
 export function diaDoPrazo(prazo: string | null | undefined): string | null {
   return prazo && ehDataValida(prazo) ? diaBR(prazo) : null;
@@ -63,14 +73,15 @@ export function quandoVence(prazo: string | null | undefined, hoje: string): str
   return "depois";
 }
 
-/** Linha compacta da tarefa pro modelo. `ref` curto (t1, t2…) no lugar do id. */
-export function linhaDoRetrato(ref: string, t: TarefaVista, hoje?: string) {
+/** Linha compacta da tarefa pro modelo. `ref` curto (t1, t2…) no lugar do id. `quemFazSouEu`: o nome de quem faz é
+ *  o de quem pergunta (ação da lista de um colega com "Vitor" como quem faz vira "você"). */
+export function linhaDoRetrato(ref: string, t: TarefaVista, hoje?: string, quemFazSouEu = false) {
   const fechada = t.status === "concluida" || t.status === "cancelada";
   return {
     ref,
     titulo: t.titulo,
-    quem_faz: quemFazNaTela(t),
-    tipo: TIPO[t.acao] ?? t.acao,
+    quem_faz: quemFazSouEu ? "você" : quemFazNaTela(t),
+    tipo: papel(t),
     prazo: diaDoPrazo(t.prazo),
     ...(hoje && !fechada ? { vence: quandoVence(t.prazo, hoje) } : {}),
     situacao: ROTULO_SITUACAO[t.status as Situacao] ?? t.status,
@@ -93,7 +104,11 @@ export type Mudanca = {
   prazo: string | null;
   prioridade: string | null;
   situacao: string | null;
+  /** "eu faço", "eu cobro" ou "só aguardo" (o papel de quem criou a ação). */
+  papel?: string | null;
 };
+
+const ACAO_DO_PAPEL: Record<string, Tarefa["acao"]> = { "eu faço": "executar", "eu cobro": "cobrar", "só aguardo": "aguardar" };
 
 export type Montada = { corpo: Record<string, unknown>; desfazer: Record<string, unknown>; partes: string[] } | { erro: string };
 
@@ -145,6 +160,16 @@ export function montarMudanca(t: TarefaVista, m: Mudanca): Montada {
       partes.push(ROTULO_SITUACAO[m.situacao as Situacao]);
     }
   }
+  if (m.papel != null) {
+    const acao = ACAO_DO_PAPEL[m.papel];
+    if (!acao) return { erro: `papel inválido: ${m.papel}` };
+    if (acao !== t.acao) {
+      corpo.acao = acao;
+      // "eu faço" passa a ação para quem criou: o Desfazer devolve também quem fazia.
+      Object.assign(desfazer, { acao: t.acao, owner: t.owner });
+      partes.push(m.papel);
+    }
+  }
   return { corpo, desfazer, partes };
 }
 
@@ -161,4 +186,56 @@ export function desfazerQuem(t: TarefaVista): Record<string, unknown> {
 export function tituloCurto(s: string, max = 70): string {
   const t = s.replace(/\s+/g, " ").trim();
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
+
+/** A mesma linha em texto corrido, para listas longas (o acervo): chave repetida em cada linha custaria o dobro. */
+export function linhaCorrida(l: ReturnType<typeof linhaDoRetrato>, detalhe?: string | null): string {
+  return [
+    l.ref,
+    l.titulo,
+    `quem faz: ${l.quem_faz} (${l.tipo})`,
+    l.prazo ? `prazo ${l.prazo}${l.vence ? `, ${l.vence}` : ""}` : null,
+    l.situacao !== "aberta" ? l.situacao : null,
+    l.reuniao ? `reunião: ${l.reuniao}` : null,
+    l.criada_por ? `lista de ${l.criada_por}` : null,
+    l.projetos ? `projeto: ${l.projetos.join(", ")}` : null,
+    l.time ? `time: ${l.time}` : null,
+    detalhe ? `detalhe: ${tituloCurto(detalhe, 110)}` : null,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+}
+
+// ── Memória entre perguntas (Vitor, 02/10/2026: "o assistente tá MUITO burro") ──────────
+// A conversa mora no navegador e cada pergunta remonta o retrato do zero. O que apareceu na tela com
+// cada resposta volta na pergunta seguinte (ids em `acoes`); sem isso, "você só mandou 8, manda todas"
+// já não achava as ações que vieram de reuniões de colegas e o Assistente voltava para as 3 da lista.
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Ids das ações que apareceram com as respostas anteriores, das mais novas para as mais velhas, sem repetir. */
+export function idsDasFalas<F extends { quem: string; acoes?: unknown }>(falas: F[], max = 150): string[] {
+  const ids = new Set<string>();
+  for (let i = falas.length - 1; i >= 0; i--) {
+    const { quem, acoes } = falas[i];
+    if (quem !== "assistente" || !Array.isArray(acoes)) continue;
+    for (const id of acoes) {
+      if (ids.size >= max) return [...ids];
+      if (typeof id === "string" && UUID_RE.test(id)) ids.add(id.toLowerCase());
+    }
+  }
+  return [...ids];
+}
+
+/** A resposta anterior como o modelo a relê: no fim, as refs do que apareceu na tela com ela. */
+export function anotarNaTela(texto: string, refs: string[]): string {
+  return refs.length ? `${texto}\n[na tela: ${refs.join(", ")}]` : texto;
+}
+
+/** Rede de segurança: nem a marca [na tela: …] (se o modelo imitar) nem ref interna (t3, p1) chegam à pessoa. */
+export function limparRefs(texto: string): string {
+  return texto
+    .replace(/\s*[[(]na tela:[^\])]*[\])]/gi, "")
+    .replace(/\s*[[(](?:[tpr]\d+(?:\s*,\s*)?)+[\])]/g, "")
+    .replace(/[ \t]+\n/g, "\n");
 }

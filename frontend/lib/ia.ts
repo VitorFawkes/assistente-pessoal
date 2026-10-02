@@ -66,6 +66,8 @@ export async function chamarModelo(opts: {
   formato?: { nome: string; schema: Record<string, unknown> };
   /** "none" = responde sem chamar ferramenta (as chamadas anteriores continuam na conversa). */
   usarFerramentas?: "auto" | "none";
+  /** Quanto o modelo pensa antes de responder (padrão "low"). */
+  esforco?: "low" | "medium";
   maxSaida?: number;
   signal?: AbortSignal;
 }): Promise<Resposta> {
@@ -79,7 +81,7 @@ export async function chamarModelo(opts: {
     store: false,
     instructions: opts.instrucoes,
     input: opts.entrada,
-    reasoning: { effort: "low" },
+    reasoning: { effort: opts.esforco ?? "low" },
     include: ["reasoning.encrypted_content"],
     prompt_cache_options: { mode: "explicit" },
     max_output_tokens: opts.maxSaida ?? 2500,
