@@ -1172,12 +1172,14 @@ async function executar(
       const nome = slugNome(naAcao);
       return !!alvo && !!nome && (alvo === nome || alvo.startsWith(`${nome}-`) || nome.startsWith(`${alvo}-`));
     };
+    // O nome de quem pergunta vale como "eu" (o modelo às vezes manda "Vitor" em vez de "eu" e o filtro zerava).
+    const sou = (dito: string) => ehEu(dito) || mesmaPessoa(dito, user.nome);
     const passa = (t: TarefaVista) => {
       const souEu = quemFazSouEu(t, user, retrato.pessoas) || quemFazNaTela(t) === "você";
-      if (quemFaz && (ehEu(quemFaz) ? !souEu : souEu || !mesmaPessoa(quemFaz, quemFazNaTela(t)))) return false;
+      if (quemFaz && (sou(quemFaz) ? !souEu : souEu || !mesmaPessoa(quemFaz, quemFazNaTela(t)))) return false;
       if (listaDe) {
         const criei = !t.compartilhada;
-        if (ehEu(listaDe) ? !criei : /^outr/i.test(listaDe) ? criei : criei || !mesmaPessoa(listaDe, t.criador_nome)) return false;
+        if (sou(listaDe) ? !criei : /^outr/i.test(listaDe) ? criei : criei || !mesmaPessoa(listaDe, t.criador_nome)) return false;
       }
       return true;
     };
