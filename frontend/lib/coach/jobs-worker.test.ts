@@ -7,6 +7,11 @@ import * as service from "./service";
 import {CoachAIError,CoachProviderUnavailableError} from "./model";
 import {CoachVerificationError} from "./quality";
 import {CoachBudgetError} from "./budget";
+// Estes testes cobrem o fluxo antigo do Coach, que ficou atrás de COACH_V2=0 (02/10/2026).
+import { afterAll as fluxoAntigoDepois, beforeAll as fluxoAntigoAntes } from "bun:test";
+const COACH_V2_ANTES=process.env.COACH_V2;
+fluxoAntigoAntes(()=>{process.env.COACH_V2="0";});
+fluxoAntigoDepois(()=>{if(COACH_V2_ANTES===undefined)delete process.env.COACH_V2;else process.env.COACH_V2=COACH_V2_ANTES;});
 test("backfill can advance twice in one cron slot; the weekly review is queued once per week and never refreshed",async()=>{
  const list=spyOn(commitmentStore,"listCommitments").mockResolvedValue([]);
  let analyzed=2,reviews:{week_start:string}[]=[];

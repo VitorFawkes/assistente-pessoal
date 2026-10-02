@@ -67,7 +67,8 @@ export function whatsappText(content: string): string {
   .replace(/\[([^\]\n]+)\]\((https?:[^)\s]+)\)/g, "$1 ($2)")
   .replace(/^[ \t]*[-*][ \t]+/gm, "• ")
   .replace(/\n{3,}/g, "\n\n").trim();
- if (reading) text += "\n\n_As leituras e evidências desta resposta ficam na página do Coach._";
+ // No Ações da equipe não existe página do Coach: a linha apontava para lugar nenhum (até 02/10/2026 ia em toda mensagem).
+ if (reading && !isTeamMode()) text += "\n\n_As leituras e evidências desta resposta ficam na página do Coach._";
  return text;
 }
 export function splitForWhatsApp(text: string, max = WA_CHUNK): string[] {
@@ -95,7 +96,9 @@ export function displayNumber(raw: string | undefined) {
 
 const clip = (s: string, max: number) => { const t = s.replace(/\s+/g, " ").trim(); return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t; };
 /** Friday review on WhatsApp: the proposal only; evidence stays on the coach page. */
-export function reviewText(c: { headline?: string; focus?: string; progress?: string; experiment?: string; question?: string }) {
+export function reviewText(c: { headline?: string; focus?: string; progress?: string; experiment?: string; question?: string; texto?: string }) {
+ // Coach v2: a revisão já vem escrita para o WhatsApp, curta e sem rodapé.
+ if (c.texto?.trim()) return `*Revisão da semana*\n\n${whatsappText(c.texto.slice(0, 4000))}`;
  const parts = ["*Revisão da semana*"];
  if (c.headline?.trim()) parts.push(`*${clip(c.headline, 120)}*`);
  if (c.focus?.trim()) parts.push(whatsappText(c.focus.slice(0, 2500)));

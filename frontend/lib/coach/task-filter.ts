@@ -401,7 +401,7 @@ export const FILTER_GUIDE = `CRITÉRIOS (vazio = não filtra; combine todos os q
 - all=true só para "todas", "tudo", "todas as abertas" sem outro critério.
 - status: open (padrão: abertas), in_progress (em andamento), done (concluídas), cancelled (canceladas), closed (concluídas ou canceladas).
 - due: none (sem prazo), any (com prazo), range (due_from e due_until, AAAA-MM-DD inclusivos, contados de now_local: "atrasadas" = due_until ontem; "até 24/09" ou "do dia 24 pra trás" = due_until 24/09; "as de hoje" = due_from e due_until hoje; "o que tenho pra hoje" = due_until hoje; "desta semana", "de julho" = o intervalo inteiro).
-- who: me (do próprio usuário, "minhas"), others (de outras pessoas), nobody (sem responsável). people: nomes citados (as de qualquer um deles). not_people: nomes tirados ("menos as do Tiago"). "De qualquer responsável" ou "de todo mundo" = who vazio.
+- who: me só quando ele quer apenas as que ELE faz ("só as minhas", "as que eu tenho que fazer", "que dependem de mim"); others (de outras pessoas), nobody (sem responsável). "Que eu tenho em aberto", "minhas pendências", "o que tenho aberto" e "minha lista" são a lista inteira dele, como a tela mostra (as que ele faz, as que cobra e as que aguarda): who vazio e all=true. people: nomes citados (as de qualquer um deles). not_people: nomes tirados ("menos as do Tiago"). "De qualquer responsável" ou "de todo mundo" = who vazio.
 - kind: chase (as que o usuário tem de cobrar de alguém), wait (as que ele só está aguardando).
 - priorities: "urgentes" = urgente; "importantes" ou "prioritárias" = alta e urgente; "sem importância" = baixa.
 - boards e not_boards: códigos de boards (quadro ou projeto citado). areas e not_areas: códigos de areas (área citada; sem_area = sem área).

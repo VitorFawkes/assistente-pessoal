@@ -11,6 +11,11 @@ import { selectChunks } from "./investigation";
 import { CoachAIError, CoachProviderUnavailableError } from "./model";
 import * as agenda from "./morning-agenda";
 import type { CoachMeeting, CoachMemory, CoachCommitment, CoachCommitmentReceipt, CoachMessage, CoachReview, ReportSource, ReportPeriodSource, Observation, ReviewContent } from "./types";
+// Estes testes cobrem o fluxo antigo do Coach, que ficou atrás de COACH_V2=0 (02/10/2026).
+import { afterAll as fluxoAntigoDepois, beforeAll as fluxoAntigoAntes } from "bun:test";
+const COACH_V2_ANTES=process.env.COACH_V2;
+fluxoAntigoAntes(()=>{process.env.COACH_V2="0";});
+fluxoAntigoDepois(()=>{if(COACH_V2_ANTES===undefined)delete process.env.COACH_V2;else process.env.COACH_V2=COACH_V2_ANTES;});
 const meeting:CoachMeeting={id:"owned",nome:"QA",original_filename:"qa",recorded_at:null,transcription:"Eu vou concluir uma única prioridade.",segments:[{speaker:"A",start:1,end:5,text:"Eu vou concluir uma única prioridade."}],speaker_labels:{A:"QA"},speaker_pessoas:{A:"self"}};
 const observation={competency:"focus",observation:"Uma prioridade",hypothesis:"Mais foco",alternative:"Pontual",experiment:"Acompanhar",evidence:[{meeting_id:"owned",chunk_index:0,quote:meeting.transcription}]};
 test("personal observations require verified self attribution",()=>{
