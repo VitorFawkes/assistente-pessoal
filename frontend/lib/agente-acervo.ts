@@ -61,16 +61,41 @@ export async function acervo(userId: string, opcoes: { concluidas: boolean }): P
   return { tarefas, cortado };
 }
 
+/** Até aqui, a escolha avalia linha por linha. Escolhendo de cabeça numa lista curta (as dela já filtradas), "só as
+ *  minhas de TTARS" voltava 2 a 4 de umas 20 em metade das vezes, com esforço baixo ou médio (sonda de 02/10/2026). */
+const AVALIAR_ATE = 120;
+
+const REPETIDAS = {
+  type: "array",
+  items: { type: "array", items: { type: "string" } },
+  description: "Grupos de refs que são o mesmo combinado (2 ou mais por grupo). [] se o pedido não fala de repetidas ou não há.",
+};
+
+const ESCOLHA_UMA_A_UMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    avaliadas: {
+      type: "array",
+      description: "Uma entrada para CADA linha, na ordem: a ref e se ela atende ao pedido.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: { ref: { type: "string" }, serve: { type: "boolean" } },
+        required: ["ref", "serve"],
+      },
+    },
+    repetidas: REPETIDAS,
+  },
+  required: ["avaliadas", "repetidas"],
+};
+
 const ESCOLHA = {
   type: "object",
   additionalProperties: false,
   properties: {
     refs: { type: "array", items: { type: "string" }, description: "refs (t…) das ações que atendem ao pedido." },
-    repetidas: {
-      type: "array",
-      items: { type: "array", items: { type: "string" } },
-      description: "Grupos de refs que são o mesmo combinado (2 ou mais por grupo). [] se o pedido não fala de repetidas ou não há.",
-    },
+    repetidas: REPETIDAS,
   },
   required: ["refs", "repetidas"],
 };
@@ -83,7 +108,7 @@ function instrucoesDaEscolha(nome: string): string {
     "Seja completo e certeiro: inclua toda ação que atende ao pedido, mesmo dita com outras palavras, e nenhuma que não tenha relação com ele (estar na lista da pessoa não basta). Com LIMITE DE PESSOA, o limite dito ('só as minhas', 'que o marketing espera de mim') vale.",
     "LIMITE DE PESSOA: nenhum = ela não limitou por pessoa: escolha só pelo assunto, de qualquer pessoa (quem faz e de quem é a lista não importam), mesmo que o pedido diga 'que " + nome + " faz' ou 'que " + nome + " ficou de fazer'.",
     "repetidas: só com AGRUPAR REPETIDAS = sim. Agrupe as que são o mesmo combinado (mesma entrega), mesmo com palavras, reuniões ou donos diferentes. Variações para marcas diferentes (Trips, Weddings) não são repetidas.",
-    "Responda só com as refs.",
+    "Com AVALIAR UMA A UMA = sim, devolva em avaliadas uma entrada para cada linha, na ordem, com serve true ou false. Senão, responda só com as refs.",
   ].join("\n");
 }
 
@@ -96,23 +121,27 @@ export async function escolherPeloSentido(
   /** As palavras dela que limitam por pessoa; null = de qualquer pessoa (o pedido reescrito não limita sozinho). */
   limite: string | null,
 ): Promise<{ refs: string[]; repetidas: string[][]; custoUsd: number }> {
+  const umaAUma = linhas.length <= AVALIAR_ATE;
   const r = await chamarModelo({
     userId: user.id,
     instrucoes: instrucoesDaEscolha(user.nome),
     entrada: [
       {
         role: "user",
-        content: `PEDIDO: ${pedido}\nLIMITE DE PESSOA: ${limite ? `"${limite}"` : "nenhum"}\nAGRUPAR REPETIDAS: ${agruparRepetidas ? "sim" : "não"}\n\nAÇÕES (uma por linha):\n${linhas.join("\n")}`,
+        content: `PEDIDO: ${pedido}\nLIMITE DE PESSOA: ${limite ? `"${limite}"` : "nenhum"}\nAGRUPAR REPETIDAS: ${agruparRepetidas ? "sim" : "não"}\nAVALIAR UMA A UMA: ${umaAUma ? "sim" : "não"}\n\nAÇÕES (uma por linha):\n${linhas.join("\n")}`,
       },
     ],
-    formato: { nome: "escolha", schema: ESCOLHA },
-    // Pensando o mínimo, "só as minhas de TTARS" voltava 2 ou 3 de umas 20 em metade das vezes (sonda de 02/10/2026).
-    esforco: "medium",
+    formato: { nome: "escolha", schema: umaAUma ? ESCOLHA_UMA_A_UMA : ESCOLHA },
+    esforco: "low",
     maxSaida: 8000,
     signal: AbortSignal.timeout(60_000),
   });
-  const d = JSON.parse(r.texto || "{}") as { refs?: unknown; repetidas?: unknown };
-  const refs = Array.isArray(d.refs) ? d.refs.filter((x): x is string => typeof x === "string") : [];
+  const d = JSON.parse(r.texto || "{}") as { refs?: unknown; avaliadas?: unknown; repetidas?: unknown };
+  const refs = Array.isArray(d.avaliadas)
+    ? d.avaliadas.flatMap((x) => (x && typeof x === "object" && (x as { serve?: unknown }).serve === true && typeof (x as { ref?: unknown }).ref === "string" ? [(x as { ref: string }).ref] : []))
+    : Array.isArray(d.refs)
+      ? d.refs.filter((x): x is string => typeof x === "string")
+      : [];
   const repetidas = Array.isArray(d.repetidas)
     ? d.repetidas.map((g) => (Array.isArray(g) ? g.filter((x): x is string => typeof x === "string") : [])).filter((g) => g.length > 1)
     : [];
