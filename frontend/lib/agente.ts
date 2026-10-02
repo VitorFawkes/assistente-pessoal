@@ -1173,11 +1173,10 @@ async function executar(
     // coisas no CRM" virava "só as do Vitor, da lista dele" e voltavam 4 de mais de 50 (print do Vitor, 02/10/2026).
     // Pedido "todas" é pergunta só de pessoa ("o que eu devo ao Tiago"): ali o filtro é a resposta e vale sempre.
     const soDePessoa = /^\s*(todas?|tudo)(\s+as\s+a[cç][oõ]es)?\s*[.!]?\s*$/i.test(pedido);
-    // As palavras valem da fala atual e da anterior ("e as concluídas?" segue o "o que eu devo ao Tiago"); um "só as
-    // minhas" de 5 perguntas atrás não limita o "tudo de WhatsApp" de agora.
-    const recentes = ctx.falas.slice(-2);
+    // A citação vale da fala atual ou da anterior ("e as concluídas?" segue o "o que eu devo ao Tiago"); sem citação,
+    // só a fala atual: o "devo ao Tiago" de antes não limita o "o que falamos de WhatsApp" de agora.
     const dito = str(a.limite_dito);
-    const palavras = dito && ditoPelaPessoa(dito, recentes) ? dito : recentes.join("\n");
+    const palavras = dito && ditoPelaPessoa(dito, ctx.falas.slice(-2)) ? dito : (ctx.falas[ctx.falas.length - 1] ?? null);
     const limitou = soDePessoa || limitaPorPessoa(palavras, retrato.pessoas.map((p) => p.nome));
     const quemFaz = limitou ? str(a.quem_faz) : null;
     const listaDe = limitou ? str(a.lista_de) : null;

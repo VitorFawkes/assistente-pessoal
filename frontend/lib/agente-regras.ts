@@ -249,12 +249,14 @@ export function limparRefs(texto: string): string {
 // dela que limitam; "o que falei, falamos ou combinamos nas reuniões" é o assunto, de qualquer pessoa.
 
 const PALAVRAS_QUE_LIMITAM = [
-  // "só as minhas", "algo meu", "com o meu nome", "na minha lista"; não "minhas reuniões" nem "minhas últimas reuniões"
-  /\b(?:minhas?|meus?)\b(?!(?: \w+)? (?:reunioes|reuniao|times?|projetos?|areas?|grupos?)\b)/,
+  /\bso (?:as )?minhas\b/,
+  // "algo meu", "com o meu nome", "na minha lista", "as minhas nas reuniões"; não "minhas reuniões" nem "minhas últimas reuniões"
+  /\b(?:minhas?|meus?)\b(?!(?: (?:ultimas?|proximas?|antigas?|novas?|primeiras?|outras?|outros?))? (?:reunioes|reuniao|times?|projetos?|areas?|grupos?)\b)/,
   /\b(?:comigo|de mim|sou eu|sou responsavel|atribuid[oa]s?)\b/,
-  /\b(?:me devem?|devendo|devo (?:a|ao|aos|as|pra|pro|para)|que (?:eu )?devo|me pedi(?:u|ram))\b/,
+  /\b(?:ficou|ficaram|sobrou|sobraram|tem|sao|vai|vao) (?:pra|para) mim\b|\b(?:pra|para) mim fazer\b/,
+  /\b(?:me devem?|devendo|devo (?:a|ao|aos|as|pra|pro|para)|me pedi(?:u|ram))\b|\bque (?:eu )?devo\b(?! ter\b)/,
   /\b(?:prometi|fiquei de|fico de|fiquei responsavel)\b/,
-  /\b(?:eu (?:faco|faca|preciso|criei|cobro|tenho que|tenho de)|preciso fazer|tenho (?:que|de) fazer)\b/,
+  /\beu (?:faco|faca|criei|cobro)\b|\b(?:o que|que|quais|qual) (?:eu )?(?:preciso|tenho (?:que|de)|vou) fazer\b/,
   /\b(?:dos|de) (?:outros|colegas)\b|\boutras? pessoas?\b/,
 ];
 
