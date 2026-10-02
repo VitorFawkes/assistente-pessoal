@@ -27,7 +27,6 @@ import { acervo, escolherPeloSentido } from "./agente-acervo";
 import { criarAcao } from "./nova-acao";
 import { acharPessoaPorNome, ehEu } from "./pessoa-por-nome";
 import { chamarModelo, IaIndisponivel, type Ferramenta, type Item } from "./ia";
-import { comProva, entenderPedido, entendimentoEmTexto, type Entendimento } from "./agente-entender";
 import {
   anotarNaTela,
   desfazerQuem,
@@ -96,15 +95,10 @@ export type RespostaDoAgente = {
   feitas: Feita[];
   propostas: Proposta[];
   custo_usd: number;
-  /** O entendimento do pedido parou para perguntar antes de mudar algo. */
-  perguntou?: boolean;
 };
 
-/** O caminho da pergunta, para o registro das conversas e para a bateria (nunca vai ao navegador). */
-export type Rastro = {
-  entendimento?: Entendimento | null;
-  ferramentas: { nome: string; args: Record<string, unknown>; saida: string }[];
-};
+/** O caminho da pergunta, para o registro das conversas (nunca vai ao navegador). */
+export type Rastro = { ferramentas: { nome: string; args: Record<string, unknown>; saida: string }[] };
 
 // ── Retrato: o que o modelo pode ver ─────────────────────────────────────────────────
 
@@ -699,7 +693,6 @@ function instrucoes(nome: string): string {
   return [
     `Você é o Assistente do Ações, dentro do TTARS da Welcome. Ajuda ${nome} a ver e organizar as ações dele(a): combinados internos que a pessoa faz, cobra de alguém ou só aguarda. Não são as Tarefas de cliente do TTARS.`,
     "O RETRATO (primeira mensagem) tem a lista da pessoa ('acoes': as dela, as passadas e as marcadas para ela), os projetos, as reuniões recentes, os times, as metas e as pessoas.",
-    "ENTENDIMENTO: quando vier depois da última fala, ele já decidiu o que ela quer e de quem são as ações; siga-o, inclusive a oferta do fim.",
     "LISTA DELA: pergunta sobre o que ela tem (o que vence, atrasadas, o que faz, o que cobra ou espera de alguém, o que aguarda, sem prazo, por prioridade, concluídas, quantas, organizar a semana) responde só com 'acoes' do retrato. Nunca chame procurar para isso: a lista inteira já está no retrato. ja_mostradas e o que as ferramentas trouxeram só entram quando ela falar dessas ações ou do assunto delas.",
     "LUGAR ABERTO: 'aqui', 'destas', 'deste projeto/time/reunião' falam do lugar aberto na tela (campo tela do retrato): use ver_reuniao, ver_projeto ou ver_time daquele lugar, nunca procurar.",
     "RESTO DO QUE ELA VÊ: pedido por assunto, por pessoa ou de repetidas ('tudo de TTARS', 'o que falei de X nas reuniões', 'o que a Paula me deve', 'o que eu devo ao Tiago', 'com o meu nome', 'quais estão repetidas') → procurar, com um pedido completo e de sentido amplo; ele escolhe pelo SENTIDO em tudo o que a pessoa vê. 'Coisas no TTARS/CRM' = telas, cards, funil, etapas, régua, relatórios, painéis, acessos, módulos, busca, assistente, atendimento e WhatsApp do sistema, mesmo sem a palavra. Assunto das reuniões ('o que falei, falamos ou combinamos de X', 'coisas de TTARS que falei em fazer') é de qualquer pessoa: quem_faz, lista_de e limite_dito null, e diga quantas são dela (voce_faz). Limite por pessoa só com as palavras dela que limitam ('só as minhas', 'que eu faço', 'com o meu nome', 'o que eu devo ao Tiago'), copiadas em limite_dito; 'só as minhas' = diga no pedido 'só as que " + nome + " faz'.",
@@ -835,16 +828,8 @@ function corpoDeQuem(
   return { corpo: { owner: quem.trim().slice(0, 80), acao: "cobrar", responsavel_user_id: null }, texto: `com ${quem.trim()} (de fora da Welcome)` };
 }
 
-/** `falas`: o que a pessoa escreveu nesta conversa; `entendimento`: o que o Sol entendeu do pedido (null = não veio). */
-type Exec = {
-  user: User;
-  req: Request;
-  retrato: Retrato;
-  pendente: Pendente;
-  workspace: string | null;
-  falas: string[];
-  entendimento: Entendimento | null;
-};
+/** `falas`: o que a pessoa escreveu nesta conversa (o limite de pessoa da procura confere as palavras dela). */
+type Exec = { user: User; req: Request; retrato: Retrato; pendente: Pendente; workspace: string | null; falas: string[] };
 
 const texto = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
 
@@ -1210,10 +1195,10 @@ async function executar(
     // só a fala atual: o "devo ao Tiago" de antes não limita o "o que falamos de WhatsApp" de agora.
     const dito = str(a.limite_dito);
     const palavras = dito && ditoPelaPessoa(dito, ctx.falas.slice(-2)) ? dito : (ctx.falas[ctx.falas.length - 1] ?? null);
-    // Quem decide de quem são as ações é o entendimento do pedido; a regra de palavras fica de reserva, se ele não veio.
-    const limitou = ctx.entendimento
-      ? ctx.entendimento.de_quem !== "todos"
-      : soDePessoa || limitaPorPessoa(palavras, retrato.pessoas.map((p) => p.nome));
+    const limitou = soDePessoa || limitaPorPessoa(palavras, retrato.pessoas.map((p) => p.nome));
+    // O modelo leu "só as dela" sem ela dizer: a leitura dele vira a oferta do fim (Vitor, 02/10/2026: "quando não
+    // tiver certeza, ele pode perguntar").
+    const ofereceSoDela = !limitou && !!(str(a.quem_faz) || str(a.lista_de));
     const quemFaz = limitou ? str(a.quem_faz) : null;
     // "lista de Marketing (Notion)" não é pessoa da equipe: o filtro zerava tudo (bateria de 02/10/2026).
     const listaDePedida = limitou ? str(a.lista_de) : null;
@@ -1261,7 +1246,9 @@ async function executar(
       ...(limitou
         ? {}
         : {
-            limite_de_pessoa: "nenhum: ela não limitou por pessoa. As achadas valem de qualquer pessoa: não corte só as dela; diga quantas são dela (voce_faz)",
+            limite_de_pessoa: ofereceSoDela
+              ? "nenhum: ela não limitou por pessoa. As achadas valem de qualquer pessoa: não corte só as dela; diga quantas são dela (voce_faz) e termine perguntando, numa linha, se ela quer só essas"
+              : "nenhum: ela não limitou por pessoa. As achadas valem de qualquer pessoa: não corte só as dela; diga quantas são dela (voce_faz)",
             voce_faz: escolhidas.filter((t) => quemFazSouEu(t, user, retrato.pessoas) || quemFazNaTela(t) === "você").length,
           }),
       acoes: escolhidas.map((t) => linha(t, true)),
@@ -1767,16 +1754,7 @@ export async function conversar(
     .map((f) => ({ ...f, texto: f.texto.slice(0, 2000) }));
   if (!falas.length || falas[falas.length - 1].quem !== "pessoa") throw new IaIndisponivel("Escreva uma pergunta.");
 
-  // O Sol entende o pedido enquanto o retrato é montado.
-  const [retrato, entendido] = await Promise.all([
-    montarRetrato(user, entrada.contexto, idsDasFalas(falas)),
-    entenderPedido(user, falas, entrada.contexto.lugar ?? entrada.contexto.tela ?? null),
-  ]);
-  const entendimento = entendido && comProva(entendido, falas, retrato.pessoas.map((p) => p.nome));
-  if (rastro) rastro.entendimento = entendimento;
-  if (entendimento?.pergunta) {
-    return { texto: entendimento.pergunta, citadas: [], feitas: [], propostas: [], custo_usd: Number(entendimento.custoUsd.toFixed(5)), perguntou: true };
-  }
+  const retrato = await montarRetrato(user, entrada.contexto, idsDasFalas(falas));
   const entradaModelo: Item[] = [
     { role: "user", content: `RETRATO:\n${retrato.texto}` },
     ...falas.map((f) =>
@@ -1784,7 +1762,6 @@ export async function conversar(
         ? { role: "user", content: f.texto }
         : { role: "assistant", content: anotarNaTela(f.texto, idsDasFalas([f]).flatMap((id) => retrato.refDe.get(id) ?? [])) },
     ),
-    ...(entendimento ? [{ role: "developer", content: entendimentoEmTexto(entendimento) }] : []),
   ];
   const pendente: Pendente = { feitas: [], propostas: [], custo: 0, acervos: new Map(), procuras: 0 };
   const falasDaPessoa = falas.filter((f) => f.quem === "pessoa").map((f) => f.texto);
@@ -1843,7 +1820,7 @@ export async function conversar(
         })),
         feitas: pendente.feitas,
         propostas: pendente.propostas,
-        custo_usd: Number((custo + pendente.custo + (entendimento?.custoUsd ?? 0)).toFixed(5)),
+        custo_usd: Number((custo + pendente.custo).toFixed(5)),
       };
     }
     entradaModelo.push(...r.itens);
@@ -1858,7 +1835,7 @@ export async function conversar(
             ? { erro: "muitas leituras de uma vez: responda com o que já veio" }
             : !leitura && chamadasFeitas > MAX_CHAMADAS
               ? { erro: "muitas mudanças de uma vez; peça em partes" }
-              : await executar(c, { user, req, retrato, pendente, workspace: entrada.workspace, falas: falasDaPessoa, entendimento });
+              : await executar(c, { user, req, retrato, pendente, workspace: entrada.workspace, falas: falasDaPessoa });
       } catch (e) {
         console.error(`[agente] ${c.name}:`, e);
         saida = { erro: "não consegui fazer isso agora" };

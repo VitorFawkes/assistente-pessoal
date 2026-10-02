@@ -50,13 +50,11 @@ export const POST = withAuth(async (user, req) => {
     }, rastro);
     void guardarConversa({
       ...registro,
-      entendimento: rastro.entendimento ?? null,
       ferramentas: rastro.ferramentas,
       resposta: r.texto.slice(0, 4000),
       citadas: r.citadas.length,
       feitas: r.feitas.map((f) => f.descricao),
       propostas: r.propostas.map((p) => p.descricao),
-      perguntou: r.perguntou ?? false,
       custo_usd: r.custo_usd,
       segundos: Number(((Date.now() - comeco) / 1000).toFixed(1)),
     });
@@ -64,7 +62,6 @@ export const POST = withAuth(async (user, req) => {
   } catch (e) {
     void guardarConversa({
       ...registro,
-      entendimento: rastro.entendimento ?? null,
       ferramentas: rastro.ferramentas,
       erro: e instanceof Error ? e.message.slice(0, 300) : String(e).slice(0, 300),
       segundos: Number(((Date.now() - comeco) / 1000).toFixed(1)),
