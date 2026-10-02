@@ -37,7 +37,16 @@ type Cenario = {
 };
 
 type Chamada = { nome: string; args: string };
-type Resposta = { texto: string; citadas: { titulo: string }[]; segundos: number; chamadas: Chamada[]; usd: number; perguntou: boolean };
+type Resposta = {
+  texto: string;
+  citadas: { titulo: string }[];
+  segundos: number;
+  chamadas: Chamada[];
+  usd: number;
+  perguntou: boolean;
+  /** Mudanças feitas ou à espera de Confirmar. */
+  mudou: number;
+};
 
 // ── Banco só leitura ────────────────────────────────────────────────────────────────
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -139,7 +148,8 @@ async function resolver(ctx: Record<string, string>): Promise<Record<string, str
 /** O que falhou na resposta, frente ao que o cenário espera ([] = passou). */
 function conferir(c: Cenario, r: Resposta): string[] {
   const falhas: string[] = [];
-  if (c.deve_perguntar) return r.perguntou ? [] : ["não perguntou antes de mudar"];
+  // Perguntar antes de mudar vale pelo entendimento ou pelo Assistente (sem mudar nada e com a pergunta no texto).
+  if (c.deve_perguntar) return r.perguntou || (r.mudou === 0 && r.texto.includes("?")) ? [] : ["não perguntou antes de mudar"];
   if (r.perguntou) return c.pode_perguntar ? [] : ["perguntou sem precisar"];
   // Ferramenta pode vir como alternativa: "mudar_acao|mudar_varias".
   const e = (nome: string, padrao: string) => padrao.split("|").includes(nome);
@@ -191,7 +201,8 @@ async function rodar(c: Cenario): Promise<void> {
         segundos: Number(((Date.now() - t0) / 1000).toFixed(1)),
         chamadas,
         usd: r.custo_usd,
-        perguntou: r.perguntou === true,
+        perguntou: (r as { perguntou?: boolean }).perguntou === true,
+        mudou: r.feitas.length + r.propostas.length,
       };
       usd += r.custo_usd;
     } catch (e) {

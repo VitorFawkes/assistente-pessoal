@@ -44,6 +44,7 @@ function instrucoes(nome: string): string {
     "resumo: o que ela quer agora, em uma frase curta, sem inventar nada.",
     "tipo: consulta (ver, listar, resumir, contar, achar, compilar), mudanca (criar, mudar, concluir, cancelar, passar, comentar, juntar, puxar, marcar) ou outro (conversa, agradecimento, assunto fora do Ações).",
     "de_quem, pela pessoa que FAZ ou de quem é a LISTA: todos = ela pede por assunto, reunião, projeto ou time, sem dizer de quem (falar de um assunto numa reunião não é ficar de fazer); dela = as que ela faz, cobra ou estão na lista dela; de_outra_pessoa = as de alguém que ela cita; dela_e_de_outra = o que há entre ela e alguém (o que ela deve a alguém, o que alguém deve a ela).",
+    "Sem assunto nem pessoa, pergunta sobre prazo, atraso, prioridade, andamento ou o que ela faz, cobra ou espera fala da lista dela: dela, com certeza alta.",
     "certeza: alta quando as palavras dela decidem; baixa quando o pedido aceita duas leituras e a resposta muda muito entre elas.",
     "oferecer: só em consulta com certeza baixa entre uma leitura mais ampla e uma mais estreita. Fique com a mais ampla em de_quem e escreva aqui a pergunta curta, falando com ela, que oferece a outra. Senão, null.",
     "pergunta: só em mudança que pode sair errada por não saber o que ela quer (o que mudar, em quais ações, para quem). Escreva a pergunta curta com as opções numeradas. Nome de pessoa repetido e qual ação da lista o Assistente resolve com a lista dele: não pergunte por isso. Senão, null.",
@@ -106,7 +107,7 @@ export function entendimentoEmTexto(e: Entendimento): string {
   return [
     `ENTENDIMENTO DA ÚLTIMA FALA (feito antes; siga): ${e.resumo}`,
     `De quem: ${DE_QUEM[e.de_quem]}.`,
-    e.oferecer ? `No fim da resposta, em uma linha, ofereça: "${e.oferecer}"` : null,
+    e.oferecer ? `No fim da resposta, em uma linha, ofereça: "${e.oferecer}". Só se o que achou deixar a oferta útil (nenhuma dela = não ofereça só as dela).` : null,
   ]
     .filter(Boolean)
     .join("\n");
