@@ -60,3 +60,10 @@ Esse projeto agora é multi-tenant (Foundation = `db/0007_multitenant.sql` + `li
 - ❌ `INSERT INTO pessoas (nome) VALUES (...)` sem `user_id`
 - ❌ `requireUser()` direto em Server Component (vai virar 500, não 401) — use `requireUserOrRedirect`
 - ❌ Esquecer `dynamic = 'force-dynamic'` em página que lê cookies/sessão
+
+## Assistente do Ações (chat com IA nas telas do TTARS)
+
+- Código: `lib/agente.ts` (retrato, ferramentas, conversa), `lib/agente-acervo.ts` (acervo inteiro + escolha pelo sentido), `lib/agente-regras.ts` (regras puras, com teste), `lib/ia.ts` (chamada ao modelo barato).
+- Toda ferramenta muda pelas MESMAS rotas/funções das telas, com o acesso de quem pede (`naRota` chama o handler da rota com o cookie de quem pede). Nada de SQL de escrita direto no agente.
+- **Mexeu no Assistente (qualquer `lib/agente*.ts` ou `lib/ia.ts`)? Rode a bateria antes de publicar:** `bash frontend/scripts/bateria-assistente/rodar.sh` (61 perguntas reais com o banco só leitura, ~15 min, ~US$ 0,20). Nota mínima 95; abaixo disso, não publique. Regra do Vitor, 02/10/2026.
+- Os cenários usam os dados reais do Vitor: quando uma ação citada num cenário for concluída, troque o cenário por outro equivalente (não afrouxe a conferência).
