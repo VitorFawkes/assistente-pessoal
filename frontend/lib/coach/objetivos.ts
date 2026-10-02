@@ -6,19 +6,20 @@ import { withTenant } from "../db";
  * a linha "Agora: …" no "Como medir", que a tela já mostra.
  */
 export type Medidor = "contratos_ww_mes" | "convidados_site_mes";
-export type ObjetivoDoCoach = { id: string; nome: string; como_medir: string | null; prazo: string | null; medidor: Medidor | null; meta: number | null };
+export type ObjetivoDoCoach = { id: string; nome: string; como_medir: string | null; prazo: string | null; medidor: Medidor | null; meta: number | null; criado_em?: string };
 export const MAX_OBJETIVOS = 3;
 
-type Linha = { id: string; nome: string; como_medir: string | null; prazo: string | Date | null; medidor: Medidor | null; meta: string | number | null };
+type Linha = { id: string; nome: string; como_medir: string | null; prazo: string | Date | null; medidor: Medidor | null; meta: string | number | null; created_at?: string | Date };
 const daLinha = (r: Linha): ObjetivoDoCoach => ({
  id: r.id, nome: r.nome, como_medir: r.como_medir,
  prazo: r.prazo ? (r.prazo instanceof Date ? r.prazo.toISOString().slice(0, 10) : String(r.prazo).slice(0, 10)) : null,
  medidor: r.medidor, meta: r.meta === null || r.meta === undefined ? null : Number(r.meta),
+ ...(r.created_at ? { criado_em: new Date(r.created_at).toISOString() } : {}),
 });
 
 export async function objetivosDoCoach(userId: string): Promise<ObjetivoDoCoach[]> {
  return withTenant(userId, async db => (await db.query<Linha>(
-  "SELECT id,nome,como_medir,prazo,medidor,meta FROM objetivos WHERE user_id=$1 AND archived_at IS NULL ORDER BY created_at,id", [userId])).rows.map(daLinha));
+  "SELECT id,nome,como_medir,prazo,medidor,meta,created_at FROM objetivos WHERE user_id=$1 AND archived_at IS NULL ORDER BY created_at,id", [userId])).rows.map(daLinha));
 }
 
 const mesmoNome = (a: string, b: string) => a.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/\s+/g, " ").trim() === b.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/\s+/g, " ").trim();

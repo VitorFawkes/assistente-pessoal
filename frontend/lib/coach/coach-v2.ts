@@ -2,7 +2,7 @@ import { withTenant } from "../db";
 import { answerInfo, buildDossier } from "./assistant";
 import { budgetNotice, budgetReply, budgetState, runCostUsd } from "./budget";
 import { calendarContext } from "./calendar";
-import { aceitarCombinado, combinadoDoDia, combinadosDoPeriodo, combinarAgora, comMinuscula, diaAnteriorDoCoach, diaFalado, diaLocal, diaSeguinte, eAceite, eRecusa, fimDeSemana, fimDeSemanaLigado, fraseDoCombinado, horaValida, mensagemDas18h, proporCombinado, proximoDiaDoCoach, recusarCombinado, resolverCombinado, resultadoCurto, sincronizarComTarefa, type Combinado } from "./combinado";
+import { aceitarCombinado, combinadoDoDia, combinadosDoPeriodo, combinarAgora, comMinuscula, diaAnteriorDoCoach, diaFalado, diaLocal, diaSeguinte, eAceite, eRecusa, fimDeSemana, fimDeSemanaLigado, fraseDoCombinado, horaValida, mensagemDas18h, promessaDas18h, proporCombinado, proximoDiaDoCoach, recusarCombinado, resolverCombinado, resultadoCurto, sincronizarComTarefa, type Combinado } from "./combinado";
 import { arejado, checagemSemIa, fatosSemApoio, limparTexto } from "./conferir";
 import { usuarioDoCoach } from "./equipe";
 import { reviewPeriod } from "./evidence";
@@ -10,7 +10,7 @@ import { CONVERSA, MANHA, SEXTA, SISTEMA } from "./framework-v2";
 import { esquecerUltima, guardarMemoria, lerMemoria, pedidoDeEsquecer, PREFIXO } from "./memoria";
 import { dueTasks, localDayRange } from "./morning-agenda";
 import { atualizarAgora, metaDeContratos, objetivosDoCoach, type ObjetivoDoCoach } from "./objetivos";
-import { lerPlacar, linhasDoPlacar, nomeDoCasal, placarParaModelo, type LeituraDoPlacar, type Negociacao } from "./placar";
+import { casalCurto, lerPlacar, linhasDoPlacar, placarParaModelo, type LeituraDoPlacar, type Negociacao } from "./placar";
 import { CoachAIError, providerCompletion, type CoachTelemetry } from "./provider";
 import { recordModelRuns } from "./retrieval";
 import type { coachStore } from "./store";
@@ -24,7 +24,7 @@ import type { CoachMessage, CoachProfile, ReviewContent } from "./types";
  */
 type Store = ReturnType<typeof coachStore>;
 const ASSISTENTE = "assistente" as const, COACH = "coach" as const;
-const LIMITE_CONVERSA = 8, LIMITE_MANHA = 6, LIMITE_SEXTA = 15;
+const LIMITE_CONVERSA = 6, LIMITE_MANHA = 6, LIMITE_SEXTA = 10;
 
 // ── Agenda de hoje, com o tipo de cada compromisso ───────────────────────────────────────────────
 const semAcento = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
@@ -39,7 +39,7 @@ export function tipoDoCompromisso(titulo: string, carteira: Negociacao[]): { tip
  if (/^closer\b/u.test(t)) return { tipo: "entrevista" };
  if (/pensar estrategico/u.test(t)) return { tipo: "pensar" };
  const casal = carteira.find(n => { const nomes = nomesDoCasal(n.casal); return nomes.length >= 2 && nomes.every(nome => new RegExp(`\\b${nome}\\b`, "u").test(t)); });
- if (casal) return { tipo: "venda", casal: nomeDoCasal(casal.casal), etapa: casal.etapa };
+ if (casal) return { tipo: "venda", casal: casalCurto(casal.casal), etapa: casal.etapa };
  if (/welcome weddings/u.test(t) && /\b[a-z]{2,} e [a-z]{2,}\b/u.test(t.replace(/welcome weddings/u, ""))) return { tipo: "possivel_venda" };
  return { tipo: "interna" };
 }
@@ -115,10 +115,19 @@ export async function montarContexto(userId: string, store: Store, profile: Coac
 
 // ── Chamada ao modelo, com o conferente de fatos e um conserto ───────────────────────────────────
 const textoSchema = (max: number) => ({ type: "string", minLength: 1, maxLength: max });
+/** A primeira linha que só devolve as palavras dele ("Seus focos são contratos e convidados") não diz nada novo. */
+export function repeteAMensagem(texto: string, mensagem: unknown) {
+ if (typeof mensagem !== "string" || !mensagem.trim()) return false;
+ const palavrasDe = (s: string) => semAcento(s).replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(p => p.length >= 4);
+ const primeira = palavrasDe(texto.split("\n").find(l => l.trim()) ?? "");
+ const dele = new Set(palavrasDe(mensagem));
+ return primeira.length >= 3 && primeira.filter(p => dele.has(p)).length / primeira.length >= 0.6;
+}
 async function escrever(instrucao: string, dados: Record<string, unknown>, schema: Record<string, unknown>, limite: number, onTelemetry: (e: CoachTelemetry) => void): Promise<{ resultado: Record<string, unknown>; texto: string; problemas: string[] }> {
  let resultado = await providerCompletion(`${SISTEMA}\n\n${instrucao}`, dados, schema, { role: "primary", reasoningEffort: "medium", timeoutMs: 150000, onTelemetry });
  let texto = limparTexto(String(resultado.texto ?? ""));
- let problemas = [...checagemSemIa(texto, limite), ...(texto ? await fatosSemApoio(texto, dados, onTelemetry) : ["Resposta vazia."])];
+ const papagaio = repeteAMensagem(texto, dados.mensagem_do_vitor) ? ["A primeira linha só repete o que ele escreveu: comece pelo que ele não sabe."] : [];
+ let problemas = [...checagemSemIa(texto, limite), ...papagaio, ...(texto ? await fatosSemApoio(texto, dados, onTelemetry) : ["Resposta vazia."])];
  if (!problemas.length) return { resultado, texto, problemas };
  resultado = await providerCompletion(`${SISTEMA}\n\n${instrucao}\n\nCONSERTO: a versão anterior (texto_anterior) tinha estes problemas. Reescreva a mensagem inteira corrigindo cada um, com os mesmos dados.`,
   { ...dados, texto_anterior: texto, problemas }, schema, { role: "primary", reasoningEffort: "medium", timeoutMs: 150000, onTelemetry });
@@ -161,7 +170,8 @@ export async function conversaV2(userId: string, store: Store, profile: CoachPro
   const respondeuProposta = combinado?.status === "proposto" && ultima?.role === "assistant" && (ultima.id === combinado.mensagem_id || ultima.content.includes("Fechado?"));
   if (combinado && respondeuProposta && eAceite(message)) {
    const aceito = await aceitarCombinado(user, combinado);
-   await salvar(`Fechado: ${fraseDoCombinado(aceito)}.\n\nEstá na sua lista do TTARS. Às 18h te pergunto.`, COACH);
+   const promessa = promessaDas18h(tz, now, await fimDeSemanaLigado(userId), profile.evening_hour ?? 18);
+   await salvar(`Fechado: ${fraseDoCombinado(aceito)}.\n\nEstá na sua lista do TTARS.${promessa ? ` ${promessa}` : ""}`, COACH);
    return;
   }
   if (combinado && respondeuProposta && eRecusa(message)) {
@@ -189,21 +199,23 @@ export async function conversaV2(userId: string, store: Store, profile: CoachPro
   const [memorias, objetivosAgora] = await Promise.all([store.memories(), objetivosDoCoach(userId)]);
   const jaSabe = [...memorias.filter(m => m.status === "confirmed").map(m => memoriaParaModelo(m.content)), ...objetivosAgora.map(o => o.nome)];
   const leitura = budget.exceeded ? Promise.resolve([]) : lerMemoria({ mensagem: message, jaSabe, onTelemetry }).catch(() => []);
-  const guardar = async () => guardarMemoria(userId, (await store.profile()).revision, await leitura).catch(() => [] as string[]);
+  const guardar = async () => guardarMemoria(userId, (await store.profile()).revision, await leitura).catch(() => ({ linhas: [] as string[], objetivos: [] as string[] }));
   const handled = doCombinado ? null : await handleTaskMessage(userId, message, recent, tz, now, runId, { ai: !budget.exceeded }).catch(() => { console.error("coach task actions failed"); return null; });
-  if (handled && "reply" in handled) { await salvar(arejado([handled.reply, ...await guardar()].join("\n")), ASSISTENTE); return; }
+  if (handled && "reply" in handled) { await salvar(arejado([handled.reply, ...(await guardar()).linhas].join("\n")), ASSISTENTE); return; }
   const feito = handled?.done ?? [], esperando = handled?.waiting ?? [];
   if (budget.exceeded) { await salvar(budgetReply(budget.cap), COACH); return; }
   if (handled?.lane === "tarefas") {
    const dossier = await buildDossier({ userId, message, recent, lane: "tarefas", timezone: tz, now, selfPersonIds: await store.selfPersonIds(), listings: handled.listings ?? [], onTelemetry });
    const answer = await answerInfo({ message, recent, done: feito, waiting: esperando, dossier, timezone: tz, now, onTelemetry });
    const teto = budget.spent + runCostUsd(telemetry) >= budget.cap ? budgetNotice(budget.cap) : "";
-   await salvar(arejado([feito.join("\n"), withoutRepeats(answer, feito), ...esperando.filter(n => !answer.includes(n)), ...await guardar(), teto].filter(Boolean).join("\n")), ASSISTENTE);
+   await salvar(arejado([feito.join("\n"), withoutRepeats(answer, feito), ...esperando.filter(n => !answer.includes(n)), ...(await guardar()).linhas, teto].filter(Boolean).join("\n")), ASSISTENTE);
    return;
   }
-  // 4) Coach.
+  // 4) Coach. O que ele contou é guardado antes: o objetivo novo já entra no placar desta resposta ("0 de 5").
+  const guardado = await guardar();
   const ctxPromise = montarContexto(userId, store, profile, now, {
    mensagem_do_vitor: message,
+   ...(guardado.objetivos.length ? { objetivos_guardados_agora: guardado.objetivos } : {}),
    ...(feito.length || esperando.length ? { changes_done_now: [...feito, ...esperando] } : {}),
    ...(respondeuProposta ? { respondendo_a: "proposta de combinado das 8h (combinado_de_hoje)" } : perguntou18h ? { respondendo_a: "pergunta das 18h sobre o combinado_de_hoje" } : {}),
   });
@@ -226,14 +238,14 @@ export async function conversaV2(userId: string, store: Store, profile: CoachPro
     const c = await combinarAgora(user, novo, tz, now);
     // A linha do combinado é do servidor; a do modelo, se ele escreveu, sairia repetida.
     resposta = texto.split("\n").filter(l => !/^\s*combinad[oa]\b/iu.test(l)).join("\n").trim();
-    linhas.push(`Combinado: ${fraseDoCombinado(c)}. Está na sua lista. Às 18h te pergunto.`);
+    const promessa = promessaDas18h(tz, now, await fimDeSemanaLigado(userId), profile.evening_hour ?? 18);
+    linhas.push(`Combinado: ${fraseDoCombinado(c)}. Está na sua lista.${promessa ? ` ${promessa}` : ""}`);
    }
   } else if (pedido.acao === "resultado" && ctx.combinado?.status === "aceito" && ["feito", "nao_deu", "adiado"].includes(String(pedido.resultado))) {
    const r = await resolverCombinado(user, ctx.combinado, pedido.resultado as "feito" | "nao_deu" | "adiado", typeof pedido.motivo === "string" ? pedido.motivo : null);
    if (r.retomar_em) linhas.push(`Passei para ${diaFalado(r.retomar_em, ctx.combinado.dia)}: ${comMinuscula(r.titulo)}.`);
   }
-  linhas.push(...await guardar());
-  await salvar(arejado([feito.join("\n"), esperando.join("\n"), feito.length ? withoutRepeats(resposta, feito) : resposta, ...linhas].filter(Boolean).join("\n")), COACH);
+  await salvar(arejado([feito.join("\n"), esperando.join("\n"), ...guardado.linhas, feito.length ? withoutRepeats(resposta, feito) : resposta, ...linhas].filter(Boolean).join("\n")), COACH);
  } finally {
   await recordModelRuns(userId, "chat", runId || null, telemetry).catch(() => {});
  }
@@ -263,16 +275,19 @@ export async function checkinV2(userId: string, store: Store, profile: CoachProf
   const ctx = await montarContexto(userId, store, profile, now, { dia_da_semana: new Intl.DateTimeFormat("pt-BR", { timeZone: tz, weekday: "long" }).format(now) });
   const schema = { type: "object", additionalProperties: false, required: ["texto", "combinado"], properties: { texto: textoSchema(1200), combinado: combinadoSchema(ctx.objetivos.map(o => o.id)) } };
   let texto: string, combinado: ReturnType<typeof combinadoValido> = null;
+  // Já existe combinado aceito para hoje (veio de um "amanhã" ou foi combinado cedo): não nasce outro por cima, senão
+  // a pergunta das 18h olharia o novo e o passado sumiria.
+  const jaCombinado = ctx.combinado?.status === "aceito" ? ctx.combinado : null;
   try {
    const r = await escrever(MANHA, ctx.dados, schema, LIMITE_MANHA, e => telemetry.push(e));
    texto = r.problemas.length ? manhaSemIa(ctx, tz) : r.texto;
-   combinado = r.problemas.length ? null : combinadoValido(r.resultado.combinado, ctx.objetivos);
+   combinado = r.problemas.length || jaCombinado ? null : combinadoValido(r.resultado.combinado, ctx.objetivos);
   } catch (e) {
    if (!(e instanceof CoachAIError)) throw e;
    // A mensagem das 8h nunca se perde: sai com o que vem do banco.
    texto = manhaSemIa(ctx, tz);
   }
-  const final = arejado(`${texto}${combinado ? `\nCombinado de hoje: ${fraseDoCombinado(combinado)}. Fechado?` : ""}`);
+  const final = arejado(`${texto}${jaCombinado ? `\nCombinado de hoje: ${fraseDoCombinado(jaCombinado)}. Às ${profile.evening_hour ?? 18}h te pergunto.` : combinado ? `\nCombinado de hoje: ${fraseDoCombinado(combinado)}. Fechado?` : ""}`);
   const msg = await store.addMessage("assistant", final, [], undefined, runId ? `${runId}:assistant` : undefined, [], [], COACH);
   if (combinado) await proporCombinado(userId, { ...combinado, origem: "manha", mensagem_id: msg.id }, tz, now);
  } finally {

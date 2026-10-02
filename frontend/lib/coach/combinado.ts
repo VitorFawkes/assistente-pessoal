@@ -136,6 +136,14 @@ export async function sincronizarComTarefa(userId: string, c: Combinado | null):
 }
 
 export const comMinuscula = (t: string) => `${t[0].toLowerCase()}${t.slice(1)}`;
+/**
+ * A promessa de quando o Coach volta ao combinado só sai se for cumprida: "Às 18h te pergunto." só antes da pergunta
+ * das 18h de um dia em que ela roda (aceite às 19h ou no sábado não ganha promessa; a manhã seguinte retoma).
+ */
+export function promessaDas18h(timezone: string, now: Date, fimDeSemana18h: boolean, horaDaNoite = 18) {
+ const hora = Number(new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "numeric", hourCycle: "h23" }).format(now));
+ return (fimDeSemana18h || !fimDeSemana(timezone, now)) && hora < horaDaNoite ? `Às ${horaDaNoite}h te pergunto.` : "";
+}
 /** A mensagem das 18h é escrita pelo servidor, sem IA: pergunta o combinado aceito ou reconhece o que já saiu. */
 export function mensagemDas18h(c: Combinado | null): string | null {
  if (!c) return null;
