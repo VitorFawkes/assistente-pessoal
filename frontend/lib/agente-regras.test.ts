@@ -5,6 +5,7 @@ import {
   ditoPelaPessoa,
   idsDasFalas,
   limitaPorPessoa,
+  semLimiteDePessoa,
   limparRefs,
   linhaCorrida,
   linhaDoRetrato,
@@ -200,6 +201,17 @@ describe("limite de pessoa na procura", () => {
     ]) {
       expect(limitaPorPessoa(frase, nomes)).toBe(true);
     }
+  });
+
+  it("sem limite dito, a escolha não recebe o trecho de pessoa que o modelo inventou", () => {
+    expect(
+      semLimiteDePessoa(
+        "Ações combinadas nas reuniões sobre fazer coisas no TTARS ou CRM: telas, cards, funil; ações em que Vitor Gambetti ficou de fazer ou fazer junto. Compilar as ações e agrupar combinados repetidos.",
+        nomes,
+      ),
+    ).toBe("Ações combinadas nas reuniões sobre fazer coisas no TTARS ou CRM: telas, cards, funil; Compilar as ações e agrupar combinados repetidos");
+    expect(semLimiteDePessoa("Ações do Vitor sobre o TTARS", nomes)).toBe("Ações do Vitor sobre o TTARS");
+    expect(semLimiteDePessoa("Tudo de WhatsApp nas reuniões", nomes)).toBe("Tudo de WhatsApp nas reuniões");
   });
 
   it("a citação tem de estar numa fala da pessoa", () => {

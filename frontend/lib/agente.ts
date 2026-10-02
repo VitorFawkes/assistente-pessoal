@@ -41,6 +41,7 @@ import {
   montarMudanca,
   precisaConfirmar,
   quemFazNaTela,
+  semLimiteDePessoa,
   tituloCurto,
   type Pedido,
   type TarefaVista,
@@ -1173,7 +1174,8 @@ async function executar(
     // coisas no CRM" virava "só as do Vitor, da lista dele" e voltavam 4 de mais de 50 (print do Vitor, 02/10/2026).
     const dito = str(a.limite_dito);
     const palavras = dito && ditoPelaPessoa(dito, ctx.falas) ? dito : (ctx.falas[ctx.falas.length - 1] ?? null);
-    const limitou = limitaPorPessoa(palavras, retrato.pessoas.map((p) => p.nome));
+    const nomes = retrato.pessoas.map((p) => p.nome);
+    const limitou = limitaPorPessoa(palavras, nomes);
     const quemFaz = limitou ? str(a.quem_faz) : null;
     const listaDe = limitou ? str(a.lista_de) : null;
     const ignorado = !limitou && !!(str(a.quem_faz) || str(a.lista_de));
@@ -1199,14 +1201,20 @@ async function executar(
     const tudo = (quemFaz || listaDe) && /^\s*(todas?|tudo)\b/i.test(pedido);
     const escolha = tudo
       ? { refs: filtradas.map((t) => refNoRetrato(retrato, t)), repetidas: [] as string[][], custoUsd: 0 }
-      : await escolherPeloSentido(user, pedido, filtradas.map((t) => linha(t, filtradas.length <= ACERVO_COM_DETALHE)), repetidas, limitou ? palavras : null);
+      : await escolherPeloSentido(
+          user,
+          limitou ? pedido : semLimiteDePessoa(pedido, nomes),
+          filtradas.map((t) => linha(t, filtradas.length <= ACERVO_COM_DETALHE)),
+          repetidas,
+          limitou ? palavras : null,
+        );
     pendente.custo += escolha.custoUsd;
     const escolhidas = [...new Set(escolha.refs)].map((r) => retrato.tarefas.get(r)).filter((t): t is TarefaVista => !!t && vale(t));
     const naEscolha = new Set(escolhidas.map((t) => refNoRetrato(retrato, t)));
     return {
       no_acervo: todas.length,
       ...(cortado ? { aviso: "o acervo passou do limite e foi cortado nas mais recentes" } : {}),
-      ...(ignorado ? { limite_de_pessoa: "ignorado: ela não limitou por pessoa, vieram as de todos" } : {}),
+      ...(ignorado ? { limite_de_pessoa: "ignorado: ela não limitou por pessoa; mostre todas e diga quantas são dela (voce_faz)" } : {}),
       achadas: escolhidas.length,
       ...(limitou ? {} : { voce_faz: escolhidas.filter((t) => quemFazSouEu(t, user, retrato.pessoas) || quemFazNaTela(t) === "você").length }),
       acoes: escolhidas.map((t) => linha(t, true)),

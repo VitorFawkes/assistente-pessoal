@@ -273,3 +273,11 @@ export function ditoPelaPessoa(palavras: string | null | undefined, falas: strin
     return ditas.every((p) => naFala.has(p));
   });
 }
+
+/** O pedido que o modelo reescreveu, sem os trechos que limitam por pessoa (quando ela não limitou): "…; só as que o
+ *  Vitor ficou de fazer" fazia a escolha devolver só as dele mesmo sem o filtro (1 em 20 na sonda de 02/10/2026). */
+export function semLimiteDePessoa(pedido: string, nomes: string[]): string {
+  const partes = pedido.split(/[.;!?]+/).map((p) => p.trim()).filter(Boolean);
+  const ficam = partes.filter((p) => !limitaPorPessoa(p, nomes));
+  return ficam.length ? ficam.join("; ") : pedido;
+}
