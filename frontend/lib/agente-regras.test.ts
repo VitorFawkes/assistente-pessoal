@@ -5,7 +5,6 @@ import {
   ditoPelaPessoa,
   idsDasFalas,
   limitaPorPessoa,
-  semLimiteDePessoa,
   limparRefs,
   linhaCorrida,
   linhaDoRetrato,
@@ -203,15 +202,13 @@ describe("limite de pessoa na procura", () => {
     }
   });
 
-  it("sem limite dito, a escolha não recebe o trecho de pessoa que o modelo inventou", () => {
-    expect(
-      semLimiteDePessoa(
-        "Ações combinadas nas reuniões sobre fazer coisas no TTARS ou CRM: telas, cards, funil; ações em que Vitor Gambetti ficou de fazer ou fazer junto. Compilar as ações e agrupar combinados repetidos.",
-        nomes,
-      ),
-    ).toBe("Ações combinadas nas reuniões sobre fazer coisas no TTARS ou CRM: telas, cards, funil; Compilar as ações e agrupar combinados repetidos");
-    expect(semLimiteDePessoa("Ações do Vitor sobre o TTARS", nomes)).toBe("Ações do Vitor sobre o TTARS");
-    expect(semLimiteDePessoa("Tudo de WhatsApp nas reuniões", nomes)).toBe("Tudo de WhatsApp nas reuniões");
+  it("sem limite de pessoa, a linha da escolha não diz quem faz nem de quem é a lista", () => {
+    const l = linhaDoRetrato("t1", t({ owner: "Tiago", is_mine: false, compartilhada: true, criador_nome: "Paula Klotz" } as Partial<TarefaVista>));
+    expect(linhaCorrida(l)).toContain("quem faz:");
+    const sem = linhaCorrida(l, null, true);
+    expect(sem).not.toContain("quem faz");
+    expect(sem).not.toContain("lista de");
+    expect(sem).toContain("Revisar orçamento");
   });
 
   it("a citação tem de estar numa fala da pessoa", () => {

@@ -189,16 +189,17 @@ export function tituloCurto(s: string, max = 70): string {
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
 
-/** A mesma linha em texto corrido, para listas longas (o acervo): chave repetida em cada linha custaria o dobro. */
-export function linhaCorrida(l: ReturnType<typeof linhaDoRetrato>, detalhe?: string | null): string {
+/** A mesma linha em texto corrido, para listas longas (o acervo): chave repetida em cada linha custaria o dobro.
+ *  `semPessoa`: sem quem faz e de quem é a lista (a escolha sem limite de pessoa escolhe só pelo assunto). */
+export function linhaCorrida(l: ReturnType<typeof linhaDoRetrato>, detalhe?: string | null, semPessoa = false): string {
   return [
     l.ref,
     l.titulo,
-    `quem faz: ${l.quem_faz} (${l.tipo})`,
+    semPessoa ? null : `quem faz: ${l.quem_faz} (${l.tipo})`,
     l.prazo ? `prazo ${l.prazo}${l.vence ? `, ${l.vence}` : ""}` : null,
     l.situacao !== "aberta" ? l.situacao : null,
     l.reuniao ? `reunião: ${l.reuniao}` : null,
-    l.criada_por ? `lista de ${l.criada_por}` : null,
+    l.criada_por && !semPessoa ? `lista de ${l.criada_por}` : null,
     l.projetos ? `projeto: ${l.projetos.join(", ")}` : null,
     l.time ? `time: ${l.time}` : null,
     detalhe ? `detalhe: ${tituloCurto(detalhe, 110)}` : null,
@@ -272,12 +273,4 @@ export function ditoPelaPessoa(palavras: string | null | undefined, falas: strin
     const naFala = new Set(palavrasDe(f).split(" "));
     return ditas.every((p) => naFala.has(p));
   });
-}
-
-/** O pedido que o modelo reescreveu, sem os trechos que limitam por pessoa (quando ela não limitou): "…; só as que o
- *  Vitor ficou de fazer" fazia a escolha devolver só as dele mesmo sem o filtro (1 em 20 na sonda de 02/10/2026). */
-export function semLimiteDePessoa(pedido: string, nomes: string[]): string {
-  const partes = pedido.split(/[.;!?]+/).map((p) => p.trim()).filter(Boolean);
-  const ficam = partes.filter((p) => !limitaPorPessoa(p, nomes));
-  return ficam.length ? ficam.join("; ") : pedido;
 }

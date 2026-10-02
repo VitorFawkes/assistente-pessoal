@@ -41,7 +41,6 @@ import {
   montarMudanca,
   precisaConfirmar,
   quemFazNaTela,
-  semLimiteDePessoa,
   tituloCurto,
   type Pedido,
   type TarefaVista,
@@ -697,7 +696,7 @@ function instrucoes(nome: string): string {
     "Responda curto e simples, em português do Brasil, sem jargão.",
     "Datas: use o 'hoje' do retrato. 'esta semana' vai até fim_desta_semana. Converta 'sexta', 'amanhã', 'semana que vem' para AAAA-MM-DD. Mostre datas como 'sex 03/10'.",
     "Cada ação tem 'vence' já calculado (atrasada N dias, hoje, amanhã, esta semana, semana que vem, depois). Use esse campo, não faça conta de data. Quando perguntarem o que vence (hoje, esta semana), conte também as atrasadas, dizendo que estão atrasadas.",
-    "A tela mostra, embaixo da resposta, todas as ações que você puser em acoes_citadas, sem limite. Ponha ali todas as que respondem ao pedido: se pedirem todas, nunca corte nem escolha só algumas. Pergunta de quantidade ('quantas') responde o número e não cita a lista. Em resumo de reuniões, cite as ações em que quem faz é você (ou as que a pessoa pediu), nunca todas as das reuniões. No texto, diga quantas são (o mesmo número de acoes_citadas) e resuma em uma ou duas frases; só escreva a lista no texto se a pessoa pedir em texto, e aí a lista inteira, uma por linha. Pediram sem repetir: o mesmo combinado em mais de um lugar entra uma vez só, e diga quantas juntou.",
+    "A tela mostra, embaixo da resposta, todas as ações que você puser em acoes_citadas, sem limite. Ponha ali todas as que respondem ao pedido: se pedirem todas, nunca corte nem escolha só algumas. Pergunta de quantidade ('quantas') responde o número e não cita a lista. Em resumo de reuniões (ver_reuniao, ver_reunioes), cite as ações em que quem faz é você (ou as que a pessoa pediu), nunca todas as das reuniões; o que procurar trouxe sem limite de pessoa vai inteiro. No texto, diga quantas são (o mesmo número de acoes_citadas) e resuma em uma ou duas frases; só escreva a lista no texto se a pessoa pedir em texto, e aí a lista inteira, uma por linha. Pediram sem repetir: o mesmo combinado em mais de um lugar entra uma vez só, e diga quantas juntou.",
     "Cada resposta sua anterior termina com [na tela: …]: as ações que apareceram com ela. 'Manda todas', 'você só mandou 8', 'repete', 'essas' falam delas, que estão no retrato com essas refs (as que não são da lista vêm em ja_mostradas). Nunca escreva [na tela: …] na resposta.",
     "quem_faz 'você' = a própria pessoa (também numa ação da lista de outra pessoa). tipo é o papel dela: 'eu faço', 'eu cobro', 'só aguardo', 'faço junto' ou 'da lista de quem criou' (nem faz nem cobra: a ação é de criada_por).",
     "O pedido da pessoa já é a autorização: crie ou mude na hora com as ferramentas, sem perguntar se pode; a tela mostra Desfazer. Só descreva antes, sem mudar, se a pessoa pedir para ver antes. Só diga que fez depois da ferramenta responder ok. Se ela devolver 'aguardando_confirmacao', diga que é só apertar Confirmar. Se devolver erro, explique em uma frase, sem sugerir 'tente mais tarde' quando o erro diz o motivo.",
@@ -1167,18 +1166,16 @@ async function executar(
     const vistas = new Set<string>();
     const todas = [...[...retrato.tarefas.values()].filter(vale), ...tarefas].filter((t) => !vistas.has(t.id) && !!vistas.add(t.id));
     const hoje = hojeBR();
-    const linha = (t: TarefaVista, detalhe: boolean) =>
-      linhaCorrida(linhaDoRetrato(refNoRetrato(retrato, t), t, hoje, quemFazSouEu(t, user, retrato.pessoas)), detalhe ? t.descricao : null);
+    const linha = (t: TarefaVista, detalhe: boolean, semPessoa = false) =>
+      linhaCorrida(linhaDoRetrato(refNoRetrato(retrato, t), t, hoje, quemFazSouEu(t, user, retrato.pessoas)), detalhe ? t.descricao : null, semPessoa);
     // Pessoa dita (quem faz, quem criou): filtro exato antes da escolha. Pela escolha, "o que eu devo ao Tiago" achava
     // 1 das 8 da Daily Noix (bateria de 02/10/2026). Só com as palavras dela que limitam: "reuniões que falei em fazer
     // coisas no CRM" virava "só as do Vitor, da lista dele" e voltavam 4 de mais de 50 (print do Vitor, 02/10/2026).
     const dito = str(a.limite_dito);
     const palavras = dito && ditoPelaPessoa(dito, ctx.falas) ? dito : (ctx.falas[ctx.falas.length - 1] ?? null);
-    const nomes = retrato.pessoas.map((p) => p.nome);
-    const limitou = limitaPorPessoa(palavras, nomes);
+    const limitou = limitaPorPessoa(palavras, retrato.pessoas.map((p) => p.nome));
     const quemFaz = limitou ? str(a.quem_faz) : null;
     const listaDe = limitou ? str(a.lista_de) : null;
-    const ignorado = !limitou && !!(str(a.quem_faz) || str(a.lista_de));
     const mesmaPessoa = (dito: string, naAcao: string | null | undefined) => {
       if (!naAcao) return false;
       const achado = acharPessoa(dito, retrato);
@@ -1203,8 +1200,10 @@ async function executar(
       ? { refs: filtradas.map((t) => refNoRetrato(retrato, t)), repetidas: [] as string[][], custoUsd: 0 }
       : await escolherPeloSentido(
           user,
-          limitou ? pedido : semLimiteDePessoa(pedido, nomes),
-          filtradas.map((t) => linha(t, filtradas.length <= ACERVO_COM_DETALHE)),
+          pedido,
+          // Sem limite de pessoa, a escolha nem vê quem faz: "só as que o Vitor ficou de fazer" no pedido reescrito
+          // fazia voltar só as dele (sonda de 02/10/2026).
+          filtradas.map((t) => linha(t, filtradas.length <= ACERVO_COM_DETALHE, !limitou)),
           repetidas,
           limitou ? palavras : null,
         );
@@ -1214,9 +1213,13 @@ async function executar(
     return {
       no_acervo: todas.length,
       ...(cortado ? { aviso: "o acervo passou do limite e foi cortado nas mais recentes" } : {}),
-      ...(ignorado ? { limite_de_pessoa: "ignorado: ela não limitou por pessoa; mostre todas e diga quantas são dela (voce_faz)" } : {}),
       achadas: escolhidas.length,
-      ...(limitou ? {} : { voce_faz: escolhidas.filter((t) => quemFazSouEu(t, user, retrato.pessoas) || quemFazNaTela(t) === "você").length }),
+      ...(limitou
+        ? {}
+        : {
+            limite_de_pessoa: "nenhum: ela não limitou por pessoa. As achadas valem de qualquer pessoa: não corte só as dela; diga quantas são dela (voce_faz)",
+            voce_faz: escolhidas.filter((t) => quemFazSouEu(t, user, retrato.pessoas) || quemFazNaTela(t) === "você").length,
+          }),
       acoes: escolhidas.map((t) => linha(t, true)),
       ...(repetidas ? { repetidas: escolha.repetidas.map((g) => g.filter((r) => naEscolha.has(r) || retrato.tarefas.has(r))).filter((g) => g.length > 1) } : {}),
     };
