@@ -653,6 +653,8 @@ export async function conversar(
       // mas o modelo só pode responder.
       ferramentas: FERRAMENTAS,
       usarFerramentas: ultima ? "none" : "auto",
+      // Pensando o mínimo, juntava por assunto mal e errava a conta das listas (02/10/2026); "medium" segue centavos.
+      esforco: "medium",
       formato: { nome: "resposta", schema: RESPOSTA },
       maxSaida: 6000,
     });
