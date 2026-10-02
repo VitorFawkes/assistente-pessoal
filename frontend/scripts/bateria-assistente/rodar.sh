@@ -28,5 +28,6 @@ ssh -i "$CHAVE" "$SERVIDOR" "umask 077
   codigo=\$?
   rm -f \$V
   grep '^{' /tmp/bateria-$SHA.jsonl
+  rm -f /tmp/bateria-$SHA.jsonl
   docker rmi acoes-equipe-ensaio:$SHA > /dev/null 2>&1
   exit \$codigo"

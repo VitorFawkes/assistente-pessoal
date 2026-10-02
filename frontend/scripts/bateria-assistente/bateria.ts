@@ -1,7 +1,9 @@
 // Bateria do Assistente do Ações (plano do Vitor, 02/10/2026: "toda mudança passa por 60 perguntas reais antes de
 // subir, meta de 95% certas"). Conversa de verdade com o modelo, como uma pessoa real, com o banco SÓ LEITURA: toda
 // transação vira BEGIN READ ONLY e toda consulta solta roda dentro de uma, então nada grava (as mudanças pedidas
-// falham no banco, e o que se confere é a ferramenta que o modelo escolheu e com quais campos).
+// falham no banco, e o que se confere é a ferramenta que o modelo escolheu e com quais campos). Só leitura por
+// transação, de propósito: o banco passa por um agregador de conexões, e um SET de sessão ficaria na conexão
+// emprestada e deixaria o sistema de verdade sem gravar.
 //
 // Roda dentro do servidor, numa imagem montada do código que se quer medir: veja rodar.sh. Os cenários usam os dados
 // reais de quem está em USUARIO (padrão: Vitor); quando uma ação citada for concluída, ajuste o cenário.

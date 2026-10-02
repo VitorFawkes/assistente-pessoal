@@ -36,7 +36,9 @@ export async function acervo(userId: string, opcoes: { concluidas: boolean }): P
         LIMIT ${MAX_ACERVO + 1}`,
     ),
   );
-  const pares = new Map<string, Par>(visiveis.rows.map((p) => [p.tarefa_id, p]));
+  // As ligadas à pessoa (passadas, marcadas, projetos, times) vêm primeiro: se o acervo passar do limite, o corte cai
+  // nas reuniões mais antigas, não nelas (revisão de 02/10/2026).
+  const pares = new Map<string, Par>();
   if (isTeamMode()) {
     // Moram no tenant de outra pessoa e só chegam pelas funções que conferem o acesso (as mesmas das telas).
     const deOutros = await withTenant(userId, (c) =>
@@ -47,8 +49,9 @@ export async function acervo(userId: string, opcoes: { concluidas: boolean }): P
          UNION SELECT p.tarefa_id::text, p.dono_id::text FROM unnest(equipe_meus_times()) AS tm(id) CROSS JOIN LATERAL equipe_tarefas_do_time(tm.id) p`,
       ),
     );
-    for (const p of deOutros.rows) if (!pares.has(p.tarefa_id)) pares.set(p.tarefa_id, p);
+    for (const p of deOutros.rows) pares.set(p.tarefa_id, p);
   }
+  for (const p of visiveis.rows) if (!pares.has(p.tarefa_id)) pares.set(p.tarefa_id, p);
   const lista = [...pares.values()];
   const cortado = lista.length > MAX_ACERVO;
   const carregadas = await carregarTarefas(userId, lista.slice(0, MAX_ACERVO), { donoNome: true });
