@@ -106,8 +106,9 @@ export async function escolherPeloSentido(
       },
     ],
     formato: { nome: "escolha", schema: ESCOLHA },
-    esforco: "low",
-    maxSaida: 4000,
+    // Pensando o mínimo, "só as minhas de TTARS" voltava 2 ou 3 de umas 20 em metade das vezes (sonda de 02/10/2026).
+    esforco: "medium",
+    maxSaida: 8000,
     signal: AbortSignal.timeout(60_000),
   });
   const d = JSON.parse(r.texto || "{}") as { refs?: unknown; repetidas?: unknown };
