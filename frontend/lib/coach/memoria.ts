@@ -93,14 +93,18 @@ export async function guardarMemoria(userId: string, revision: number, itens: It
 const ESQUECE = /^(?:por favor )?(?:esquece|esqueca|esqueça|apaga|apague|nao guarda|não guarda|nao guarde|não guarde|desconsidera|desconsidere)(?: (?:isso|isso ai|isso aí|essa|esse|o que eu disse|o que voce guardou|o que você guardou|por favor))*[.!]*$/iu;
 export const pedidoDeEsquecer = (mensagem: string) => ESQUECE.test(mensagem.trim());
 
-/** "esquece": desfaz o que a última resposta guardou (memória fica rejeitada; objetivo criado nas últimas 24h vai para o arquivo). */
-export async function esquecerUltima(userId: string, ultimaResposta: string, now = new Date()): Promise<string> {
+/**
+ * "esquece": desfaz o que a última resposta guardou (memória fica rejeitada; objetivo vai para o arquivo). Só conta o
+ * que nasceu junto com aquela resposta (até 15 minutos antes dela): um objetivo de manhã com nome parecido não sai.
+ */
+export async function esquecerUltima(userId: string, ultimaResposta: string, now = new Date(), respostaEm?: string): Promise<string> {
  const guardados = [...ultimaResposta.matchAll(/^Guardei(?: como (objetivos?))?: (.+?)\.?$/gmu)].map(m => ({ objetivo: !!m[1], texto: m[2].trim() }));
  if (!guardados.length) return "Não guardei nada na última resposta.";
  const store = coachStore(userId);
  const memorias = await store.memories();
  const objetivos: ObjetivoDoCoach[] = await objetivosDoCoach(userId);
- const recente = (iso?: string) => !!iso && now.getTime() - Date.parse(iso) < 24 * 3600_000;
+ const fim = respostaEm ? Date.parse(respostaEm) : now.getTime();
+ const recente = (iso?: string) => !!iso && Date.parse(iso) <= fim + 60_000 && fim - Date.parse(iso) < (respostaEm ? 15 * 60_000 : 24 * 3600_000);
  const feitos: string[] = [];
  for (const g of guardados) {
   if (g.objetivo) {
