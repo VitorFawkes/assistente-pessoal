@@ -140,9 +140,16 @@ export const comMinuscula = (t: string) => `${t[0].toLowerCase()}${t.slice(1)}`;
  * A promessa de quando o Coach volta ao combinado só sai se for cumprida: "Às 18h te pergunto." só antes da pergunta
  * das 18h de um dia em que ela roda (aceite às 19h ou no sábado não ganha promessa; a manhã seguinte retoma).
  */
-export function promessaDas18h(timezone: string, now: Date, fimDeSemana18h: boolean, horaDaNoite = 18) {
+export function promessaDas18h(timezone: string, now: Date, fimDeSemana18h: boolean, horaDaNoite = 18, ligada = true) {
  const hora = Number(new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "numeric", hourCycle: "h23" }).format(now));
- return (fimDeSemana18h || !fimDeSemana(timezone, now)) && hora < horaDaNoite ? `Às ${horaDaNoite}h te pergunto.` : "";
+ return ligada && (fimDeSemana18h || !fimDeSemana(timezone, now)) && hora < horaDaNoite ? `Às ${horaDaNoite}h te pergunto.` : "";
+}
+
+/** Já tem combinado aceito hoje: o passo novo dito na conversa vai para a lista, e o de hoje segue sendo o das 18h. */
+export async function anotarNaLista(user: User, novo: { titulo: string; objetivo_id?: string | null }, timezone: string, now = new Date()) {
+ const prazo = diaLocal(timezone, now);
+ const r = await criarAcao(user, { titulo: novo.titulo, prazo, objetivo_id: novo.objetivo_id ?? null, origem: "coach", prioridade: "alta", descricao: "Passo dito na conversa com o Coach." });
+ return r.ok ? r : criarAcao(user, { titulo: novo.titulo, prazo, origem: "coach", prioridade: "alta" });
 }
 /** A mensagem das 18h é escrita pelo servidor, sem IA: pergunta o combinado aceito ou reconhece o que já saiu. */
 export function mensagemDas18h(c: Combinado | null): string | null {

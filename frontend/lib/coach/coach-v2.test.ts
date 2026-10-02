@@ -5,7 +5,7 @@ import { casalCurto, linhasDoPlacar, mesAnterior, placarParaModelo, validarPlaca
 import { pedidoDeEsquecer, trechoLiteral, validarItens } from "./memoria";
 import { arejado, checagemSemIa, limparTexto } from "./conferir";
 import { comoMedirComAgora } from "./objetivos";
-import { conversaDoCoach, nomesDoCasal, repeteAMensagem, tipoDoCompromisso } from "./coach-v2";
+import { comoAcompanho, conversaDoCoach, nomesDoCasal, repeteAMensagem, tipoDoCompromisso } from "./coach-v2";
 import type { CoachMessage } from "./types";
 
 const combinado = (status: Combinado["status"], extra: Partial<Combinado> = {}): Combinado => ({ id: "c1", dia: "2026-10-02", titulo: "Pedir ao Jonas a assinatura do contrato", ate: "12:00", objetivo_id: null, status, origem: "manha", tarefa_id: "t1", motivo: null, mensagem_id: "m1", proposto_em: "2026-10-02T11:00:00Z", aceito_em: null, resolvido_em: null, ...extra });
@@ -79,6 +79,11 @@ describe("dias do Coach", () => {
   expect(promessaDas18h(tz, new Date("2026-10-02T22:30:00Z"), false)).toBe("");
   expect(promessaDas18h(tz, new Date("2026-10-03T14:00:00Z"), false)).toBe("");
   expect(promessaDas18h(tz, new Date("2026-10-03T14:00:00Z"), true)).toBe("Às 18h te pergunto.");
+  expect(promessaDas18h(tz, new Date("2026-10-02T14:00:00Z"), false, 18, false)).toBe("");
+  const perfil = { morning_enabled: true, evening_enabled: true, weekly_enabled: true, morning_hour: 8, evening_hour: 18, review_day: 5 };
+  expect(comoAcompanho(perfil)).toBe("às 8h dos dias úteis proponho um passo, às 18h pergunto se saiu e na sexta reviso a semana");
+  expect(comoAcompanho({ ...perfil, evening_enabled: false })).toBe("às 8h dos dias úteis proponho um passo e na sexta reviso a semana");
+  expect(comoAcompanho({ ...perfil, morning_enabled: false, evening_enabled: false, weekly_enabled: false })).toBe("só quando você me chamar");
  });
  test("'me lembra amanhã' ganha prazo mesmo se a IA esquecer", () => {
   expect(prazoFalado("Me lembra de ligar pro Guilherme amanhã às 10h", "2026-10-02")).toBe("2026-10-03");

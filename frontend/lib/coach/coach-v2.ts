@@ -2,7 +2,7 @@ import { withTenant } from "../db";
 import { answerInfo, buildDossier } from "./assistant";
 import { budgetNotice, budgetReply, budgetState, runCostUsd } from "./budget";
 import { calendarContext } from "./calendar";
-import { aceitarCombinado, combinadoDoDia, combinadosDoPeriodo, combinarAgora, comMinuscula, diaAnteriorDoCoach, diaFalado, diaLocal, diaSeguinte, eAceite, eRecusa, fimDeSemana, fimDeSemanaLigado, fraseDoCombinado, horaValida, mensagemDas18h, promessaDas18h, proporCombinado, proximoDiaDoCoach, recusarCombinado, resolverCombinado, resultadoCurto, sincronizarComTarefa, type Combinado } from "./combinado";
+import { aceitarCombinado, anotarNaLista, combinadoDoDia, combinadosDoPeriodo, combinarAgora, comMinuscula, diaAnteriorDoCoach, diaFalado, diaLocal, diaSeguinte, eAceite, eRecusa, fimDeSemana, fimDeSemanaLigado, fraseDoCombinado, horaValida, mensagemDas18h, promessaDas18h, proporCombinado, proximoDiaDoCoach, recusarCombinado, resolverCombinado, resultadoCurto, sincronizarComTarefa, type Combinado } from "./combinado";
 import { arejado, checagemSemIa, fatosSemApoio, limparTexto } from "./conferir";
 import { usuarioDoCoach } from "./equipe";
 import { reviewPeriod } from "./evidence";
@@ -74,6 +74,12 @@ export function conversaDoCoach(mensagens: CoachMessage[], limite = 10) {
 }
 
 type Contexto = { dados: Record<string, unknown>; objetivos: ObjetivoDoCoach[]; leitura: LeituraDoPlacar; combinado: Combinado | null; meta: number | null };
+const DIAS = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
+/** O que o Coach promete ao contar como acompanha: só o que está ligado no perfil. */
+export function comoAcompanho(p: Pick<CoachProfile, "morning_enabled" | "evening_enabled" | "weekly_enabled" | "morning_hour" | "evening_hour" | "review_day">) {
+ const partes = [p.morning_enabled ? `às ${p.morning_hour ?? 8}h dos dias úteis proponho um passo` : "", p.evening_enabled ? `às ${p.evening_hour ?? 18}h pergunto se saiu` : "", p.weekly_enabled ? `na ${DIAS[p.review_day] ?? "sexta"} reviso a semana` : ""].filter(Boolean);
+ return partes.length ? partes.length === 1 ? partes[0] : `${partes.slice(0, -1).join(", ")} e ${partes[partes.length - 1]}` : "só quando você me chamar";
+}
 export async function montarContexto(userId: string, store: Store, profile: CoachProfile, now: Date, extra: Record<string, unknown> = {}): Promise<Contexto> {
  const tz = profile.timezone;
  const hoje = diaLocal(tz, now);
@@ -101,6 +107,7 @@ export async function montarContexto(userId: string, store: Store, profile: Coac
   combinado_de_hoje: doCombinado(combinado),
   combinado_do_dia_anterior: doAnterior.length ? { dia: diaFalado(anterior, hoje), ...doCombinado(doAnterior.at(-1)!) } : null,
   proximo_dia_do_coach: diaFalado(proximoDiaDoCoach(hoje, fds), hoje),
+  como_acompanho: comoAcompanho(profile),
   agenda_de_hoje: agenda,
   acoes: devidas ? {
    vencem_hoje: devidas.due_today, atrasadas: devidas.overdue,
@@ -163,14 +170,14 @@ export async function conversaV2(userId: string, store: Store, profile: CoachPro
  const salvar: Salvar = async (texto, autor) => { await salvarPedido(); return store.addMessage("assistant", texto, [], undefined, runId ? `${runId}:assistant` : undefined, [], [], autor); };
  try {
   // 1) "esquece": desfaz o que a última resposta guardou.
-  if (pedidoDeEsquecer(message)) { await salvar(await esquecerUltima(userId, ultimaDoCoach?.content ?? "", now), COACH); return; }
+  if (pedidoDeEsquecer(message)) { await salvar(await esquecerUltima(userId, ultimaDoCoach?.content ?? "", now, ultimaDoCoach?.created_at), COACH); return; }
   // 2) Resposta curta ao combinado (sem IA): "ok" à proposta das 8h, "sim/não/amanhã" à pergunta das 18h.
   const user = await usuarioDoCoach(userId);
   const combinado = await sincronizarComTarefa(userId, await combinadoDoDia(userId, tz, now));
   const respondeuProposta = combinado?.status === "proposto" && ultima?.role === "assistant" && (ultima.id === combinado.mensagem_id || ultima.content.includes("Fechado?"));
   if (combinado && respondeuProposta && eAceite(message)) {
    const aceito = await aceitarCombinado(user, combinado);
-   const promessa = promessaDas18h(tz, now, await fimDeSemanaLigado(userId), profile.evening_hour ?? 18);
+   const promessa = promessaDas18h(tz, now, await fimDeSemanaLigado(userId), profile.evening_hour ?? 18, profile.evening_enabled === true);
    await salvar(`Fechado: ${fraseDoCombinado(aceito)}.\n\nEstá na sua lista do TTARS.${promessa ? ` ${promessa}` : ""}`, COACH);
    return;
   }
@@ -184,8 +191,9 @@ export async function conversaV2(userId: string, store: Store, profile: CoachPro
   if (combinado && curto) {
    const r = await resolverCombinado(user, combinado, curto);
    const quando = r.retomar_em ? diaFalado(r.retomar_em, combinado.dia) : "amanhã";
+   const deNovo = profile.evening_enabled === true ? `${quando === "amanhã" ? "Amanhã" : `Na ${quando},`} às ${profile.evening_hour ?? 18}h te pergunto de novo.` : `Fica na sua lista do TTARS para ${quando}.`;
    await salvar(curto === "feito" ? `Boa. Marquei como feito: ${comMinuscula(r.titulo)}.`
-    : curto === "adiado" ? `Passei para ${quando}: ${comMinuscula(r.titulo)}.\n\n${quando === "amanhã" ? "Amanhã" : `Na ${quando},`} às 18h te pergunto de novo.`
+    : curto === "adiado" ? `Passei para ${quando}: ${comMinuscula(r.titulo)}.\n\n${deNovo}`
     : "Entendi, não saiu.\n\nO que travou?", COACH);
    return;
   }
@@ -227,18 +235,27 @@ export async function conversaV2(userId: string, store: Store, profile: CoachPro
     objetivo_id: { type: "string", enum: ["", ...ctx.objetivos.map(o => o.id)] }, resultado: { type: "string", enum: ["", "feito", "nao_deu", "adiado"] }, motivo: { type: "string", maxLength: 500 },
    } },
   } };
-  const { resultado, texto, problemas } = await escrever(CONVERSA, ctx.dados, schema, LIMITE_CONVERSA, onTelemetry);
-  if (problemas.length && !texto) throw new CoachAIError("O coach não retornou uma orientação válida.");
+  // O que já foi guardado nunca fica sem o "Guardei" (sem ele, "esquece" não acharia o que desfazer).
+  const soOGuardado = async () => { await salvar(arejado(guardado.linhas.join("\n")), COACH); };
+  let escrito: Awaited<ReturnType<typeof escrever>>;
+  try { escrito = await escrever(CONVERSA, ctx.dados, schema, LIMITE_CONVERSA, onTelemetry); }
+  catch (e) { if (!guardado.linhas.length) throw e; await soOGuardado(); return; }
+  const { resultado, texto, problemas } = escrito;
+  if (problemas.length && !texto) { if (!guardado.linhas.length) throw new CoachAIError("O coach não retornou uma orientação válida."); await soOGuardado(); return; }
   const linhas: string[] = [];
   let resposta = texto;
   const pedido = (resultado.combinado ?? {}) as Record<string, unknown>;
   if (pedido.acao === "combinar") {
    const novo = combinadoValido(pedido, ctx.objetivos);
-   if (novo) {
+   // A linha do combinado é do servidor; a do modelo, se ele escreveu, sairia repetida.
+   if (novo) resposta = texto.split("\n").filter(l => !/^\s*combinad[oa]\b/iu.test(l)).join("\n").trim();
+   if (novo && ctx.combinado?.status === "aceito") {
+    // Um combinado por dia: o passo novo vai para a lista e o de hoje segue sendo o perguntado às 18h.
+    await anotarNaLista(user, novo, tz, now);
+    linhas.push(`Anotei na sua lista: ${fraseDoCombinado(novo)}. O combinado de hoje continua: ${fraseDoCombinado(ctx.combinado)}.`);
+   } else if (novo) {
     const c = await combinarAgora(user, novo, tz, now);
-    // A linha do combinado é do servidor; a do modelo, se ele escreveu, sairia repetida.
-    resposta = texto.split("\n").filter(l => !/^\s*combinad[oa]\b/iu.test(l)).join("\n").trim();
-    const promessa = promessaDas18h(tz, now, await fimDeSemanaLigado(userId), profile.evening_hour ?? 18);
+    const promessa = promessaDas18h(tz, now, await fimDeSemanaLigado(userId), profile.evening_hour ?? 18, profile.evening_enabled === true);
     linhas.push(`Combinado: ${fraseDoCombinado(c)}. Está na sua lista.${promessa ? ` ${promessa}` : ""}`);
    }
   } else if (pedido.acao === "resultado" && ctx.combinado?.status === "aceito" && ["feito", "nao_deu", "adiado"].includes(String(pedido.resultado))) {
@@ -287,7 +304,8 @@ export async function checkinV2(userId: string, store: Store, profile: CoachProf
    // A mensagem das 8h nunca se perde: sai com o que vem do banco.
    texto = manhaSemIa(ctx, tz);
   }
-  const final = arejado(`${texto}${jaCombinado ? `\nCombinado de hoje: ${fraseDoCombinado(jaCombinado)}. Às ${profile.evening_hour ?? 18}h te pergunto.` : combinado ? `\nCombinado de hoje: ${fraseDoCombinado(combinado)}. Fechado?` : ""}`);
+  const pergunta18h = profile.evening_enabled === true ? ` Às ${profile.evening_hour ?? 18}h te pergunto.` : "";
+  const final = arejado(`${texto}${jaCombinado ? `\nCombinado de hoje: ${fraseDoCombinado(jaCombinado)}.${pergunta18h}` : combinado ? `\nCombinado de hoje: ${fraseDoCombinado(combinado)}. Fechado?` : ""}`);
   const msg = await store.addMessage("assistant", final, [], undefined, runId ? `${runId}:assistant` : undefined, [], [], COACH);
   if (combinado) await proporCombinado(userId, { ...combinado, origem: "manha", mensagem_id: msg.id }, tz, now);
  } finally {
