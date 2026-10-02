@@ -148,6 +148,7 @@ describe("memória entre perguntas", () => {
     expect(anotarNaTela("Achei 2.", ["t4", "t9"])).toBe("Achei 2.\n[na tela: t4, t9]");
     expect(anotarNaTela("Achei 0.", [])).toBe("Achei 0.");
     expect(limparRefs("Achei 2 (t4, t9).\n[na tela: t4, t9]")).toBe("Achei 2.");
+    expect(limparRefs("Achei 1 (na tela: t1).")).toBe("Achei 1.");
     expect(limparRefs("Revisar o contrato [t3] até sexta")).toBe("Revisar o contrato até sexta");
     expect(limparRefs("Fale com a Paula (do marketing)")).toBe("Fale com a Paula (do marketing)");
   });

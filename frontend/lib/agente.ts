@@ -9,7 +9,7 @@ import { dataCurtaBR, hojeBR, diaDaSemanaBR, maisDiasBR } from "./data-br";
 import { withTenant, withTenantLeituraEquipe } from "./db";
 import { isTeamMode } from "./team-mode";
 import { tarefasFor, meetingsFor, type Tarefa } from "./queries";
-import { carregarTarefas, tarefasParaMim, pessoasDaEquipe, type PessoaDaEquipe } from "./equipe-compartilhado";
+import { carregarTarefas, tarefasMarcadasParaMim, tarefasParaMim, pessoasDaEquipe, type PessoaDaEquipe } from "./equipe-compartilhado";
 import { ordenarPendencias } from "./compartilhar";
 import { listarProjetos, projetoParaQuemVe, adicionarAoProjeto, tirarDoProjeto, type ProjetoResumo } from "./projetos";
 import { meetingSubject } from "./meeting-label";
@@ -46,8 +46,8 @@ const MAX_RODADAS = 4;
 const MAX_CHAMADAS = 10;
 const MAX_ABERTAS = 150;
 const MAX_FECHADAS = 25;
-// Pedido "todas" vem inteiro (antes eram no máximo 8 no texto e 12 na tela).
-const MAX_CITADAS = 100;
+// Pedido "todas" vem inteiro (antes eram no máximo 8 no texto e 12 na tela); cabe o retrato inteiro.
+const MAX_CITADAS = 200;
 const MAX_ACHADAS = 80;
 
 /** `acoes` (só nas do assistente): ids do que apareceu na tela com aquela resposta. */
@@ -66,7 +66,8 @@ export type Feita = { descricao: string; tarefa_id: string | null; desfazer: Ped
 export type Proposta = { id: string; descricao: string; executar: Pedido[]; tarefa_id: string | null };
 export type RespostaDoAgente = {
   texto: string;
-  citadas: { id: string; titulo: string; quem_faz: string; prazo: string | null; situacao: string }[];
+  /** `abre` = quem pergunta abre o painel da ação; senão, `reuniao_id` leva à reunião de onde ela saiu. */
+  citadas: { id: string; titulo: string; quem_faz: string; prazo: string | null; situacao: string; abre: boolean; reuniao_id: string | null }[];
   feitas: Feita[];
   propostas: Proposta[];
   custo_usd: number;
@@ -102,26 +103,66 @@ async function carregarVisiveis(userId: string, onde: string, valores: unknown[]
   return (await paraTela(userId, tarefas.sort(ordenarPendencias))) as TarefaVista[];
 }
 
-/** As ações que apareceram com as respostas anteriores e não estão na lista (de reunião de colega, de outra página). */
+/** As ações que apareceram com as respostas anteriores e não estão na lista (de reunião de colega, de outra página).
+ *  Falhou: a pergunta segue sem elas (lembrar é ajuda, não pode derrubar a resposta). */
 async function lembradas(userId: string, ids: string[]): Promise<TarefaVista[]> {
-  const achadas = await carregarVisiveis(userId, "t.id = ANY($1::uuid[])", [ids], ids.length);
-  const vistas = new Set(achadas.map((t) => t.id));
-  // Passadas, marcadas ou de projeto ficam no dono: aí vale o mesmo acesso do painel da ação.
-  const outras = await Promise.all(
-    ids.filter((id) => !vistas.has(id)).slice(0, 20).map((id) => tarefaNaTela(userId, id).catch(() => null)),
+  try {
+    const achadas = await carregarVisiveis(userId, "t.id = ANY($1::uuid[])", [ids], ids.length);
+    const vistas = new Set(achadas.map((t) => t.id));
+    let resto = ids.filter((id) => !vistas.has(id));
+    if (resto.length && isTeamMode()) {
+      // Passadas, marcadas, de projeto ou de time ficam no dono: o mesmo acesso do painel da ação, de uma vez só.
+      const pares = await withTenant(userId, (c) =>
+        c.query<{ tarefa_id: string; dono_id: string }>(
+          `SELECT x::text AS tarefa_id, a.dono_id::text AS dono_id FROM unnest($1::uuid[]) AS x CROSS JOIN LATERAL equipe_acesso_tarefa(x) AS a`,
+          [resto],
+        ),
+      );
+      if (pares.rows.length) {
+        const doDono = (await paraTela(userId, await carregarTarefas(userId, pares.rows))) as TarefaVista[];
+        achadas.push(...doDono);
+        doDono.forEach((t) => vistas.add(t.id));
+        resto = resto.filter((id) => !vistas.has(id));
+      }
+    }
+    // Sobra só o que o painel abre por outra regra (pedido ao marketing): uma a uma, poucas.
+    const outras = await Promise.all(resto.slice(0, 10).map((id) => tarefaNaTela(userId, id).catch(() => null)));
+    return [...achadas, ...outras.flatMap((x) => (x ? [x.tarefa as TarefaVista] : []))];
+  } catch (e) {
+    console.error("[agente] lembrar as ações mostradas:", e);
+    return [];
+  }
+}
+
+/** Das ações de outras pessoas, as que quem pergunta abre no painel (a mesma régua de acessoTarefa e dos projetos). */
+async function abreNoPainel(userId: string, ids: string[]): Promise<Set<string>> {
+  if (!ids.length) return new Set();
+  if (!isTeamMode()) return new Set(ids);
+  const r = await withTenant(userId, (c) =>
+    c.query<{ id: string }>(
+      `SELECT x::text AS id FROM unnest($1::uuid[]) AS x
+        WHERE EXISTS (SELECT 1 FROM equipe_acesso_tarefa(x))
+           OR ((EXISTS (SELECT 1 FROM tarefa_pedidos tp WHERE tp.tarefa_id = x)
+                OR EXISTS (SELECT 1 FROM notion_paginas np WHERE np.tarefa_id = x)
+                OR EXISTS (SELECT 1 FROM notion_envios ne WHERE ne.tarefa_id = x))
+               AND pedido_posso_mexer())`,
+      [ids],
+    ),
   );
-  return [...achadas, ...outras.flatMap((x) => (x ? [x.tarefa as TarefaVista] : []))];
+  return new Set(r.rows.map((x) => x.id));
 }
 
 async function montarRetrato(user: User, ctx: Contexto, lembrar: string[] = []): Promise<Retrato> {
-  const [minhas, paraMim, projetos, reunioes, pessoas] = await Promise.all([
+  // A lista é a da tela Minhas ações: as dela, as passadas a ela e as que marcaram para ela ver.
+  const [minhas, paraMim, marcadas, projetos, reunioes, pessoas] = await Promise.all([
     tarefasFor(user.id).recentes(),
     tarefasParaMim(user.id),
+    tarefasMarcadasParaMim(user.id),
     listarProjetos(user.id),
     meetingsFor(user.id).listParaTtars(),
     pessoasDaEquipe(),
   ]);
-  let juntas = [...(minhas as unknown as Tarefa[]), ...paraMim];
+  let juntas = [...(minhas as unknown as Tarefa[]), ...paraMim, ...marcadas];
   let projetoAberto: { ref: string; nome: string } | null = null;
   const tarefas = new Map<string, TarefaVista>();
   const refDe = new Map<string, string>();
@@ -360,7 +401,7 @@ function instrucoes(nome: string): string {
     "A tela mostra, embaixo da resposta, todas as ações que você puser em acoes_citadas, sem limite. Ponha ali todas as que respondem ao pedido: se pedirem todas, nunca corte nem escolha só algumas. No texto, diga quantas são (o mesmo número de acoes_citadas) e resuma em uma ou duas frases; só escreva a lista no texto se a pessoa pedir em texto, e aí a lista inteira, uma por linha. Pediram sem repetir: o mesmo combinado em mais de um lugar entra uma vez só, e diga quantas juntou.",
     "Cada resposta sua anterior termina com [na tela: …]: as ações que apareceram com ela. 'Manda todas', 'você só mandou 8', 'repete', 'essas' falam delas, que estão no retrato com essas refs (as que não são da lista vêm em ja_mostradas). Nunca escreva [na tela: …] na resposta.",
     "A lista dela é 'acoes' do retrato. Pergunta sobre o que ela tem (o que vence, atrasadas, o que faz, o que cobra) olha só 'acoes'; ja_mostradas e o que as ferramentas trouxeram só entram quando ela falar dessas ações ou do assunto delas.",
-    "quem_faz 'você' = a própria pessoa. tipo é o papel dela: 'eu faço', 'eu cobro', 'só aguardo', 'faço junto' ou 'da lista de quem criou' (nem faz nem cobra: a ação é de criada_por, saiu de uma reunião dessa pessoa). Se quem_faz for o nome de quem pergunta numa ação da lista de quem criou, disseram que ela faz, mas a ação continua com quem criou.",
+    "quem_faz 'você' = a própria pessoa. tipo é o papel dela: 'eu faço', 'eu cobro', 'só aguardo', 'faço junto' ou 'da lista de quem criou' (nem faz nem cobra: a ação é de criada_por). Se quem_faz for o nome de quem pergunta numa ação da lista de quem criou, disseram que ela faz, mas a ação continua com quem criou.",
     "O pedido da pessoa já é a autorização: crie ou mude na hora com as ferramentas, sem perguntar se pode; a tela mostra Desfazer. Só descreva antes, sem mudar, se a pessoa pedir para ver antes. Só diga que fez depois da ferramenta responder ok. Se ela devolver 'aguardando_confirmacao' (trocar quem faz numa ação que outra pessoa criou), diga que é só apertar Confirmar. Se devolver erro, explique em uma frase.",
     "Se o pedido puder ser mais de uma ação, ou o nome da pessoa for de mais de uma pessoa, pergunte antes citando as opções. Não mude nada que a pessoa não pediu.",
     "Só crie ação quando a pessoa pedir pra criar, anotar, lembrar ou pedir algo a alguém. Se ela pediu pra mudar, concluir ou passar uma ação que não está no retrato nem veio de uma ferramenta, diga que não achou essa ação entre as dela e NÃO crie outra no lugar.",
@@ -504,6 +545,8 @@ async function executar(
       };
     }
     const r = await patchTarefa(requisicaoInterna(req, pedido.caminho, "PATCH", corpo), { params: Promise.resolve({ id: t.id }) });
+    // Ação vista só pela reunião de um colega: a rota não acha (404); dizer de quem é em vez de "não encontrada".
+    if (r.status === 404 && t.compartilhada) return { erro: `essa ação é da lista de ${t.criador_nome ?? "outra pessoa"}: só ela muda` };
     if (!r.ok) return { erro: await lerErro(r) };
     pendente.feitas.push({ descricao, tarefa_id: t.id, desfazer: desfazerPedidos });
     // O retrato passa a ter a ação como ficou (a lista que a tela mostra no fim já sai certa).
@@ -521,13 +564,15 @@ async function executar(
     const r = await adicionarAoProjeto(user.id, projeto.id, ts.map((t) => t.id));
     if (!r) return { erro: "você não está nesse projeto" };
     if ("erro" in r) return { erro: r.erro };
-    const nomes = ts.length === 1 ? `"${tituloCurto(ts[0].titulo)}"` : `${ts.length} ações`;
+    // O projeto recusa a ação da lista de outra pessoa que quem pede só vê pela reunião: conta o que entrou.
+    const abre = await abreNoPainel(user.id, ts.filter((t) => t.compartilhada).map((t) => t.id));
+    const entraram = ts.filter((t) => (!t.compartilhada || abre.has(t.id)) && !(t.projetos ?? []).some((p) => p.id === projeto.id));
+    if (!entraram.length) return { ...r, erro: r.recusadas ? "essas ações são da lista de outras pessoas; o projeto não aceita" : "já estavam no projeto" };
+    const nomes = entraram.length === 1 ? `"${tituloCurto(entraram[0].titulo)}"` : `${entraram.length} ações`;
     pendente.feitas.push({
-      descricao: `Pus ${nomes} no projeto ${projeto.nome}.`,
-      tarefa_id: ts.length === 1 ? ts[0].id : null,
-      desfazer: ts
-        .filter((t) => !(t.projetos ?? []).some((p) => p.id === projeto.id))
-        .map((t) => ({ metodo: "DELETE" as const, caminho: `/api/quadros/${projeto.id}/tarefas/${t.id}` })),
+      descricao: `Pus ${nomes} no projeto ${projeto.nome}.${r.recusadas ? ` ${r.recusadas} ficaram de fora: são da lista de outras pessoas.` : ""}`,
+      tarefa_id: entraram.length === 1 ? entraram[0].id : null,
+      desfazer: entraram.map((t) => ({ metodo: "DELETE" as const, caminho: `/api/quadros/${projeto.id}/tarefas/${t.id}` })),
     });
     return { ok: true, ...r };
   }
@@ -572,7 +617,8 @@ async function executar(
     // Do ponto de vista de quem pergunta, como a página da reunião: na reunião de um colega, o "eu" é de quem
     // gravou (antes virava "você": 4 das 8 ações que o Vitor viu em 02/10 eram da Ana e da Mariana).
     const tarefas = await carregarVisiveis(user.id, "t.meeting_id = $1::uuid", [id], 200);
-    const refs = tarefas.map((t) => linhaDoRetrato(refNoRetrato(retrato, t), t));
+    const hoje = hojeBR();
+    const refs = tarefas.map((t) => linhaDoRetrato(refNoRetrato(retrato, t), t, hoje));
     const resumo = trocarFalantes(det.executive_summary || det.summary || "", det.speaker_labels) ?? "";
     return { resumo: resumo.slice(0, 3500), acoes: refs };
   }
@@ -589,16 +635,17 @@ async function executar(
     const doBanco = await carregarVisiveis(
       user.id,
       `(t.status IN ('aberta','em_andamento','aguardando_aprovacao') OR ($2::boolean AND t.status = 'concluida'))
-        AND translate(lower(t.titulo || ' ' || coalesce(t.descricao, '')), $3, $4) LIKE ANY($1::text[])`,
+        AND translate(lower(normalize(t.titulo || ' ' || coalesce(t.descricao, ''), NFC)), $3, $4) LIKE ANY($1::text[])`,
       [padroesLike(palavras), concluidas, ACENTOS, SEM_ACENTOS],
       MAX_ACHADAS * 2,
     );
     const vistas = new Set(doRetrato.map((t) => t.id));
     const todas = [...doRetrato, ...doBanco.filter((t) => !vistas.has(t.id))].sort(ordenarPendencias);
     const hoje = hojeBR();
+    const total = doBanco.length >= MAX_ACHADAS * 2 ? `${todas.length} ou mais` : todas.length;
     return {
-      total: todas.length,
-      ...(todas.length > MAX_ACHADAS ? { aviso: `vieram ${MAX_ACHADAS} de ${todas.length}: peça um assunto mais estreito` } : {}),
+      total,
+      ...(todas.length > MAX_ACHADAS ? { aviso: `vieram ${MAX_ACHADAS} de ${total}: peça um assunto mais estreito` } : {}),
       acoes: todas.slice(0, MAX_ACHADAS).map((t) => linhaDoRetrato(refNoRetrato(retrato, t), t, hoje)),
     };
   }
@@ -670,13 +717,24 @@ export async function conversar(
         // resposta fora do formato: mostra o texto cru
       }
       texto = limparRefs(texto);
+      const naTela = [...new Set(citadas)]
+        .map((ref) => retrato.tarefas.get(ref))
+        .filter((t): t is TarefaVista => !!t && !pendente.feitas.some((f) => f.tarefa_id === t.id) && !pendente.propostas.some((p) => p.tarefa_id === t.id))
+        .slice(0, MAX_CITADAS);
+      // Ação de colega vista só pela reunião não abre no painel ("Não consegui abrir"): o cartão leva à reunião.
+      // Se a conferência falhar, o cartão abre o painel como antes.
+      const abre = await abreNoPainel(user.id, naTela.filter((t) => t.compartilhada).map((t) => t.id)).catch(() => null);
       return {
         texto: texto.trim() || "Pronto.",
-        citadas: [...new Set(citadas)]
-          .map((ref) => retrato.tarefas.get(ref))
-          .filter((t): t is TarefaVista => !!t && !pendente.feitas.some((f) => f.tarefa_id === t.id) && !pendente.propostas.some((p) => p.tarefa_id === t.id))
-          .slice(0, MAX_CITADAS)
-          .map((t) => ({ id: t.id, titulo: t.titulo, quem_faz: linhaDoRetrato("", t).quem_faz, prazo: diaDoPrazo(t.prazo), situacao: t.status })),
+        citadas: naTela.map((t) => ({
+          id: t.id,
+          titulo: t.titulo,
+          quem_faz: linhaDoRetrato("", t).quem_faz,
+          prazo: diaDoPrazo(t.prazo),
+          situacao: t.status,
+          abre: !t.compartilhada || !abre || abre.has(t.id),
+          reuniao_id: t.meeting_id ?? null,
+        })),
         feitas: pendente.feitas,
         propostas: pendente.propostas,
         custo_usd: Number(custo.toFixed(5)),

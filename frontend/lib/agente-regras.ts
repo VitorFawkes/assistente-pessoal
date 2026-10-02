@@ -202,7 +202,7 @@ export function anotarNaTela(texto: string, refs: string[]): string {
 /** Rede de segurança: nem a marca [na tela: …] (se o modelo imitar) nem ref interna (t3, p1) chegam à pessoa. */
 export function limparRefs(texto: string): string {
   return texto
-    .replace(/\s*\[na tela:[^\]]*\]/gi, "")
+    .replace(/\s*[[(]na tela:[^\])]*[\])]/gi, "")
     .replace(/\s*[[(](?:[tpr]\d+(?:\s*,\s*)?)+[\])]/g, "")
     .replace(/[ \t]+\n/g, "\n");
 }
