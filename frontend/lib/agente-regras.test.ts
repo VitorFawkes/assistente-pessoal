@@ -117,9 +117,14 @@ describe("dono do ponto de vista de quem pergunta (02/10/2026)", () => {
     const daAna = t({ user_id: ANA, owner: "eu", acao: "executar", meeting_id: "m1", meeting_nome: "Regua de Convidados" } as never);
     expect(quemFazNaTela(daAna)).toBe("você"); // a linha crua do banco: era o erro
     const vista = paraQuemVe(daAna, { viewerId: VITOR, slug: "eu", nomes, veReuniao: true }) as TarefaVista;
-    expect(linhaDoRetrato("t9", vista)).toMatchObject({ quem_faz: "Ana Carolina Kuss", criada_por: "Ana Carolina Kuss" });
+    expect(linhaDoRetrato("t9", vista)).toMatchObject({ quem_faz: "Ana Carolina Kuss", tipo: "da lista de quem criou", criada_por: "Ana Carolina Kuss" });
+    // O "cobrar" que a Ana faz do Mateus também não vira "eu cobro" para o Vitor.
+    const anaCobraMateus = paraQuemVe({ ...daAna, owner: "Mateus", acao: "cobrar" } as never, { viewerId: VITOR, slug: "eu", nomes }) as TarefaVista;
+    expect(linhaDoRetrato("t10", anaCobraMateus)).toMatchObject({ quem_faz: "Mateus", tipo: "da lista de quem criou" });
+    expect(linhaDoRetrato("t11", { ...anaCobraMateus, faco_tambem: true })).toMatchObject({ tipo: "faço junto" });
+    expect(quemFazNaTela({ ...daAna, compartilhada: true, is_mine: false })).toBe("a definir");
     const passadaAoVitor = paraQuemVe({ ...daAna, owner: "Vitor", acao: "cobrar", responsavel_user_id: VITOR } as never, { viewerId: VITOR, slug: "eu", nomes }) as TarefaVista;
-    expect(quemFazNaTela(passadaAoVitor)).toBe("você");
+    expect(linhaDoRetrato("t12", passadaAoVitor)).toMatchObject({ quem_faz: "você", tipo: "eu faço" });
   });
 });
 

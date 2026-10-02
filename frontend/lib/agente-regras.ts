@@ -28,13 +28,16 @@ export type TarefaVista = Tarefa & {
   time_nome?: string | null;
   objetivo?: { id: string; nome: string } | null;
   reuniao_rotulo?: string | null;
+  /** Quem vê está em "também fazem" (subresponsável). */
+  faco_tambem?: boolean;
 };
 
 /** Pedido que o navegador refaz sozinho (Desfazer, Confirmar): sempre uma rota do Ações. */
 export type Pedido = { metodo: "PATCH" | "DELETE" | "POST"; caminho: string; corpo?: Record<string, unknown> };
 
 export function quemFazNaTela(t: TarefaVista): string {
-  if (t.acao === "executar") return "você";
+  // Da lista de outra pessoa e não passada a quem vê: o "executar" é de quem criou, nunca "você".
+  if (t.acao === "executar" && (!t.compartilhada || t.is_mine)) return "você";
   const principal = (t.pessoas ?? []).find((p) => (p as { principal?: boolean }).principal)?.nome;
   if (principal) return principal;
   const o = (t.owner ?? "").trim();
@@ -42,6 +45,13 @@ export function quemFazNaTela(t: TarefaVista): string {
 }
 
 const TIPO: Record<string, string> = { executar: "eu faço", cobrar: "eu cobro", aguardar: "só aguardo" };
+
+/** O papel de quem pergunta. Na ação da lista de outra pessoa que não foi passada a ela, o "cobrar" é de quem
+ *  criou: sem isso, "o que estou cobrando?" trazia as ações dos colegas (ensaio de 02/10/2026). */
+function papel(t: TarefaVista): string {
+  if (t.compartilhada && !t.is_mine) return t.faco_tambem ? "faço junto" : "da lista de quem criou";
+  return TIPO[t.acao] ?? t.acao;
+}
 
 export function diaDoPrazo(prazo: string | null | undefined): string | null {
   return prazo && ehDataValida(prazo) ? diaBR(prazo) : null;
@@ -70,7 +80,7 @@ export function linhaDoRetrato(ref: string, t: TarefaVista, hoje?: string) {
     ref,
     titulo: t.titulo,
     quem_faz: quemFazNaTela(t),
-    tipo: TIPO[t.acao] ?? t.acao,
+    tipo: papel(t),
     prazo: diaDoPrazo(t.prazo),
     ...(hoje && !fechada ? { vence: quandoVence(t.prazo, hoje) } : {}),
     situacao: ROTULO_SITUACAO[t.status as Situacao] ?? t.status,
