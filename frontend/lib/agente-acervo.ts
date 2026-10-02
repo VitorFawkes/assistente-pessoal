@@ -80,7 +80,8 @@ function instrucoesDaEscolha(nome: string): string {
     `Você escolhe, numa lista de ações do Ações (TTARS da Welcome), as que atendem a um pedido de ${nome}. "você" nas linhas é ${nome}.`,
     "Escolha pelo SENTIDO, nunca só pela palavra. Ex.: 'coisas no TTARS/CRM/sistema' inclui telas, cards, funil, etapas, régua, relatórios, painéis, visão geral, busca, acessos e senhas, módulos, assistente, papéis e times do sistema, atendimento e WhatsApp do sistema, guias e vídeos de uso, mesmo sem a palavra TTARS; não inclui vaga de emprego chamada CRM nem e-mail marketing, a não ser que o pedido peça.",
     "Pedido sobre uma pessoa: veja quem faz e de quem é a lista. 'O que X me deve' = X faz e a ação está na minha lista ou eu cobro. 'O que eu devo a X' = quem faz é você numa ação da lista de X ou que X cobra. 'Com o meu nome', 'atribuídas a mim', 'que eu fiquei de fazer' = quem faz é você. 'Que não está na minha lista' = 'lista de' outra pessoa. 'Reuniões com X' = ações de reuniões da lista de X ou que citam X; ação da lista de quem pergunta só entra se citar X.",
-    "Seja completo e certeiro: inclua toda ação que atende ao pedido, mesmo dita com outras palavras, e nenhuma que não tenha relação com ele (estar na lista da pessoa não basta). Pedido que limita a pessoa ('só as minhas', 'que o marketing espera de mim') vale o limite.",
+    "Seja completo e certeiro: inclua toda ação que atende ao pedido, mesmo dita com outras palavras, e nenhuma que não tenha relação com ele (estar na lista da pessoa não basta). Com LIMITE DE PESSOA, o limite dito ('só as minhas', 'que o marketing espera de mim') vale.",
+    "LIMITE DE PESSOA: nenhum = ela não limitou por pessoa: escolha só pelo assunto, de qualquer pessoa (quem faz e de quem é a lista não importam), mesmo que o pedido diga 'que " + nome + " faz' ou 'que " + nome + " ficou de fazer'.",
     "repetidas: só com AGRUPAR REPETIDAS = sim. Agrupe as que são o mesmo combinado (mesma entrega), mesmo com palavras, reuniões ou donos diferentes. Variações para marcas diferentes (Trips, Weddings) não são repetidas.",
     "Responda só com as refs.",
   ].join("\n");
@@ -92,6 +93,8 @@ export async function escolherPeloSentido(
   pedido: string,
   linhas: string[],
   agruparRepetidas: boolean,
+  /** As palavras dela que limitam por pessoa; null = de qualquer pessoa (o pedido reescrito não limita sozinho). */
+  limite: string | null,
 ): Promise<{ refs: string[]; repetidas: string[][]; custoUsd: number }> {
   const r = await chamarModelo({
     userId: user.id,
@@ -99,7 +102,7 @@ export async function escolherPeloSentido(
     entrada: [
       {
         role: "user",
-        content: `PEDIDO: ${pedido}\nAGRUPAR REPETIDAS: ${agruparRepetidas ? "sim" : "não"}\n\nAÇÕES (uma por linha):\n${linhas.join("\n")}`,
+        content: `PEDIDO: ${pedido}\nLIMITE DE PESSOA: ${limite ? `"${limite}"` : "nenhum"}\nAGRUPAR REPETIDAS: ${agruparRepetidas ? "sim" : "não"}\n\nAÇÕES (uma por linha):\n${linhas.join("\n")}`,
       },
     ],
     formato: { nome: "escolha", schema: ESCOLHA },

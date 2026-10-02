@@ -2,7 +2,9 @@ import { describe, expect, it } from "bun:test";
 import {
   anotarNaTela,
   desfazerQuem,
+  ditoPelaPessoa,
   idsDasFalas,
+  limitaPorPessoa,
   limparRefs,
   linhaCorrida,
   linhaDoRetrato,
@@ -168,5 +170,43 @@ describe("papel (02/10/2026)", () => {
     expect(r).toMatchObject({ corpo: { acao: "aguardar" }, desfazer: { acao: "cobrar", owner: "Paula Klotz" }, partes: ["só aguardo"] });
     expect(montarMudanca(cobrada, { ...NADA, papel: "eu cobro" })).toMatchObject({ corpo: {}, partes: [] });
     expect(montarMudanca(cobrada, { ...NADA, papel: "talvez" })).toEqual({ erro: "papel inválido: talvez" });
+  });
+});
+
+describe("limite de pessoa na procura", () => {
+  const nomes = ["Vitor Gambetti", "Tiago Moreira", "Paula Klotz", "Ana Tereza Souza"];
+
+  it("o assunto das reuniões não limita (o print do Vitor de 02/10/2026)", () => {
+    const pergunta = "Tem algumas reuniões que falei em fazer coisas no CRM, TTARS. Algumas inclusive devem estar repetidas. Consegue compilar e me mandar aqui, por favor?";
+    expect(limitaPorPessoa(pergunta, nomes)).toBe(false);
+    expect(limitaPorPessoa("que falei em fazer", nomes)).toBe(false);
+    expect(limitaPorPessoa("Tudo que falamos sobre WhatsApp nas reuniões", nomes)).toBe(false);
+    expect(limitaPorPessoa("o que eu falei nas minhas reuniões sobre TTARS", nomes)).toBe(false);
+    expect(limitaPorPessoa(null, nomes)).toBe(false);
+  });
+
+  it("limita quando ela diz que é dela, de quem deve ou de um nome", () => {
+    for (const frase of [
+      "O que eu fiquei de fazer no TTARS em todas as reuniões? Só as minhas",
+      "Só as minhas",
+      "Tem algo meu atrasado nos projetos do marketing?",
+      "O que o marketing está esperando de mim?",
+      "O que eu devo ao Tiago e o que ele me deve?",
+      "Tem alguma ação com o meu nome nas reuniões dos outros que não está na minha lista?",
+      "O que eu prometi nas reuniões com o Tiago?",
+      "O que ele tem pendente comigo?",
+      "O que a Paula está fazendo?",
+      "todas as ações de TTARS que são minhas",
+    ]) {
+      expect(limitaPorPessoa(frase, nomes)).toBe(true);
+    }
+  });
+
+  it("a citação tem de estar numa fala da pessoa", () => {
+    const falas = ["O que eu devo pro Tiago?", "Me manda em texto"];
+    expect(ditoPelaPessoa("eu devo pro Tiago", falas)).toBe(true);
+    expect(ditoPelaPessoa("Tiago devo eu", falas)).toBe(true);
+    expect(ditoPelaPessoa("só as minhas", falas)).toBe(false);
+    expect(ditoPelaPessoa("", falas)).toBe(false);
   });
 });

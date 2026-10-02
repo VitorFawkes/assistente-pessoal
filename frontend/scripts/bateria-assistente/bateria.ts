@@ -26,6 +26,8 @@ type Cenario = {
   texto_tem?: string[];
   texto_nao_tem?: string[];
   max_segundos?: number;
+  /** Quantas vezes roda (cada vez conta na nota): o modelo varia, e 1 acerto em 3 passava como certo (02/10/2026). */
+  vezes?: number;
 };
 
 type Chamada = { nome: string; args: string };
@@ -156,7 +158,7 @@ const escolhidos = process.argv[3] ? new Set(process.argv[3].split(",")) : null;
 let passaram = 0;
 let total = 0;
 let usd = 0;
-for (const c of cenarios) {
+for (const c of cenarios.flatMap((x) => Array.from({ length: x.vezes ?? 1 }, () => x))) {
   if (escolhidos && !escolhidos.has(c.id)) continue;
   total++;
   const contexto = await resolver(c.contexto ?? {});

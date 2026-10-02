@@ -7,6 +7,7 @@
 // pediu pode perder o acesso a ela, e o Desfazer não alcança. Nunca apaga: desistir é cancelar.
 import { dataCurtaBR, diaBR, ehDataValida, fimDoDiaBR } from "./data-br";
 import type { Tarefa } from "./queries";
+import { slugNome } from "./compartilhar";
 
 export type Situacao = "aberta" | "em_andamento" | "aguardando_aprovacao" | "concluida" | "cancelada";
 export const SITUACOES: Situacao[] = ["aberta", "em_andamento", "aguardando_aprovacao", "concluida", "cancelada"];
@@ -238,4 +239,37 @@ export function limparRefs(texto: string): string {
     .replace(/\s*[[(]na tela:[^\])]*[\])]/gi, "")
     .replace(/\s*[[(](?:[tpr]\d+(?:\s*,\s*)?)+[\])]/g, "")
     .replace(/[ \t]+\n/g, "\n");
+}
+
+// ── Limite de pessoa na procura (Vitor, 02/10/2026: "Que porra é essa") ──────────────────
+// "Tem algumas reuniões que falei em fazer coisas no CRM" virava "só as que o Vitor faz, da lista dele": 24 das 237
+// ações entravam na escolha e voltavam 4, quando o assunto tem mais de 50. Filtro de pessoa só vale com as palavras
+// dela que limitam; "o que falei, falamos ou combinamos nas reuniões" é o assunto, de qualquer pessoa.
+
+const PALAVRAS_QUE_LIMITAM = [
+  /\b(?:minhas?|meus?)\b(?! (?:reunioes|reuniao|times?|projetos?|areas?)\b)/, // "só as minhas", "algo meu"; não "minhas reuniões"
+  /\b(?:comigo|pra mim|para mim|de mim|a mim|meu nome|sou eu|sou responsavel)\b/,
+  /\b(?:me devem?|devo|devemos|atribuid[oa]s?|prometi|prometemos|fiquei de|fico de)\b/,
+  /\beu (?:faco|fiz|faria|preciso|vou|tenho que)\b/,
+  /\b(?:dos|de) (?:outros|colegas)\b|\boutras? pessoas?\b/,
+];
+
+const palavrasDe = (s: string | null | undefined) => slugNome(s).replace(/-/g, " ");
+
+/** As palavras limitam a procura por pessoa ("só as minhas", "o que eu devo ao Tiago", "com o meu nome", um nome)? */
+export function limitaPorPessoa(palavras: string | null | undefined, nomes: string[]): boolean {
+  const s = palavrasDe(palavras);
+  if (!s) return false;
+  if (PALAVRAS_QUE_LIMITAM.some((re) => re.test(s))) return true;
+  const primeiros = new Set(nomes.map((n) => slugNome(n).split("-")[0]).filter((x) => x.length >= 3));
+  return s.split(" ").some((p) => primeiros.has(p));
+}
+
+/** As palavras que o modelo citou estão numa fala da pessoa (fora de ordem, sem acento e pontuação, vale)? */
+export function ditoPelaPessoa(palavras: string | null | undefined, falas: string[]): boolean {
+  const ditas = palavrasDe(palavras).split(" ").filter(Boolean);
+  return ditas.length > 0 && falas.some((f) => {
+    const naFala = new Set(palavrasDe(f).split(" "));
+    return ditas.every((p) => naFala.has(p));
+  });
 }

@@ -31,8 +31,10 @@ import {
   anotarNaTela,
   desfazerQuem,
   diaDoPrazo,
+  ditoPelaPessoa,
   ehMinha,
   idsDasFalas,
+  limitaPorPessoa,
   limparRefs,
   linhaCorrida,
   linhaDoRetrato,
@@ -503,10 +505,14 @@ const FERRAMENTAS: Ferramenta[] = [
         },
         incluir_concluidas: { type: "boolean", description: "true = também as concluídas. Canceladas nunca vêm." },
         repetidas: { type: "boolean", description: "true = agrupar as que são o mesmo combinado (pedido de repetidas ou 'sem repetir')." },
-        quem_faz: nulo("string", "Filtro exato de quem faz: 'eu' (a própria pessoa) ou o nome. null = qualquer um."),
-        lista_de: nulo("string", "Filtro exato de quem criou a ação: 'eu', 'outros' (qualquer outra pessoa) ou o nome. null = qualquer um."),
+        quem_faz: nulo("string", "Filtro exato de quem faz: 'eu' (a própria pessoa) ou o nome. null = qualquer um. Só vale com limite_dito."),
+        lista_de: nulo("string", "Filtro exato de quem criou a ação: 'eu', 'outros' (qualquer outra pessoa) ou o nome. null = qualquer um. Só vale com limite_dito."),
+        limite_dito: nulo(
+          "string",
+          "As palavras dela que limitam por pessoa, copiadas da fala ('só as minhas', 'o que eu devo ao Tiago', 'com o meu nome'). null quando ela não limitou: 'o que falei, falamos ou combinamos nas reuniões' é o assunto, de qualquer pessoa.",
+        ),
       },
-      required: ["pedido", "incluir_concluidas", "repetidas", "quem_faz", "lista_de"],
+      required: ["pedido", "incluir_concluidas", "repetidas", "quem_faz", "lista_de", "limite_dito"],
     },
   },
   {
@@ -680,8 +686,8 @@ function instrucoes(nome: string): string {
     "O RETRATO (primeira mensagem) tem a lista da pessoa ('acoes': as dela, as passadas e as marcadas para ela), os projetos, as reuniões recentes, os times, as metas e as pessoas.",
     "LISTA DELA: pergunta sobre o que ela tem (o que vence, atrasadas, o que faz, o que cobra ou espera de alguém, o que aguarda, sem prazo, por prioridade, concluídas, quantas, organizar a semana) responde só com 'acoes' do retrato. Nunca chame procurar para isso: a lista inteira já está no retrato. ja_mostradas e o que as ferramentas trouxeram só entram quando ela falar dessas ações ou do assunto delas.",
     "LUGAR ABERTO: 'aqui', 'destas', 'deste projeto/time/reunião' falam do lugar aberto na tela (campo tela do retrato): use ver_reuniao, ver_projeto ou ver_time daquele lugar, nunca procurar.",
-    "RESTO DO QUE ELA VÊ: pedido por assunto, por pessoa ou de repetidas ('tudo de TTARS', 'o que falei de X nas reuniões', 'o que a Paula me deve', 'o que eu devo ao Tiago', 'com o meu nome', 'quais estão repetidas') → procurar, com um pedido completo e de sentido amplo; ele escolhe pelo SENTIDO em tudo o que a pessoa vê. 'Coisas no TTARS/CRM' = telas, cards, funil, etapas, régua, relatórios, painéis, acessos, módulos, busca, assistente, atendimento e WhatsApp do sistema, mesmo sem a palavra. 'Só as minhas' = diga no pedido 'só as que " + nome + " faz'.",
-    "PESSOA: 'o que X me deve' = da lista dela ('acoes'), as ações em que quem faz é X (sem ferramenta). 'O que eu devo a X' = procurar com quem_faz 'eu', lista_de X e pedido 'todas'. 'Com o meu nome nas reuniões dos outros' = procurar com quem_faz 'eu', lista_de 'outros' e pedido 'todas'. 'O que ele tem comigo' ou 'o que tenho com ele' = os dois sentidos juntos, dizendo quantas de cada lado. Assunto com pessoa ('o que falei de TTARS com a Ana') = procurar com o filtro e o assunto no pedido.",
+    "RESTO DO QUE ELA VÊ: pedido por assunto, por pessoa ou de repetidas ('tudo de TTARS', 'o que falei de X nas reuniões', 'o que a Paula me deve', 'o que eu devo ao Tiago', 'com o meu nome', 'quais estão repetidas') → procurar, com um pedido completo e de sentido amplo; ele escolhe pelo SENTIDO em tudo o que a pessoa vê. 'Coisas no TTARS/CRM' = telas, cards, funil, etapas, régua, relatórios, painéis, acessos, módulos, busca, assistente, atendimento e WhatsApp do sistema, mesmo sem a palavra. Assunto das reuniões ('o que falei, falamos ou combinamos de X', 'coisas de TTARS que falei em fazer') é de qualquer pessoa: quem_faz, lista_de e limite_dito null, e diga quantas são dela (voce_faz). Limite por pessoa só com as palavras dela que limitam ('só as minhas', 'que eu faço', 'com o meu nome', 'o que eu devo ao Tiago'), copiadas em limite_dito; 'só as minhas' = diga no pedido 'só as que " + nome + " faz'.",
+    "PESSOA: 'o que X me deve' = da lista dela ('acoes'), as ações em que quem faz é X (sem ferramenta). 'O que eu devo a X' = procurar com quem_faz 'eu', lista_de X, limite_dito com as palavras dela e pedido 'todas'. 'Com o meu nome nas reuniões dos outros' = procurar com quem_faz 'eu', lista_de 'outros', limite_dito com as palavras dela e pedido 'todas'. 'O que ele tem comigo' ou 'o que tenho com ele' = os dois sentidos juntos, dizendo quantas de cada lado. Assunto com pessoa ('o que falei de TTARS com a Ana') = procurar com o filtro e o assunto no pedido.",
     "DETALHE: ver_acao lê UMA ação (descrição, trecho falado, comentários, andamento, quem vê). Para responder sobre uma lista, use as linhas que já vieram; nunca leia uma por uma. Nunca diga que algo não existe sem ler.",
     "REUNIÕES: uma reunião → ver_reuniao; várias ou um período ('as desta semana e o que saiu delas') → ver_reunioes, numa ida só. Quem estava: só quem gravou vê; na reunião de um colega, diga isso e quem gravou, sem tirar participantes do resumo.",
     "PROJETOS E TIMES: andamento ou ações de um projeto → ver_projeto; de um time → ver_time.",
@@ -812,7 +818,8 @@ function corpoDeQuem(
   return { corpo: { owner: quem.trim().slice(0, 80), acao: "cobrar", responsavel_user_id: null }, texto: `com ${quem.trim()} (de fora da Welcome)` };
 }
 
-type Exec = { user: User; req: Request; retrato: Retrato; pendente: Pendente; workspace: string | null };
+/** `falas`: o que a pessoa escreveu nesta conversa (o limite de pessoa da procura confere as palavras dela). */
+type Exec = { user: User; req: Request; retrato: Retrato; pendente: Pendente; workspace: string | null; falas: string[] };
 
 const texto = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
 
@@ -1162,9 +1169,14 @@ async function executar(
     const linha = (t: TarefaVista, detalhe: boolean) =>
       linhaCorrida(linhaDoRetrato(refNoRetrato(retrato, t), t, hoje, quemFazSouEu(t, user, retrato.pessoas)), detalhe ? t.descricao : null);
     // Pessoa dita (quem faz, quem criou): filtro exato antes da escolha. Pela escolha, "o que eu devo ao Tiago" achava
-    // 1 das 8 da Daily Noix (bateria de 02/10/2026).
-    const quemFaz = str(a.quem_faz);
-    const listaDe = str(a.lista_de);
+    // 1 das 8 da Daily Noix (bateria de 02/10/2026). Só com as palavras dela que limitam: "reuniões que falei em fazer
+    // coisas no CRM" virava "só as do Vitor, da lista dele" e voltavam 4 de mais de 50 (print do Vitor, 02/10/2026).
+    const dito = str(a.limite_dito);
+    const palavras = dito && ditoPelaPessoa(dito, ctx.falas) ? dito : (ctx.falas[ctx.falas.length - 1] ?? null);
+    const limitou = limitaPorPessoa(palavras, retrato.pessoas.map((p) => p.nome));
+    const quemFaz = limitou ? str(a.quem_faz) : null;
+    const listaDe = limitou ? str(a.lista_de) : null;
+    const ignorado = !limitou && !!(str(a.quem_faz) || str(a.lista_de));
     const mesmaPessoa = (dito: string, naAcao: string | null | undefined) => {
       if (!naAcao) return false;
       const achado = acharPessoa(dito, retrato);
@@ -1187,14 +1199,16 @@ async function executar(
     const tudo = (quemFaz || listaDe) && /^\s*(todas?|tudo)\b/i.test(pedido);
     const escolha = tudo
       ? { refs: filtradas.map((t) => refNoRetrato(retrato, t)), repetidas: [] as string[][], custoUsd: 0 }
-      : await escolherPeloSentido(user, pedido, filtradas.map((t) => linha(t, filtradas.length <= ACERVO_COM_DETALHE)), repetidas);
+      : await escolherPeloSentido(user, pedido, filtradas.map((t) => linha(t, filtradas.length <= ACERVO_COM_DETALHE)), repetidas, limitou ? palavras : null);
     pendente.custo += escolha.custoUsd;
     const escolhidas = [...new Set(escolha.refs)].map((r) => retrato.tarefas.get(r)).filter((t): t is TarefaVista => !!t && vale(t));
     const naEscolha = new Set(escolhidas.map((t) => refNoRetrato(retrato, t)));
     return {
       no_acervo: todas.length,
       ...(cortado ? { aviso: "o acervo passou do limite e foi cortado nas mais recentes" } : {}),
+      ...(ignorado ? { limite_de_pessoa: "ignorado: ela não limitou por pessoa, vieram as de todos" } : {}),
       achadas: escolhidas.length,
+      ...(limitou ? {} : { voce_faz: escolhidas.filter((t) => quemFazSouEu(t, user, retrato.pessoas) || quemFazNaTela(t) === "você").length }),
       acoes: escolhidas.map((t) => linha(t, true)),
       ...(repetidas ? { repetidas: escolha.repetidas.map((g) => g.filter((r) => naEscolha.has(r) || retrato.tarefas.has(r))).filter((g) => g.length > 1) } : {}),
     };
@@ -1707,6 +1721,7 @@ export async function conversar(
     ),
   ];
   const pendente: Pendente = { feitas: [], propostas: [], custo: 0, acervos: new Map(), procuras: 0 };
+  const falasDaPessoa = falas.filter((f) => f.quem === "pessoa").map((f) => f.texto);
   let custo = 0;
   let chamadasFeitas = 0;
   let leiturasFeitas = 0;
@@ -1777,7 +1792,7 @@ export async function conversar(
             ? { erro: "muitas leituras de uma vez: responda com o que já veio" }
             : !leitura && chamadasFeitas > MAX_CHAMADAS
               ? { erro: "muitas mudanças de uma vez; peça em partes" }
-              : await executar(c, { user, req, retrato, pendente, workspace: entrada.workspace });
+              : await executar(c, { user, req, retrato, pendente, workspace: entrada.workspace, falas: falasDaPessoa });
       } catch (e) {
         console.error(`[agente] ${c.name}:`, e);
         saida = { erro: "não consegui fazer isso agora" };
