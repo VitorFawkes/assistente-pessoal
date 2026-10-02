@@ -162,3 +162,70 @@ export function tituloCurto(s: string, max = 70): string {
   const t = s.replace(/\s+/g, " ").trim();
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
+
+// ── Memória entre perguntas (Vitor, 02/10/2026: "o assistente tá MUITO burro") ──────────
+// A conversa mora no navegador e cada pergunta remonta o retrato do zero. O que apareceu na tela com
+// cada resposta volta na pergunta seguinte (ids em `acoes`); sem isso, "você só mandou 8, manda todas"
+// já não achava as ações que vieram de reuniões de colegas e o Assistente voltava para as 3 da lista.
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Ids das ações que apareceram com as respostas anteriores, das mais novas para as mais velhas, sem repetir. */
+export function idsDasFalas<F extends { quem: string; acoes?: unknown }>(falas: F[], max = 150): string[] {
+  const ids = new Set<string>();
+  for (let i = falas.length - 1; i >= 0; i--) {
+    const { quem, acoes } = falas[i];
+    if (quem !== "assistente" || !Array.isArray(acoes)) continue;
+    for (const id of acoes) {
+      if (ids.size >= max) return [...ids];
+      if (typeof id === "string" && UUID_RE.test(id)) ids.add(id.toLowerCase());
+    }
+  }
+  return [...ids];
+}
+
+/** A resposta anterior como o modelo a relê: no fim, as refs do que apareceu na tela com ela. */
+export function anotarNaTela(texto: string, refs: string[]): string {
+  return refs.length ? `${texto}\n[na tela: ${refs.join(", ")}]` : texto;
+}
+
+/** Rede de segurança: nem a marca [na tela: …] (se o modelo imitar) nem ref interna (t3, p1) chegam à pessoa. */
+export function limparRefs(texto: string): string {
+  return texto
+    .replace(/\s*\[na tela:[^\]]*\]/gi, "")
+    .replace(/\s*[[(](?:[tpr]\d+(?:\s*,\s*)?)+[\])]/g, "")
+    .replace(/[ \t]+\n/g, "\n");
+}
+
+// ── Busca por assunto ("tudo o que falamos de CRM nas reuniões") ─────────────────────────
+
+/** O banco compara sem acento com translate(lower(…), ACENTOS, SEM_ACENTOS); as duas listas andam juntas. */
+export const ACENTOS = "áàâãäåéèêëíìîïóòôõöúùûüçñ";
+export const SEM_ACENTOS = "aaaaaaeeeeiiiiooooouuuucn";
+
+export function semAcento(s: string): string {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+}
+
+/** Palavras da busca: sem acento, sem repetir, de 2 a 40 letras, no máximo 8. */
+export function palavrasDaBusca(v: unknown): string[] {
+  const out: string[] = [];
+  for (const x of Array.isArray(v) ? v : [v]) {
+    if (typeof x !== "string") continue;
+    const p = semAcento(x).replace(/\s+/g, " ").trim().slice(0, 40);
+    if (p.length >= 2 && !out.includes(p)) out.push(p);
+    if (out.length === 8) break;
+  }
+  return out;
+}
+
+/** A ação tem alguma das palavras no título ou na descrição? */
+export function casaComBusca(t: { titulo: string; descricao?: string | null }, palavras: string[]): boolean {
+  const alvo = semAcento(`${t.titulo} ${t.descricao ?? ""}`);
+  return palavras.some((p) => alvo.includes(p));
+}
+
+/** As palavras como padrões do LIKE, com % e _ escapados. */
+export function padroesLike(palavras: string[]): string[] {
+  return palavras.map((p) => `%${p.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+}

@@ -1,5 +1,23 @@
 import { describe, expect, it } from "bun:test";
-import { desfazerQuem, linhaDoRetrato, montarMudanca, precisaConfirmar, quandoVence, quemFazNaTela, type TarefaVista } from "./agente-regras";
+import {
+  ACENTOS,
+  SEM_ACENTOS,
+  anotarNaTela,
+  casaComBusca,
+  desfazerQuem,
+  idsDasFalas,
+  limparRefs,
+  linhaDoRetrato,
+  montarMudanca,
+  padroesLike,
+  palavrasDaBusca,
+  precisaConfirmar,
+  quandoVence,
+  quemFazNaTela,
+  semAcento,
+  type TarefaVista,
+} from "./agente-regras";
+import { paraQuemVe } from "./compartilhar";
 
 function t(over: Partial<TarefaVista> = {}): TarefaVista {
   return {
@@ -88,5 +106,62 @@ describe("quandoVence", () => {
     expect(quandoVence(fim("2026-10-05"), "2026-09-26")).toBe("depois");
     expect(quandoVence(fim("2026-10-01"), "2026-09-28")).toBe("esta semana");
     expect(quandoVence(null, "2026-09-26")).toBeNull();
+  });
+});
+
+describe("dono do ponto de vista de quem pergunta (02/10/2026)", () => {
+  it("o 'eu' de quem gravou a reunião de um colega é de quem gravou, não 'você'", () => {
+    const ANA = "a0000000-0000-0000-0000-000000000001";
+    const VITOR = "b0000000-0000-0000-0000-000000000002";
+    const nomes = new Map([[ANA, "Ana Carolina Kuss"], [VITOR, "Vitor Gambetti"]]);
+    const daAna = t({ user_id: ANA, owner: "eu", acao: "executar", meeting_id: "m1", meeting_nome: "Regua de Convidados" } as never);
+    expect(quemFazNaTela(daAna)).toBe("você"); // a linha crua do banco: era o erro
+    const vista = paraQuemVe(daAna, { viewerId: VITOR, slug: "eu", nomes, veReuniao: true }) as TarefaVista;
+    expect(linhaDoRetrato("t9", vista)).toMatchObject({ quem_faz: "Ana Carolina Kuss", criada_por: "Ana Carolina Kuss" });
+    const passadaAoVitor = paraQuemVe({ ...daAna, owner: "Vitor", acao: "cobrar", responsavel_user_id: VITOR } as never, { viewerId: VITOR, slug: "eu", nomes }) as TarefaVista;
+    expect(quemFazNaTela(passadaAoVitor)).toBe("você");
+  });
+});
+
+describe("memória entre perguntas", () => {
+  const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const C = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  it("junta os ids do que apareceu com as respostas, os mais novos primeiro, sem repetir", () => {
+    const falas = [
+      { quem: "pessoa", texto: "oi", acoes: [C] },
+      { quem: "assistente", texto: "3 ações", acoes: [A, B] },
+      { quem: "pessoa", texto: "manda todas" },
+      { quem: "assistente", texto: "22 ações", acoes: [C, A, "t3", 7, "não é id"] },
+    ];
+    expect(idsDasFalas(falas)).toEqual([C, A, B]);
+    expect(idsDasFalas(falas, 2)).toEqual([C, A]);
+    expect(idsDasFalas([{ quem: "assistente", texto: "x", acoes: [A.toUpperCase()] }])).toEqual([A]);
+    expect(idsDasFalas([{ quem: "assistente", texto: "x" }])).toEqual([]);
+  });
+  it("a marca do que estava na tela vai para o modelo e nunca volta para a pessoa", () => {
+    expect(anotarNaTela("Achei 2.", ["t4", "t9"])).toBe("Achei 2.\n[na tela: t4, t9]");
+    expect(anotarNaTela("Achei 0.", [])).toBe("Achei 0.");
+    expect(limparRefs("Achei 2 (t4, t9).\n[na tela: t4, t9]")).toBe("Achei 2.");
+    expect(limparRefs("Revisar o contrato [t3] até sexta")).toBe("Revisar o contrato até sexta");
+    expect(limparRefs("Fale com a Paula (do marketing)")).toBe("Fale com a Paula (do marketing)");
+  });
+});
+
+describe("busca por assunto", () => {
+  it("palavras sem acento, sem repetir, no máximo 8", () => {
+    expect(palavrasDaBusca(["CRM", "TTARS", "crm", " Régua  de convidados ", "x", 3])).toEqual(["crm", "ttars", "regua de convidados"]);
+    expect(palavrasDaBusca("tars")).toEqual(["tars"]);
+    expect(palavrasDaBusca(Array.from({ length: 12 }, (_, i) => `p${i}`))).toHaveLength(8);
+  });
+  it("acha no título ou na descrição, sem diferença de acento", () => {
+    expect(casaComBusca({ titulo: "Ajustar a régua de convidados no Tars" }, ["regua"])).toBe(true);
+    expect(casaComBusca({ titulo: "Revisar contrato", descricao: "levar para o CRM" }, ["crm"])).toBe(true);
+    expect(casaComBusca({ titulo: "Revisar contrato", descricao: null }, ["crm", "ttars"])).toBe(false);
+  });
+  it("o banco tira os mesmos acentos e o LIKE não vira curinga", () => {
+    expect(ACENTOS.length).toBe(SEM_ACENTOS.length);
+    for (let i = 0; i < ACENTOS.length; i++) expect(semAcento(ACENTOS[i])).toBe(SEM_ACENTOS[i]);
+    expect(padroesLike(["crm", "50%_off", "a\\b"])).toEqual(["%crm%", "%50\\%\\_off%", "%a\\\\b%"]);
   });
 });
