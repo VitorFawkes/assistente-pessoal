@@ -122,28 +122,44 @@ export async function escolherPeloSentido(
   limite: string | null,
 ): Promise<{ refs: string[]; repetidas: string[][]; custoUsd: number }> {
   const umaAUma = linhas.length <= AVALIAR_ATE;
-  const r = await chamarModelo({
-    userId: user.id,
-    instrucoes: instrucoesDaEscolha(user.nome),
-    entrada: [
-      {
-        role: "user",
-        content: `PEDIDO: ${pedido}\nLIMITE DE PESSOA: ${limite ? `"${limite}"` : "nenhum"}\nAGRUPAR REPETIDAS: ${agruparRepetidas ? "sim" : "não"}\nAVALIAR UMA A UMA: ${umaAUma ? "sim" : "não"}\n\nAÇÕES (uma por linha):\n${linhas.join("\n")}`,
-      },
-    ],
-    formato: { nome: "escolha", schema: umaAUma ? ESCOLHA_UMA_A_UMA : ESCOLHA },
-    esforco: "low",
-    maxSaida: 8000,
-    signal: AbortSignal.timeout(60_000),
-  });
-  const d = JSON.parse(r.texto || "{}") as { refs?: unknown; avaliadas?: unknown; repetidas?: unknown };
-  const refs = Array.isArray(d.avaliadas)
-    ? d.avaliadas.flatMap((x) => (x && typeof x === "object" && (x as { serve?: unknown }).serve === true && typeof (x as { ref?: unknown }).ref === "string" ? [(x as { ref: string }).ref] : []))
-    : Array.isArray(d.refs)
-      ? d.refs.filter((x): x is string => typeof x === "string")
-      : [];
-  const repetidas = Array.isArray(d.repetidas)
-    ? d.repetidas.map((g) => (Array.isArray(g) ? g.filter((x): x is string => typeof x === "string") : [])).filter((g) => g.length > 1)
-    : [];
-  return { refs, repetidas, custoUsd: r.custoUsd };
+  const uma = () =>
+    chamarModelo({
+      userId: user.id,
+      instrucoes: instrucoesDaEscolha(user.nome),
+      entrada: [
+        {
+          role: "user",
+          content: `PEDIDO: ${pedido}\nLIMITE DE PESSOA: ${limite ? `"${limite}"` : "nenhum"}\nAGRUPAR REPETIDAS: ${agruparRepetidas ? "sim" : "não"}\nAVALIAR UMA A UMA: ${umaAUma ? "sim" : "não"}\n\nAÇÕES (uma por linha):\n${linhas.join("\n")}`,
+        },
+      ],
+      formato: { nome: "escolha", schema: umaAUma ? ESCOLHA_UMA_A_UMA : ESCOLHA },
+      esforco: "low",
+      maxSaida: 8000,
+      signal: AbortSignal.timeout(60_000),
+    });
+  // Lista curta: 3 leituras ao mesmo tempo, e vale a soma delas. Com o mesmo pedido, "só as minhas de TTARS" saía com
+  // 3 ou com 22 como cara ou coroa (o modelo lia "no TTARS" ao pé da letra ou largo; sonda de 03/10/2026, 8 de 16).
+  const leituras = await Promise.allSettled(umaAUma ? [uma(), uma(), uma()] : [uma()]);
+  const deram = leituras.flatMap((l) => (l.status === "fulfilled" ? [l.value] : []));
+  if (!deram.length) throw (leituras[0] as PromiseRejectedResult).reason;
+  const refs = new Set<string>();
+  let repetidas: string[][] = [];
+  for (const r of deram) {
+    let d: { refs?: unknown; avaliadas?: unknown; repetidas?: unknown };
+    try {
+      d = JSON.parse(r.texto || "{}");
+    } catch {
+      continue; // uma leitura fora do formato não derruba as outras
+    }
+    const destas = Array.isArray(d.avaliadas)
+      ? d.avaliadas.flatMap((x) => (x && typeof x === "object" && (x as { serve?: unknown }).serve === true && typeof (x as { ref?: unknown }).ref === "string" ? [(x as { ref: string }).ref] : []))
+      : Array.isArray(d.refs)
+        ? d.refs.filter((x): x is string => typeof x === "string")
+        : [];
+    destas.forEach((ref) => refs.add(ref));
+    if (!repetidas.length && Array.isArray(d.repetidas)) {
+      repetidas = d.repetidas.map((g) => (Array.isArray(g) ? g.filter((x): x is string => typeof x === "string") : [])).filter((g) => g.length > 1);
+    }
+  }
+  return { refs: [...refs], repetidas, custoUsd: deram.reduce((soma, r) => soma + r.custoUsd, 0) };
 }
