@@ -108,7 +108,7 @@ function instrucoesDaEscolha(nome: string): string {
     "Seja completo e certeiro: inclua toda ação que atende ao pedido, mesmo dita com outras palavras, e nenhuma que não tenha relação com ele (estar na lista da pessoa não basta). Com LIMITE DE PESSOA, o limite dito ('só as minhas', 'que o marketing espera de mim') vale.",
     "LIMITE DE PESSOA: nenhum = ela não limitou por pessoa: escolha só pelo assunto, de qualquer pessoa (quem faz e de quem é a lista não importam), mesmo que o pedido diga 'que " + nome + " faz' ou 'que " + nome + " ficou de fazer'.",
     "repetidas: só com AGRUPAR REPETIDAS = sim. Agrupe as que são o mesmo combinado (mesma entrega), mesmo com palavras, reuniões ou donos diferentes. Variações para marcas diferentes (Trips, Weddings) não são repetidas.",
-    "Com AVALIAR UMA A UMA = sim, devolva em avaliadas uma entrada para cada linha, na ordem, com serve true ou false. Senão, responda só com as refs.",
+    "Com AVALIAR UMA A UMA = sim, devolva em avaliadas uma entrada para cada linha, na ordem, com serve true ou false. Na dúvida se a linha é do assunto, serve true: a lista já vem do limite de pessoa, e faltar uma custa mais que sobrar. Senão, responda só com as refs.",
   ].join("\n");
 }
 
